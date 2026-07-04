@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -76,8 +77,9 @@ func (o *oauthEnv) challenge() string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// authorize drives GET /oauth/authorize without following the redirect
-// and returns the minted code.
+// authorize drives the consent flow: GET renders the approval form (a
+// GET must never mint a code — OAuth CSRF), the nonce-bound POST is
+// the consent, and the redirect carries the code.
 func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	t.Helper()
 	q := url.Values{
@@ -97,16 +99,41 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Workspace-Slug", o.slug)
+	resp, err := o.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("consent form → %d %s", resp.StatusCode, body)
+	}
+	nonce := regexp.MustCompile(`name="consent" value="([^"]+)"`).FindSubmatch(body)
+	if nonce == nil {
+		t.Fatalf("consent form carries no nonce: %s", body)
+	}
+
+	form := url.Values{}
+	for k, vs := range q {
+		form[k] = vs
+	}
+	form.Set("consent", string(nonce[1]))
+	post, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.Header.Set("X-Workspace-Slug", o.slug)
 	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	defer func() { o.client.CheckRedirect = nil }()
-	resp, err := o.client.Do(req)
+	resp, err = o.client.Do(post)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusFound {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("authorize → %d %s", resp.StatusCode, body)
+		t.Fatalf("consent POST → %d %s", resp.StatusCode, body)
 	}
 	location, err := url.Parse(resp.Header.Get("Location"))
 	if err != nil || location.Query().Get("code") == "" || location.Query().Get("state") != "night-state" {
@@ -182,6 +209,60 @@ func TestOAuthHandshakeMintsAWorkingPassport(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + token}
 	if status := o.call(t, "GET", "/v1/people", nil, bearer, nil); status != http.StatusOK {
 		t.Fatalf("bearer GET /v1/people → %d", status)
+	}
+}
+
+// The consent gate IS the account-takeover defense: a GET riding an
+// existing session must never mint a code, and the consent POST is
+// bound to the nonce the form armed.
+func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
+	o := setupOAuth(t)
+	q := url.Values{
+		"response_type": {"code"}, "client_id": {o.clientID},
+		"redirect_uri": {oauthRedirect}, "scope": {"read"},
+		"code_challenge": {o.challenge()}, "code_challenge_method": {"S256"},
+	}
+	// GET answers the form, never a redirect carrying a code.
+	req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
+	req.Header.Set("X-Workspace-Slug", o.slug)
+	resp, err := o.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Location") != "" {
+		t.Fatalf("GET authorize → %d %q, want the consent form, never a code", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	// A consent POST without the armed nonce (the cross-site forgery
+	// shape) is refused.
+	form := url.Values{}
+	for k, vs := range q {
+		form[k] = vs
+	}
+	form.Set("consent", "forged")
+	post, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.Header.Set("X-Workspace-Slug", o.slug)
+	resp, err = o.client.Do(post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("forged consent POST → %d, want 403", resp.StatusCode)
+	}
+	// A browser-stamped cross-site POST is refused outright.
+	post2, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
+	post2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post2.Header.Set("X-Workspace-Slug", o.slug)
+	post2.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, err = o.client.Do(post2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-site consent POST → %d, want 403", resp.StatusCode)
 	}
 }
 
