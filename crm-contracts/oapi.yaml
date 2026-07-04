@@ -1,0 +1,9 @@
+# oapi-codegen config: Go types + chi server interface from the 3.0
+# overlay of contracts/crm.yaml. Regenerate with `make gen`.
+package: crmcontracts
+output: api_gen.go
+generate:
+  models: true
+  chi-server: true
+output-options:
+  skip-prune: false

@@ -1,0 +1,124 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - gosec
+    - misspell
+    - revive
+  settings:
+    depguard:
+      rules:
+        # Layer B of the boundary stack (ADR-0014 §3): the module DAG from
+        # architecture/01, expressed as import denials. Layer A is the Go
+        # compiler (internal/); Layer C is go-arch-lint (.go-arch-lint.yml).
+        tier0-leaf:
+          files:
+            - "**/crmctx/**"
+            - "**/sor/**"
+            - "**/mcp/**"
+            - "**/connector/**"
+            - "**/workflow/**"
+            - "**/model/**"
+            - "**/retrieval/**"
+            - "**/jurisdiction/**"
+            - "**/kernel/**"
+          # Default-deny: the Tier-0 layer is stdlib + each
+          # other, period — a new kernel/seam package pulling a third-party
+          # dep fails HERE, not only in the hand-maintained arch_test list.
+          listMode: strict
+          allow:
+            - $gostd
+            - github.com/gradionhq/fable-poc/crmctx
+            - github.com/gradionhq/fable-poc/sor
+            - github.com/gradionhq/fable-poc/mcp
+            - github.com/gradionhq/fable-poc/connector
+            - github.com/gradionhq/fable-poc/workflow
+            - github.com/gradionhq/fable-poc/model
+            - github.com/gradionhq/fable-poc/retrieval
+            - github.com/gradionhq/fable-poc/jurisdiction
+            - github.com/gradionhq/fable-poc/kernel
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-core
+              desc: Tier-0 seams never import a domain module
+            - pkg: github.com/gradionhq/fable-poc/crm-auth
+              desc: Tier-0 seams never import a domain module
+            - pkg: github.com/gradionhq/fable-poc/crm-search
+              desc: Tier-0 seams never import a domain module
+            - pkg: github.com/gradionhq/fable-poc/crm-ai
+              desc: Tier-0 seams never import a domain module
+            - pkg: github.com/gradionhq/fable-poc/crm-capture
+              desc: Tier-0 seams never import a domain module
+            - pkg: github.com/gradionhq/fable-poc/crm-agents
+              desc: Tier-0 seams never import a domain module
+        crm-core:
+          files:
+            - "**/crm-core/**"
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-agents
+              desc: crm-agents sits above crm-core; the reverse edge is forbidden
+            - pkg: github.com/gradionhq/fable-poc/crm-capture
+              desc: capture feeds core through the Sink, never the reverse
+            - pkg: github.com/gradionhq/fable-poc/crm-ai
+              desc: core never calls the AI tier
+            - pkg: github.com/gradionhq/fable-poc/crm-search
+              desc: core never imports search internals
+            - pkg: github.com/gradionhq/fable-poc/crm-auth
+              desc: core reads the Principal from crmctx, not from crm-auth
+        crm-auth:
+          files:
+            - "**/crm-auth/**"
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-core
+              desc: auth is identity only; it imports no other module
+            - pkg: github.com/gradionhq/fable-poc/crm-search
+              desc: auth is identity only; it imports no other module
+            - pkg: github.com/gradionhq/fable-poc/crm-ai
+              desc: auth is identity only; it imports no other module
+            - pkg: github.com/gradionhq/fable-poc/crm-capture
+              desc: auth is identity only; it imports no other module
+            - pkg: github.com/gradionhq/fable-poc/crm-agents
+              desc: auth is identity only; it imports no other module
+        crm-search:
+          files:
+            - "**/crm-search/**"
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-agents
+              desc: search never reaches the agent surface
+            - pkg: github.com/gradionhq/fable-poc/crm-capture
+              desc: search never reaches capture
+            - pkg: github.com/gradionhq/fable-poc/crm-core
+              desc: search reads through the sor seam, not core internals
+        crm-ai:
+          files:
+            - "**/crm-ai/**"
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-core
+              desc: the AI tier reads through the sor seam, not core internals
+            - pkg: github.com/gradionhq/fable-poc/crm-agents
+              desc: crm-agents composes crm-ai, never the reverse
+            - pkg: github.com/gradionhq/fable-poc/crm-search
+              desc: crm-ai reaches search only via the retrieval seam
+        crm-capture:
+          files:
+            - "**/crm-capture/**"
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-agents
+              desc: capture never reaches the agent surface
+            - pkg: github.com/gradionhq/fable-poc/crm-core
+              desc: capture writes through the connector Sink, not core internals
+        crm-agents:
+          files:
+            - "**/crm-agents/**"
+          deny:
+            - pkg: github.com/gradionhq/fable-poc/crm-core
+              desc: the agent surface reaches records only through the sor seam
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+
+formatters:
+  enable:
+    - gofmt

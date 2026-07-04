@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS role_assignment;
+DROP TABLE IF EXISTS role;
+DROP TABLE IF EXISTS team_membership;
+DROP TABLE IF EXISTS team;
+DROP TABLE IF EXISTS app_user;
+DROP TABLE IF EXISTS workspace;

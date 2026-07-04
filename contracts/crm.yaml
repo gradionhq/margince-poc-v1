@@ -1,0 +1,3998 @@
+openapi: 3.1.0
+
+# =============================================================================
+# Margince — V1 Core API Contract (contract-first source of truth)
+# -----------------------------------------------------------------------------
+# This file is THE contract from which Go server stubs + TS client types are
+# generated (P3 contract-first). It mirrors spec/data-model.md field-for-field
+# and encodes the acceptance criteria of features/01-core-objects.md,
+# features/03-reporting-and-scoring.md, features/07-ai-native-moments.md, and
+# the MCP tool surface of 03b-ai-architecture.md.
+#
+# Conventions (full text in ./README.md):
+#   - Resources are plural nouns (/people, /organizations, /deals, ...).
+#   - Pagination is cursor-based: ?cursor=&limit= -> { data, page: {next_cursor, has_more} }.
+#   - Errors are RFC 7807 problem+json with a stable machine `code`, plus `details`.
+#   - Auth is bearer JWT (workspace + user/agent principal in claims).
+#   - POST is idempotent via the `Idempotency-Key` header.
+#   - Every domain response carries provenance: `source` + `captured_by`.
+#   - Soft-delete only: archive endpoints set `archived_at`; rows stay fetchable by id.
+#   - Client custom fields appear additively, marked with the `x-extension` vendor key.
+#   - Operations that back a Layer-1 MCP tool verb carry `x-mcp-tool` with a 🟢/🟡 tier.
+#
+# Deferred areas (NOT specified here — see data-model.md §12): sequences/cadences,
+# telephony/click-to-call, the dedicated embedding store, workflow-run records.
+# They are commented stubs at the bottom of `paths` so the shape is intentional
+# but unspecified. (Overlay/augmentation MANAGEMENT is now specified — see the
+# OVERLAY block in `paths`; its mirrored data is served through the normal
+# resource ops via the SoR seam, not a forked data API — AC-OV-2/ADR-0018.)
+# =============================================================================
+
+info:
+  title: Margince API
+  version: 1.0.0-draft
+  summary: AI-native, open-source CRM core — people, orgs, deals, pipelines, activities, leads, plus the agent/AI surface.
+  description: |
+    The V1 core CRM contract. Derived from `spec/data-model.md` (the canonical
+    Postgres schema), `spec/features/01-core-objects.md` (endpoint acceptance
+    criteria), `spec/features/03-reporting-and-scoring.md`,
+    `spec/features/07-ai-native-moments.md`, and `spec/03b-ai-architecture.md`
+    (the MCP tool surface). Every component schema mirrors a table; the agent
+    MCP tool surface maps onto these same REST operations via `x-mcp-tool`.
+  license:
+    name: BUSL-1.1
+    identifier: BUSL-1.1
+  contact:
+    name: Gradion
+    email: lars@gradion.com
+
+servers:
+  - url: https://{workspace}.api.gradion.com/v1
+    description: Per-workspace production host
+    variables:
+      workspace:
+        default: demo
+        description: Workspace slug (tenant). Tenant is also asserted from the JWT claims.
+  - url: http://localhost:8080/v1
+    description: Local development
+
+security:
+  - bearerAuth: []      # agents — OAuth2 + Agent Seat Passport (ADR-0013)
+  - cookieAuth: []      # humans — interactive session cookie (ADR-0043)
+
+tags:
+  - name: People
+    description: Person (contact) records, their emails and phones.
+  - name: Organizations
+    description: Company records and their domains.
+  - name: Relationships
+    description: The typed relationship edge (employment + deal stakeholder).
+  - name: Deals
+    description: Deals, including stage advancement.
+  - name: Pipelines
+    description: Pipelines and their ordered stages.
+  - name: Activities
+    description: Polymorphic activity timeline (email/call/meeting/note/task).
+  - name: Leads
+    description: Thin, segregated machine/bulk-sourced prospects + promotion.
+  - name: Lists
+    description: Static and dynamic-segment lists.
+  - name: Tags
+    description: Tags applicable to people/orgs/deals/leads.
+  - name: Reports
+    description: Run validated, typed reports (the clean-core HubSpot fix).
+  - name: Search
+    description: Cross-object search.
+  - name: AI
+    description: AI-native moments — cold-start read-back and proposals.
+  - name: Approvals
+    description: The 🟡 confirm-first approval inbox (approve/reject staged agent actions).
+  - name: Identity
+    description: Current user / principal.
+
+# =============================================================================
+paths:
+
+  # ------------------------------- /me --------------------------------------
+  /me:
+    get:
+      tags: [Identity]
+      operationId: getCurrentPrincipal
+      summary: Get the current authenticated principal (user or agent).
+      responses:
+        '200':
+          description: The current principal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+              examples:
+                human:
+                  value:
+                    user:
+                      id: 018f3a1b-0000-7000-8000-000000000001
+                      workspace_id: 018f3a1b-0000-7000-8000-0000000000ff
+                      email: jane@acme.com
+                      display_name: Jane Rep
+                      timezone: Europe/Berlin
+                      status: active
+                      is_agent: false
+                      created_at: '2026-01-02T09:00:00Z'
+                      updated_at: '2026-01-02T09:00:00Z'
+                      archived_at: null
+                    roles: [rep]
+                    teams: [018f3a1b-0000-7000-8000-0000000000ab]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ----------------------------- /workspaces --------------------------------
+  /workspaces:
+    post:
+      tags: [Identity]
+      operationId: bootstrapWorkspace
+      summary: Bootstrap a workspace and its first admin user (ADR-0043).
+      description: |
+        Creates a workspace **and** its first admin `app_user` in one transaction, then opens
+        an interactive session (sets the `crm_session` cookie). Unauthenticated — this is how a
+        new tenant comes into existence. Email/password is the baseline (ADR-0043); SSO is added
+        later per workspace. Audited as an auth event (`features/04 §7`/P12).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BootstrapWorkspaceRequest' }
+      responses:
+        '201':
+          description: Workspace + first admin created; session cookie set.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: 'crm_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        '409':
+          description: Email or workspace already exists.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ------------------------------- /auth ------------------------------------
+  /auth/login:
+    post:
+      tags: [Identity]
+      operationId: login
+      summary: Authenticate with email + password (+ MFA when required) and open a session.
+      description: |
+        Baseline interactive sign-in (ADR-0043). On success mints an opaque server-side session
+        and sets the `crm_session` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/`). When the
+        workspace requires MFA, a first call without `mfa_code` returns `403 code: mfa_required`;
+        when SSO-enforced, password login returns `403 code: sso_enforced`. Every attempt
+        (success/failure/lockout/MFA challenge) is audited (`features/04 §7`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated; session cookie set.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: 'crm_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        '401':
+          description: Invalid credentials.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403':
+          description: 'MFA required (`mfa_required`) or password login disabled by SSO-enforced mode (`sso_enforced`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/logout:
+    post:
+      tags: [Identity]
+      operationId: logout
+      summary: End the current session and clear the cookie.
+      description: Deletes the current `session` row and clears `crm_session`. Idempotent. Audited.
+      responses:
+        '204':
+          description: Session ended; cookie cleared.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: 'crm_session=; Max-Age=0; HttpOnly; Secure; SameSite=Strict; Path=/'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /passports:
+    post:
+      tags: [Identity]
+      operationId: issuePassport
+      summary: Mint an Agent Seat Passport for the calling user's own agent.
+      description: |
+        Session-authenticated (human) minting of a Passport bearer token bounding an agent to the
+        caller's own identity (`on_behalf_of` = the session user, always — "agent ≤ human",
+        ADR-0013/ADR-0043). Scopes are the verb classes a tool may require; the agent's effective
+        authority is scopes ∩ the granting human's RBAC, resolved at every call. The raw token is
+        returned ONCE and never stored. This is the local/A1 issuance path; the hosted A2 surface
+        replaces it with the full OAuth2 + PKCE + DCR flow (see `fable feedback/04`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IssuePassportRequest' }
+      responses:
+        '201':
+          description: Passport minted; the token appears only in this response.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuePassportResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /passports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Identity]
+      operationId: revokePassport
+      summary: Revoke a Passport (kill switch for one agent binding).
+      description: |
+        Revocation is enforced at the next token lookup. A user revokes their own passports;
+        revoking another user's requires the admin role. Idempotent. Audited.
+      responses:
+        '204':
+          description: Passport revoked (or already revoked).
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ------------------------------- /people ----------------------------------
+  /people:
+    get:
+      tags: [People]
+      operationId: listPeople
+      summary: List people (live by default; cursor-paginated).
+      description: Default view excludes archived rows (`archived_at IS NULL`). Leads never appear here.
+      x-mcp-tool:
+        verb: search_records
+        record_type: person
+        tier: green
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filter to a single owner.
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Full-text query over name/title (tsvector).
+        - name: tag
+          in: query
+          schema: { type: string }
+          description: Filter by tag name.
+      responses:
+        '200':
+          description: A page of people.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonListResponse' }
+              examples:
+                page:
+                  value:
+                    data:
+                      - id: 018f3a1b-0000-7000-8000-000000000010
+                        workspace_id: 018f3a1b-0000-7000-8000-0000000000ff
+                        full_name: Dana Buyer
+                        first_name: Dana
+                        last_name: Buyer
+                        title: VP Engineering
+                        owner_id: 018f3a1b-0000-7000-8000-000000000001
+                        social: { linkedin: 'https://linkedin.com/in/danabuyer' }
+                        address: null
+                        emails:
+                          - id: 018f3a1b-0000-7000-8000-000000000011
+                            person_id: 018f3a1b-0000-7000-8000-000000000010
+                            email: dana@acme.com
+                            email_type: work
+                            is_primary: true
+                            position: 0
+                            source: 'email:CAF=abc@mail'
+                            captured_by: 'agent:capture'
+                            created_at: '2026-05-02T10:00:00Z'
+                            updated_at: '2026-05-02T10:00:00Z'
+                            archived_at: null
+                        phones: []
+                        consent_state: unknown
+                        merged_into_id: null
+                        converted_from_lead_id: null
+                        source: 'email:CAF=abc@mail'
+                        captured_by: 'agent:capture'
+                        created_at: '2026-05-02T10:00:00Z'
+                        updated_at: '2026-05-02T10:00:00Z'
+                        archived_at: null
+                    page: { next_cursor: 'eyJpZCI6IjAxOGYzYTFiIn0', has_more: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [People]
+      operationId: createPerson
+      summary: Create a person.
+      description: |
+        With name + email returns 201 and a stable `id` (UUID) that round-trips on GET
+        (features/01 §1.1 AC). If the email already exists on a live person, returns 409
+        with the existing person id (features/01 §1.3). Writes one audit row + one
+        `person.created` event.
+      x-mcp-tool:
+        verb: create_record
+        record_type: person
+        tier: green
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePersonRequest' }
+            examples:
+              minimal:
+                summary: Name + email (the §1.1 acceptance case)
+                value:
+                  full_name: Dana Buyer
+                  emails:
+                    - { email: dana@acme.com, email_type: work, is_primary: true }
+                  source: ui
+                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
+      responses:
+        '201':
+          description: Created. Body round-trips identically on GET.
+          headers:
+            Location:
+              schema: { type: string }
+              description: URL of the created person.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: An email on the request already belongs to a live person.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                duplicate:
+                  value:
+                    type: 'https://errors.gradion.com/duplicate_email'
+                    title: Duplicate email
+                    status: 409
+                    code: duplicate_email
+                    detail: An active person already owns dana@acme.com.
+                    details:
+                      existing_id: 018f3a1b-0000-7000-8000-000000000010
+                      field: emails[0].email
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPerson
+      summary: Get a person by id (the 360 record).
+      description: Fetchable by id even when archived (features/01 §1.1 AC).
+      x-mcp-tool: { verb: read_record, record_type: person, tier: green }
+      responses:
+        '200':
+          description: The person.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [People]
+      operationId: updatePerson
+      summary: Update a person (partial).
+      x-mcp-tool: { verb: update_record, record_type: person, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePersonRequest' }
+      responses:
+        '200':
+          description: Updated person.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [People]
+      operationId: archivePerson
+      summary: Archive (soft-delete) a person.
+      description: |
+        Sets `archived_at`, removes from default lists, retains in audit; the row is
+        still fetchable by id (features/01 §1.1 AC). No hard delete by default.
+      x-mcp-tool: { verb: update_record, record_type: person, tier: yellow }
+      responses:
+        '200':
+          description: Archived person (now carries a non-null `archived_at`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /people/{id}/merge:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [People]
+      operationId: mergePerson
+      summary: Merge this person into a target (non-lossy).
+      description: |
+        Merge A→B relinks A's emails/phones/relationships/activity links to B with zero
+        orphaned FKs, archives A with `merged_into_id = B` (features/01 §1.3). One audit
+        transaction; reversible within audit.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_id]
+              properties:
+                target_id:
+                  type: string
+                  format: uuid
+                  description: The surviving person (B). This row (A) is archived.
+      responses:
+        '200':
+          description: The surviving (target) person after merge.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # --------------------------- /organizations -------------------------------
+  /organizations:
+    get:
+      tags: [Organizations]
+      operationId: listOrganizations
+      summary: List organizations (live by default; cursor-paginated).
+      x-mcp-tool: { verb: search_records, record_type: organization, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: domain
+          in: query
+          schema: { type: string }
+          description: Lookup by normalized domain (the employer-inference index).
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of organizations.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Organizations]
+      operationId: createOrganization
+      summary: Create an organization.
+      description: Domains are normalized/lowercased and unique per workspace (409 on collision).
+      x-mcp-tool: { verb: create_record, record_type: organization, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrganizationRequest' }
+            examples:
+              minimal:
+                value:
+                  display_name: Acme Inc
+                  domains: [{ domain: acme.com, is_primary: true }]
+                  source: ui
+                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
+      responses:
+        '201':
+          description: Created organization.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: A domain already maps to another organization.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganization
+      summary: Get an organization by id (the 360 record).
+      x-mcp-tool: { verb: read_record, record_type: organization, tier: green }
+      responses:
+        '200':
+          description: The organization.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Organizations]
+      operationId: updateOrganization
+      summary: Update an organization (partial).
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrganizationRequest' }
+      responses:
+        '200':
+          description: Updated organization.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Organizations]
+      operationId: archiveOrganization
+      summary: Archive (soft-delete) an organization.
+      x-mcp-tool: { verb: update_record, record_type: organization, tier: yellow }
+      responses:
+        '200':
+          description: Archived organization.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /organizations/{id}/merge:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations]
+      operationId: mergeOrganization
+      summary: Merge this organization into a target (non-lossy).
+      description: |
+        Merge A→B relinks A's domains, people-employment, deals, relationships and activity links to
+        B with zero orphaned FKs, archives A with `merged_into_id = B`. Mirrors person merge
+        (features/01 §1.3). One audit transaction (action `merge`); reversible within audit. This is
+        the org half of the `merge_records` MCP verb.
+      x-mcp-tool: { verb: merge_records, record_type: organization, tier: yellow }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_id]
+              properties:
+                target_id: { type: string, format: uuid, description: The surviving org (B). This row (A) is archived. }
+      responses:
+        '200':
+          description: The surviving (target) organization after merge.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/partner:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Organizations, Partners]
+      operationId: upsertPartner
+      summary: Create/update the partner extension on an org (sets classification='partner').
+      description: |
+        Promotes an org to a first-class partner (A41/ADR-0032) by upserting its `partner` row and
+        setting `classification='partner'`. Company identity is never duplicated. 🟢 admin write.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertPartnerRequest' }
+      responses:
+        '200':
+          description: The partner record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Partner' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    get:
+      tags: [Organizations, Partners]
+      operationId: getPartner
+      summary: Read the partner extension on an org (404 if the org is not a partner).
+      responses:
+        '200':
+          description: The partner record.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Partner' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /partners:
+    get:
+      tags: [Partners]
+      operationId: listPartners
+      summary: List partner organizations (orgs with a partner row), filterable by role/cert status.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: partner_role
+          in: query
+          schema: { type: string, enum: [hosting, consulting, strategic] }
+        - name: cert_status
+          in: query
+          schema: { type: string, enum: [prospect, in_certification, certified, suspended, churned] }
+      x-mcp-tool: { verb: search_records, record_type: partner, tier: green }
+      responses:
+        '200':
+          description: A page of partner records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Partner' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+
+  # ------------------------------ /deals ------------------------------------
+  /deals:
+    get:
+      tags: [Deals]
+      operationId: listDeals
+      summary: List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
+      x-mcp-tool: { verb: search_records, record_type: deal, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: pipeline_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: stage_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Read one Kanban column.
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: organization_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, won, lost] }
+        - name: stalled
+          in: query
+          schema: { type: boolean }
+          description: Deterministic stalled flag (no activity past the threshold).
+      responses:
+        '200':
+          description: A page of deals.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Deals]
+      operationId: createDeal
+      summary: Create a deal.
+      description: |
+        Amount is integer minor-units + ISO-4217 currency (no float money). The stage
+        must belong to the deal's pipeline (422 otherwise). Deals attach to person/org,
+        never to a raw lead (ADR-0008 §5).
+      x-mcp-tool: { verb: create_record, record_type: deal, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDealRequest' }
+            examples:
+              minimal:
+                value:
+                  name: Acme — Platform expansion
+                  amount_minor: 5000000
+                  currency: EUR
+                  pipeline_id: 018f3a1b-0000-7000-8000-0000000000c0
+                  stage_id: 018f3a1b-0000-7000-8000-0000000000c1
+                  organization_id: 018f3a1b-0000-7000-8000-000000000020
+                  source: ui
+                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
+      responses:
+        '201':
+          description: Created deal.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Validation error (e.g. stage not in pipeline, lost without lost_reason).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                stage_mismatch:
+                  value:
+                    type: 'https://errors.gradion.com/validation_error'
+                    title: Validation failed
+                    status: 422
+                    code: validation_error
+                    detail: stage_id does not belong to pipeline_id.
+                    details:
+                      errors:
+                        - { field: stage_id, code: stage_not_in_pipeline }
+
+  /deals/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDeal
+      summary: Get a deal by id (the 360 record).
+      x-mcp-tool: { verb: read_record, record_type: deal, tier: green }
+      responses:
+        '200':
+          description: The deal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Deals]
+      operationId: updateDeal
+      summary: Update a deal (partial). Closing requires terminal status + lost_reason if lost.
+      x-mcp-tool: { verb: update_record, record_type: deal, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDealRequest' }
+      responses:
+        '200':
+          description: Updated deal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Deals]
+      operationId: archiveDeal
+      summary: Archive (soft-delete) a deal.
+      x-mcp-tool: { verb: update_record, record_type: deal, tier: yellow }
+      responses:
+        '200':
+          description: Archived deal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /deals/{id}/advance:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Deals]
+      operationId: advanceDeal
+      summary: Advance a deal to a new stage (audit-logged with prior + next stage).
+      description: |
+        The `advance_deal` MCP verb. Writes one `deal_stage_history` row + one audit row
+        (action `advance_stage`) recording prior + next stage; closed-won emits `deal.stage_changed` (to_status=won).
+        Advancing to a closed-won/closed-lost stage is 🟡 confirm-first (irreversible /
+        touches money) — for an agent caller this requires an approval token.
+      # advance_deal is the one TierDynamic tool (A34/ADR-0026): the gate resolves the tier from the
+      # TARGET stage's semantic, NOT statically. open→open = 🟢 (no token); advancing INTO a
+      # won/lost terminal stage = 🟡 (approval token required). The resolver reads the target stage's
+      # `semantic` from pipeline config (and the overlay stage-mapping in overlay mode), not just the
+      # request args — see interfaces.md §2.1 (TierDynamic) and events.md §5.3.
+      x-mcp-tool: { verb: advance_deal, record_type: deal, tier: dynamic, tier_resolver: target_stage_semantic, yellow_when: 'target stage semantic in (won, lost)' }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdvanceDealRequest' }
+            examples:
+              advance:
+                value:
+                  to_stage_id: 018f3a1b-0000-7000-8000-0000000000c2
+              closeWon:
+                summary: Closing won (🟡 — requires approval token for agents)
+                value:
+                  to_stage_id: 018f3a1b-0000-7000-8000-0000000000c9
+                  status: won
+      responses:
+        '200':
+          description: The deal at its new stage.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: RBAC denied, or a 🟡 transition attempted without an approval token.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                approvalRequired:
+                  value:
+                    type: 'https://errors.gradion.com/approval_required'
+                    title: Approval required
+                    status: 403
+                    code: approval_required
+                    detail: Advancing to a closed-won stage is confirm-first; supply an approval token.
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deals/{id}/stakeholders:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: listDealStakeholders
+      summary: List a deal's stakeholders (deal↔person relationships).
+      responses:
+        '200':
+          description: Stakeholder relationships for the deal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelationshipListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------- /pipelines ----------------------------------
+  /pipelines:
+    get:
+      tags: [Pipelines]
+      operationId: listPipelines
+      summary: List pipelines.
+      parameters:
+        - $ref: '#/components/parameters/IncludeArchived'
+      responses:
+        '200':
+          description: Pipelines (ordered by position).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PipelineListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Pipelines]
+      operationId: createPipeline
+      summary: Create a pipeline.
+      description: At most one default pipeline per workspace (409 if a second default).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePipelineRequest' }
+      responses:
+        '201':
+          description: Created pipeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pipeline' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /pipelines/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Pipelines]
+      operationId: getPipeline
+      summary: Get a pipeline (with its ordered stages).
+      responses:
+        '200':
+          description: The pipeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pipeline' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Pipelines]
+      operationId: updatePipeline
+      summary: Update a pipeline (rename / reorder / set default — bounded config).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePipelineRequest' }
+      responses:
+        '200':
+          description: Updated pipeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pipeline' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ------------------------------ /stages -----------------------------------
+  /stages:
+    get:
+      tags: [Pipelines]
+      operationId: listStages
+      summary: List stages (optionally filtered by pipeline).
+      parameters:
+        - name: pipeline_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IncludeArchived'
+      responses:
+        '200':
+          description: Stages ordered by position within pipeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StageListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Pipelines]
+      operationId: createStage
+      summary: Create a stage in a pipeline.
+      description: |
+        `position` is unique within the pipeline. Terminal stages enforce probability:
+        won=100, lost=0 (features/01 §4.1).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateStageRequest' }
+      responses:
+        '201':
+          description: Created stage.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Stage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /stages/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Pipelines]
+      operationId: getStage
+      summary: Get a stage by id.
+      responses:
+        '200':
+          description: The stage.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Stage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Pipelines]
+      operationId: updateStage
+      summary: Update a stage (rename / reorder / probability).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateStageRequest' }
+      responses:
+        '200':
+          description: Updated stage.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Stage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---------------------------- /activities ---------------------------------
+  /activities:
+    get:
+      tags: [Activities]
+      operationId: listActivities
+      summary: List activities (the timeline; cursor-paginated, filterable by type/entity).
+      x-mcp-tool: { verb: search_records, record_type: activity, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: kind
+          in: query
+          schema: { type: string, enum: [email, call, meeting, note, task, whatsapp, telegram] }
+        - name: entity_type
+          in: query
+          schema: { type: string, enum: [person, organization, deal] }
+          description: Filter to activities linked to an entity type (with entity_id).
+        - name: entity_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: assignee_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Open tasks for an assignee.
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of activities (newest first by default).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Activities]
+      operationId: logActivity
+      summary: Log an activity (the `log_activity` MCP verb).
+      description: |
+        Captured activities carry `source_system` + `source_id`; re-running capture with the
+        same pair is idempotent (no duplicate). An activity may link to >1 entity
+        (person and deal). `log_activity` is 🟢 (reversible).
+      x-mcp-tool: { verb: log_activity, record_type: activity, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateActivityRequest' }
+            examples:
+              note:
+                value:
+                  kind: note
+                  body: Discussed Q3 expansion on the call.
+                  occurred_at: '2026-05-02T16:00:00Z'
+                  links:
+                    - { entity_type: person, entity_id: 018f3a1b-0000-7000-8000-000000000010 }
+                    - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
+                  source: ui
+                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
+              capturedEmail:
+                summary: Idempotent captured email (re-run → no dupe)
+                value:
+                  kind: email
+                  subject: 'Re: proposal'
+                  occurred_at: '2026-05-02T16:00:00Z'
+                  source_system: gmail
+                  source_id: 'CAF=abc@mail.gmail.com'
+                  links:
+                    - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
+                  source: 'email:CAF=abc@mail.gmail.com'
+                  captured_by: 'agent:capture'
+      responses:
+        '201':
+          description: Created activity.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '200':
+          description: Idempotent no-op — an activity with the same (source_system, source_id) already exists.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /activities/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Activities]
+      operationId: getActivity
+      summary: Get an activity by id (includes its links and raw capture payload).
+      x-mcp-tool: { verb: read_record, record_type: activity, tier: green }
+      responses:
+        '200':
+          description: The activity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Activities]
+      operationId: updateActivity
+      summary: Update an activity (e.g. complete a task).
+      x-mcp-tool: { verb: update_record, record_type: activity, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateActivityRequest' }
+      responses:
+        '200':
+          description: Updated activity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Activities]
+      operationId: archiveActivity
+      summary: Archive (soft-delete) an activity.
+      responses:
+        '200':
+          description: Archived activity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /activities/{id}/relink:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities]
+      operationId: relinkActivity
+      summary: Re-associate a captured activity to a chosen deal/entity (idempotent, source-preserving).
+      description: |
+        Adds or moves an activity's typed link to a target entity (e.g. attach a captured email to the
+        right deal) in **one idempotent action** — re-issuing the same `(activity, entity_type, entity_id)`
+        does **not** create a duplicate link (`Idempotency-Key` + a unique `(activity_id, entity_type,
+        entity_id)` constraint). The activity's original `source`/`captured_by` provenance is **preserved**
+        (the relink is a `human:*` or `agent:*` association event, not a re-capture). Writes one `audit_log`
+        row (`activity_relink`). 🟢 — it is an internal association, not an outbound action.
+      x-mcp-tool: { verb: relink_activity, record_type: activity, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entity_type, entity_id]
+              properties:
+                entity_type: { type: string, enum: [person, organization, deal, lead] }
+                entity_id:   { type: string, format: uuid }
+                replace_existing_of_type:
+                  type: boolean
+                  default: false
+                  description: When true, replaces any existing link of the same entity_type (move) rather than adding (associate).
+      responses:
+        '200':
+          description: The activity with its updated links (idempotent — no duplicate on replay).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /activities/{id}/draft-email:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities, AI]
+      operationId: draftEmail
+      summary: Draft a reply/follow-up email for context (the `draft_email` MCP verb).
+      description: Drafting is 🟢 (never auto-sends). The draft is returned, not sent.
+      x-mcp-tool: { verb: draft_email, record_type: activity, tier: green }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                intent:
+                  type: string
+                  description: Optional steering, e.g. "polite follow-up referencing Friday".
+      responses:
+        '200':
+          description: A drafted email (never sent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailDraft' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /activities/{id}/send-email:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities, AI]
+      operationId: sendEmail
+      summary: Send a (possibly edited) email draft — 🟡 confirm-first / gated.
+      description: |
+        The `send_email` MCP verb. Outbound + irreversible → 🟡 confirm-first: an agent
+        caller must supply an approval token; a human caller's own action is the approval.
+        Consent gate is **default-deny per purpose** (A22/ADR-0011, data-model §3.4): the send is
+        suppressed (409, `code: consent_not_granted`) unless an active, proven `granted`
+        `person_consent` row exists for the *purpose* this send falls under (passed as
+        `consent_purpose` in the request). A grant for a different purpose does not authorize the
+        send; `unknown` and `withdrawn` both block.
+      x-mcp-tool: { verb: send_email, record_type: activity, tier: yellow }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendEmailRequest' }
+      responses:
+        '202':
+          description: Accepted for send (queued); the resulting activity is logged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403':
+          description: Approval token missing for a 🟡 send, or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: 'Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ------------------------------ /availability + /bookings (E04 meeting scheduling) ----------
+  /availability:
+    get:
+      tags: [Activities, AI]
+      operationId: getAvailability
+      summary: Free/busy availability for one or more hosts in a window (the `check_availability` MCP verb).
+      description: |
+        Reads connected-calendar free/busy and returns candidate slots. 🟢 read-only — proposes,
+        never books. Scheduling is a **governed MCP tool** (`features/07 §5c`): this read pairs with
+        the 🟡 `book_meeting` action below.
+      x-mcp-tool: { verb: check_availability, tier: green }
+      parameters:
+        - { name: host_user_id, in: query, required: false, schema: { type: string, format: uuid }, description: 'Host to check (defaults to the caller).' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: duration_minutes, in: query, required: false, schema: { type: integer, default: 30 } }
+      responses:
+        '200':
+          description: Candidate free slots in the window.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [slots]
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      required: [start, end]
+                      properties:
+                        start: { type: string, format: date-time }
+                        end:   { type: string, format: date-time }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /bookings:
+    post:
+      tags: [Activities, AI]
+      operationId: bookMeeting
+      summary: Book a meeting at a chosen slot — 🟡 confirm-first / gated (the `book_meeting` MCP verb).
+      description: |
+        Outbound + creates a calendar event and sends an invite → 🟡 confirm-first: an agent caller
+        must supply an approval token; a human caller's own action is the approval. On success a
+        `meeting` `activity` is logged and linked to the supplied entities. Idempotent on
+        `Idempotency-Key`.
+      x-mcp-tool: { verb: book_meeting, record_type: activity, tier: yellow }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start, end, links]
+              properties:
+                host_user_id: { type: string, format: uuid }
+                start: { type: string, format: date-time }
+                end:   { type: string, format: date-time }
+                subject: { type: string }
+                attendee_emails: { type: array, items: { type: string, format: email } }
+                links:
+                  type: array
+                  description: Entities to associate the resulting meeting activity with.
+                  items:
+                    type: object
+                    required: [entity_type, entity_id]
+                    properties:
+                      entity_type: { type: string, enum: [person, organization, deal, lead] }
+                      entity_id:   { type: string, format: uuid }
+      responses:
+        '201':
+          description: Meeting booked; the logged meeting activity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403':
+          description: Approval token missing for the 🟡 booking, or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: 'Slot no longer available (`code: slot_taken`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ------------------------------ /leads ------------------------------------
+  /leads:
+    get:
+      tags: [Leads]
+      operationId: listLeads
+      summary: List leads (their OWN list, distinct from contacts; cursor-paginated).
+      description: Leads are segregated by construction — they never appear in /people.
+      x-mcp-tool: { verb: search_records, record_type: lead, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: status
+          in: query
+          schema: { type: string, enum: [new, working, promoted, disqualified] }
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: min_score
+          in: query
+          schema: { type: integer }
+          description: Triage by score.
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of leads.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Leads]
+      operationId: createLead
+      summary: Create a lead.
+      description: |
+        With name + email returns 201 + stable UUID; round-trips on GET (features/01 §6.1).
+        `company_name` is FREE TEXT — a lead has NO organization FK. Lead-internal exact-email
+        dedupe → 409 with existing lead id. Bulk/connector sourcing uses (source_system, source_id)
+        for idempotent re-import.
+      x-mcp-tool: { verb: create_record, record_type: lead, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateLeadRequest' }
+            examples:
+              sourced:
+                value:
+                  full_name: Sam Prospect
+                  email: sam@newco.com
+                  title: Head of RevOps
+                  company_name: NewCo GmbH
+                  source_system: apollo
+                  source_id: apollo-9931
+                  source: 'connector:apollo:apollo-9931'
+                  captured_by: 'connector:apollo'
+      responses:
+        '201':
+          description: Created lead.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lead' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: A live lead already owns this email.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /leads/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Leads]
+      operationId: getLead
+      summary: Get a lead by id.
+      x-mcp-tool: { verb: read_record, record_type: lead, tier: green }
+      responses:
+        '200':
+          description: The lead.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lead' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Leads]
+      operationId: updateLead
+      summary: Update a lead (partial).
+      x-mcp-tool: { verb: update_record, record_type: lead, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateLeadRequest' }
+      responses:
+        '200':
+          description: Updated lead.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lead' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Leads]
+      operationId: disqualifyLead
+      summary: Disqualify (soft-archive) a lead.
+      description: Sets `archived_at` + `status=disqualified`; still fetchable by id.
+      x-mcp-tool: { verb: update_record, record_type: lead, tier: yellow }
+      responses:
+        '200':
+          description: Disqualified lead.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lead' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /leads/{id}/promote:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Leads]
+      operationId: promoteLead
+      summary: Promote a lead to a person on genuine engagement (non-lossy merge).
+      description: |
+        Promotion runs in one transaction (features/01 §6.4, ADR-0008): if the lead email
+        matches a live person it MERGES into that person (no duplicate); else creates a
+        person. Sets `person.converted_from_lead_id`, carries provenance + activities (zero
+        orphaned FKs), marks lead `status=promoted` + archives it. One audit row recording
+        trigger + evidence; emits `lead.promoted` + `person.*`. Cold outbound with no reply
+        must NOT call this path. 🟡 confirm-first when triggered by an agent.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromoteLeadRequest' }
+            examples:
+              inboundReply:
+                value:
+                  trigger: inbound_reply
+                  evidence:
+                    activity_id: 018f3a1b-0000-7000-8000-000000000040
+                    note: Prospect replied to our outreach.
+      responses:
+        '200':
+          description: The resulting (created or merged-into) person.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromoteLeadResponse' }
+        '403':
+          description: Approval required (agent-triggered 🟡) or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Lead already promoted.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: Trigger not allowed (e.g. cold-outbound-no-reply does not promote).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # -------------------------- /relationships --------------------------------
+  /relationships:
+    get:
+      tags: [Relationships]
+      operationId: listRelationships
+      summary: List relationships (employment, deal_stakeholder, or partner edges).
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: kind
+          in: query
+          schema: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
+        - name: person_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: organization_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: deal_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of relationships.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelationshipListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Relationships]
+      operationId: createRelationship
+      summary: Create a relationship edge (employment or deal stakeholder).
+      description: |
+        `employment` requires person_id + organization_id; `deal_stakeholder` requires
+        deal_id + person_id. At most one current-primary employer per person.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRelationshipRequest' }
+            examples:
+              employment:
+                value:
+                  kind: employment
+                  person_id: 018f3a1b-0000-7000-8000-000000000010
+                  organization_id: 018f3a1b-0000-7000-8000-000000000020
+                  role: vp_engineering
+                  is_current_primary: true
+                  source: ui
+                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
+              stakeholder:
+                value:
+                  kind: deal_stakeholder
+                  deal_id: 018f3a1b-0000-7000-8000-000000000030
+                  person_id: 018f3a1b-0000-7000-8000-000000000010
+                  role: champion
+                  source: ui
+                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
+      responses:
+        '201':
+          description: Created relationship.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Relationship' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /relationships/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Relationships]
+      operationId: updateRelationship
+      summary: Update a relationship (role, primary flag, dates).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateRelationshipRequest' }
+      responses:
+        '200':
+          description: Updated relationship.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Relationship' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Relationships]
+      operationId: archiveRelationship
+      summary: Archive (soft-delete) a relationship.
+      responses:
+        '200':
+          description: Archived relationship.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Relationship' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ------------------------------ /lists ------------------------------------
+  /lists:
+    get:
+      tags: [Lists]
+      operationId: listLists
+      summary: List lists (static + dynamic segments).
+      parameters:
+        - name: entity_type
+          in: query
+          schema: { type: string, enum: [person, organization, deal, lead] }
+        - $ref: '#/components/parameters/IncludeArchived'
+      responses:
+        '200':
+          description: Lists.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Lists]
+      operationId: createList
+      summary: Create a list (static set or dynamic segment).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateListRequest' }
+      responses:
+        '201':
+          description: Created list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/List' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /lists/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Lists]
+      operationId: getList
+      summary: Get a list by id.
+      responses:
+        '200':
+          description: The list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/List' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Lists]
+      operationId: archiveList
+      summary: Archive a list.
+      responses:
+        '200':
+          description: Archived list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/List' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /lists/{id}/members:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Lists]
+      operationId: listListMembers
+      summary: List a (static) list's members.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Members of the list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListMemberListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Lists]
+      operationId: addListMember
+      summary: Add a member to a static list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddListMemberRequest' }
+      responses:
+        '201':
+          description: Added member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListMember' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ------------------------------ /tags -------------------------------------
+  /tags:
+    get:
+      tags: [Tags]
+      operationId: listTags
+      summary: List tags.
+      parameters:
+        - $ref: '#/components/parameters/IncludeArchived'
+      responses:
+        '200':
+          description: Tags.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TagListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Tags]
+      operationId: createTag
+      summary: Create a tag.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTagRequest' }
+      responses:
+        '201':
+          description: Created tag.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tag' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /tags/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Tags]
+      operationId: archiveTag
+      summary: Archive a tag.
+      responses:
+        '200':
+          description: Archived tag.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tag' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tags/{id}/apply:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Tags]
+      operationId: applyTag
+      summary: Apply a tag to an entity (person/org/deal/lead).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplyTagRequest' }
+      responses:
+        '201':
+          description: Applied tag (taggable row).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Taggable' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ----------------------------- /reports -----------------------------------
+  /reports/{report}:
+    parameters:
+      - name: report
+        in: path
+        required: true
+        schema: { type: string }
+        description: Report key (prebuilt) or a saved-report id.
+        examples:
+          prebuilt: { value: open-deals-per-company }
+    post:
+      tags: [Reports]
+      operationId: runReport
+      summary: Run a report (the `run_report` MCP verb) and return aggregate rows.
+      description: |
+        Executes a validated, typed query plan (NOT free-form SQL). Every aggregate cell is
+        reconcilable via the `derivation` for "Explain This Number" (features/03 §1.3).
+        Bound by RBAC; an agent caller cannot read beyond the human's scope. Audit-logged.
+      x-mcp-tool: { verb: run_report, tier: green }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunReportRequest' }
+            examples:
+              winRateBySource:
+                value:
+                  filters: { period: last_quarter }
+                  group_by: [source]
+      responses:
+        '200':
+          description: Report result (aggregate rows + plan + per-cell derivation handles).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportResult' }
+              examples:
+                result:
+                  value:
+                    report: open-deals-per-company
+                    plan:
+                      object: deal
+                      filters: { status: open }
+                      group_by: [organization_id]
+                      aggregates: [{ fn: count, as: open_deals }]
+                    columns: [organization_id, open_deals]
+                    rows:
+                      - { organization_id: 018f3a1b-0000-7000-8000-000000000020, open_deals: 3 }
+                    total_rows: 1
+                    generated_at: '2026-06-04T08:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The plan failed validation (out-of-vocabulary field, invalid aggregate).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ----------------------------- /search ------------------------------------
+  /search:
+    get:
+      tags: [Search]
+      operationId: search
+      summary: Cross-object search (people, orgs, deals, activities, leads).
+      description: Hybrid full-text search. Results are scoped by RBAC; leads are a distinct result type.
+      x-mcp-tool: { verb: search_records, tier: green }
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+          description: The search query.
+        - name: types
+          in: query
+          schema:
+            type: array
+            items: { type: string, enum: [person, organization, deal, activity, lead] }
+          style: form
+          explode: false
+          description: Restrict to these object types (default all).
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Ranked cross-object results.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
+              examples:
+                hits:
+                  value:
+                    data:
+                      - { type: person, id: 018f3a1b-0000-7000-8000-000000000010, title: 'Dana Buyer', score: 0.91 }
+                      - { type: deal, id: 018f3a1b-0000-7000-8000-000000000030, title: 'Acme — Platform expansion', score: 0.74 }
+                    page: { next_cursor: null, has_more: false }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---------------------------- /coldstart ----------------------------------
+  /coldstart:
+    post:
+      tags: [AI]
+      operationId: coldStartReadback
+      summary: Website cold-start read-back — returns a staged proposal with evidence.
+      description: |
+        Given a company URL, fetches + parses it (via the ADR-0006 connector) and returns a
+        structured read-back: ICP, buying center, value proposition, USP, buying intents.
+        EVERY returned field carries a non-empty `evidence_snippet` + `source_url` +
+        `confidence`, or it is ABSENT (the no-guess gate, features/07 §1). NOTHING is written
+        to real records — this is a 🟡 staging surface; the user accepts via /approvals.
+      x-mcp-tool: { verb: enrich, tier: yellow }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ColdStartRequest' }
+            examples:
+              url:
+                value: { url: 'https://acme.com' }
+      responses:
+        '200':
+          description: A staged proposal with per-field evidence (no records written).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ColdStartProposal' }
+              examples:
+                proposal:
+                  value:
+                    proposal_id: 018f3a1b-0000-7000-8000-0000000000d0
+                    source_url: 'https://acme.com'
+                    status: staged
+                    fields:
+                      - field: value_proposition
+                        value: Cuts onboarding time by 80%.
+                        evidence_snippet: '"Onboard your team in minutes, not weeks."'
+                        source_url: 'https://acme.com/#hero'
+                        confidence: 0.86
+                      - field: icp
+                        value: Mid-market B2B SaaS RevOps teams.
+                        evidence_snippet: '"Built for RevOps leaders at scaling SaaS companies."'
+                        source_url: 'https://acme.com/customers'
+                        confidence: 0.71
+                    created_at: '2026-06-04T08:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: URL unfetchable / read too little — honest degradation, zero fabricated fields.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                couldNotRead:
+                  value:
+                    type: 'https://errors.gradion.com/coldstart_unreadable'
+                    title: Could not read enough
+                    status: 422
+                    code: coldstart_unreadable
+                    detail: Couldn't read enough from this page. Retry or paste text.
+                    details: { populated_fields: 0 }
+
+  # ---------------------------- /approvals ----------------------------------
+  /approvals:
+    get:
+      tags: [Approvals]
+      operationId: listApprovals
+      summary: The approval inbox — list staged 🟡 actions awaiting human decision.
+      description: |
+        Lists confirm-first items proposed by agents/AI moments (cold-start accept,
+        transcript proposal, overnight reconciliation, drafted sends, deal advances).
+        Each item carries the proposed change + evidence + confidence (features/07 §8).
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, approved, rejected] }
+        - name: kind
+          in: query
+          schema: { type: string }
+          description: Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight).
+      responses:
+        '200':
+          description: A page of approval items.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /approvals/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Approvals]
+      operationId: getApproval
+      summary: Get a single approval item (full proposed diff + evidence).
+      responses:
+        '200':
+          description: The approval item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /approvals/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Approvals]
+      operationId: approveApproval
+      summary: Approve a staged action (commits it; mints the approval token).
+      description: |
+        Approving commits the proposed change in one audit transaction. The (optionally
+        edited) payload is what executes. Returns the approval with the resulting entity ref
+        + the `approval_token` that authorized the downstream 🟡 operation.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApproveRequest' }
+            examples:
+              editThenApprove:
+                value:
+                  edited_payload: { subject: 'Re: proposal (revised)' }
+      responses:
+        '200':
+          description: Approved + committed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Already decided (approved/rejected).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /approvals/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Approvals]
+      operationId: rejectApproval
+      summary: Reject a staged action (discards it; nothing commits).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        '200':
+          description: Rejected; no records changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Approval' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Already decided.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---- Per-purpose consent (A22/ADR-0011 — V1) ----
+  /data-subject-requests:
+    get:
+      tags: [Compliance]
+      operationId: listDataSubjectRequests
+      summary: List GDPR data-subject requests (B-E11.30).
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, in_progress, fulfilled, rejected] } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      x-mcp-tool: { verb: search_records, record_type: data_subject_request, tier: green }
+      responses:
+        '200':
+          description: A page of data-subject requests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/DataSubjectRequest' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+    post:
+      tags: [Compliance]
+      operationId: createDataSubjectRequest
+      summary: Open a data-subject request (access/rectify/erasure). Admin-mediated; ties to retention/erasure (B-EP07.13/.16).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDataSubjectRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataSubjectRequest' }
+  /data-subject-requests/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Compliance]
+      operationId: updateDataSubjectRequest
+      summary: Update a data-subject request's status / assignee / resolution.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDataSubjectRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataSubjectRequest' }
+  /consent-purposes:
+    get:
+      tags: [Compliance]
+      operationId: listConsentPurposes
+      summary: List the workspace's consent purposes (e.g. transactional, marketing_email, profiling).
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of consent purposes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ConsentPurpose' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+    post:
+      tags: [Compliance]
+      operationId: createConsentPurpose
+      summary: Define a consent purpose. 🟢 admin write.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateConsentPurposeRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentPurpose' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/consent:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Compliance]
+      operationId: getPersonConsent
+      summary: Read a person's per-purpose consent state plus the append-only proof log.
+      description: |
+        Returns the current `granted/withdrawn/unknown` state for every tracked purpose and the
+        full `consent_event` history (Art. 7 demonstrability). Read-only; never falls back to a
+        blanket flag.
+      responses:
+        '200':
+          description: Per-purpose consent state + proof log.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, events]
+                properties:
+                  state: { type: array, items: { $ref: '#/components/schemas/PersonConsentState' } }
+                  events: { type: array, items: { $ref: '#/components/schemas/ConsentEvent' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Compliance]
+      operationId: recordConsent
+      summary: Grant or withdraw consent for one purpose — writes an append-only proof row.
+      description: |
+        Sets the person's consent for one `purpose_id` to `granted` or `withdrawn`, appending a
+        `consent_event` (who/when/basis/source, double-opt-in token where required). Idempotent on
+        re-asserting the same state. Audited (`action: consent_grant`/`consent_withdraw`); emits
+        `consent.changed`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordConsentRequest' }
+      responses:
+        '200':
+          description: Updated consent state for the purpose.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonConsentState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /record-grants:
+    get:
+      tags: [Access]
+      operationId: listRecordGrants
+      summary: List manual per-record grants, filtered by record or by subject (A52/ADR-0039).
+      description: |
+        Returns active `record_grant` rows. Filter by a record (`record_type`+`record_id`) to answer
+        "who has been granted access to this record?", or by a subject (`subject_type`+`subject_id`) to
+        answer "what has this user/team been granted?". Read-only; tiered base scope (own/team/all) is
+        not returned here — this surfaces only the *manual* grants on top of it.
+      parameters:
+        - { name: record_type, in: query, schema: { type: string, enum: [deal, person, organization, lead] } }
+        - { name: record_id, in: query, schema: { type: string, format: uuid } }
+        - { name: subject_type, in: query, schema: { type: string, enum: [user, team] } }
+        - { name: subject_id, in: query, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      x-mcp-tool: { verb: search_records, record_type: record_grant, tier: green }
+      responses:
+        '200':
+          description: A page of record grants.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/RecordGrant' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+    post:
+      tags: [Access]
+      operationId: createRecordGrant
+      summary: Share one record with a user or team. 🟡 — agent calls are queued behind the approval gate.
+      description: |
+        Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
+        scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
+        policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
+        re-asserting upgrades/downgrades `access` and resets `expires_at`. A grant can never exceed the
+        granting principal's own access (scope-intersection). Audited (`action: record_share`). Bounded:
+        flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: yellow }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRecordGrantRequest' }
+      responses:
+        '201':
+          description: Grant created (or updated).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecordGrant' }
+        '403':
+          description: RBAC denied (`manage_sharing` required), or an agent 🟡 share attempted without an approval token.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                approvalRequired:
+                  value:
+                    type: 'https://errors.gradion.com/approval_required'
+                    title: Approval required
+                    status: 403
+                    code: approval_required
+                    detail: Sharing a record is confirm-first for an agent; supply an approval token.
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /record-grants/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Access]
+      operationId: revokeRecordGrant
+      summary: Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
+      description: |
+        Deletes the grant; the subject loses the widened access immediately (the next query no longer
+        matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
+      parameters:
+        - $ref: '#/components/parameters/ApprovalToken'
+      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: yellow }
+      responses:
+        '204': { description: Revoked. }
+        '403':
+          description: RBAC denied (`manage_sharing` required), or an agent 🟡 revoke attempted without an approval token.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                approvalRequired:
+                  value:
+                    type: 'https://errors.gradion.com/approval_required'
+                    title: Approval required
+                    status: 403
+                    code: approval_required
+                    detail: Revoking a share is confirm-first for an agent; supply an approval token.
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # =========================================================================
+  # =========================================================================
+  # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
+  # PATTERN here rather than expanded inline, to keep this file readable. Each
+  # follows the SAME resource shape as /people|/deals above — list (cursor+Sort),
+  # get, create, update (If-Match), archive — with schemas drawn 1:1 from the
+  # §12.5 DDL. The contract-codegen + AC-MCP-3 lint MUST emit/verify these ops:
+  #   /signals            (E08; MCP search_records/read_record; resolve via POST /signals/{id}/resolve)
+  #   /deal-rooms         (E08/E12; engagement events are read via /deal-rooms/{id}/engagement)
+  #   /voice-profiles     (E07; corpus sources via /voice-profiles/{id}/sources)
+  #   /drafting-assets    (E07/E08; approval flips `approved` — admin/🟡)
+  #   /agent-connections  (E10; revoke via POST /agent-connections/{id}/revoke; events read-only)
+  #   /automations        (E15/ADR-0035; runs via /automations/{id}/runs; 🟡 actions queue to /approvals)
+  #   /saved-views        (E15; V1 enforces shared_scope=private)
+  #   /quotas             (E09; owner XOR team)
+  #   /webhook-subscriptions (E10/S-E10.6, A51; HTTPS-only target_url, event_types ⊆ the published
+  #                       events.md §2 catalog, signing_secret_ref; state active|paused. create/update
+  #                       is 🟡 — registers outbound egress; x-mcp-tool create_record tier yellow.
+  #                       Deliveries are read via /webhook-subscriptions/{id}/deliveries and a parked one
+  #                       replays via POST /webhook-subscriptions/{id}/deliveries/{id}/replay. Fan-out is
+  #                       RBAC-bounded to the owner's visibility + fully audited; 🟡-gated event types
+  #                       deliver only AFTER the ADR-0036 approval gate — B-E10.13a/.15)
+  # field_mask, conversation_link, deal_channel, gtm_module_install, webhook_delivery are config/
+  # join/append tables surfaced through admin/parent endpoints, not standalone CRUD.
+  #
+  # OFFERS / ANGEBOTE (data-model.md §12.6; A48/ADR-0037) — bounded line-item
+  # quote engine, NOT CPQ. Same resource shape (list/get/create/update If-Match/
+  # archive), schemas drawn 1:1 from the §12.6 DDL, PLUS these non-CRUD actions:
+  #   /products              (rate-card; MCP search_records/create_record, tier green; OPTIONAL — a workspace may quote free-form)
+  #   /offer-templates       (branded DE/EN PDF layouts; admin; one default per locale)
+  #   /deals/{id}/offers     (list/create an offer under a deal; offer.revision versioning)
+  #   /offers/{id}           (get/update — update allowed only while status=draft; If-Match)
+  #   /offers/{id}/line-items (nested CRUD; line totals are SERVER-COMPUTED, not client-set; 422 if client sends line_total)
+  #   POST /offers/{id}/regenerate  (🟢 AI: regenerate-from-signal → new draft revision; x-mcp-tool verb draft_offer, tier green)
+  #   POST /offers/{id}/render      (produce the branded PDF → pdf_asset_ref)
+  #   POST /offers/{id}/send        (🟡 — leaves the workspace: publish to Deal Room / email PDF; x-mcp-tool tier yellow, ErrRequiresApproval; ADR-0036 token)
+  #   POST /offers/{id}/accept      (flip status=accepted, sync deal.amount_minor from gross, emit offer.accepted; in-room action — no e-sign in V1)
+  # Money totals (net/tax/gross) are DERIVED server-side from line items (P11
+  # integer minor-units); a client-supplied total is rejected. Multi-currency
+  # offers roll up to base via fx_rate (RT-PR-C2). Offer drafting obeys evidence-
+  # or-omit (features/07) and NEVER fabricates a price (rate-card or blank).
+  # =========================================================================
+  #
+  # OVERLAY / AUGMENTATION MANAGEMENT (data-model.md §12 overlay cluster;
+  # narrative/03e AC-OV-1..11; E18/E19/E20; A53). The B-E18.*/B-E19.*/B-E20.*
+  # build stories trace here.
+  #
+  # **Bounded-equivalence invariant (AC-OV-2 / ADR-0018): overlay mode does NOT
+  # fork the data API.** Mirrored people/orgs/deals/activities/relationships are
+  # read and written through the SAME operations above (/people, /deals, …) via
+  # the SystemOfRecordProvider seam (architecture/01); each L1 MCP tool either
+  # passes identically OR returns a declared, tested `unsupported_by_sor` result
+  # (422) — never a silent break. The ops below are ONLY the overlay LIFECYCLE /
+  # MANAGEMENT surface, which has no SoR-mode equivalent and exists only when
+  # `workspace.sor_mode = overlay` (data-model §12); in SoR-mode each returns
+  # 404 `mode_not_overlay`. Schemas drawn 1:1 from data-model §12
+  # (`incumbent_connection`, `overlay_mirror` sync-state); contract-codegen +
+  # AC-MCP-3 lint MUST emit/verify these ops. One incumbent per workspace, so the
+  # connection resource is SINGULAR. Associations (`overlay_association`,
+  # B-E18.22) surface through the normal /relationships endpoint — NOT a new path.
+  #
+  #   GET    /overlay/connection
+  #       Current incumbent binding + status: {incumbent, region, status ∈
+  #       active|revoked|error, connected_at, scopes[]}. 🟢 read.
+  #       x-mcp-tool: read_record record_type=overlay_connection, tier green.
+  #   POST   /overlay/connection
+  #       Connect an incumbent via OAuth (HubSpot public app B-E18.13 /
+  #       Salesforce ECA-JWT B-E19.* / Entra app B-E20.*). Body {incumbent,
+  #       region, auth_code|assertion}. EU customers MUST route to the incumbent's
+  #       EU region with an honest dual-residency disclosure (mirror replica lives
+  #       in OUR store → operator's residency, A35; B-E18.14). 🟡 — establishes
+  #       egress + ingest of the customer's entire CRM; ErrRequiresApproval +
+  #       ADR-0036 token; Idempotency-Key. 409 `incumbent_already_connected` if a
+  #       binding exists. x-mcp-tool: connect_incumbent, tier yellow.
+  #   DELETE /overlay/connection
+  #       Disconnect → revoke token + mirror teardown: purge the `overlay_mirror`
+  #       replica AND incumbent-derived embeddings/context-graph nodes within the
+  #       declared retention window (B-E18.15; GDPR — the mirror must not outlive
+  #       the connection). 🟡, ErrRequiresApproval; 202 + teardown job ref.
+  #       x-mcp-tool: disconnect_incumbent, tier yellow.
+  #   GET    /overlay/sync-status
+  #       Mirror freshness, per object class: [{object, last_synced_at, state ∈
+  #       fresh|pending_sync|stale, backfill_progress}]. Backs the three overlay
+  #       UI affordances every overlay screen must show (last_synced_at,
+  #       pending_sync optimism, staleness warning — 30-screen-acceptance §3a;
+  #       B-E18.4/.16). 🟢 read.
+  #   POST   /overlay/reconcile
+  #       Trigger the reconciliation poller sweep — heal gaps within the incumbent
+  #       search budget, incumbent-wins on divergence emitting `mirror.conflict`
+  #       (AC-OV-8; B-E18.7/.18). 🟢 (read-heavy, budget-metered); 202 + job ref.
+  #   GET    /overlay/budget
+  #       Per-incumbent consumption meter: {window, consumed, limit, band ∈
+  #       healthy|degrading|exhausted, policy} (B-E18.11/.12). At threshold,
+  #       force-fresh reads degrade to mirror-with-staleness (AC-OV-7) — surfaced
+  #       here so the UI/agent warns instead of starving the customer's quota.
+  #       🟢 read.
+  #   POST   /overlay/flip:preflight
+  #       Overlay→SoR flip preflight gate (B-E18.26, V1-WOW): force-fresh sync +
+  #       conflict reconciliation + honest-scope export check → {ready,
+  #       blocking[], unresolved_conflicts[]}. 🟢. 409 `overlay_flip_blocked` is
+  #       returned by the execute op below when this is not satisfied.
+  #   POST   /overlay/flip
+  #       Execute Overlay→SoR flip (B-E18.27; AC-OV-9/10): reuse the features/04
+  #       §5 importer, preserve record counts/relationships, carry over OUR
+  #       augmentation (context/embeddings/audit/capture/mappings), re-tag
+  #       incumbent-derived nodes T2→T1, detach write-back, flip
+  #       `workspace.sor_mode = native`. 🟡 (irreversible mode change),
+  #       ErrRequiresApproval + token; 202 + migration job ref.
+  #       x-mcp-tool: tier yellow.
+  #
+  # Overlay error sentinels (interfaces.md §0 + overlay additions): 404
+  # `mode_not_overlay` (op called in SoR-mode), 409 `incumbent_already_connected`,
+  # 422 `unsupported_by_sor` (declared bounded-capability gap, AC-OV-2), 409
+  # `overlay_flip_blocked` (preflight unsatisfied), 503
+  # `incumbent_budget_exhausted` (degrade-don't-starve, AC-OV-7). All as RFC-7807
+  # `Problem`.
+  # =========================================================================
+
+  # DEFERRED — stubs only (data-model.md §12). Intentionally NOT specified:
+  #   /sequences, /sequences/{id}/steps, /enrollments   (outbound cadences; sends gated)
+  #   /calls, /telephony/*                               (telephony / click-to-call)
+  #   /embeddings, /context-graph/*                      (pgvector retrieval store)
+  #   /workflow-runs                                     (workflow registry run records)
+  #   /attachments                                       (S3/MinIO refs — schema exists; endpoints fast-follow)
+  #   /audit-log                                         (read API for AuditLogEntry — admin/compliance; fast-follow)
+  #   /users, /teams, /roles                             (admin identity mgmt — schema below; CRUD fast-follow)
+  # =========================================================================
+
+# =============================================================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT. Claims carry the workspace (tenant) and the principal — either a human
+        (`human:<user-uuid>`) or an agent acting under an Agent Seat Passport
+        (`agent:<id>` + passport id + on-behalf-of human). The principal's effective RBAC
+        (own/team/all + field masks) is enforced server-side; an agent can never exceed its
+        granting human's permissions.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: crm_session
+      description: |
+        Human interactive session (ADR-0043). An opaque 32-byte token set at login as
+        `crm_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/`. The server stores only
+        `SHA-256(token)` (`session.token_hash`) and authenticates iff the row is un-revoked and
+        within idle + absolute expiry. Same `Authorize()` enforcement as the bearer path — no
+        bypass. `/workspaces`, `/auth/login` are unauthenticated (`security: []`); they *mint* it.
+
+  # --------------------------- shared parameters ----------------------------
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: Opaque resource id (UUID; ordering semantics are not exposed).
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: |
+        Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+        effective `sort` and `filter` of the originating request plus the last row's keyset
+        (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+        inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+        or filter that differs from the one the cursor was minted under returns
+        `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      description: Max items in the page.
+    Sort:
+      name: sort
+      in: query
+      schema: { type: string }
+      description: |
+        Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
+        `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
+        is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
+        data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
+        An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+    IncludeArchived:
+      name: include_archived
+      in: query
+      schema: { type: boolean, default: false }
+      description: Include soft-deleted (archived) rows. Default false.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, maxLength: 255 }
+      description: |
+        Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+        `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+        returns the original status + body. Reusing the same key with a *different* request body
+        returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+        **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+        retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+        (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+    ApprovalToken:
+      name: X-Approval-Token
+      in: header
+      schema: { type: string }
+      description: |
+        A signed, single-use approval token (see schema `ApprovalToken`) minted by
+        POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+        compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+        principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+        expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+        match the operation being executed (`403 code: approval_token_invalid`). Required when an
+        AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+    IfMatch:
+      name: If-Match
+      in: header
+      schema: { type: string }
+      description: |
+        Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+        the last-seen entity `version`. If the row's current `version` differs, the write is
+        rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+        re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+        Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+
+  # --------------------------- shared responses -----------------------------
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            unauth:
+              value: { type: 'https://errors.gradion.com/unauthorized', title: Unauthorized, status: 401, code: unauthorized, detail: Missing or invalid bearer token. }
+    Forbidden:
+      description: Authenticated but not permitted (RBAC row/field scope, or 🟡 approval missing).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            rbac:
+              value: { type: 'https://errors.gradion.com/forbidden', title: Forbidden, status: 403, code: forbidden, detail: Your role does not permit this action. }
+    NotFound:
+      description: No such resource in this workspace (or out of RBAC scope).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            notFound:
+              value: { type: 'https://errors.gradion.com/not_found', title: Not found, status: 404, code: not_found, detail: Resource not found. }
+    Conflict:
+      description: State conflict (duplicate key, concurrent edit, already-decided, default-pipeline collision).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    VersionConflict:
+      description: 'Optimistic-lock failure — the entity changed since the version in If-Match (`code: version_skew`).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            skew:
+              value: { type: 'https://errors.gradion.com/version_skew', title: Version conflict, status: 409, code: version_skew, detail: The resource changed since your last read; re-read and retry. }
+    ValidationError:
+      description: Request failed validation (RFC 7807 with field-level `details.errors`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            invalid:
+              value:
+                type: 'https://errors.gradion.com/validation_error'
+                title: Validation failed
+                status: 422
+                code: validation_error
+                detail: One or more fields are invalid.
+                details:
+                  errors:
+                    - { field: 'emails[0].email', code: invalid_email }
+
+  # ------------------------------- schemas ----------------------------------
+  schemas:
+
+    # ---- error (RFC 7807) ----
+    Problem:
+      type: object
+      description: RFC 7807 problem+json with a stable machine `code` and structured `details`.
+      required: [status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+          default: about:blank
+          description: A URI identifying the problem type.
+        title: { type: string, description: Short, human-readable summary. }
+        status: { type: integer, description: HTTP status code. }
+        code:
+          type: string
+          description: Stable machine-readable error code (e.g. duplicate_email, validation_error).
+        detail: { type: string, description: Human-readable explanation for this occurrence. }
+        instance: { type: string, format: uri, description: URI of the specific occurrence. }
+        details:
+          type: object
+          additionalProperties: true
+          description: |
+            Structured machine context — e.g. `existing_id` on 409 duplicate, or an
+            `errors` array of `{ field, code, message }` on 422 validation.
+
+    # ---- pagination envelope ----
+    PageInfo:
+      type: object
+      required: [has_more]
+      properties:
+        next_cursor:
+          type: [string, 'null']
+          description: Opaque cursor for the next page, or null if none.
+        has_more: { type: boolean }
+
+    # ---- mixins ----
+    Provenance:
+      type: object
+      description: Provenance carried on every captured/user-entered domain row (data-model §1.6).
+      required: [source, captured_by]
+      properties:
+        source:
+          type: string
+          description: 'What produced the row: email:<id> | calendar:<id> | connector:<n>:<id> | api | import:<batch> | ui | coldstart.'
+        captured_by:
+          type: string
+          description: 'Who produced it: human:<uuid> | agent:<id> | connector:<name>.'
+        raw:
+          type: [object, 'null']
+          additionalProperties: true
+          description: Re-parseable original capture payload (off the query hot path); usually omitted in list views.
+    Timestamps:
+      type: object
+      required: [created_at, updated_at]
+      properties:
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+          description: Soft-delete marker. Null = live.
+
+    Address:
+      type: [object, 'null']
+      description: Structured postal address.
+      properties:
+        line1: { type: [string, 'null'] }
+        line2: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        region: { type: [string, 'null'] }
+        postal_code: { type: [string, 'null'] }
+        country: { type: [string, 'null'], description: ISO-3166 alpha-2. }
+      additionalProperties: true
+
+    Money:
+      type: object
+      description: Money as integer minor-units + ISO-4217 currency. Never a float.
+      properties:
+        amount_minor:
+          type: [integer, 'null']
+          format: int64
+          description: Smallest currency unit (e.g. cents). 100000 EUR-cents = €1,000.00.
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+          description: ISO-4217 uppercase.
+
+    # ---- Person + children ----
+    PersonEmail:
+      type: object
+      required: [id, email, email_type, is_primary, position, source, captured_by]
+      properties:
+        id: { type: string, format: uuid }
+        person_id: { type: string, format: uuid }
+        email: { type: string, format: email, description: Stored lowercased. }
+        email_type: { type: string, enum: [work, personal, other], default: work }
+        is_primary: { type: boolean, default: false, description: At most one primary per type (DB-enforced). }
+        position: { type: integer, default: 0, description: Explicit ordering. }
+        source: { type: string }
+        captured_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    PersonPhone:
+      type: object
+      required: [id, phone, phone_type, is_primary, position, source, captured_by]
+      properties:
+        id: { type: string, format: uuid }
+        person_id: { type: string, format: uuid }
+        phone: { type: string, description: E.164 normalized. }
+        phone_type: { type: string, enum: [work, mobile, home, other], default: work }
+        is_primary: { type: boolean, default: false }
+        position: { type: integer, default: 0 }
+        source: { type: string }
+        captured_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    Person:
+      type: object
+      description: A contact. Mirrors the `person` table.
+      required: [id, workspace_id, full_name, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        first_name: { type: [string, 'null'] }
+        last_name: { type: [string, 'null'] }
+        full_name: { type: string, description: Always present (display name). }
+        title: { type: [string, 'null'], description: Denormalized current title; authoritative title is on the employment relationship. }
+        owner_id: { type: [string, 'null'], format: uuid }
+        social:
+          type: object
+          additionalProperties: true
+          description: '{ linkedin, twitter, github, ... }'
+        address: { $ref: '#/components/schemas/Address' }
+        emails:
+          type: array
+          items: { $ref: '#/components/schemas/PersonEmail' }
+        phones:
+          type: array
+          items: { $ref: '#/components/schemas/PersonPhone' }
+        consent:
+          type: array
+          readOnly: true
+          description: |
+            Per-purpose consent summary (A22/ADR-0011). Read-only derived view of the `person_consent`
+            rows; one entry per purpose the workspace tracks. The single flat `consent_state` flag was
+            REMOVED — consent is per-purpose and demonstrable (data-model.md §3.4). Mutate via
+            `POST /people/{id}/consent`; read the full proof log via `GET /people/{id}/consent`.
+          items: { $ref: '#/components/schemas/PersonConsentState' }
+        merged_into_id: { type: [string, 'null'], format: uuid, description: Set when this row was merged away. }
+        converted_from_lead_id: { type: [string, 'null'], format: uuid, description: Canonical origin pointer if promoted from a lead. }
+        source: { type: string }
+        captured_by: { type: string }
+        raw: { type: [object, 'null'], additionalProperties: true }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+      x-extension-note: |
+        additionalProperties:true admits client custom fields (data-model §9 — custom fields
+        are real columns added by migration, surfaced additively through this same contract).
+
+    CreatePersonRequest:
+      type: object
+      required: [full_name, source, captured_by]
+      properties:
+        full_name: { type: string }
+        first_name: { type: [string, 'null'] }
+        last_name: { type: [string, 'null'] }
+        title: { type: [string, 'null'] }
+        owner_id: { type: [string, 'null'], format: uuid }
+        social: { type: object, additionalProperties: true }
+        address: { $ref: '#/components/schemas/Address' }
+        emails:
+          type: array
+          items:
+            type: object
+            required: [email]
+            properties:
+              email: { type: string, format: email }
+              email_type: { type: string, enum: [work, personal, other], default: work }
+              is_primary: { type: boolean, default: false }
+              position: { type: integer, default: 0 }
+        phones:
+          type: array
+          items:
+            type: object
+            required: [phone]
+            properties:
+              phone: { type: string }
+              phone_type: { type: string, enum: [work, mobile, home, other], default: work }
+              is_primary: { type: boolean, default: false }
+              position: { type: integer, default: 0 }
+        source: { type: string }
+        captured_by: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdatePersonRequest:
+      type: object
+      description: Partial update. Omitted fields are unchanged.
+      properties:
+        full_name: { type: string }
+        first_name: { type: [string, 'null'] }
+        last_name: { type: [string, 'null'] }
+        title: { type: [string, 'null'] }
+        owner_id: { type: [string, 'null'], format: uuid }
+        social: { type: object, additionalProperties: true }
+        address: { $ref: '#/components/schemas/Address' }
+      additionalProperties: true
+      x-extension: true
+      x-consent-note: |
+        Consent is NOT mutable through person update (A22/ADR-0011). Use POST /people/{id}/consent
+        so that every change writes an append-only `consent_event` proof row.
+
+    PersonListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Person' }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Organization + domain ----
+    OrganizationDomain:
+      type: object
+      required: [id, domain, is_primary, source, captured_by]
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        domain: { type: string, description: Lowercased, no scheme, no www. }
+        is_primary: { type: boolean, default: false }
+        source: { type: string }
+        captured_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    Organization:
+      type: object
+      description: A company. Mirrors the `organization` table.
+      required: [id, workspace_id, display_name, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        display_name: { type: string }
+        legal_name: { type: [string, 'null'] }
+        industry: { type: [string, 'null'] }
+        size_band:
+          type: [string, 'null']
+          enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+']
+        address: { $ref: '#/components/schemas/Address' }
+        owner_id: { type: [string, 'null'], format: uuid }
+        parent_org_id: { type: [string, 'null'], format: uuid, description: Single-level hierarchy FK; no cycles. }
+        merged_into_id: { type: [string, 'null'], format: uuid }
+        domains:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationDomain' }
+        classification: { type: [string, 'null'], enum: [null, customer, prospect, partner, vendor, other], description: "An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032)." }
+        source: { type: string }
+        captured_by: { type: string }
+        raw: { type: [object, 'null'], additionalProperties: true }
+        partner: { $ref: '#/components/schemas/Partner' }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    CreateOrganizationRequest:
+      type: object
+      required: [display_name, source, captured_by]
+      properties:
+        display_name: { type: string }
+        legal_name: { type: [string, 'null'] }
+        industry: { type: [string, 'null'] }
+        size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
+        address: { $ref: '#/components/schemas/Address' }
+        owner_id: { type: [string, 'null'], format: uuid }
+        parent_org_id: { type: [string, 'null'], format: uuid }
+        domains:
+          type: array
+          items:
+            type: object
+            required: [domain]
+            properties:
+              domain: { type: string }
+              is_primary: { type: boolean, default: false }
+        source: { type: string }
+        captured_by: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateOrganizationRequest:
+      type: object
+      properties:
+        display_name: { type: string }
+        legal_name: { type: [string, 'null'] }
+        industry: { type: [string, 'null'] }
+        size_band: { type: [string, 'null'], enum: [null, '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+'] }
+        address: { $ref: '#/components/schemas/Address' }
+        owner_id: { type: [string, 'null'], format: uuid }
+        parent_org_id: { type: [string, 'null'], format: uuid }
+      additionalProperties: true
+      x-extension: true
+
+    OrganizationListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Organization' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Relationship ----
+    Relationship:
+      type: object
+      description: |
+        The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
+        `employment` (person↔org), `deal_stakeholder` (deal↔person), and the partner edges
+        (A41/ADR-0032, org↔org via `counterparty_org_id`): `partner_of` (org served by a partner
+        org), `referred_by` (org referred by a partner org), `co_sell_with` (org co-sold with a partner org).
+      required: [id, workspace_id, kind, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        kind: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
+        person_id: { type: [string, 'null'], format: uuid }
+        organization_id: { type: [string, 'null'], format: uuid }
+        counterparty_org_id: { type: [string, 'null'], format: uuid, description: 'The other org on a partner edge (partner_of/referred_by/co_sell_with). Null for employment/deal_stakeholder.' }
+        deal_id: { type: [string, 'null'], format: uuid }
+        role:
+          type: [string, 'null']
+          description: 'employment: cto/vp_sales/...; stakeholder: champion/economic_buyer/blocker/influencer/user.'
+        is_current_primary: { type: boolean, default: false, description: Employment — the one current primary employer (≤1 per person). }
+        started_at: { type: [string, 'null'], format: date }
+        ended_at: { type: [string, 'null'], format: date, description: Null = current/ongoing. }
+        source: { type: string }
+        captured_by: { type: string }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateRelationshipRequest:
+      type: object
+      required: [kind, source, captured_by]
+      properties:
+        kind: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
+        person_id: { type: [string, 'null'], format: uuid }
+        organization_id: { type: [string, 'null'], format: uuid }
+        counterparty_org_id: { type: [string, 'null'], format: uuid }
+        deal_id: { type: [string, 'null'], format: uuid }
+        role: { type: [string, 'null'] }
+        is_current_primary: { type: boolean, default: false }
+        started_at: { type: [string, 'null'], format: date }
+        ended_at: { type: [string, 'null'], format: date }
+        source: { type: string }
+        captured_by: { type: string }
+
+    UpdateRelationshipRequest:
+      type: object
+      properties:
+        role: { type: [string, 'null'] }
+        is_current_primary: { type: boolean }
+        started_at: { type: [string, 'null'], format: date }
+        ended_at: { type: [string, 'null'], format: date }
+
+    RelationshipListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Relationship' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Deal ----
+    Deal:
+      type: object
+      description: A deal. Mirrors the `deal` table.
+      required: [id, workspace_id, name, pipeline_id, stage_id, status, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        amount_minor: { type: [integer, 'null'], format: int64 }
+        currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+        fx_rate_to_base: { type: [string, 'null'], description: 'Native→base, frozen at close (null while open). Decimal-as-string to avoid float rounding of the 10-dp rate.' }
+        fx_rate_date: { type: [string, 'null'], format: date }
+        pipeline_id: { type: string, format: uuid }
+        stage_id: { type: string, format: uuid, description: Must belong to pipeline_id. }
+        organization_id: { type: [string, 'null'], format: uuid, description: Primary org; never a raw lead. }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.' }
+        owner_id: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [open, won, lost], default: open }
+        lost_reason: { type: [string, 'null'], description: Required when status=lost. }
+        forecast_category: { type: [string, 'null'], enum: [null, commit, best_case, pipeline, omitted] }
+        expected_close_date: { type: [string, 'null'], format: date }
+        wait_until: { type: [string, 'null'], format: date, description: "'Customer asked us to wait until' date; suppresses the stalled flag but not the overdue close-date flag." }
+        closed_at: { type: [string, 'null'], format: date-time }
+        last_activity_at: { type: [string, 'null'], format: date-time, description: Drives the deterministic stalled flag. }
+        stalled: { type: boolean, readOnly: true, description: Derived — no activity past the threshold (absolute duration). }
+        source: { type: string }
+        captured_by: { type: string }
+        raw: { type: [object, 'null'], additionalProperties: true }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    CreateDealRequest:
+      type: object
+      required: [name, pipeline_id, stage_id, source, captured_by]
+      properties:
+        name: { type: string }
+        amount_minor: { type: [integer, 'null'], format: int64 }
+        currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+        pipeline_id: { type: string, format: uuid }
+        stage_id: { type: string, format: uuid }
+        organization_id: { type: [string, 'null'], format: uuid }
+        owner_id: { type: [string, 'null'], format: uuid }
+        expected_close_date: { type: [string, 'null'], format: date }
+        source: { type: string }
+        captured_by: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateDealRequest:
+      type: object
+      properties:
+        name: { type: string }
+        amount_minor: { type: [integer, 'null'], format: int64 }
+        currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+        organization_id: { type: [string, 'null'], format: uuid }
+        partner_org_id: { type: [string, 'null'], format: uuid }
+        owner_id: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [open, won, lost] }
+        lost_reason: { type: [string, 'null'] }
+        fx_rate_to_base: { type: [string, 'null'], description: 'Native→base rate to FREEZE at close. Required (server may also compute it from the FX table) when transitioning to won with a non-base currency — satisfies the deal_closed_fx CHECK (formulas §6.1). Ignored while open.' }
+        fx_rate_date: { type: [string, 'null'], format: date }
+        forecast_category: { type: [string, 'null'], enum: [null, commit, best_case, pipeline, omitted] }
+        expected_close_date: { type: [string, 'null'], format: date }
+        wait_until: { type: [string, 'null'], format: date }
+      additionalProperties: true
+      x-extension: true
+
+    AdvanceDealRequest:
+      type: object
+      required: [to_stage_id]
+      properties:
+        to_stage_id: { type: string, format: uuid, description: Target stage (must belong to the deal's pipeline). }
+        status: { type: string, enum: [open, won, lost], description: Set when advancing into a terminal stage. }
+        lost_reason: { type: [string, 'null'], description: Required if status=lost. }
+
+    DealListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Deal' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Pipeline + Stage ----
+    Stage:
+      type: object
+      description: A pipeline stage. Mirrors the `stage` table.
+      required: [id, workspace_id, pipeline_id, name, position, semantic, win_probability]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        pipeline_id: { type: string, format: uuid }
+        name: { type: string }
+        position: { type: integer, description: Unique within the pipeline. }
+        semantic: { type: string, enum: [open, won, lost], default: open }
+        win_probability: { type: integer, minimum: 0, maximum: 100, description: 'won=100, lost=0, open=0..100.' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateStageRequest:
+      type: object
+      required: [pipeline_id, name, position]
+      properties:
+        pipeline_id: { type: string, format: uuid }
+        name: { type: string }
+        position: { type: integer }
+        semantic: { type: string, enum: [open, won, lost], default: open }
+        win_probability: { type: integer, minimum: 0, maximum: 100, default: 0 }
+
+    UpdateStageRequest:
+      type: object
+      properties:
+        name: { type: string }
+        position: { type: integer }
+        semantic: { type: string, enum: [open, won, lost] }
+        win_probability: { type: integer, minimum: 0, maximum: 100 }
+
+    StageListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Stage' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    Pipeline:
+      type: object
+      description: A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
+      required: [id, workspace_id, name, is_default, position]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        is_default: { type: boolean, default: false, description: Exactly one default per workspace. }
+        position: { type: integer, default: 0 }
+        stages:
+          type: array
+          items: { $ref: '#/components/schemas/Stage' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreatePipelineRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        is_default: { type: boolean, default: false }
+        position: { type: integer, default: 0 }
+        stages:
+          type: array
+          description: Optional initial stages.
+          items: { $ref: '#/components/schemas/CreateStageRequest' }
+
+    UpdatePipelineRequest:
+      type: object
+      properties:
+        name: { type: string }
+        is_default: { type: boolean }
+        position: { type: integer }
+
+    PipelineListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Pipeline' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Activity + link ----
+    ActivityLink:
+      type: object
+      required: [entity_type, entity_id]
+      properties:
+        id: { type: string, format: uuid }
+        activity_id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [person, organization, deal] }
+        entity_id: { type: string, format: uuid }
+
+    Activity:
+      type: object
+      description: |
+        A polymorphic timeline item. Mirrors the `activity` table + `activity_link`.
+        **Per-kind field constraints** (enforced server-side to match the DB `activity_task_fields`
+        CHECK; the OpenAPI cannot express these conditionally): `due_at`/`assignee_id`/`is_done`/
+        `done_at` are valid ONLY when `kind=task`; `meeting_status` ONLY when `kind=meeting`;
+        `duration_seconds` only for meeting/call; `direction` is null for note/task. Setting a
+        disallowed field for the kind returns `422 code: field_not_valid_for_kind` (the API rejects
+        what the DB CHECK would reject, rather than 500-ing at write time).
+      required: [id, workspace_id, kind, occurred_at, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        kind: { type: string, enum: [email, call, meeting, note, task, whatsapp, telegram] }
+        subject: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        due_at: { type: [string, 'null'], format: date-time, description: Task only. }
+        assignee_id: { type: [string, 'null'], format: uuid, description: Task only. }
+        is_done: { type: boolean, default: false, description: Task only. }
+        done_at: { type: [string, 'null'], format: date-time }
+        duration_seconds: { type: [integer, 'null'], description: Meeting/call only. }
+        direction: { type: [string, 'null'], enum: [null, inbound, outbound], description: 'inbound/outbound for email/call; null for note/task.' }
+        meeting_status: { type: [string, 'null'], enum: [null, booked, held, no_show, canceled], description: 'Set only when kind=meeting.' }
+        source_system: { type: [string, 'null'], description: 'gmail/gcal/outlook/transcript — idempotency key part.' }
+        source_id: { type: [string, 'null'], description: Provider message/event id — idempotency key part. }
+        links:
+          type: array
+          description: One activity may link to >1 entity (person + deal).
+          items: { $ref: '#/components/schemas/ActivityLink' }
+        source: { type: string }
+        captured_by: { type: string }
+        raw: { type: [object, 'null'], additionalProperties: true }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateActivityRequest:
+      type: object
+      required: [kind, source, captured_by]
+      properties:
+        kind: { type: string, enum: [email, call, meeting, note, task, whatsapp, telegram] }
+        subject: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        due_at: { type: [string, 'null'], format: date-time }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        duration_seconds: { type: [integer, 'null'] }
+        direction: { type: [string, 'null'], enum: [null, inbound, outbound] }
+        meeting_status: { type: [string, 'null'], enum: [null, booked, held, no_show, canceled] }
+        source_system: { type: [string, 'null'] }
+        source_id: { type: [string, 'null'] }
+        links:
+          type: array
+          items:
+            type: object
+            required: [entity_type, entity_id]
+            properties:
+              entity_type: { type: string, enum: [person, organization, deal] }
+              entity_id: { type: string, format: uuid }
+        source: { type: string }
+        captured_by: { type: string }
+        raw: { type: [object, 'null'], additionalProperties: true }
+
+    UpdateActivityRequest:
+      type: object
+      properties:
+        subject: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        due_at: { type: [string, 'null'], format: date-time }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        is_done: { type: boolean, description: Completing a task writes one audit row + task.completed event. }
+
+    ActivityListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    EmailDraft:
+      type: object
+      description: A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
+      required: [subject, body]
+      properties:
+        subject: { type: string }
+        body: { type: string }
+        to: { type: array, items: { type: string, format: email } }
+        in_reply_to_activity_id: { type: [string, 'null'], format: uuid }
+
+    SendEmailRequest:
+      type: object
+      required: [subject, body, to, consent_purpose]
+      properties:
+        subject: { type: string }
+        body: { type: string, description: The (possibly edited) final body that is sent. }
+        to: { type: array, items: { type: string, format: email } }
+        cc: { type: array, items: { type: string, format: email } }
+        consent_purpose:
+          type: string
+          description: |
+            The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
+            The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
+            `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+
+    # ---- Lead ----
+    Lead:
+      type: object
+      description: A thin, segregated prospect. Mirrors the `lead` table. NO organization FK.
+      required: [id, workspace_id, status, score, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        full_name: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email, description: Lowercased; lead-internal dedupe key. }
+        title: { type: [string, 'null'] }
+        company_name: { type: [string, 'null'], description: FREE TEXT — NOT an organization FK. }
+        candidate_org_key: { type: [string, 'null'], description: Loose key for ABM routing without creating an org. }
+        status: { type: string, enum: [new, working, promoted, disqualified], default: new }
+        score: { type: integer, default: 0, description: Lead-local scoring; never reads the contact graph. }
+        owner_id: { type: [string, 'null'], format: uuid }
+        source_system: { type: [string, 'null'] }
+        source_id: { type: [string, 'null'] }
+        promoted_person_id: { type: [string, 'null'], format: uuid, description: Set on promotion (convenience mirror). }
+        promoted_at: { type: [string, 'null'], format: date-time }
+        source: { type: string }
+        captured_by: { type: string }
+        raw: { type: [object, 'null'], additionalProperties: true }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateLeadRequest:
+      type: object
+      required: [source, captured_by]
+      properties:
+        full_name: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        title: { type: [string, 'null'] }
+        company_name: { type: [string, 'null'] }
+        candidate_org_key: { type: [string, 'null'] }
+        status: { type: string, enum: [new, working, promoted, disqualified], default: new }
+        owner_id: { type: [string, 'null'], format: uuid }
+        source_system: { type: [string, 'null'] }
+        source_id: { type: [string, 'null'] }
+        source: { type: string }
+        captured_by: { type: string }
+
+    UpdateLeadRequest:
+      type: object
+      description: |
+        Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
+        via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
+        "disqualified ⇒ archived" is enforced on that one path); `promoted` is reachable only via
+        POST /leads/{id}/promote. Both terminal states are therefore excluded from this enum.
+      properties:
+        full_name: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+        title: { type: [string, 'null'] }
+        company_name: { type: [string, 'null'] }
+        candidate_org_key: { type: [string, 'null'], description: 'Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK.' }
+        status: { type: string, enum: [new, working] }
+        score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score.' }
+        owner_id: { type: [string, 'null'], format: uuid }
+
+    PromoteLeadRequest:
+      type: object
+      required: [trigger]
+      properties:
+        trigger:
+          type: string
+          enum: [inbound_reply, meeting_booked, meeting_held, human_qualify]
+          description: |
+            The genuine-engagement trigger. cold_outbound_no_reply is NOT permitted and is
+            rejected with 422 — promotion is engagement, not import or an outbound touch.
+        evidence:
+          type: object
+          description: Which inbound email/meeting (or human) triggered promotion; recorded in audit.
+          properties:
+            activity_id: { type: [string, 'null'], format: uuid }
+            note: { type: [string, 'null'] }
+
+    PromoteLeadResponse:
+      type: object
+      required: [person, merged]
+      properties:
+        person: { $ref: '#/components/schemas/Person' }
+        merged:
+          type: boolean
+          description: True if promotion merged into an existing person (no duplicate); false if a new person was created.
+        lead_id: { type: string, format: uuid }
+
+    LeadListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Lead' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- List / Tag ----
+    List:
+      type: object
+      description: A static membership set or a dynamic segment. Mirrors the `list` table.
+      required: [id, workspace_id, name, entity_type, list_type]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        list_type: { type: string, enum: [static, dynamic], default: static }
+        definition: { type: [object, 'null'], additionalProperties: true, description: Dynamic — validated query plan; static — null. }
+        owner_id: { type: [string, 'null'], format: uuid }
+        team_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateListRequest:
+      type: object
+      required: [name, entity_type]
+      properties:
+        name: { type: string }
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        list_type: { type: string, enum: [static, dynamic], default: static }
+        definition: { type: [object, 'null'], additionalProperties: true }
+        owner_id: { type: [string, 'null'], format: uuid }
+        team_id: { type: [string, 'null'], format: uuid }
+
+    ListMember:
+      type: object
+      required: [id, list_id, entity_type, entity_id]
+      properties:
+        id: { type: string, format: uuid }
+        list_id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_id: { type: string, format: uuid }
+        added_by: { type: string }
+        created_at: { type: string, format: date-time }
+
+    AddListMemberRequest:
+      type: object
+      required: [entity_type, entity_id]
+      properties:
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_id: { type: string, format: uuid }
+
+    ListListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/List' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    ListMemberListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ListMember' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    Tag:
+      type: object
+      description: A tag. Mirrors the `tag` table.
+      required: [id, workspace_id, name]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        color: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateTagRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        color: { type: [string, 'null'] }
+
+    Taggable:
+      type: object
+      required: [id, tag_id, entity_type, entity_id]
+      properties:
+        id: { type: string, format: uuid }
+        tag_id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    ApplyTagRequest:
+      type: object
+      required: [entity_type, entity_id]
+      properties:
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_id: { type: string, format: uuid }
+
+    TagListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Tag' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Identity (User / Team / Role) ----
+    User:
+      type: object
+      description: A seat — human or first-party agent. Mirrors `app_user`.
+      required: [id, workspace_id, email, display_name, status, is_agent]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        timezone: { type: string, default: UTC, description: IANA name. }
+        status: { type: string, enum: [active, suspended, deactivated], default: active }
+        is_agent: { type: boolean, default: false, description: First-party Agent Runner identity vs a human seat. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    Team:
+      type: object
+      description: Mirrors the `team` table.
+      required: [id, workspace_id, name]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        parent_team_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    Role:
+      type: object
+      description: An RBAC role bundle. Mirrors the `role` table.
+      required: [id, workspace_id, key, name, is_system, permissions]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        key: { type: string, description: 'admin | manager | rep | read_only | ops | <code-defined>.' }
+        name: { type: string }
+        is_system: { type: boolean, default: false }
+        permissions:
+          type: object
+          additionalProperties: true
+          description: '{ object: {crud}, field_masks: [...], row_scope: own|team|all }.'
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    BootstrapWorkspaceRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace_name, admin_email, admin_password, admin_display_name]
+      properties:
+        workspace_name:     { type: string, minLength: 1, maxLength: 200 }
+        admin_email:        { type: string, format: email }
+        admin_password:     { type: string, minLength: 12, maxLength: 256, description: Hashed server-side (Argon2id/bcrypt); never stored or logged in plaintext. }
+        admin_display_name: { type: string, minLength: 1, maxLength: 200 }
+        timezone:           { type: string, default: 'UTC', description: IANA zone for the first user. }
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:    { type: string, format: email }
+        password: { type: string, minLength: 1, maxLength: 256 }
+        mfa_code: { type: [string, 'null'], description: TOTP code; supply when the workspace requires MFA (else first call returns 403 mfa_required). }
+
+    IssuePassportRequest:
+      type: object
+      additionalProperties: false
+      required: [scopes]
+      properties:
+        label:  { type: [string, 'null'], maxLength: 120, description: 'Which agent this binds, e.g. "Claude Desktop".' }
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, enum: [read, draft, write, send, enrich] }
+          description: Verb classes the passport may exercise; effective authority is always ∩ the granting human's RBAC.
+        ttl_hours:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 2160
+          description: Lifetime in hours (default 720 = 30 days, max 90 days). Revocable at any time.
+
+    IssuePassportResponse:
+      type: object
+      required: [passport_id, token, scopes, on_behalf_of, expires_at]
+      properties:
+        passport_id: { type: string, format: uuid }
+        token:       { type: string, description: The bearer token — shown ONCE, stored only as a hash. }
+        scopes:
+          type: array
+          items: { type: string }
+        on_behalf_of: { type: string, format: uuid, description: The human whose RBAC bounds every call this passport makes. }
+        expires_at:   { type: string, format: date-time }
+
+    MeResponse:
+      type: object
+      required: [user, roles, teams]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        roles:
+          type: array
+          items: { type: string }
+          description: Effective role keys for this principal.
+        teams:
+          type: array
+          items: { type: string, format: uuid }
+        passport:
+          type: [object, 'null']
+          description: Present when the principal is an agent acting under an Agent Seat Passport.
+          properties:
+            passport_id: { type: string, format: uuid }
+            on_behalf_of: { type: string, format: uuid }
+            scopes:
+              type: array
+              items: { type: string, enum: [read_only, draft_only, act_with_approval, auto_execute_low_risk] }
+
+    # ---- Audit ----
+    AuditLogEntry:
+      type: object
+      description: An append-only audit row. Mirrors the `audit_log` table.
+      required: [id, workspace_id, actor_type, actor_id, action, entity_type, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_id: { type: string, description: "User uuid, agent id, connector name (e.g. connector:gmail), or 'system'." }
+        passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport that authorized an agent action. }
+        on_behalf_of: { type: [string, 'null'], format: uuid, description: The human authority for an agent action. }
+        action:
+          type: string
+          # Every mutation is attributable (P12). connector captures audit as actor_type=connector.
+          enum: [create, update, archive, merge, promote, disqualify, restore, export, erase, anonymize, login, assign, advance_stage, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare]
+        entity_type: { type: string }
+        entity_id: { type: [string, 'null'], format: uuid }
+        before: { type: [object, 'null'], additionalProperties: true }
+        after: { type: [object, 'null'], additionalProperties: true }
+        authorization_rule: { type: [string, 'null'], description: Which RBAC/scope rule allowed it. }
+        evidence: { type: [object, 'null'], additionalProperties: true, description: e.g. which inbound email/meeting triggered a promotion. }
+        occurred_at: { type: string, format: date-time }
+
+    # ---- Reports ----
+    RunReportRequest:
+      type: object
+      description: |
+        A typed, validated query plan (not free-form SQL). For prebuilt reports, filters
+        parameterize the plan; for ad-hoc, the object/group_by/aggregates compile to a plan.
+        **Field vocabulary:** every key in `filters`, every entry in `group_by`, and every
+        `aggregates[].field` MUST be a field in the target report's declared vocabulary
+        (the per-report allowed dimension/measure list in data-model.md §13 / contract README).
+        An out-of-vocabulary field returns `422 code: report_field_not_allowed`. `additionalProperties`
+        is open only to admit *values*, never to admit arbitrary SQL identifiers.
+        **`/reports/{report}` path param:** a value matching the UUID format resolves to a saved
+        report; any other value resolves against the prebuilt-report key catalog (README "Prebuilt
+        reports"). A prebuilt key is never a UUID, so there is no collision.
+      properties:
+        filters:
+          type: object
+          additionalProperties: true
+          description: Typed predicates (period, status, owner, ...) — keys must be in the report vocabulary.
+        group_by:
+          type: array
+          items: { type: string }
+        aggregates:
+          type: array
+          items:
+            type: object
+            required: [fn]
+            properties:
+              fn: { type: string, enum: [count, count_distinct, sum, avg, min, max] }
+              field: { type: [string, 'null'] }
+              as: { type: [string, 'null'] }
+        as_of_date: { type: [string, 'null'], format: date, description: Snapshot / historical reporting via deal_stage_history. }
+
+    ReportResult:
+      type: object
+      required: [report, plan, columns, rows]
+      properties:
+        report: { type: string }
+        plan:
+          type: object
+          additionalProperties: true
+          description: The validated query plan that was executed (shown before/after run).
+        columns:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items: { type: object, additionalProperties: true }
+        total_rows: { type: integer }
+        generated_at: { type: string, format: date-time }
+        derivation_url:
+          type: [string, 'null']
+          description: Handle for "Explain This Number" drill-through to source rows.
+
+    # ---- Search ----
+    SearchResult:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, enum: [person, organization, deal, activity, lead] }
+        id: { type: string, format: uuid }
+        title: { type: [string, 'null'], description: Display label (name/subject). }
+        snippet: { type: [string, 'null'] }
+        score: { type: [number, 'null'], description: Relevance score. }
+
+    SearchResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- AI: cold-start ----
+    ColdStartRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri, description: Company website URL to read back. }
+
+    ColdStartField:
+      type: object
+      description: One read-back field. EVERY field carries non-empty evidence + confidence, or it is omitted (no-guess gate).
+      required: [field, value, evidence_snippet, source_url, confidence]
+      properties:
+        field: { type: string, enum: [icp, buying_center, value_proposition, usp, buying_intents, legal_name, registered_address, register_vat, industry, history] }
+        value: { type: string }
+        evidence_snippet: { type: string, minLength: 1, description: Verbatim source text — non-empty or the field is absent. }
+        source_url: { type: string, format: uri }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+
+    ColdStartProposal:
+      type: object
+      description: A staged proposal. NOTHING is written to real records until accepted via /approvals.
+      required: [proposal_id, source_url, status, fields]
+      properties:
+        proposal_id: { type: string, format: uuid }
+        source_url: { type: string, format: uri }
+        status: { type: string, enum: [staged], description: Always staged — accept via the approval inbox. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/ColdStartField' }
+        created_at: { type: string, format: date-time }
+
+    # ---- Approvals ----
+    Approval:
+      type: object
+      description: A staged 🟡 confirm-first action awaiting human decision.
+      required: [id, workspace_id, kind, status, proposed_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        kind: { type: string, description: 'coldstart | send_email | advance_deal | promote_lead | overnight | transcript_proposal.' }
+        status: { type: string, enum: [pending, approved, rejected, expired] }
+        proposal_id: { type: [string, 'null'], format: uuid, description: 'For kind=coldstart, the ColdStartProposal this approval accepts (links the staged proposal to its approval item).' }
+        proposed_by: { type: string, description: 'agent:<id> / connector:<n> that staged this.' }
+        on_behalf_of: { type: [string, 'null'], format: uuid }
+        expires_at: { type: [string, 'null'], format: date-time, description: 'When the staged action expires unactioned (mirrors approval.requested.expires_at). After this it auto-transitions to status=expired and cannot be approved.' }
+        target_entity_type: { type: [string, 'null'], description: Entity the effect mutates (for precondition re-validation). }
+        target_entity_id: { type: [string, 'null'], format: uuid }
+        target_version: { type: [integer, 'null'], description: 'The `version` of the target row when the diff was staged. On approve-execute the server RE-READS the row; if its current version ≠ target_version the execution is rejected with 409 ErrVersionSkew (the world changed since the human last saw the diff — re-stage). This closes the stage→approval race (ADR-0036).' }
+        diff_hash: { type: [string, 'null'], description: 'Hash of the staged proposed_change; the minted approval_token is bound to this hash so a token cannot authorize a different effect.' }
+        summary: { type: [string, 'null'], description: One-line description of the proposed change. }
+        proposed_change:
+          type: object
+          additionalProperties: true
+          description: The staged diff/payload that will execute on approve.
+        evidence:
+          type: array
+          description: Per-claim evidence (snippet + source id) backing the proposal.
+          items:
+            type: object
+            properties:
+              evidence_snippet: { type: string }
+              source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }
+              source_id: { type: [string, 'null'], format: uuid }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        result_entity_type: { type: [string, 'null'] }
+        result_entity_id: { type: [string, 'null'], format: uuid }
+        approval_token: { type: [string, 'null'], description: 'Signed single-use token minted on approve (schema ApprovalToken, serialized as compact JWS); authorizes exactly the downstream 🟡 operation it is bound to.' }
+        decided_by: { type: [string, 'null'], format: uuid }
+        decided_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+
+    ApproveRequest:
+      type: object
+      description: |
+        Approve a staged 🟡 action. **Who may approve:** the principal must hold the RBAC required
+        to perform the action on the target (≥ the on_behalf_of human's authority for that effect);
+        a lower-privilege user cannot approve an action they could not themselves perform. **Edit
+        path:** if `edited_payload` is supplied, the edited effect RE-ENTERS the admission gate from
+        scratch (re-tiered, re-RBAC-checked, new diff_hash) before a token is minted — an edit can
+        never escalate a 🟢 staged note into an external send without re-gating (ADR-0036).
+      properties:
+        edited_payload:
+          type: object
+          additionalProperties: true
+          description: Optional edits — the edited payload is re-admitted, then it executes (edit-then-send).
+
+    ApprovalListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Approval' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Optimistic concurrency ----
+    RowVersion:
+      type: integer
+      format: int64
+      readOnly: true
+      minimum: 1
+      description: |
+        Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+        Echoed back as the `version` field on every mutable entity. To make a write conditional,
+        send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+        (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+        not only overlay mode.
+
+    # ---- Approval token (ADR-0036) ----
+    ApprovalToken:
+      type: object
+      description: |
+        The claims carried by the signed `X-Approval-Token` (serialized as a compact JWS; the wire
+        value is the string). It is single-use and bound to one effect — it is NOT a bare opaque
+        string. The server verifies the signature, that `jti` has not been consumed, that `exp` is
+        in the future, and that `workspace_id`/`passport_id`/`tool`/`diff_hash` match the operation
+        being executed; any mismatch → `403 code: approval_token_invalid`.
+      required: [jti, approval_id, workspace_id, tool, diff_hash, exp, single_use]
+      properties:
+        jti: { type: string, description: Unique token id; recorded as consumed on first use (replay → 403). }
+        approval_id: { type: string, format: uuid, description: The Approval this token authorizes. }
+        workspace_id: { type: string, format: uuid }
+        passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport the token was minted for; null for a human-minted token. }
+        on_behalf_of: { type: [string, 'null'], format: uuid }
+        tool: { type: string, description: 'The exact 🟡 operation authorized (e.g. send_email, advance_deal). A token for one tool cannot authorize another.' }
+        diff_hash: { type: string, description: Hash of the approved effect; binds the token to that specific staged change. }
+        target_version: { type: [integer, 'null'], description: Row version the diff was staged against; re-checked at execute (see Approval.target_version). }
+        exp: { type: string, format: date-time, description: Expiry (short TTL — minutes, not hours). }
+        single_use: { type: boolean, default: true }
+
+    # ---- Partner (A41/ADR-0032) ----
+    Partner:
+      type: object
+      description: |
+        First-class partner state as a 1:1 extension of an organization (an org IS a partner iff it
+        has a `partner` row + classification='partner'). Company identity is never duplicated.
+      required: [organization_id, partner_role, cert_status, created_at, updated_at]
+      properties:
+        organization_id: { type: string, format: uuid, description: The org this partner record extends (PK = FK). }
+        partner_role: { type: string, enum: [hosting, consulting, strategic], description: Functional role (A44/ADR-0034); implementation + dev are Gradion's turf. }
+        cert_status: { type: string, enum: [prospect, in_certification, certified, suspended, churned] }
+        margin_tier: { type: [string, 'null'], description: Scenario-C margin tier (business/14-partner-program.md). }
+        gate_metrics: { type: [object, 'null'], additionalProperties: true, description: Program gate metrics (certified seats, CSAT, ...). }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    UpsertPartnerRequest:
+      type: object
+      required: [partner_role]
+      properties:
+        partner_role: { type: string, enum: [hosting, consulting, strategic] }
+        cert_status: { type: string, enum: [prospect, in_certification, certified, suspended, churned] }
+        margin_tier: { type: [string, 'null'] }
+        gate_metrics: { type: [object, 'null'], additionalProperties: true }
+
+    # ---- Per-purpose consent (A22/ADR-0011) ----
+    ConsentPurpose:
+      type: object
+      required: [id, workspace_id, key, label, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        key: { type: string, description: 'Stable machine key (e.g. transactional, marketing_email, profiling). Referenced by send_email.consent_purpose.' }
+        label: { type: string }
+        requires_double_opt_in: { type: boolean, default: false, description: 'When true, a grant is only effective after a confirmed DOI event (German email norm).' }
+        legal_basis: { type: [string, 'null'], enum: [null, consent, contract, legitimate_interest], description: GDPR Art. 6 basis. }
+        created_at: { type: string, format: date-time }
+
+    CreateConsentPurposeRequest:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        requires_double_opt_in: { type: boolean, default: false }
+        legal_basis: { type: [string, 'null'], enum: [null, consent, contract, legitimate_interest] }
+
+    PersonConsentState:
+      type: object
+      description: A person's current consent for one purpose.
+      required: [purpose_id, state]
+      properties:
+        purpose_id: { type: string, format: uuid }
+        purpose_key: { type: [string, 'null'] }
+        state: { type: string, enum: [unknown, granted, withdrawn] }
+        basis: { type: [string, 'null'] }
+        double_opt_in_confirmed_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: [string, 'null'], format: date-time }
+
+    ConsentEvent:
+      type: object
+      description: An append-only proof row (Art. 7 demonstrability). Never updated or deleted.
+      required: [id, purpose_id, new_state, occurred_at]
+      properties:
+        id: { type: string, format: uuid }
+        purpose_id: { type: string, format: uuid }
+        new_state: { type: string, enum: [granted, withdrawn], description: Proof rows record only transitions to granted/withdrawn (never to unknown). }
+        basis: { type: [string, 'null'] }
+        source: { type: [string, 'null'], description: 'How consent was captured (e.g. webform, import, double_opt_in).' }
+        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_id: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+
+    RecordConsentRequest:
+      type: object
+      required: [purpose_id, new_state]
+      properties:
+        purpose_id: { type: string, format: uuid }
+        new_state: { type: string, enum: [granted, withdrawn] }
+        basis: { type: [string, 'null'] }
+        source: { type: [string, 'null'] }
+        double_opt_in_token: { type: [string, 'null'], description: Required to make a grant effective when the purpose has requires_double_opt_in=true. }
+
+    RecordGrant:
+      type: object
+      description: A manual per-record share (A52/ADR-0039) — widens own/team/all base scope for one record.
+      required: [id, record_type, record_id, subject_type, subject_id, access, granted_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        record_type: { type: string, enum: [deal, person, organization, lead] }
+        record_id: { type: string, format: uuid }
+        subject_type: { type: string, enum: [user, team] }
+        subject_id: { type: string, format: uuid, description: 'app_user(id) or team(id) per subject_type.' }
+        access: { type: string, enum: [read, write], description: "'write' also satisfies 'read'." }
+        granted_by: { type: string, format: uuid }
+        reason: { type: [string, 'null'], description: 'Accountability/lawful-basis note surfaced in the audit row.' }
+        expires_at: { type: [string, 'null'], format: date-time, description: 'Optional TTL; an expired grant matches no rows.' }
+        created_at: { type: string, format: date-time }
+        version: { type: integer, format: int64 }
+
+    CreateRecordGrantRequest:
+      type: object
+      required: [record_type, record_id, subject_type, subject_id, access]
+      properties:
+        record_type: { type: string, enum: [deal, person, organization, lead] }
+        record_id: { type: string, format: uuid }
+        subject_type: { type: string, enum: [user, team] }
+        subject_id: { type: string, format: uuid }
+        access: { type: string, enum: [read, write] }
+        reason: { type: [string, 'null'] }
+        expires_at: { type: [string, 'null'], format: date-time }
+
+    DataSubjectRequest:
+      type: object
+      description: A GDPR data-subject request (Art. 15/16/17) tracked to completion (B-E11.30; data-model §12.5).
+      required: [id, kind, subject_ref, status, due_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [access, rectify, erasure] }
+        subject_ref: { type: string, description: 'The data subject — a person id or external identifier.' }
+        status: { type: string, enum: [open, in_progress, fulfilled, rejected] }
+        due_at: { type: string, format: date-time, description: 'Statutory deadline (e.g. 30 days).' }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        resolution: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        version: { type: integer, format: int64 }
+
+    CreateDataSubjectRequest:
+      type: object
+      required: [kind, subject_ref, due_at]
+      properties:
+        kind: { type: string, enum: [access, rectify, erasure] }
+        subject_ref: { type: string }
+        due_at: { type: string, format: date-time }
+        assignee_id: { type: [string, 'null'], format: uuid }
+
+    UpdateDataSubjectRequest:
+      type: object
+      properties:
+        status: { type: string, enum: [open, in_progress, fulfilled, rejected] }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        resolution: { type: [string, 'null'] }

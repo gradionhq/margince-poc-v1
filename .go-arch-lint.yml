@@ -1,0 +1,78 @@
+# Layer C of the boundary stack (ADR-0014 §3): the seven-module DAG from
+# architecture/01 declared once; `go-arch-lint check` exits 1 on any
+# forbidden edge — a hard `make check` gate.
+version: 3
+workdir: .
+
+allow:
+  depOnAnyVendor: false
+  # deepScan's call-graph heuristic misreads the generated chi wiring
+  # (HandlerWithOptions) as a forbidden edge; the import-graph linter is
+  # the load-bearing gate and stays on.
+  deepScan: false
+
+exclude:
+  - tools
+
+vendors:
+  pgx:    { in: github.com/jackc/** }
+  chi:    { in: github.com/go-chi/** }
+  oapi:   { in: github.com/oapi-codegen/** }
+  redis:  { in: github.com/redis/** }
+  xcrypto: { in: golang.org/x/crypto/** }
+  yaml:   { in: gopkg.in/** }
+
+components:
+  kernel:      { in: kernel/** }
+  seams:       { in: [crmctx, sor, mcp, connector, workflow, model, retrieval, jurisdiction] }
+  contracts:   { in: crm-contracts }
+  core:        { in: [crm-core, crm-core/**] }
+  auth:        { in: [crm-auth, crm-auth/**] }
+  search:      { in: [crm-search, crm-search/**] }
+  ai:          { in: [crm-ai, crm-ai/**] }
+  capture:     { in: [crm-capture, crm-capture/**] }
+  agents:      { in: [crm-agents, crm-agents/**] }
+  approvals:   { in: [crm-approvals, crm-approvals/**] }
+  platform:    { in: [internal, internal/**] }
+  migrations:  { in: migrations }
+  web:         { in: web }
+  edge:        { in: cmd/** }
+  root:        { in: . }
+
+commonComponents:
+  - kernel
+  - seams
+
+deps:
+  # The generated contract package carries its transport runtime; it
+  # imports no project component.
+  contracts:
+    canUse: [chi, oapi]
+  core:
+    mayDependOn: [core, contracts, platform, migrations]
+    canUse: [pgx, oapi]
+  auth:
+    mayDependOn: [auth, contracts, platform]
+    canUse: [pgx, oapi, xcrypto]
+  search:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx]
+  ai:
+    mayDependOn: [contracts, platform]
+  capture:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx]
+  agents:
+    mayDependOn: [auth, contracts, platform]
+  approvals:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
+  platform:
+    mayDependOn: [platform, contracts, core, auth, approvals, migrations, web]
+    canUse: [pgx, chi, oapi, redis]
+  migrations:
+    mayDependOn: [platform]
+    canUse: [pgx]
+  edge:
+    mayDependOn: [core, auth, search, ai, capture, agents, approvals, contracts, platform, migrations]
+    canUse: [pgx, redis]

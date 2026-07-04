@@ -1,0 +1,227 @@
+package crmauth
+
+// Agent Seat Passports (data-model §2.7, ADR-0043): a human binds their
+// agent to their OWN identity with a scoped, expiring, revocable bearer
+// token. The agent's authority is structurally ≤ the human's — every
+// agent call carries the granting human's RBAC and row scope, further
+// narrowed by the passport's verb scopes. This is the local/A1 issuance
+// path; the hosted A2 surface adds OAuth2 + PKCE + DCR on top (the
+// contract gap is recorded in fable feedback/04).
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/fable-poc/crmctx"
+	"github.com/gradionhq/fable-poc/internal/pg"
+	"github.com/gradionhq/fable-poc/kernel/errs"
+	"github.com/gradionhq/fable-poc/kernel/ids"
+)
+
+// passportTokenPrefix makes an agent bearer token visually and
+// programmatically distinguishable from a session cookie value, so a
+// leaked string is identifiable and the middleware can route it without
+// probing both tables.
+const passportTokenPrefix = "mgp_"
+
+const (
+	defaultPassportTTL = 30 * 24 * time.Hour
+	maxPassportTTL     = 90 * 24 * time.Hour
+)
+
+// validScopes is the closed verb vocabulary (interfaces.md §2).
+var validScopes = map[crmctx.Scope]bool{
+	crmctx.ScopeRead: true, crmctx.ScopeDraft: true, crmctx.ScopeWrite: true,
+	crmctx.ScopeSend: true, crmctx.ScopeEnrich: true,
+}
+
+// IssuePassportInput — the granting human comes from the session, never
+// from the request: a passport is always on_behalf_of its issuer.
+type IssuePassportInput struct {
+	Label  *string
+	Scopes []string
+	TTL    *time.Duration
+}
+
+// IssuedPassport carries the raw token exactly once.
+type IssuedPassport struct {
+	ID        ids.UUID
+	Token     string
+	Scopes    []string
+	ExpiresAt time.Time
+}
+
+// InvalidScopeError maps to 422.
+type InvalidScopeError struct{ Scope string }
+
+func (e *InvalidScopeError) Error() string {
+	return "scope " + e.Scope + " is not one of read|draft|write|send|enrich"
+}
+
+// IssuePassport mints a passport for the authenticated human in id.
+func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePassportInput) (IssuedPassport, error) {
+	if len(in.Scopes) == 0 {
+		return IssuedPassport{}, &InvalidScopeError{Scope: "(none)"}
+	}
+	for _, sc := range in.Scopes {
+		if !validScopes[crmctx.Scope(sc)] {
+			return IssuedPassport{}, &InvalidScopeError{Scope: sc}
+		}
+	}
+	ttl := defaultPassportTTL
+	if in.TTL != nil {
+		ttl = *in.TTL
+		if ttl <= 0 || ttl > maxPassportTTL {
+			return IssuedPassport{}, &InvalidScopeError{Scope: fmt.Sprintf("ttl %s (max %s)", ttl, maxPassportTTL)}
+		}
+	}
+
+	raw, _, err := mintSessionToken()
+	if err != nil {
+		return IssuedPassport{}, err
+	}
+	// The stored hash covers the PREFIXED token — the lookup hashes what
+	// the wire carries, so there is exactly one token spelling.
+	token := passportTokenPrefix + raw
+	out := IssuedPassport{Token: token, Scopes: in.Scopes}
+
+	err = pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+			 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval)
+			 RETURNING id, expires_at`,
+			id.WorkspaceID, id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String()).
+			Scan(&out.ID, &out.ExpiresAt)
+		if err != nil {
+			return err
+		}
+		// Granting an agent standing authority is itself an audited fact.
+		_, err = tx.Exec(ctx,
+			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id, evidence)
+			 VALUES ($1, 'human', $2, 'create', 'passport', $3,
+			         jsonb_build_object('scopes', $4::text[], 'label', $5::text))`,
+			id.WorkspaceID, "human:"+id.UserID.String(), out.ID, in.Scopes, in.Label)
+		return err
+	})
+	if err != nil {
+		return IssuedPassport{}, err
+	}
+	return out, nil
+}
+
+// RevokePassport is the kill switch: enforced at the next token lookup.
+// A user revokes their own; the admin role may revoke anyone's.
+func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.UUID) error {
+	isAdmin := false
+	for _, r := range id.Roles {
+		if r == "admin" {
+			isAdmin = true
+		}
+	}
+	return pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var onBehalfOf ids.UUID
+		var revokedAt *time.Time
+		err := tx.QueryRow(ctx,
+			`SELECT on_behalf_of, revoked_at FROM passport WHERE id = $1`, passportID).
+			Scan(&onBehalfOf, &revokedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errs.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		// Another user's passport reads as absent, not forbidden —
+		// existence-hiding matches the row-scope convention.
+		if onBehalfOf != id.UserID && !isAdmin {
+			return errs.ErrNotFound
+		}
+		if revokedAt != nil {
+			return nil // idempotent
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE passport SET revoked_at = now() WHERE id = $1`, passportID); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx,
+			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
+			 VALUES ($1, 'human', $2, 'archive', 'passport', $3)`,
+			id.WorkspaceID, "human:"+id.UserID.String(), passportID)
+		return err
+	})
+}
+
+// AgentIdentity is the resolved principal of a passport call: the
+// passport's grants layered over the granting human's live RBAC.
+type AgentIdentity struct {
+	PassportID  ids.UUID
+	WorkspaceID ids.UUID
+	OnBehalfOf  ids.UUID
+	SeatType    string
+	Scopes      crmctx.ScopeSet
+	Roles       []string
+	Teams       []ids.UUID
+	Permissions crmctx.Permissions
+}
+
+// Principal renders the crmctx shape every store entry point enforces. The
+// seat is the granting human's ("agent ≤ human", A62/ADR-0047): an agent
+// acting for a read seat inherits that read-only ceiling at the gate.
+func (a AgentIdentity) Principal() crmctx.Principal {
+	return crmctx.Principal{
+		Type:        crmctx.PrincipalAgent,
+		ID:          "agent:" + a.PassportID.String(),
+		UserID:      a.OnBehalfOf,
+		PassportID:  a.PassportID,
+		OnBehalfOf:  a.OnBehalfOf,
+		TeamIDs:     a.Teams,
+		SeatType:    crmctx.SeatType(a.SeatType),
+		Scopes:      a.Scopes,
+		Permissions: a.Permissions,
+	}
+}
+
+// AuthenticateAgent resolves a bearer token to its AgentIdentity. The
+// human's RBAC is loaded LIVE at every call — demoting or deactivating
+// the human instantly narrows every passport they granted ("agent ≤
+// human" is a runtime property, not a snapshot at mint time).
+func (s *Service) AuthenticateAgent(ctx context.Context, rawToken string) (AgentIdentity, error) {
+	if !strings.HasPrefix(rawToken, passportTokenPrefix) {
+		return AgentIdentity{}, errs.ErrNotFound
+	}
+
+	var a AgentIdentity
+	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var scopes []string
+		err := tx.QueryRow(ctx,
+			`SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
+			 FROM passport p
+			 JOIN app_user u ON u.id = p.on_behalf_of
+			 WHERE p.token_hash = $1
+			   AND p.revoked_at IS NULL
+			   AND now() < p.expires_at
+			   AND u.status = 'active' AND u.archived_at IS NULL`,
+			hashToken(rawToken)).Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errs.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		a.Scopes = crmctx.NewScopeSet()
+		for _, sc := range scopes {
+			a.Scopes[crmctx.Scope(sc)] = struct{}{}
+		}
+		var loadErr error
+		a.Roles, a.Teams, a.Permissions, loadErr = loadGrants(ctx, tx, a.OnBehalfOf)
+		return loadErr
+	})
+	if err != nil {
+		return AgentIdentity{}, err
+	}
+	return a, nil
+}

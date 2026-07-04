@@ -1,0 +1,6 @@
+// Reserved for the CRM↔Dispact↔@gradion/contracts seam (ADR-0014 §1).
+// The seven crm-* modules are fenced by internal/ + depguard + go-arch-lint,
+// never by workspace membership.
+go 1.26.0
+
+use .

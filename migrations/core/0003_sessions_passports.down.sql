@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS passport;
+DROP TABLE IF EXISTS session;

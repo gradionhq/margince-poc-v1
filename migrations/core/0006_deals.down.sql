@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS fx_rate;
+DROP TABLE IF EXISTS deal_stage_history;
+DROP TABLE IF EXISTS deal;
+DROP TABLE IF EXISTS stage;
+DROP TABLE IF EXISTS pipeline;
