@@ -1,52 +1,52 @@
 # Margince
 
-**Margince is an AI-native, source-available CRM — the CRM your AI agents
-run, and that you actually own.**
+**A CRM your AI agents can actually work in. And it's yours: you get
+the source.**
 
-Today's CRMs were built for an era of manual upkeep, with AI bolted onto
-a data model never designed for it: pricing that punishes growth,
-rigidity you can't extend without consultants, and "AI" that summarizes
-what you already typed. Margince takes the opposite path — a fast,
-opinionated core for the 80% every revenue team needs, and a governed
-agent surface so the AI you already pay for (Claude, Cursor, Copilot,
-your own) works *inside* your customer data instead of beside it.
+CRMs got stuck. You pay per seat, per contact, per feature. You can't
+change anything without consultants. And the "AI" is a sidebar that
+summarizes what you typed in yourself.
 
-Three ideas carry the product:
+We hit that wall ourselves, so we're building Margince: a fast,
+opinionated core for the 80% every sales team needs, plus a governed
+agent surface so the AI you already pay for (Claude, Copilot, your own)
+works inside your customer data, not next to it.
 
-- **Your agents do the work, inside the system.** Agents connect over
-  MCP (and the same REST contract humans use) through governed, audited
-  tools. Every agent action is tiered: 🟢 reversible actions run and are
-  logged; 🟡 consequential ones — sending, archiving, merging, closing a
-  deal — are **staged for human approval** before anything happens. An
-  agent can never exceed the authority of the human it acts for, and can
-  never approve its own work.
-- **It adapts through real custom development, not config screens.** You
-  get the source. A custom field, object, or workflow is a real,
-  reviewed, tested engineering change in your own copy — made safe by
-  exhaustive types, a full test suite, documented extension seams, and a
-  fork-owned `custom/` boundary upstream never writes to. No metadata
-  engine, no config ceiling, no lock-in.
-- **It's fast, and it's yours.** Sub-100ms interactions as a design
-  budget. Runs as SaaS, on your own servers, or delivered as source —
-  including fully local LLM inference for teams whose data can't leave.
+Three things matter:
 
-Margince is built by [Gradion](https://gradion.com) and licensed
-**BUSL-1.1**. Gradion is its own first customer.
+**Your agents do the real work.** An agent connects over MCP or plain
+REST and gets audited tools. Every action has a risk tier. 🟢 actions
+(reading, drafting, normal updates) just run and get logged. 🟡 actions
+(sending mail, archiving, merging, closing a deal) stop and wait for a
+human to approve them. An agent never gets more rights than the human
+behind it, and it can never approve its own actions. Punkt.
+
+**You change it by changing the code.** No config screens, no metadata
+engine, no ceiling. Need a custom field or a workflow? That's a normal
+code change in your own copy, protected by types, tests, and extension
+seams upstream never touches. Made by you, by a partner, or by us.
+
+**It runs where you want.** SaaS, your own servers, or fully local
+including the LLM, for teams whose data can't leave the building.
+Sub-100ms interactions is the budget, not the marketing line.
+
+Built by [Gradion](https://gradion.com), licensed BUSL-1.1. We replace
+our own HubSpot with it first. If it can't carry our pipeline, it
+doesn't ship.
 
 ---
 
 ## This repository
 
-This is the **build repo** — the running Go software. Margince is built
-**contract-first** from a separate specification repository (the product
-narrative, architecture blueprint, OpenAPI contract, data model, and a
-701-leaf-ticket work breakdown); when code and spec disagree, the spec
-wins. The spec lives at `../margince/specs/` (sibling checkout); start at
-its `spec/README.md`.
+This is the build repo: the running Go code. The full specification
+(product, architecture, OpenAPI contract, data model, a ~700-ticket
+work breakdown) lives in a separate spec repo at `../margince/specs/`.
+We build contract-first, and when code and spec disagree, the spec
+wins.
 
-Current progress, in-flight work, and the exact session-pickup point
-live in **[STATUS.md](STATUS.md)** — read it first when resuming work.
-The binding engineering rules are in [AGENTS.md](AGENTS.md).
+Progress and the pickup point live in **[STATUS.md](STATUS.md)**;
+the binding engineering rules in [AGENTS.md](AGENTS.md). Everything
+below this line is for people (and agents) working on the code.
 
 ## Quick start
 
