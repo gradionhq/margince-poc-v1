@@ -19,6 +19,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 
@@ -34,6 +35,8 @@ const (
 	assumedMeetingDuration = time.Hour
 	maxProposedSlots       = 20
 	maxAvailabilityWindow  = 31 * 24 * time.Hour
+	minSlotDuration        = 15 * time.Minute
+	maxSlotDuration        = 8 * time.Hour
 )
 
 type slot struct {
@@ -53,15 +56,37 @@ func (s *Store) Availability(ctx context.Context, host ids.UUID, from, to time.T
 	if to.Sub(from) > maxAvailabilityWindow {
 		return nil, &RequiredFieldError{Field: "window (at most 31 days)"}
 	}
+	if duration < minSlotDuration || duration > maxSlotDuration {
+		return nil, &RequiredFieldError{Field: "duration_minutes (15 minutes to 8 hours)"}
+	}
+
+	// The busy read is a read of the host's meetings and carries the
+	// activity row scope: a caller sees only the busy blocks whose
+	// linked records their timeline would show. A hidden meeting can
+	// still surface as slot_taken at booking time — that reveals one
+	// bit at one attempted slot, not another rep's calendar.
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	hostPos := arg(host)
+	fromPos := arg(from.Add(-assumedMeetingDuration))
+	toPos := arg(to)
+	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope == "" {
+		scope = "TRUE"
+	}
 
 	var busy []slot
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT occurred_at FROM activity
-			WHERE kind = 'meeting' AND archived_at IS NULL
-			  AND host_user_id = $1
-			  AND occurred_at BETWEEN $2 AND $3
-			ORDER BY occurred_at`, host, from.Add(-assumedMeetingDuration), to)
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT a.occurred_at FROM activity a
+			WHERE a.kind = 'meeting' AND a.archived_at IS NULL
+			  AND a.host_user_id = $%d
+			  AND a.occurred_at BETWEEN $%d AND $%d
+			  AND %s
+			ORDER BY a.occurred_at`, hostPos, fromPos, toPos, scope), args...)
 		if err != nil {
 			return err
 		}
@@ -119,19 +144,35 @@ type BookMeetingInput struct {
 // linked records' timelines, and a taken slot answers slot_taken
 // instead of double-booking the host.
 func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontracts.Activity, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	// Booking writes onto the host's calendar; a caller may commit their
+	// OWN slots, and only an unbounded (admin) scope may book on behalf
+	// of another host — there is no narrower calendar-delegation grant
+	// yet (feedback/09).
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
+	}
+	if in.Host != actor.UserID && !auth.Unbounded(actor) {
+		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
+	}
 	if !in.End.After(in.Start) {
 		return crmcontracts.Activity{}, &RequiredFieldError{Field: "end (must follow start)"}
 	}
-	// The slot check and the write share one transaction path via the
-	// unique-ish probe below; a race lands on the second reader as 409.
+	// The conflict probe reads only the calendar the caller may write
+	// (their own, or any as admin — gated above), and answers one bit.
+	// The slot check and the write share one transaction path; a race
+	// lands on the second reader as 409.
 	var taken bool
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (
 			  SELECT 1 FROM activity
 			  WHERE kind = 'meeting' AND archived_at IS NULL AND host_user_id = $1
-			    AND occurred_at < $3 AND occurred_at + interval '1 hour' > $2)`,
-			in.Host, in.Start, in.End).Scan(&taken)
+			    AND occurred_at < $3 AND occurred_at + $4::interval > $2)`,
+			in.Host, in.Start, in.End, assumedMeetingDuration.String()).Scan(&taken)
 	})
 	if err != nil {
 		return crmcontracts.Activity{}, err
