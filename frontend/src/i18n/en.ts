@@ -36,6 +36,27 @@ export const en = {
 
   "autonomy.auto": "auto-execute",
   "autonomy.confirm": "confirm-first",
+
+  "nav.home": "Home",
+  "nav.contacts": "Contacts",
+  "nav.companies": "Companies",
+  "nav.leads": "Leads",
+  "nav.deals": "Deals",
+  "nav.tasks": "Tasks",
+  "nav.inbox": "Inbox",
+  "nav.reports": "Reports",
+  "nav.ai": "Ask AI",
+  "nav.settings": "Settings",
+  "nav.design": "Design system",
+
+  "shell.railAria": "Primary navigation",
+  "shell.logoAria": "Margince",
+  "shell.search": "Search",
+  "locale.toEnglish": "Switch to English",
+  "locale.toGerman": "Switch to German",
+
+  "screen.pending":
+    "Not built yet — this surface arrives with its build ticket.",
 } as const;
 
 export type MessageKey = keyof typeof en;

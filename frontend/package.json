@@ -12,6 +12,7 @@
     "check": "pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
+    "lucide-react": "^1.23.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

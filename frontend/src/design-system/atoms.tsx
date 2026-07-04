@@ -1,0 +1,236 @@
+import { Search } from "lucide-react";
+import {
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  useEffect,
+} from "react";
+import "./atoms.css";
+
+// The Margince atom library (B-EP09.2 as re-scoped by decisions/0014: our own
+// system, no gw-ui port; atoms are added as screens need them). Copy always
+// arrives through props — callers translate with t(); atoms never hard-code
+// user-facing words.
+
+type ButtonVariant = "primary" | "ghost" | "danger";
+
+export function Button({
+  variant = "ghost",
+  small,
+  className,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  small?: boolean;
+}) {
+  const classes = [
+    "btn",
+    `btn-${variant}`,
+    small ? "btn-sm" : "",
+    className ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return <button type="button" className={classes} {...rest} />;
+}
+
+export function Badge({
+  tone,
+  children,
+}: {
+  tone?: "success" | "warn" | "danger" | "ai" | "accent";
+  children: ReactNode;
+}) {
+  return (
+    <span className={tone ? `badge badge-${tone}` : "badge"}>{children}</span>
+  );
+}
+
+export function Avatar({ name }: { name: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return <span className="avatar">{initials}</span>;
+}
+
+export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input {...props} className={`input ${props.className ?? ""}`.trim()} />
+  );
+}
+
+export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <span className="input-icon">
+      <Search aria-hidden />
+      <input
+        type="search"
+        {...props}
+        className={`input ${props.className ?? ""}`.trim()}
+      />
+    </span>
+  );
+}
+
+export function Card({
+  inset,
+  children,
+  className,
+}: {
+  inset?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={["card", inset ? "card-inset" : "", className ?? ""]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
+export function Skeleton({
+  width,
+  height = 14,
+}: {
+  width: number | string;
+  height?: number;
+}) {
+  return <div className="skeleton" style={{ width, height }} />;
+}
+
+export function EmptyState({ children }: { children: ReactNode }) {
+  return <div className="card card-inset empty">{children}</div>;
+}
+
+export function SectionHeader({ title, sub }: { title: string; sub?: string }) {
+  return (
+    <div className="section-header">
+      <h2>{title}</h2>
+      {sub && <span className="sub">{sub}</span>}
+    </div>
+  );
+}
+
+export function SegmentedControl<Option extends string>({
+  options,
+  value,
+  onChange,
+  labels,
+}: {
+  options: readonly Option[];
+  value: Option;
+  onChange: (next: Option) => void;
+  labels: Record<Option, string>;
+}) {
+  return (
+    <fieldset className="segmented">
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={option === value}
+          onClick={() => onChange(option)}
+        >
+          {labels[option]}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
+export function Kbd({ children }: { children: ReactNode }) {
+  return <kbd className="kbd">{children}</kbd>;
+}
+
+export function Modal({
+  open,
+  onClose,
+  labelledBy,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  labelledBy: string;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) {
+    return null;
+  }
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
+    <div
+      className="overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={labelledBy}
+        className="modal"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export function DataTable<Row>({
+  columns,
+  rows,
+  rowKey,
+  onRowClick,
+}: {
+  columns: { key: string; header: string; render: (row: Row) => ReactNode }[];
+  rows: Row[];
+  rowKey: (row: Row) => string;
+  onRowClick?: (row: Row) => void;
+}) {
+  return (
+    <table className="table">
+      <thead>
+        <tr>
+          {columns.map((column) => (
+            <th key={column.key}>{column.header}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr
+            key={rowKey(row)}
+            className={onRowClick ? "rowlink" : undefined}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+          >
+            {columns.map((column) => (
+              <td key={column.key}>{column.render(row)}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}

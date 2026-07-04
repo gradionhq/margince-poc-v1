@@ -1,0 +1,197 @@
+import { Moon, Search, Sun, UserRound } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
+import { useLocale, useT } from "../i18n";
+import { NAV, RAIL_LESS_SCREENS } from "./nav";
+import { navigate, type Route, routeHash, useRoute } from "./router";
+import "./shell.css";
+
+// The app shell (B-EP09.4): WorkspaceRail + top bar. The top bar shows only
+// what is true for the current state — actions render from live data or not
+// at all (§2b, the cold-start rule).
+
+export type ShellCounts = Partial<Record<string, number>>;
+
+function Logomark() {
+  // The delivered Margin-rule "M" (brand kit geometry, same as the mockups).
+  return (
+    <svg
+      viewBox="0 0 299 230"
+      width="24"
+      height="18.5"
+      fill="none"
+      aria-hidden
+      role="presentation"
+    >
+      <path
+        d="M141.688 223.911V212.017C141.688 210.362 142.722 209.259 143.239 208.914L160.821 191.849C166.613 186.47 172.198 193.4 172.198 197.02V223.911C172.198 228.048 168.061 229.427 165.993 229.599H147.376C143.239 229.599 141.86 225.807 141.688 223.911Z"
+        fill="currentColor"
+        fillOpacity=".55"
+      />
+      <path
+        d="M191.312 223.907V164.954C191.312 163.299 192.347 162.196 192.864 161.852L210.446 144.786C216.238 139.408 221.823 146.338 221.823 149.957V223.907C221.823 228.044 217.686 229.423 215.618 229.595H197.001C192.864 229.595 191.485 225.803 191.312 223.907Z"
+        fill="currentColor"
+        fillOpacity=".8"
+      />
+      <path
+        d="M241 223.886V112.704C241 111.049 242.034 109.946 242.551 109.602L260.134 92.5361C265.926 87.1579 271.511 94.0875 271.511 97.7074V223.886C271.511 228.023 267.374 229.402 265.305 229.574H246.688C242.551 229.574 241.172 225.782 241 223.886Z"
+        fill="currentColor"
+        fillOpacity=".55"
+      />
+      <path
+        d="M0 29.4771V213.06C0 232.09 40.8535 237.882 40.8535 212.025V94.636C40.8535 90.9127 44.9906 91.5196 46.0249 92.5675C72.2263 119.114 125.974 173.344 131.352 177.895C136.73 182.445 142.556 179.791 144.797 177.895C187.202 135.49 272.219 50.3694 273.046 49.1283C273.874 47.8872 275.115 48.6112 275.632 49.1283C278.735 52.4035 285.147 59.0573 285.975 59.471C293.732 65.1595 298.386 59.6434 298.386 55.851V9.82615C298.386 0 286.492 0 280.803 0H235.296C228.573 0 228.573 8.27414 230.124 9.82554C233.917 13.9626 241.812 22.4436 243.053 23.271C244.294 24.0984 244.259 24.9948 244.087 25.3395C210.301 58.2637 144.797 116.356 142.729 118.424C140.66 120.493 138.419 119.286 137.557 118.424L31.028 16.0316C15.7209 0.724496 0 20.1688 0 29.4771Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export function WorkspaceRail({
+  route,
+  counts,
+}: {
+  route: Route;
+  counts?: ShellCounts;
+}) {
+  const t = useT();
+  return (
+    <nav className="rail" aria-label={t("shell.railAria")}>
+      <a className="ws" href="#/home" aria-label={t("shell.logoAria")}>
+        <Logomark />
+      </a>
+      {NAV.map((item) => {
+        const count = counts?.[item.screen];
+        const active = route.screen === item.screen;
+        return (
+          <a
+            key={item.screen}
+            className={active ? "navitem active" : "navitem"}
+            href={routeHash({ screen: item.screen })}
+            aria-label={t(item.labelKey)}
+            aria-current={active ? "page" : undefined}
+          >
+            <item.icon aria-hidden />
+            {count !== undefined && count > 0 && (
+              <span className="count">{count}</span>
+            )}
+          </a>
+        );
+      })}
+      <div className="grow" />
+      <a className="user" href="#/settings" aria-label={t("nav.settings")}>
+        <UserRound size={16} aria-hidden />
+      </a>
+    </nav>
+  );
+}
+
+export function TopBar({
+  route,
+  onOpenSearch,
+  actions,
+}: {
+  route: Route;
+  onOpenSearch: () => void;
+  actions?: ReactNode;
+}) {
+  const t = useT();
+  const { locale, setLocale } = useLocale();
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  const navItem = NAV.find((item) => item.screen === route.screen);
+  const title = navItem
+    ? t(navItem.labelKey)
+    : route.screen === "settings"
+      ? t("nav.settings")
+      : route.screen === "design"
+        ? t("nav.design")
+        : route.screen;
+
+  return (
+    <header className="topbar">
+      <span className="crumb">
+        <b>{title}</b>
+        {route.id && <span> · {route.id}</span>}
+      </span>
+      <div className="r">
+        {actions}
+        <button
+          type="button"
+          className="iconbtn searchbar"
+          aria-label={t("shell.search")}
+          onClick={onOpenSearch}
+        >
+          <Search aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="iconbtn"
+          aria-label={
+            locale === "de" ? t("locale.toEnglish") : t("locale.toGerman")
+          }
+          onClick={() => setLocale(locale === "de" ? "en" : "de")}
+        >
+          <span className="t-mono">{locale === "de" ? "EN" : "DE"}</span>
+        </button>
+        <button
+          type="button"
+          className="iconbtn"
+          aria-label={
+            theme === "light" ? t("theme.toDark") : t("theme.toLight")
+          }
+          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+        >
+          {theme === "light" ? <Moon aria-hidden /> : <Sun aria-hidden />}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+export function Shell({
+  children,
+  counts,
+  onOpenSearch,
+  topBarActions,
+}: {
+  children: ReactNode;
+  counts?: ShellCounts;
+  onOpenSearch: () => void;
+  topBarActions?: ReactNode;
+}) {
+  const route = useRoute();
+  const railless = RAIL_LESS_SCREENS.has(route.screen);
+
+  useEffect(() => {
+    document.body.dataset.screen = route.screen;
+  }, [route.screen]);
+
+  if (railless) {
+    return (
+      <div className="app railless">
+        <main className="main">
+          <div className="scroll">{children}</div>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <WorkspaceRail route={route} counts={counts} />
+      <main className="main">
+        <TopBar
+          route={route}
+          onOpenSearch={onOpenSearch}
+          actions={topBarActions}
+        />
+        <div className="scroll">{children}</div>
+      </main>
+    </div>
+  );
+}
+
+export { navigate, useRoute };

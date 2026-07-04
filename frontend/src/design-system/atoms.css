@@ -1,0 +1,227 @@
+/* Atom styles — the Margince-owned vocabulary (foundation v0 mirror).
+ * Colours read tokens only; the conformance gate enforces it. */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+  color: var(--textSecondary);
+}
+.badge-success {
+  background: var(--successBg);
+  color: var(--success);
+}
+.badge-warn {
+  background: var(--warnBg);
+  color: var(--warn);
+}
+.badge-danger {
+  background: var(--dangerBg);
+  color: var(--danger);
+}
+.badge-ai {
+  background: var(--aiLight);
+  color: var(--aiText);
+}
+.badge-accent {
+  background: var(--accentLight);
+  color: var(--accent);
+}
+
+.card {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+}
+.card-inset {
+  background: var(--bgCard);
+  border: 0;
+  box-shadow: none;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--textTertiary);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--borderStrong);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--borderSubtle);
+  color: var(--textContent);
+}
+.table tbody tr {
+  cursor: default;
+}
+.table tbody tr:hover td {
+  background: var(--bgHover);
+}
+.table tbody tr.rowlink {
+  cursor: pointer;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--accentMed);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex: none;
+}
+
+.skeleton {
+  background: var(--bgCard);
+  border-radius: var(--r-sm);
+  animation: ds-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ds-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.empty {
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--textTertiary);
+  font-size: 13px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlayScrim);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+.modal {
+  background: var(--bgElevated);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 22px;
+  width: min(440px, calc(100vw - 40px));
+}
+.modal .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--bgRail);
+  color: var(--textOnAccent);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: 13px;
+  box-shadow: var(--shadow-pop);
+}
+.toast-region {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+
+.segmented {
+  border: 0;
+  margin: 0;
+  display: inline-flex;
+  background: var(--bgCard);
+  border-radius: var(--r-sm);
+  padding: 3px;
+  gap: 2px;
+}
+.segmented button {
+  font-family: var(--f-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 0;
+  background: transparent;
+  color: var(--textSecondary);
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.segmented button[aria-pressed="true"] {
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+  box-shadow: var(--shadow-card);
+}
+
+.kbd {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--textSecondary);
+  background: var(--bgCard);
+  border: 1px solid var(--borderStrong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 24px 0 12px;
+}
+.section-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.section-header .sub {
+  font-size: 13px;
+  color: var(--textTertiary);
+}
+
+.input-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.input-icon svg {
+  position: absolute;
+  left: 9px;
+  width: 15px;
+  height: 15px;
+  color: var(--textTertiary);
+  pointer-events: none;
+}
+.input-icon .input {
+  padding-left: 30px;
+}

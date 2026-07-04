@@ -34,6 +34,20 @@
   --away: #fbbf24;
   --dnd: #ef4444;
   --bgRail: #13231d;
+  /* §2b rail + brand chip + scrim — the rail is deliberately unthemed
+   * (white-alpha icons on the dark green field in BOTH themes), and the
+   * workspace chip stays brand emerald even when the dark accent lightens. */
+  --railTop: #183028;
+  --railBottom: #0e1b16;
+  --overlayScrim: rgba(19, 35, 29, 0.4);
+  --accentBrand: #0b7a53;
+  --wsChipTop: #0f8c5f;
+  --wsChipBottom: #0a6042;
+  --railIcon: rgba(255, 255, 255, 0.45);
+  --railIconHover: rgba(255, 255, 255, 0.85);
+  --railIconActive: #fff;
+  --railHover: rgba(255, 255, 255, 0.1);
+  --railActive: rgba(255, 255, 255, 0.16);
 
   --ai: #5b61d6;
   --aiLight: rgba(91, 97, 214, 0.08);

@@ -38,4 +38,25 @@ export const de = {
 
   "autonomy.auto": "automatisch",
   "autonomy.confirm": "erst bestätigen",
+
+  "nav.home": "Start",
+  "nav.contacts": "Kontakte",
+  "nav.companies": "Firmen",
+  "nav.leads": "Leads",
+  "nav.deals": "Deals",
+  "nav.tasks": "Aufgaben",
+  "nav.inbox": "Eingang",
+  "nav.reports": "Berichte",
+  "nav.ai": "KI fragen",
+  "nav.settings": "Einstellungen",
+  "nav.design": "Designsystem",
+
+  "shell.railAria": "Hauptnavigation",
+  "shell.logoAria": "Margince",
+  "shell.search": "Suche",
+  "locale.toEnglish": "Auf Englisch umschalten",
+  "locale.toGerman": "Auf Deutsch umschalten",
+
+  "screen.pending":
+    "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 } as const satisfies Record<MessageKey, string>;
