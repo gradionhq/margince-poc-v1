@@ -84,6 +84,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		go runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger)
 	}
 
+	workflows := compose.NewWorkflowEngine(pool)
+	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
+	go runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger)
+
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", *redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
 	// the next boot — shutdown loses no events.
