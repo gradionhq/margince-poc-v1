@@ -32,6 +32,7 @@ type LogActivityInput struct {
 	Direction    *string
 	DueAt        *time.Time
 	AssigneeID   *ids.UUID
+	HostUserID   *ids.UUID
 	SourceSystem *string
 	SourceID     *string
 	Links        []ActivityLinkInput
@@ -89,10 +90,10 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 		id := ids.NewV7()
 		_, err := tx.Exec(ctx,
 			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
-			                       due_at, assignee_id, source_system, source_id, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			                       due_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
-			in.DueAt, in.AssigneeID, in.SourceSystem, in.SourceID, in.Source, by)
+			in.DueAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by)
 		if err != nil {
 			if storekit.IsUniqueViolation(err) {
 				return apperrors.ErrConflict
