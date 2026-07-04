@@ -293,4 +293,21 @@ future work in this repo (mirrored in [AGENTS.md](AGENTS.md)):
 
 ## License
 
-BUSL-1.1 — see the spec repo's `business/` area for the licensing model.
+**Business Source License 1.1** (`BUSL-1.1`) — see [LICENSE](LICENSE). Licensor:
+Gradion. Source-available, **not** OSI open source: the full source is public and
+free to read, run, and modify.
+
+- **Free** for your own internal production use up to **10 Seats** (a Seat is an
+  identified person with credentials; AI agents, service accounts, and external
+  data subjects are **not** Seats). From the 11th Seat a commercial subscription
+  applies, self-host or partner-hosted alike.
+- Hosting or reselling it as a service to third parties requires an **Authorized
+  Hosting Partner** agreement.
+- **Every release converts to Apache 2.0 on its Change Date — two years after it
+  ships** (BUSL body caps this at four years; we hold ours to two, A37/ADR-0029).
+
+The Additional Use Grant fills only BUSL's parameter fields; the license body is
+the verbatim canonical text, so SPDX/GitHub detect it as `BUSL-1.1`. The full
+model, rationale, and enforcement design live in the spec's
+[`business/12-license.md`](../margince/specs/business/12-license.md). The exact
+Additional Use Grant wording is **provisional pending counsel** (12-license.md §10).
