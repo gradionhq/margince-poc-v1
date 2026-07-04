@@ -14,29 +14,31 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// auditOnlyWrites are the ratified audit-without-event functions.
+// auditOnlyWrites are the ratified audit-without-event functions. Every
+// entry names the feedback file that carries its spec question; an
+// entry whose filing vanished (resolved or never written) fails the
+// test, so a waiver cannot outlive its justification.
 var auditOnlyWrites = map[string]string{
-	// TEMPORARY: the spec now defines pipeline.*/stage.* events
-	// (events.md §5.3b) — pipeline/stage mutations must emit them and
-	// this entry must be removed with that change (STATUS.md pickup item).
-	"createPipelineTx": "pipeline config emission pending (events.md §5.3b)",
-	// The events.md closed catalog defines no list.*/tag.* types (filed
-	// in feedback/) — organizational metadata rides the audit-only lane
-	// until the spec adds them.
-	"CreateList":  "no list.* event types in the events.md closed catalog",
-	"ArchiveList": "no list.* event types in the events.md closed catalog",
-	"AddMember":   "no list.* event types in the events.md closed catalog",
-	"CreateTag":   "no tag.* event types in the events.md closed catalog",
-	"ArchiveTag":  "no tag.* event types in the events.md closed catalog",
-	"ApplyTag":    "no tag.* event types in the events.md closed catalog",
+	"CreateList":  "feedback/07-list-tag-events-missing-from-catalog.md",
+	"ArchiveList": "feedback/07-list-tag-events-missing-from-catalog.md",
+	"AddMember":   "feedback/07-list-tag-events-missing-from-catalog.md",
+	"CreateTag":   "feedback/07-list-tag-events-missing-from-catalog.md",
+	"ArchiveTag":  "feedback/07-list-tag-events-missing-from-catalog.md",
+	"ApplyTag":    "feedback/07-list-tag-events-missing-from-catalog.md",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
+	for fn, filing := range auditOnlyWrites {
+		if _, err := os.Stat(filepath.Join("..", filing)); err != nil {
+			t.Errorf("auditOnlyWrites[%s] cites %s, which does not exist — a waiver cannot outlive its filing", fn, filing)
+		}
+	}
 	fset := token.NewFileSet()
 	err := filepath.WalkDir("internal/modules", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

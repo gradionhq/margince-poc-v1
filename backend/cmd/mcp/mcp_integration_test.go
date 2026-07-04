@@ -165,7 +165,10 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, admin.WorkspaceID)
-	seedCtx := principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
+	// The seed emits pipeline.created, and every emission needs the
+	// correlation the HTTP layer normally mints.
+	seedCtx := principal.WithCorrelationID(
+		principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"}), ids.NewV7())
 	if err := dealsHandlers.SeedWorkspaceDefaults(seedCtx); err != nil {
 		t.Fatal(err)
 	}

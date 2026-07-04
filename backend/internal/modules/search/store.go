@@ -12,6 +12,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -48,8 +49,6 @@ type Input struct {
 	Cursor string
 }
 
-const defaultLimit = 20
-
 // searchBranches declares one UNION branch per searchable entity: the
 // scoped tables, their display title, and whether the caller's
 // row-scope rides the owner predicate or the activity link walk. A new
@@ -80,10 +79,7 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 	if query == "" {
 		return Page{}, &BadQueryError{Reason: "q is required"}
 	}
-	limit := in.Limit
-	if limit <= 0 {
-		limit = defaultLimit
-	}
+	limit := clampLimit(in.Limit)
 	types := in.Types
 	if len(types) == 0 {
 		for _, b := range searchBranches {
@@ -243,6 +239,15 @@ func knownEntity(t string) bool {
 		}
 	}
 	return false
+}
+
+// clampLimit maps this module's zero-means-unset ints onto the shared
+// CAP-PAGE bounds (default 50, max 200).
+func clampLimit(v int) int {
+	if v <= 0 {
+		return storekit.ClampLimit(nil)
+	}
+	return storekit.ClampLimit(&v)
 }
 
 func contains(list []string, v string) bool {

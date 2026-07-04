@@ -53,8 +53,10 @@ func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 	}
 	defer func() { _ = owner.Close(context.Background()) }()
 
+	// Bootstrap itself stages config events (pipeline.created from the
+	// C5 seed); the write-shape assertion is about the PERSON mutation.
 	rows, err := owner.Query(t.Context(),
-		`SELECT stream, envelope FROM event_outbox ORDER BY seq`)
+		`SELECT stream, envelope FROM event_outbox WHERE envelope->>'type' = 'person.created' ORDER BY seq`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +76,7 @@ func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(all) != 1 {
-		t.Fatalf("one mutation staged %d outbox rows, want exactly 1", len(all))
+		t.Fatalf("one mutation staged %d person.created rows, want exactly 1", len(all))
 	}
 
 	got := all[0]

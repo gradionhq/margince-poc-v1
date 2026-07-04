@@ -28,6 +28,11 @@ vet:
 
 test:
 	$(GO) test ./...
+	# The root fitness tests scan files OUTSIDE their package (WalkDir
+	# over internal/modules, schema introspection), which Go's test
+	# cache cannot key — run them uncached so a new module can never
+	# ride a stale green.
+	$(GO) test -count=1 .
 
 ## Integration lane: real Postgres, fails loudly without it (never skips).
 test-integration:

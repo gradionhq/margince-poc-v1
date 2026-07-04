@@ -194,17 +194,17 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.OwnerID != nil {
-		where = append(where, sprintf("owner_id = $%d", arg(*in.OwnerID)))
+		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, sprintf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		where = append(where, sprintf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 
 	var people []crmcontracts.Person
@@ -212,7 +212,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+personColumns+` FROM person WHERE `+strings.Join(where, " AND ")+
-				sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err

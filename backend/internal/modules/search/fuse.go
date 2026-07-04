@@ -18,9 +18,7 @@ const rrfK = 60
 // lanes agree on outranks either lane's solo favorite. Both lanes are
 // already RBAC- and row-scope-filtered; fusion adds no visibility.
 func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedder, limit int) ([]Hit, error) {
-	if limit <= 0 {
-		limit = defaultLimit
-	}
+	limit = clampLimit(limit)
 	// Overfetch both lanes: an entity ranked just past `limit` in each
 	// lane can still fuse into the top set.
 	laneDepth := limit * 3

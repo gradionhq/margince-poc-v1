@@ -197,6 +197,10 @@ func DecodeCursor(token string) (Cursor, error) {
 	return c, nil
 }
 
+// SQLf keeps store-side SQL assembly lines readable; arguments are
+// always positional parameters or fixed identifiers, never user input.
+func SQLf(format string, a ...any) string { return fmt.Sprintf(format, a...) }
+
 // ClampLimit applies the contract's CAP-PAGE bounds (default 50, max 200).
 func ClampLimit(limit *int) int {
 	switch {

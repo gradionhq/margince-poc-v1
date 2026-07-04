@@ -36,8 +36,8 @@ func TestStreamsMatchSpecList(t *testing.T) {
 var segment = regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
 
 func TestCatalogTypesObeyNamingConvention(t *testing.T) {
-	// The verbs events.md §1 enumerates, plus the §5 catalog's own
-	// additions the enumeration misses (see ../fable feedback/12).
+	// The closed verb law: events.md §1's enumeration plus the §5
+	// catalog's own additions.
 	pastTenseVerbs := map[string]bool{
 		"created": true, "updated": true, "archived": true, "merged": true,
 		"restored": true, "stage_changed": true, "owner_changed": true,

@@ -98,9 +98,7 @@ type VectorHit struct {
 // vector. Object RBAC and row scope gate every branch, exactly like the
 // lexical union — a vector hit is a read too.
 func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit int) ([]VectorHit, error) {
-	if limit <= 0 {
-		limit = defaultLimit
-	}
+	limit = clampLimit(limit)
 	var hits []VectorHit
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var args []any

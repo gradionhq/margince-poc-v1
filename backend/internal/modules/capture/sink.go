@@ -63,11 +63,14 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 				}
 				payload = encoded
 			}
+			// Raw capture is EVIDENCE: append-once, never rewritten. A
+			// replay carrying different bytes for the same natural key
+			// keeps the original — silently replacing provenance would
+			// gut lineage and forensic replay.
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
 				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
-				ON CONFLICT (workspace_id, source_system, source_id)
-				DO UPDATE SET payload = EXCLUDED.payload, received_at = now()`,
+				ON CONFLICT (workspace_id, source_system, source_id) DO NOTHING`,
 				rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, payload); err != nil {
 				return fmt.Errorf("capture: raw store: %w", err)
 			}

@@ -2,7 +2,6 @@ package people
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,10 +25,6 @@ func NewStore(pool *pgxpool.Pool) *Store {
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	return database.WithWorkspaceTx(ctx, s.pool, fn)
 }
-
-// sprintf keeps SQL assembly lines readable; arguments are always
-// placeholder indexes or clamped ints, never user input.
-func sprintf(format string, a ...any) string { return fmt.Sprintf(format, a...) }
 
 func uuidPtr(id *ids.UUID) *openapi_types.UUID {
 	if id == nil {

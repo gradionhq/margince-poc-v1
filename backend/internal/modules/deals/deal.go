@@ -159,29 +159,29 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, sprintf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
 	}
 	if in.PipelineID != nil {
-		where = append(where, sprintf("pipeline_id = $%d", arg(*in.PipelineID)))
+		where = append(where, storekit.SQLf("pipeline_id = $%d", arg(*in.PipelineID)))
 	}
 	if in.StageID != nil {
-		where = append(where, sprintf("stage_id = $%d", arg(*in.StageID)))
+		where = append(where, storekit.SQLf("stage_id = $%d", arg(*in.StageID)))
 	}
 	if in.OwnerID != nil {
-		where = append(where, sprintf("owner_id = $%d", arg(*in.OwnerID)))
+		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
 	}
 	if in.OrganizationID != nil {
-		where = append(where, sprintf("organization_id = $%d", arg(*in.OrganizationID)))
+		where = append(where, storekit.SQLf("organization_id = $%d", arg(*in.OrganizationID)))
 	}
 	if in.Status != nil {
-		where = append(where, sprintf("status = $%d", arg(*in.Status)))
+		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		where = append(where, sprintf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 
 	var deals []crmcontracts.Deal
@@ -189,7 +189,7 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+dealColumns+` FROM deal WHERE `+strings.Join(where, " AND ")+
-				sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err

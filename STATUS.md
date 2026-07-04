@@ -5,12 +5,51 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-04 (ADR-0055 adoption).** Roughly **18 %** of the
+**Last updated: 2026-07-04 (Codex red-team review).** Roughly **18 %** of the
 701-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is
 implemented and gate-verified.
 
-## Current session: the spec's red-team fixes landed in code (ADR-0055)
+## Current session: Codex red-team review filed
+
+A broad current-state red-team pass was written to
+[`review_codex_20260704_194430.md`](review_codex_20260704_194430.md).
+The tree was actively changing during review; at session close the
+working tree still contained other-agent changes around the new
+`collections` module and related lint/arch/policy wiring.
+
+Verification during the pass:
+
+- `make check` passed after allowing Go to use the normal build cache.
+- A later `make check` against the live dirty tree passed after
+  concurrent fixes and a mechanical `gofmt` on two search files.
+- `make test-integration` passed early in the review, but the final run
+  after live capture/search/OAuth/pipeline remediations is **red**.
+  First concrete failure: `cmd/mcp TestMCPSurfaceEndToEnd` reports
+  `store: no correlation id bound to context`; many later integration
+  failures appear to cascade through schema reset/migration state
+  (`uuidv7()` missing, missing relations). Treat the integration lane as
+  not green until rerun clean after the correlation-id path is fixed.
+- `go test -count=1 ./...` initially exposed write-shape violations in
+  new collection mutations, then passed after concurrent work widened the
+  audit-only allow-list.
+
+Top review findings to pick up:
+
+- **Write-shape exception drift** — the stale `createPipelineTx` waiver
+  was fixed live by adding `pipeline.created`, but list/tag mutations
+  remain audit-only. A local `feedback/07...` exists, but `feedback/` is
+  ignored by `.gitignore`; make sure any waiver filing is force-added or
+  moved to a tracked decision file.
+- **Fitness-test cache hole** — confirmed when cached `make check`
+  missed new module violations; concurrently patched by adding
+  `go test -count=1 .` to the Makefile.
+- **Capture replay evidence, HTTP body limits, search limits, OAuth code
+  consumption** — all were found and patched live, but the final
+  integration lane is red and must be rerun clean after the MCP
+  correlation-id failure is fixed.
+
+## Previous session: the spec's red-team fixes landed in code (ADR-0055)
 
 The spec repo fixed the 2026-07-04 design-review findings (fail-open
 gate, self-approval bypass, DAG-illegal RBAC read, overloaded SoR seam,

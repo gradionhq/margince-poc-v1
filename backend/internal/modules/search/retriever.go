@@ -24,10 +24,7 @@ func NewRetriever(store *Store, embedder Embedder) *Retriever {
 var _ retrieval.Retriever = (*Retriever)(nil)
 
 func (r *Retriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
-	limit := q.Limit
-	if limit <= 0 {
-		limit = defaultLimit
-	}
+	limit := clampLimit(q.Limit)
 	hits, err := r.store.HybridSearch(ctx, q.Text, r.embedder, limit)
 	if err != nil {
 		return nil, err

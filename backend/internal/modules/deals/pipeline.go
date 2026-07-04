@@ -71,9 +71,19 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 		}
 	}
 
-	// Audit-only: pipeline config changes have no §5 catalog event in
-	// V1 (consumers react to deal.* on the pipeline's deals instead).
-	if _, err := storekit.Audit(ctx, tx, "create", "pipeline", id, nil, map[string]any{"name": in.Name}); err != nil {
+	auditID, err := storekit.Audit(ctx, tx, "create", "pipeline", id, nil, map[string]any{"name": in.Name})
+	if err != nil {
+		return crmcontracts.Pipeline{}, err
+	}
+	// events.md §5.3b: config changes are first-class facts — one
+	// pipeline.created carries the whole stage set.
+	stages := make([]map[string]any, 0, len(in.Stages))
+	for _, st := range in.Stages {
+		stages = append(stages, map[string]any{"name": st.Name, "position": st.Position, "semantic": st.Semantic})
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "pipeline.created", "pipeline", id, map[string]any{
+		"name": in.Name, "is_default": in.IsDefault, "stages": stages,
+	}); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	return readPipeline(ctx, tx, id)

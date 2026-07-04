@@ -26,6 +26,18 @@ func Healthz(w http.ResponseWriter, _ *http.Request) {
 // and referrer leakage. The CSP pins scripts to the embedded SPA; the
 // fonts.g* entries exist only because index.html loads the design
 // language's typefaces from Google Fonts.
+// LimitBodies caps every request body at httperr.MaxBodyBytes so no
+// handler — including ones decoding r.Body directly — can be fed an
+// unbounded payload. Reads past the cap fail with http.MaxBytesError.
+func LimitBodies(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, httperr.MaxBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func SecureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()

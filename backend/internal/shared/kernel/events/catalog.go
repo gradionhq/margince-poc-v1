@@ -35,10 +35,10 @@ func Streams() []string {
 // rides E08/E15 — both are deferred with their work packages.
 //
 // Types whose entity segment is not itself a stream ride their family's
-// stream: consent.* / retention.* are person-lifecycle events (§5.1
-// places them in the person family) and offer.* belongs to the deal
-// family (§5.3a) — the §4.1 stream list has no home for these segments,
-// see ../fable feedback/12.
+// stream (events.md §1 routing rule): consent.*/retention.* are
+// person-lifecycle events, offer.*/pipeline.*/stage.* belong to the
+// deal family — each declares its stream home here, and no catalog type
+// may imply a stream §4.1 does not define.
 var catalog = map[string]struct {
 	stream  string
 	version int
@@ -57,6 +57,12 @@ var catalog = map[string]struct {
 	"organization.merged":   {"organization", 1},
 
 	"deal.created":       {"deal", 1},
+	"pipeline.created":   {"deal", 1},
+	"pipeline.updated":   {"deal", 1},
+	"pipeline.archived":  {"deal", 1},
+	"stage.created":      {"deal", 1},
+	"stage.updated":      {"deal", 1},
+	"stage.archived":     {"deal", 1},
 	"deal.updated":       {"deal", 1},
 	"deal.stage_changed": {"deal", 1},
 	"deal.owner_changed": {"deal", 1},

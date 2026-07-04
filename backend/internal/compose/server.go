@@ -122,5 +122,5 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
 	mux.Handle("/", web.Handler())
 
-	return httpserver.RecoverPanics(log, httpserver.SecureHeaders(mux))
+	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
 }

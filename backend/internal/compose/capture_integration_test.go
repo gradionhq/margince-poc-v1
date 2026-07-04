@@ -29,7 +29,8 @@ import (
 )
 
 // mailFake is the in-repo test connector: two records per sync — one
-// email activity linked to a person, one lead.
+// email activity linked to a person, one lead. The raw payload varies
+// per sync so replay tests can prove evidence immutability.
 type mailFake struct {
 	linkTo    ids.UUID
 	scopes    []principal.Scope
@@ -62,7 +63,7 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: time.Now().UTC(), Direction: "inbound"},
 			Links:      []datasource.EntityRef{{Type: datasource.EntityPerson, ID: m.linkTo}},
 			Source:     "mailfake", CapturedBy: "connector:mailfake",
-			Raw: []byte(`{"provider":"mailfake","message_id":"msg-1"}`),
+			Raw: []byte(fmt.Sprintf(`{"provider":"mailfake","message_id":"msg-1","sync":%d}`, m.syncCount)),
 		},
 		{
 			EntityType: datasource.EntityLead,
@@ -125,6 +126,16 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	}
 	if got.activities != 1 || got.leads != 1 || got.raws != 1 {
 		t.Fatalf("replay duplicated rows: %+v", got)
+	}
+	// Raw capture is evidence: the replay carried DIFFERENT bytes, and
+	// the stored original must not have moved.
+	var payload string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT payload->>'sync' FROM raw_capture WHERE source_id = 'msg-1'`).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload != "1" {
+		t.Fatalf("replay rewrote the raw evidence: sync=%s, want the first capture's 1", payload)
 	}
 	if got.audits != 2 {
 		t.Fatalf("connector audit rows = %d, want 2 (one per NEW record, none for replays)", got.audits)
