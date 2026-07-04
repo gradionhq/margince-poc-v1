@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
 
 // retentionBatch bounds how many rows one policy acts on per pass — a
@@ -42,7 +43,10 @@ func NewRetentionService(pool *pgxpool.Pool, log *slog.Logger) *RetentionService
 // The closed map is deliberate: a policy row with a scope the engine
 // does not understand is skipped LOUDLY (logged every pass), never
 // half-applied. Every query filters the hold column — and for
-// activities, the holds of every linked record.
+// activities, the holds of every linked record plus the jurisdiction
+// packs' statutory floor ($3): a destructive action must not touch
+// commercial correspondence (email) younger than the floor; archive
+// passes floor 0 because archiving RETAINS.
 var retentionSelectors = map[string]string{
 	"lead/unconverted": `SELECT id FROM lead
 		WHERE status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
@@ -51,6 +55,7 @@ var retentionSelectors = map[string]string{
 	"activity/": `SELECT a.id FROM activity a
 		WHERE a.archived_at IS NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
+		  AND NOT (a.kind = 'email' AND a.occurred_at > now() - make_interval(days => $3))
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
@@ -61,6 +66,7 @@ var retentionSelectors = map[string]string{
 	"activity/transcript": `SELECT a.id FROM activity a
 		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
+		  AND NOT (a.kind = 'email' AND a.occurred_at > now() - make_interval(days => $3))
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
@@ -138,9 +144,17 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 				"scope", scope, "policy", pol.ID)
 			continue
 		}
+		args := []any{pol.RetainDays, retentionBatch}
+		if pol.ObjectType == "activity" {
+			floor := 0
+			if pol.Action != "archive" {
+				floor = statutoryCorrespondenceFloorDays()
+			}
+			args = append(args, floor)
+		}
 		var due []ids.UUID
 		err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-			rows, err := tx.Query(ctx, selector, pol.RetainDays, retentionBatch)
+			rows, err := tx.Query(ctx, selector, args...)
 			if err != nil {
 				return err
 			}
@@ -228,6 +242,26 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			"action": pol.Action, "policy": pol.ID,
 		})
 	})
+}
+
+// statutoryCorrespondenceFloorDays is the strictest compiled-in pack's
+// commercial-correspondence class in days — the floor below which a
+// destructive retention action must not touch an email activity. Zero
+// when no pack declares one.
+func statutoryCorrespondenceFloorDays() int {
+	floor := 0
+	for _, pack := range jurisdiction.Applicable() {
+		retention := pack.Retention()
+		if retention == nil {
+			continue
+		}
+		for _, class := range retention.Classes() {
+			if class.Name == "commercial_correspondence" && class.Years*365 > floor {
+				floor = class.Years * 365
+			}
+		}
+	}
+	return floor
 }
 
 // RunRetention ticks the evaluator on the worker's schedule.

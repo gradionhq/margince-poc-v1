@@ -1,0 +1,72 @@
+//go:build integration
+
+package compose
+
+// The jurisdiction seam under the retention engine: with the DE pack
+// compiled in, a destructive retention action must not touch
+// commercial correspondence (email activities) younger than the GoBD
+// floor — however aggressive the workspace's own policy is. Archiving
+// is untouched: it RETAINS, which is what the statute wants.
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
+	e := setupAuthz(t)
+	email, note := ids.NewV7(), ids.NewV7()
+	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO retention_policy (workspace_id, object_type, category, retain_days, action)
+			VALUES (`+wsClause+`, 'activity', NULL, 100, 'erase')`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, `+wsClause+`, 'email', 'Order confirmation', 'commercial content', now() - interval '400 days', 'capture', 'connector:t')`,
+			email); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, `+wsClause+`, 'note', 'Old scratch note', 'ephemeral', now() - interval '400 days', 'capture', 'connector:t')`,
+			note)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewRetentionService(e.pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.Evaluate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var emailBody, noteBody *string
+	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, email).Scan(&emailBody); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, note).Scan(&noteBody)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emailBody == nil {
+		t.Error("the GoBD floor failed: a 400-day-old email was destroyed against the 6-year statute")
+	}
+	if noteBody != nil {
+		t.Error("the floor over-shielded: a plain note past the policy age survived")
+	}
+}
