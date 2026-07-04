@@ -16,9 +16,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // dealFixture provisions a workspace with the seeded default pipeline
@@ -215,7 +215,7 @@ func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 	rep := e.as(e.rep1, []ids.UUID{e.team1}, repPermsWithActivity())
 
 	// Get: the activity attached to another team's person answers 404.
-	if _, err := e.store.GetActivity(rep, ids.UUID(secret.Id), false); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := e.store.GetActivity(rep, ids.UUID(secret.Id), false); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("foreign-linked activity → %v, want ErrNotFound", err)
 	}
 	if _, err := e.store.GetActivity(rep, ids.UUID(visible.Id), false); err != nil {
@@ -293,13 +293,13 @@ func TestDuplicate409DoesNotDiscloseOutOfScopeIDs(t *testing.T) {
 
 // repPermsWithActivity extends the rep fixture with activity grants for
 // the timeline tests.
-func repPermsWithActivity() crmctx.Permissions {
+func repPermsWithActivity() principal.Permissions {
 	p := repPerms
-	objects := make(map[string]crmctx.ObjectGrant, len(p.Objects)+1)
+	objects := make(map[string]principal.ObjectGrant, len(p.Objects)+1)
 	for k, v := range p.Objects {
 		objects[k] = v
 	}
-	objects["activity"] = crmctx.ObjectGrant{Create: true, Read: true, Update: true}
+	objects["activity"] = principal.ObjectGrant{Create: true, Read: true, Update: true}
 	p.Objects = objects
 	return p
 }
@@ -453,13 +453,13 @@ func TestIdempotentReplayDoesNotDiscloseOutOfScopeRecords(t *testing.T) {
 
 	if _, _, err := e.store.LogActivity(rep, LogActivityInput{
 		Kind: "email", Source: "connector", SourceSystem: &src, SourceID: &key,
-	}); !errors.Is(err, errs.ErrConflict) {
+	}); !errors.Is(err, apperrors.ErrConflict) {
 		t.Errorf("activity replay of a foreign source key → %v, want bare ErrConflict", err)
 	}
 	if _, _, err := e.store.CreateLead(rep, CreateLeadInput{
 		FullName: strPtr("Replay attempt"), Source: "import",
 		SourceSystem: &leadSrc, SourceID: &leadKey,
-	}); !errors.Is(err, errs.ErrConflict) {
+	}); !errors.Is(err, apperrors.ErrConflict) {
 		t.Errorf("lead replay of a foreign source key → %v, want bare ErrConflict", err)
 	}
 }
@@ -475,26 +475,26 @@ func TestActivityLinkTargetsMustBeVisible(t *testing.T) {
 	if _, _, err := e.store.LogActivity(rep, LogActivityInput{
 		Kind: "note", Source: "manual",
 		Links: []ActivityLinkInput{{EntityType: "person", EntityID: foreignPerson}},
-	}); !errors.Is(err, errs.ErrNotFound) {
+	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("link to an out-of-scope person → %v, want ErrNotFound", err)
 	}
 	if _, _, err := e.store.LogActivity(rep, LogActivityInput{
 		Kind: "note", Source: "manual",
 		Links: []ActivityLinkInput{{EntityType: "person", EntityID: ids.NewV7()}},
-	}); !errors.Is(err, errs.ErrNotFound) {
+	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("link to a nonexistent person → %v, want ErrNotFound", err)
 	}
 }
 
 // repPermsWithCapture extends the rep fixture with the capture-side
 // grants (activity + lead) the replay tests need.
-func repPermsWithCapture() crmctx.Permissions {
+func repPermsWithCapture() principal.Permissions {
 	p := repPermsWithActivity()
-	objects := make(map[string]crmctx.ObjectGrant, len(p.Objects)+1)
+	objects := make(map[string]principal.ObjectGrant, len(p.Objects)+1)
 	for k, v := range p.Objects {
 		objects[k] = v
 	}
-	objects["lead"] = crmctx.ObjectGrant{Create: true, Read: true, Update: true}
+	objects["lead"] = principal.ObjectGrant{Create: true, Read: true, Update: true}
 	p.Objects = objects
 	return p
 }

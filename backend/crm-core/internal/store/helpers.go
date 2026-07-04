@@ -7,8 +7,8 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // sprintf keeps SQL assembly lines readable; arguments are always
@@ -18,7 +18,7 @@ func sprintf(format string, a ...any) string { return fmt.Sprintf(format, a...) 
 // mustWorkspace is safe inside s.tx: WithWorkspaceTx already failed if no
 // workspace was bound.
 func mustWorkspace(ctx context.Context) ids.UUID {
-	wsID, _ := crmctx.WorkspaceID(ctx)
+	wsID, _ := principal.WorkspaceID(ctx)
 	return wsID
 }
 

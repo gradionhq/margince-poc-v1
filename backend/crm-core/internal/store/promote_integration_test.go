@@ -16,9 +16,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func seedLead(t *testing.T, e *authzEnv, name, email string, owner *ids.UUID) ids.UUID {
@@ -174,7 +174,7 @@ func TestPromoteDoesNotDiscloseAnOutOfScopeMergeTarget(t *testing.T) {
 	leadID := seedLead(t, e, "Mine", "match@foreign.test", &e.rep1)
 
 	rep := e.as(e.rep1, []ids.UUID{e.team1}, repPermsWithCapture())
-	if _, _, err := e.store.PromoteLead(rep, leadID, PromoteLeadInput{Trigger: "inbound_reply"}); !errors.Is(err, errs.ErrConflict) {
+	if _, _, err := e.store.PromoteLead(rep, leadID, PromoteLeadInput{Trigger: "inbound_reply"}); !errors.Is(err, apperrors.ErrConflict) {
 		t.Errorf("promote into an out-of-scope match → %v, want bare ErrConflict (a merge is a read)", err)
 	}
 }
@@ -186,9 +186,9 @@ func TestPromoteRequiresBothLeadAndPersonGrants(t *testing.T) {
 	// Lead grants but no person.create: leads may be worked, contacts may
 	// not be minted through the promotion door.
 	perms := repPermsWithCapture()
-	perms.Objects["person"] = crmctx.ObjectGrant{Read: true, Update: true}
+	perms.Objects["person"] = principal.ObjectGrant{Read: true, Update: true}
 	rep := e.as(e.rep1, []ids.UUID{e.team1}, perms)
-	if _, _, err := e.store.PromoteLead(rep, leadID, PromoteLeadInput{Trigger: "human_qualify"}); !errors.Is(err, errs.ErrPermissionDenied) {
+	if _, _, err := e.store.PromoteLead(rep, leadID, PromoteLeadInput{Trigger: "human_qualify"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("promote without person.create → %v, want ErrPermissionDenied", err)
 	}
 }

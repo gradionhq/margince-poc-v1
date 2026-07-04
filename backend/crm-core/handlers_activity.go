@@ -5,7 +5,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	"github.com/gradionhq/margince/backend/crm-core/internal/store"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func (h Handlers) ListActivities(w http.ResponseWriter, r *http.Request, params crmcontracts.ListActivitiesParams) {

@@ -11,9 +11,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/mcp"
-	"github.com/gradionhq/margince/backend/sor"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // Connector is the seam every integration implements, registered in the
@@ -49,10 +49,10 @@ type Connector interface {
 type Descriptor struct {
 	Name     string // stable id: "gmail", "gcal", "hubspot", "coldstart-scrape"
 	Version  string
-	Scopes   []crmctx.Scope
+	Scopes   []principal.Scope
 	RiskTier mcp.RiskTier // capture/read = green; any outbound = yellow
 	Tools    []mcp.ToolSpec
-	Produces []sor.EntityType
+	Produces []datasource.EntityType
 }
 
 // AuthRequest carries whatever the provider handshake needs (OAuth code,
@@ -67,17 +67,17 @@ type AuthRequest struct {
 type Sink interface {
 	// Upsert writes one record idempotently by its NaturalKey, stamps
 	// provenance, writes the audit row, and emits the domain event.
-	Upsert(ctx context.Context, rec NormalizedRecord) (sor.EntityRef, error)
+	Upsert(ctx context.Context, rec NormalizedRecord) (datasource.EntityRef, error)
 }
 
 // NormalizedRecord — a provider record mapped onto the clean relational
 // core with provenance. Fields holds the typed domain struct for
 // EntityType so a wrong mapping fails to compile, not at runtime.
 type NormalizedRecord struct {
-	EntityType sor.EntityType
+	EntityType datasource.EntityType
 	NaturalKey NaturalKey
 	Fields     any
-	Links      []sor.EntityRef
+	Links      []datasource.EntityRef
 	Source     string // "<system>:<id>" — REQUIRED
 	CapturedBy string // "connector:<name>" — REQUIRED
 	Raw        []byte // re-parseable original → raw jsonb, off the hot path

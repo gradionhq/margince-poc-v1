@@ -14,39 +14,39 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // require is the object-level admission gate: the actor's merged role
 // policy must grant the action on the object type. The system principal
 // (workspace provisioning) is trusted by construction and has no role.
-func require(ctx context.Context, object string, action crmctx.Action) error {
+func require(ctx context.Context, object string, action principal.Action) error {
 	p, err := actor(ctx)
 	if err != nil {
 		return err
 	}
-	if p.Type == crmctx.PrincipalSystem {
+	if p.Type == principal.PrincipalSystem {
 		return nil
 	}
 	if !p.Permissions.Allows(object, action) {
-		return fmt.Errorf("%s.%s: %w", object, action, errs.ErrPermissionDenied)
+		return fmt.Errorf("%s.%s: %w", object, action, apperrors.ErrPermissionDenied)
 	}
 	return nil
 }
 
 // unbounded reports whether the actor sees every row of a permitted
 // object: the system principal, or row_scope=all.
-func unbounded(p crmctx.Principal) bool {
-	return p.Type == crmctx.PrincipalSystem || p.Permissions.RowScope == crmctx.RowScopeAll
+func unbounded(p principal.Principal) bool {
+	return p.Type == principal.PrincipalSystem || p.Permissions.RowScope == principal.RowScopeAll
 }
 
 // ownerPredicate renders the own/team visibility test over one table's
 // owner_id (qualified by alias when non-empty). It returns a FUNCTION so
 // callers embedding the predicate for several tables (the activity link
 // walk) register $me/$teams once and reuse the positions.
-func ownerPredicate(p crmctx.Principal, arg func(any) int) func(alias string) string {
+func ownerPredicate(p principal.Principal, arg func(any) int) func(alias string) string {
 	me := arg(p.UserID)
 	col := func(alias string) string {
 		if alias == "" {
@@ -54,7 +54,7 @@ func ownerPredicate(p crmctx.Principal, arg func(any) int) func(alias string) st
 		}
 		return alias + ".owner_id"
 	}
-	if p.Permissions.RowScope == crmctx.RowScopeTeam {
+	if p.Permissions.RowScope == principal.RowScopeTeam {
 		teams := arg(p.TeamIDs)
 		return func(alias string) string {
 			return sprintf(`(%[1]s IS NULL OR %[1]s = $%[2]d OR %[1]s IN (
@@ -130,7 +130,7 @@ func ensureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 		return err
 	}
 	if !visible {
-		return errs.ErrNotFound
+		return apperrors.ErrNotFound
 	}
 	return nil
 }
@@ -161,7 +161,7 @@ func ensureLinkTarget(ctx context.Context, tx pgx.Tx, table string, id ids.UUID)
 		return err
 	}
 	if !visible {
-		return errs.ErrNotFound
+		return apperrors.ErrNotFound
 	}
 	return nil
 }
@@ -175,7 +175,7 @@ func visibleTo(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) (bool,
 	switch {
 	case err == nil:
 		return true, nil
-	case errors.Is(err, errs.ErrNotFound):
+	case errors.Is(err, apperrors.ErrNotFound):
 		return false, nil
 	default:
 		return false, err
@@ -208,28 +208,28 @@ func ensureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) er
 		return err
 	}
 	if !visible {
-		return errs.ErrNotFound
+		return apperrors.ErrNotFound
 	}
 	return nil
 }
 
 // auditActionGrant maps each audit_log.action verb onto the CRUD grant
 // that authorizes it. Package-level: authzRule sits on every write path.
-var auditActionGrant = map[string]crmctx.Action{
-	"create":        crmctx.ActionCreate,
-	"update":        crmctx.ActionUpdate,
-	"assign":        crmctx.ActionUpdate,
-	"advance_stage": crmctx.ActionUpdate,
-	"restore":       crmctx.ActionUpdate,
-	"archive":       crmctx.ActionDelete,
-	"merge":         crmctx.ActionUpdate,
-	"promote":       crmctx.ActionUpdate,
+var auditActionGrant = map[string]principal.Action{
+	"create":        principal.ActionCreate,
+	"update":        principal.ActionUpdate,
+	"assign":        principal.ActionUpdate,
+	"advance_stage": principal.ActionUpdate,
+	"restore":       principal.ActionUpdate,
+	"archive":       principal.ActionDelete,
+	"merge":         principal.ActionUpdate,
+	"promote":       principal.ActionUpdate,
 }
 
 // authzRule renders the audit_log.authorization_rule attribution for a
 // permitted mutation: which merged role policy allowed which action.
-func authzRule(p crmctx.Principal, entityType string, auditAction string) string {
-	if p.Type == crmctx.PrincipalSystem {
+func authzRule(p principal.Principal, entityType string, auditAction string) string {
+	if p.Type == principal.PrincipalSystem {
 		return "system"
 	}
 	action, ok := auditActionGrant[auditAction]

@@ -9,7 +9,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	"github.com/gradionhq/margince/backend/internal/httperr"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // Handlers is the module's transport surface: the /approvals inbox ops.

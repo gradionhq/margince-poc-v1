@@ -15,8 +15,8 @@ import (
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/gate"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // Registry implements mcp.Registry. Registration happens at composition
@@ -88,7 +88,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	switch {
 	case err == nil:
 		return t.Handle(ctx, args)
-	case !errors.Is(err, errs.ErrRequiresApproval) || r.approvals == nil:
+	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
 		if err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
@@ -120,7 +120,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		}
 		return nil, fmt.Errorf(
 			"staged as approval %s — once a human approves it, repeat this exact call with \"approval_id\": %q: %w",
-			id, id.String(), errs.ErrRequiresApproval)
+			id, id.String(), apperrors.ErrRequiresApproval)
 	}
 }
 

@@ -13,45 +13,16 @@ linters:
         # Layer B of the boundary stack (ADR-0014 §3): the module DAG from
         # architecture/01, expressed as import denials. Layer A is the Go
         # compiler (internal/); Layer C is go-arch-lint (.go-arch-lint.yml).
-        tier0-leaf:
+        shared-purity:
           files:
-            - "**/crmctx/**"
-            - "**/sor/**"
-            - "**/mcp/**"
-            - "**/connector/**"
-            - "**/workflow/**"
-            - "**/model/**"
-            - "**/retrieval/**"
-            - "**/jurisdiction/**"
-            - "**/kernel/**"
-          # Default-deny: the Tier-0 layer is stdlib + each
-          # other, period — a new kernel/seam package pulling a third-party
-          # dep fails HERE, not only in the hand-maintained arch_test list.
+            - "**/internal/shared/**"
+          # Default-deny: the shared layer (kernel + apperrors + ports) is
+          # stdlib + each other, period — a new shared package pulling a
+          # third-party dep fails HERE, not only in the arch fitness test.
           listMode: strict
           allow:
             - $gostd
-            - github.com/gradionhq/margince/backend/crmctx
-            - github.com/gradionhq/margince/backend/sor
-            - github.com/gradionhq/margince/backend/mcp
-            - github.com/gradionhq/margince/backend/connector
-            - github.com/gradionhq/margince/backend/workflow
-            - github.com/gradionhq/margince/backend/model
-            - github.com/gradionhq/margince/backend/retrieval
-            - github.com/gradionhq/margince/backend/jurisdiction
-            - github.com/gradionhq/margince/backend/kernel
-          deny:
-            - pkg: github.com/gradionhq/margince/backend/crm-core
-              desc: Tier-0 seams never import a domain module
-            - pkg: github.com/gradionhq/margince/backend/crm-auth
-              desc: Tier-0 seams never import a domain module
-            - pkg: github.com/gradionhq/margince/backend/crm-search
-              desc: Tier-0 seams never import a domain module
-            - pkg: github.com/gradionhq/margince/backend/crm-ai
-              desc: Tier-0 seams never import a domain module
-            - pkg: github.com/gradionhq/margince/backend/crm-capture
-              desc: Tier-0 seams never import a domain module
-            - pkg: github.com/gradionhq/margince/backend/crm-agents
-              desc: Tier-0 seams never import a domain module
+            - github.com/gradionhq/margince/backend/internal/shared
         crm-core:
           files:
             - "**/crm-core/**"

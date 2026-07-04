@@ -19,7 +19,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // NewClient returns the Redis client the composition root hands to the

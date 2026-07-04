@@ -10,9 +10,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/gradionhq/margince/backend/kernel/ids"
-	"github.com/gradionhq/margince/backend/mcp"
-	"github.com/gradionhq/margince/backend/sor"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // Handler is the seam an agent implements to add automation. Registered
@@ -31,7 +31,7 @@ type Handler interface {
 
 	// Apply executes the planned Effect. 🟢 effects auto-execute; a 🟡
 	// effect must carry an approval token or Apply returns
-	// errs.ErrRequiresApproval. Idempotent on IdempotencyKey(ev).
+	// apperrors.ErrRequiresApproval. Idempotent on IdempotencyKey(ev).
 	Apply(ctx context.Context, ev Event, eff Effect, token *ApprovalToken) (RunResult, error)
 
 	// IdempotencyKey derives the stable key for this (handler, event) so
@@ -59,7 +59,7 @@ type Event struct {
 	Type        string
 	WorkspaceID ids.UUID
 	OccurredAt  time.Time
-	Entity      sor.EntityRef
+	Entity      datasource.EntityRef
 	Payload     json.RawMessage
 }
 
@@ -88,7 +88,7 @@ const (
 
 type Action struct {
 	Kind   ActionKind
-	Target sor.EntityRef
+	Target datasource.EntityRef
 	Args   json.RawMessage
 }
 

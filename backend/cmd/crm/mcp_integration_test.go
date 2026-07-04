@@ -25,11 +25,11 @@ import (
 	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
 	"github.com/gradionhq/margince/backend/internal/pgmigrate"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -51,12 +51,12 @@ func startMCP(t *testing.T, token, slug string, svc *crmauth.Service, provider *
 		if err != nil {
 			return nil, err
 		}
-		ctx = crmctx.WithWorkspaceID(ctx, wsID)
+		ctx = principal.WithWorkspaceID(ctx, wsID)
 		agent, err := svc.AuthenticateAgent(ctx, token)
 		if err != nil {
 			return nil, err
 		}
-		return crmctx.WithCorrelationID(crmctx.WithActor(ctx, agent.Principal()), ids.NewV7()), nil
+		return principal.WithCorrelationID(principal.WithActor(ctx, agent.Principal()), ids.NewV7()), nil
 	}
 
 	clientIn, serverOut := io.Pipe()
@@ -164,8 +164,8 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsCtx := crmctx.WithWorkspaceID(ctx, admin.WorkspaceID)
-	seedCtx := crmctx.WithActor(wsCtx, crmctx.Principal{Type: crmctx.PrincipalSystem, ID: "system"})
+	wsCtx := principal.WithWorkspaceID(ctx, admin.WorkspaceID)
+	seedCtx := principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 	if err := coreHandlers.SeedWorkspaceDefaults(seedCtx); err != nil {
 		t.Fatal(err)
 	}
@@ -288,8 +288,8 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	approvalID := extractApprovalID(t, text)
 
 	// The staged item sits in the human inbox.
-	humanCtx := crmctx.WithCorrelationID(crmctx.WithActor(wsCtx, crmctx.Principal{
-		Type: crmctx.PrincipalHuman, ID: "human:" + admin.UserID.String(),
+	humanCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + admin.UserID.String(),
 		UserID: admin.UserID, Permissions: admin.Permissions,
 	}), ids.NewV7())
 	pending, err := approvals.List(humanCtx, strPtr("pending"), 50)
@@ -301,13 +301,13 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	// A low-privilege viewer (no grants) gets an empty inbox and a
 	// not-found on the id — the inbox is never a workspace-wide side channel
 	// leaking proposed_change/diffs.
-	strangerCtx := crmctx.WithCorrelationID(crmctx.WithActor(wsCtx, crmctx.Principal{
-		Type: crmctx.PrincipalHuman, ID: "human:stranger", UserID: ids.NewV7(),
+	strangerCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:stranger", UserID: ids.NewV7(),
 	}), ids.NewV7())
 	if leaked, err := approvals.List(strangerCtx, strPtr("pending"), 50); err != nil || len(leaked) != 0 {
 		t.Fatalf("C3: low-priv inbox leaked %d items (err=%v), want 0", len(leaked), err)
 	}
-	if _, err := approvals.Get(strangerCtx, approvalID); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := approvals.Get(strangerCtx, approvalID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("C3: low-priv Get on a foreign approval → %v, want ErrNotFound", err)
 	}
 
@@ -315,10 +315,10 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	if text, isErr = c.callTool("advance_deal", withApproval(winArgs, approvalID)); !isErr || !strings.Contains(text, "pending") {
 		t.Fatalf("undedecided approval redeemed: err=%v %s", isErr, text)
 	}
-	agentCtx := crmctx.WithCorrelationID(crmctx.WithActor(wsCtx, crmctx.Principal{
-		Type: crmctx.PrincipalAgent, ID: "agent:" + rw.ID.String(), PassportID: rw.ID,
+	agentCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:" + rw.ID.String(), PassportID: rw.ID,
 	}), ids.NewV7())
-	if _, err := approvals.Decide(agentCtx, approvalID, true, nil); !errors.Is(err, errs.ErrPermissionDenied) {
+	if _, err := approvals.Decide(agentCtx, approvalID, true, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("an agent decided its own staging: %v", err)
 	}
 

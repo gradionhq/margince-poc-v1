@@ -12,9 +12,9 @@ import (
 	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // runMCP boots the A1 local MCP server: MCP over stdio, authenticated by
@@ -62,13 +62,13 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return nil, fmt.Errorf("resolving workspace %q: %w", *workspace, err)
 		}
-		ctx = crmctx.WithWorkspaceID(ctx, wsID)
+		ctx = principal.WithWorkspaceID(ctx, wsID)
 		agent, err := auth.AuthenticateAgent(ctx, token)
 		if err != nil {
 			return nil, err
 		}
-		ctx = crmctx.WithActor(ctx, agent.Principal())
-		return crmctx.WithCorrelationID(ctx, ids.NewV7()), nil
+		ctx = principal.WithActor(ctx, agent.Principal())
+		return principal.WithCorrelationID(ctx, ids.NewV7()), nil
 	}
 
 	// Fail loudly at boot on a dead token instead of on the first call —

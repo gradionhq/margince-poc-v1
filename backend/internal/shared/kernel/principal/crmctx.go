@@ -3,14 +3,14 @@
 // and — for agent calls — the Passport. Business code reads these only
 // through the typed accessors here; loose context keys are forbidden
 // (interfaces.md §0, architecture/11 §4).
-package crmctx
+package principal
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // PrincipalType distinguishes the four actor classes the audit log and

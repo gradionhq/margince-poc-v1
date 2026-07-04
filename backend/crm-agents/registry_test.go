@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 type fakeTool struct {
@@ -51,12 +51,12 @@ func TestRegisterRefusesAuthorityDefects(t *testing.T) {
 
 func TestInvokeGatesBeforeHandle(t *testing.T) {
 	r := NewRegistry(nil)
-	yellow := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierYellow}}
+	yellow := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow}}
 	r.Register(yellow)
 
-	ctx := crmctx.WithActor(context.Background(), crmctx.Principal{
-		Type: crmctx.PrincipalAgent, ID: "agent:t",
-		Scopes: crmctx.NewScopeSet(crmctx.ScopeWrite),
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t",
+		Scopes: principal.NewScopeSet(principal.ScopeWrite),
 	})
 	if _, err := r.Invoke(ctx, "archive_record", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("🟡 call admitted")

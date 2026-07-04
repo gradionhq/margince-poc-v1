@@ -16,11 +16,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
 	"github.com/gradionhq/margince/backend/internal/pgmigrate"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -102,25 +102,25 @@ func setupAuthz(t *testing.T) *authzEnv {
 // permissions fixtures mirror the decisions/0006 matrix rows the test
 // exercises; the seeded JSONB↔these shapes is crm-auth's policy tests.
 var (
-	repPerms = crmctx.Permissions{
+	repPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},
-		Objects: map[string]crmctx.ObjectGrant{
+		Objects: map[string]principal.ObjectGrant{
 			"person":   {Create: true, Read: true, Update: true},
 			"deal":     {Create: true, Read: true, Update: true},
 			"pipeline": {Read: true},
 		},
-		RowScope: crmctx.RowScopeTeam,
+		RowScope: principal.RowScopeTeam,
 	}
-	readOnlyPerms = crmctx.Permissions{
+	readOnlyPerms = principal.Permissions{
 		RoleKeys: []string{"read_only"},
-		Objects: map[string]crmctx.ObjectGrant{
+		Objects: map[string]principal.ObjectGrant{
 			"person": {Read: true}, "deal": {Read: true}, "pipeline": {Read: true},
 		},
-		RowScope: crmctx.RowScopeAll,
+		RowScope: principal.RowScopeAll,
 	}
-	adminPerms = crmctx.Permissions{
+	adminPerms = principal.Permissions{
 		RoleKeys: []string{"admin"},
-		Objects: map[string]crmctx.ObjectGrant{
+		Objects: map[string]principal.ObjectGrant{
 			"person":       {Create: true, Read: true, Update: true, Delete: true},
 			"organization": {Create: true, Read: true, Update: true, Delete: true},
 			"deal":         {Create: true, Read: true, Update: true, Delete: true},
@@ -128,16 +128,16 @@ var (
 			"activity":     {Create: true, Read: true, Update: true, Delete: true},
 			"pipeline":     {Create: true, Read: true, Update: true, Delete: true},
 		},
-		RowScope: crmctx.RowScopeAll,
+		RowScope: principal.RowScopeAll,
 	}
 )
 
 // as binds a full operation context for one human principal.
-func (e *authzEnv) as(user ids.UUID, teams []ids.UUID, perms crmctx.Permissions) context.Context {
-	ctx := crmctx.WithWorkspaceID(context.Background(), e.ws)
-	ctx = crmctx.WithCorrelationID(ctx, ids.NewV7())
-	return crmctx.WithActor(ctx, crmctx.Principal{
-		Type: crmctx.PrincipalHuman, ID: "human:" + user.String(),
+func (e *authzEnv) as(user ids.UUID, teams []ids.UUID, perms principal.Permissions) context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(),
 		UserID: user, TeamIDs: teams, Permissions: perms,
 	})
 }
@@ -161,13 +161,13 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 
 	reader := e.as(e.rep3, []ids.UUID{e.team2}, readOnlyPerms)
 
-	if _, err := e.store.CreatePerson(reader, CreatePersonInput{FullName: "X", Source: "manual"}); !errors.Is(err, errs.ErrPermissionDenied) {
+	if _, err := e.store.CreatePerson(reader, CreatePersonInput{FullName: "X", Source: "manual"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only create → %v, want ErrPermissionDenied", err)
 	}
-	if _, err := e.store.UpdatePerson(reader, target, UpdatePersonInput{Title: strPtr("CEO")}); !errors.Is(err, errs.ErrPermissionDenied) {
+	if _, err := e.store.UpdatePerson(reader, target, UpdatePersonInput{Title: strPtr("CEO")}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only update → %v, want ErrPermissionDenied", err)
 	}
-	if _, err := e.store.ArchivePerson(reader, target); !errors.Is(err, errs.ErrPermissionDenied) {
+	if _, err := e.store.ArchivePerson(reader, target); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only archive → %v, want ErrPermissionDenied", err)
 	}
 	// …but reading is granted, and row_scope=all sees the foreign-owned row.
@@ -178,7 +178,7 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 	// A rep (no delete grant on person) cannot archive even an OWN record:
 	// object-level denial precedes row scope.
 	rep := e.as(e.rep1, []ids.UUID{e.team1}, repPerms)
-	if _, err := e.store.ArchivePerson(rep, target); !errors.Is(err, errs.ErrPermissionDenied) {
+	if _, err := e.store.ArchivePerson(rep, target); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("rep archive own → %v, want ErrPermissionDenied", err)
 	}
 }
@@ -208,11 +208,11 @@ func TestRowScopeTeamNeverShowsAnotherTeamsRecord(t *testing.T) {
 
 	// Single fetch: the foreign row answers 404 — never the row, and
 	// never a 403 that would disclose its existence.
-	if _, err := e.store.GetPerson(rep, foreign, false); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := e.store.GetPerson(rep, foreign, false); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("get another team's record → %v, want ErrNotFound", err)
 	}
 	// Nor can it be mutated blind by id.
-	if _, err := e.store.UpdatePerson(rep, foreign, UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := e.store.UpdatePerson(rep, foreign, UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("update another team's record → %v, want ErrNotFound", err)
 	}
 
@@ -254,8 +254,8 @@ func TestMutationRecordsTheGoverningRuleInAuditLog(t *testing.T) {
 
 func TestZeroPermissionsFailClosed(t *testing.T) {
 	e := setupAuthz(t)
-	nobody := e.as(ids.NewV7(), nil, crmctx.Permissions{})
-	if _, _, err := e.store.ListPeople(nobody, ListPeopleInput{}); !errors.Is(err, errs.ErrPermissionDenied) {
+	nobody := e.as(ids.NewV7(), nil, principal.Permissions{})
+	if _, _, err := e.store.ListPeople(nobody, ListPeopleInput{}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("unresolved permissions list → %v, want ErrPermissionDenied (fail closed)", err)
 	}
 }

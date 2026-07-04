@@ -9,9 +9,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // DuplicateLeadError carries the live lead already holding an email
@@ -22,7 +22,7 @@ type DuplicateLeadError struct {
 }
 
 func (e *DuplicateLeadError) Error() string        { return "lead with email " + e.Email + " already exists" }
-func (e *DuplicateLeadError) Is(target error) bool { return target == errs.ErrConflict }
+func (e *DuplicateLeadError) Is(target error) bool { return target == apperrors.ErrConflict }
 
 type CreateLeadInput struct {
 	FullName        *string
@@ -42,7 +42,7 @@ type CreateLeadInput struct {
 // Idempotent on (source_system, source_id): a re-import returns the
 // existing row instead of erroring, so bulk sourcing can re-run.
 func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontracts.Lead, bool, error) {
-	if err := require(ctx, "lead", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "lead", principal.ActionCreate); err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
 	by, err := capturedBy(ctx)
@@ -73,7 +73,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 					return verr
 				}
 				if !visible {
-					return errs.ErrConflict
+					return apperrors.ErrConflict
 				}
 				created = false
 				out, err = readLead(ctx, tx, existing, true)
@@ -121,7 +121,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 				if name == "uq_lead_email_dedupe" {
 					return &DuplicateLeadError{Email: deref(in.Email)}
 				}
-				return errs.ErrConflict
+				return apperrors.ErrConflict
 			}
 			return err
 		}
@@ -140,7 +140,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 }
 
 func (s *Store) GetLead(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Lead, error) {
-	if err := require(ctx, "lead", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "lead", principal.ActionRead); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	var out crmcontracts.Lead
@@ -164,7 +164,7 @@ type ListLeadsInput struct {
 }
 
 func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontracts.Lead, Page, error) {
-	if err := require(ctx, "lead", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "lead", principal.ActionRead); err != nil {
 		return nil, Page{}, err
 	}
 	limit := clampLimit(in.Limit)
@@ -248,7 +248,7 @@ type UpdateLeadInput struct {
 }
 
 func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput) (crmcontracts.Lead, error) {
-	if err := require(ctx, "lead", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	var out crmcontracts.Lead
@@ -296,7 +296,7 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 				if name == "uq_lead_email_dedupe" {
 					return &DuplicateLeadError{Email: deref(in.Email)}
 				}
-				return errs.ErrConflict
+				return apperrors.ErrConflict
 			}
 			return err
 		}
@@ -316,7 +316,7 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 // DisqualifyLead is the one path enforcing "disqualified ⇒ archived"
 // (DELETE /leads/{id} in the contract).
 func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.Lead, error) {
-	if err := require(ctx, "lead", crmctx.ActionDelete); err != nil {
+	if err := require(ctx, "lead", principal.ActionDelete); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	var out crmcontracts.Lead
@@ -358,7 +358,7 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool)
 	}
 	l, err := scanLead(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Lead{}, errs.ErrNotFound
+		return crmcontracts.Lead{}, apperrors.ErrNotFound
 	}
 	return l, err
 }

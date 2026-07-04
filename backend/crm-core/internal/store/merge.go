@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The §1.3 two-record merge (features/01, data-model §3.2): A→B relinks
@@ -71,7 +71,7 @@ type relinkCounts struct {
 func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
 	// authz.go maps the merge verb to update: rewriting where records
 	// point is curation of both rows, not deletion of one.
-	if err := require(ctx, "person", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	if sourceID == targetID {
@@ -176,7 +176,7 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 // survivor. The org half additionally re-homes the hierarchy (A's
 // children become B's) and the deal/partner attributions.
 func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UUID) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	if sourceID == targetID {
@@ -299,7 +299,7 @@ func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *id
 	if p.ArchivedAt == nil {
 		return p, nil, nil
 	}
-	return nil, (*ids.UUID)(p.MergedIntoId), errs.ErrNotFound
+	return nil, (*ids.UUID)(p.MergedIntoId), apperrors.ErrNotFound
 }
 
 func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *ids.UUID, error) {
@@ -310,7 +310,7 @@ func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *ids.U
 	if o.ArchivedAt == nil {
 		return o, nil, nil
 	}
-	return nil, (*ids.UUID)(o.MergedIntoId), errs.ErrNotFound
+	return nil, (*ids.UUID)(o.MergedIntoId), apperrors.ErrNotFound
 }
 
 // mergePair resolves and validates both ends. The source must be live and
@@ -338,11 +338,11 @@ func mergePair(ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID i
 		return nil, nil, err
 	}
 	if !visible {
-		return nil, nil, errs.ErrConflict
+		return nil, nil, apperrors.ErrConflict
 	}
 	target, _, err = read(ctx, tx, targetID)
 	if err != nil {
-		if errors.Is(err, errs.ErrNotFound) {
+		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, nil, &MergedTargetError{Kind: kind}
 		}
 		return nil, nil, err
@@ -517,7 +517,7 @@ func archiveMergedAway(ctx context.Context, tx pgx.Tx, table string, sourceID, t
 		return err
 	}
 	if tag.RowsAffected() == 0 {
-		return errs.ErrConflict
+		return apperrors.ErrConflict
 	}
 	return nil
 }

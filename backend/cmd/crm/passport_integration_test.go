@@ -17,10 +17,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
 	"github.com/gradionhq/margince/backend/internal/pgmigrate"
-	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -74,7 +74,7 @@ func passportEnv(t *testing.T) (*crmauth.Service, crmauth.Identity) {
 }
 
 func wsCtx(id crmauth.Identity) context.Context {
-	return crmctx.WithWorkspaceID(context.Background(), id.WorkspaceID)
+	return principal.WithWorkspaceID(context.Background(), id.WorkspaceID)
 }
 
 func TestPassportLifecycle(t *testing.T) {
@@ -99,12 +99,12 @@ func TestPassportLifecycle(t *testing.T) {
 	if agent.OnBehalfOf != admin.UserID {
 		t.Error("passport does not act on behalf of its issuer")
 	}
-	if !agent.Scopes.Has(crmctx.ScopeRead) || !agent.Scopes.Has(crmctx.ScopeWrite) || agent.Scopes.Has(crmctx.ScopeSend) {
+	if !agent.Scopes.Has(principal.ScopeRead) || !agent.Scopes.Has(principal.ScopeWrite) || agent.Scopes.Has(principal.ScopeSend) {
 		t.Errorf("scopes = %v, want exactly read+write", agent.Scopes)
 	}
 	// agent ≤ human: the principal carries the ISSUER's live RBAC.
 	p := agent.Principal()
-	if p.Type != crmctx.PrincipalAgent || !p.Permissions.Allows("person", crmctx.ActionCreate) {
+	if p.Type != principal.PrincipalAgent || !p.Permissions.Allows("person", principal.ActionCreate) {
 		t.Error("agent principal did not inherit the granting admin's RBAC")
 	}
 	if p.PassportID != issued.ID || p.OnBehalfOf != admin.UserID {
@@ -115,7 +115,7 @@ func TestPassportLifecycle(t *testing.T) {
 	if err := svc.RevokePassport(ctx, admin, issued.ID); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if _, err := svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("revoked token authenticated: %v", err)
 	}
 	// Idempotent revoke.
@@ -142,7 +142,7 @@ func TestBootstrapSeedFailureRollsBackTenant(t *testing.T) {
 	}
 
 	// The tenant must not exist: the failed seed rolled it back.
-	if _, err := svc.ResolveWorkspace(ctx, "atomic-test"); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := svc.ResolveWorkspace(ctx, "atomic-test"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("workspace survived a failed seed → %v, want ErrNotFound (partial provisioning)", err)
 	}
 
@@ -179,7 +179,7 @@ func TestPassportRefusesBadScopesAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(1100 * time.Millisecond)
-	if _, err := svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, errs.ErrNotFound) {
+	if _, err := svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("expired token authenticated: %v", err)
 	}
 }

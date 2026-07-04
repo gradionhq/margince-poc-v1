@@ -9,9 +9,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // PromoteLeadInput carries the genuine-engagement trigger (features/01
@@ -49,10 +49,10 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 	// Promotion mutates the lead AND writes the person side, so it needs
 	// both grants — a rep who may work leads but not create contacts
 	// cannot mint contacts through this door.
-	if err := require(ctx, "lead", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, false, err
 	}
-	if err := require(ctx, "person", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "person", principal.ActionCreate); err != nil {
 		return crmcontracts.Person{}, false, err
 	}
 	by, err := capturedBy(ctx)
@@ -81,7 +81,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 			return e
 		}
 		if lead.ArchivedAt != nil {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if lead.FullName == nil && lead.Email == nil {
 			return &PromoteNeedsIdentityError{}
@@ -169,7 +169,7 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 				return ids.Nil, verr
 			}
 			if !visible {
-				return ids.Nil, errs.ErrConflict
+				return ids.Nil, apperrors.ErrConflict
 			}
 			*merged = true
 			return existing, s.mergeLeadIntoPerson(ctx, tx, lead, existing)

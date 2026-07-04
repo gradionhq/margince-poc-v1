@@ -24,8 +24,8 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/pg"
 	"github.com/gradionhq/margince/backend/internal/pgmigrate"
-	"github.com/gradionhq/margince/backend/kernel/events"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 

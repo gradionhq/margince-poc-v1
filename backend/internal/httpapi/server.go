@@ -15,9 +15,9 @@ import (
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/httperr"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/web"
 )
 
@@ -104,7 +104,7 @@ func secureHeaders(next http.Handler) http.Handler {
 // that could set it could stitch itself into another tenant's story.
 func correlate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := crmctx.WithCorrelationID(r.Context(), ids.NewV7())
+		ctx := principal.WithCorrelationID(r.Context(), ids.NewV7())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

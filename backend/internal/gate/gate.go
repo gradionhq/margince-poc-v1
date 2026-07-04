@@ -11,9 +11,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // Admit decides whether the context's principal may run the tool with
@@ -27,7 +27,7 @@ import (
 // redemption path is EP07's; until it lands, 🟡 tools are structurally
 // blocked for agents rather than quietly allowed.
 func Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp.TierResolverInput, error)) error {
-	p, ok := crmctx.Actor(ctx)
+	p, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("gate: no principal bound to context")
 	}
@@ -36,12 +36,12 @@ func Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp.TierResol
 	// their authority is their RBAC, enforced at the store. The gate
 	// exists to bound AGENTS (03b Layer 1); a human reaching a tool
 	// through the UI already answered for the action.
-	if p.Type != crmctx.PrincipalAgent {
+	if p.Type != principal.PrincipalAgent {
 		return nil
 	}
 
 	if !p.Scopes.Has(spec.RequiredScope) {
-		return fmt.Errorf("gate: %s needs scope %q: %w", spec.Name, spec.RequiredScope, errs.ErrScopeExceeded)
+		return fmt.Errorf("gate: %s needs scope %q: %w", spec.Name, spec.RequiredScope, apperrors.ErrScopeExceeded)
 	}
 
 	// The seat ceiling is checked before tier (A62/ADR-0047): a read seat —
@@ -49,9 +49,9 @@ func Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp.TierResol
 	// their passport scope or the target's tier would otherwise permit. A
 	// non-read tool is refused outright, never staged for approval, because
 	// no approval can lift a licensing ceiling.
-	if spec.RequiredScope != crmctx.ScopeRead && !p.SeatType.CanMutate() {
+	if spec.RequiredScope != principal.ScopeRead && !p.SeatType.CanMutate() {
 		return fmt.Errorf("gate: %s needs a full seat; %s acts for a read seat: %w",
-			spec.Name, p.ID, errs.ErrSeatTierInsufficient)
+			spec.Name, p.ID, apperrors.ErrSeatTierInsufficient)
 	}
 
 	tier := spec.Tier
@@ -68,7 +68,7 @@ func Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp.TierResol
 		tier = spec.TierResolver(in)
 	}
 	if tier != mcp.TierGreen {
-		return fmt.Errorf("gate: %s is a confirm-first (🟡) action: %w", spec.Name, errs.ErrRequiresApproval)
+		return fmt.Errorf("gate: %s is a confirm-first (🟡) action: %w", spec.Name, apperrors.ErrRequiresApproval)
 	}
 	return nil
 }

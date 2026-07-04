@@ -10,9 +10,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // DuplicateDomainError carries the org already owning a domain: a domain
@@ -25,7 +25,7 @@ type DuplicateDomainError struct {
 func (e *DuplicateDomainError) Error() string {
 	return "domain " + e.Domain + " already belongs to an organization"
 }
-func (e *DuplicateDomainError) Is(target error) bool { return target == errs.ErrConflict }
+func (e *DuplicateDomainError) Is(target error) bool { return target == apperrors.ErrConflict }
 
 type OrgDomainInput struct {
 	Domain    string
@@ -44,7 +44,7 @@ type CreateOrganizationInput struct {
 }
 
 func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInput) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "organization", principal.ActionCreate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	by, err := capturedBy(ctx)
@@ -95,7 +95,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 					if name == "uq_org_domain" {
 						return &DuplicateDomainError{Domain: d.Domain}
 					}
-					return errs.ErrConflict // e.g. a second primary domain
+					return apperrors.ErrConflict // e.g. a second primary domain
 				}
 				return err
 			}
@@ -115,7 +115,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 }
 
 func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
@@ -139,7 +139,7 @@ type ListOrganizationsInput struct {
 }
 
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, Page, error) {
-	if err := require(ctx, "organization", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "organization", principal.ActionRead); err != nil {
 		return nil, Page{}, err
 	}
 	limit := clampLimit(in.Limit)
@@ -221,7 +221,7 @@ type UpdateOrganizationInput struct {
 }
 
 func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOrganizationInput) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
@@ -275,7 +275,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 }
 
 func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", crmctx.ActionDelete); err != nil {
+	if err := require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
@@ -330,7 +330,7 @@ func readOrganization(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchiv
 	}
 	o, err := scanOrganization(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Organization{}, errs.ErrNotFound
+		return crmcontracts.Organization{}, apperrors.ErrNotFound
 	}
 	if err != nil {
 		return crmcontracts.Organization{}, err

@@ -12,7 +12,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // Tool is a single governed MCP tool, exposed identically to every
@@ -33,7 +33,7 @@ type Tool interface {
 type ToolSpec struct {
 	Name          string
 	Version       string
-	RequiredScope crmctx.Scope
+	RequiredScope principal.Scope
 	Tier          RiskTier
 	// TierResolver is non-nil iff Tier == TierDynamic; the admission gate
 	// calls it with the validated args plus the resolved pipeline context.
@@ -83,7 +83,7 @@ type Registry interface {
 	Register(t Tool)
 	// Invoke runs the admission gate (scope ∧ tier ∧ seat ceiling) and then
 	// the tool. A 🟡 call without a valid approval token returns
-	// errs.ErrRequiresApproval with the staged approval reference.
+	// apperrors.ErrRequiresApproval with the staged approval reference.
 	Invoke(ctx context.Context, name string, in json.RawMessage) (json.RawMessage, error)
 	Specs() []ToolSpec
 }

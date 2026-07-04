@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // NewPool opens a pgxpool with explicit operational limits (a defaultless
@@ -51,7 +51,7 @@ var ErrNoWorkspace = errors.New("pg: no workspace bound to context")
 // checkout (the §1.3 pool-reuse rule). Every domain read and write goes
 // through here; there is no raw-pool path for tenant data.
 func WithWorkspaceTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
-	wsID, ok := crmctx.WorkspaceID(ctx)
+	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return ErrNoWorkspace
 	}

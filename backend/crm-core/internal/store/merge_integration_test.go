@@ -15,16 +15,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // wsExec runs one setup statement in a workspace-bound transaction (RLS is
 // FORCED, so the GUC must be set even for the owner-less test pool).
 func (e *authzEnv) wsExec(t *testing.T, sql string, args ...any) {
 	t.Helper()
-	ctx := crmctx.WithWorkspaceID(context.Background(), e.ws)
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	if err := pg.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, sql, args...)
 		return err
@@ -36,7 +36,7 @@ func (e *authzEnv) wsExec(t *testing.T, sql string, args ...any) {
 // wsCount returns a scalar count in a workspace-bound transaction.
 func (e *authzEnv) wsCount(t *testing.T, sql string, args ...any) int {
 	t.Helper()
-	ctx := crmctx.WithWorkspaceID(context.Background(), e.ws)
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	var n int
 	if err := pg.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, sql, args...).Scan(&n)
@@ -132,7 +132,7 @@ func TestMergePerson_consentMergesRestrictively(t *testing.T) {
 	}
 
 	var state string
-	ctx := crmctx.WithWorkspaceID(context.Background(), e.ws)
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	if err := pg.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT state FROM person_consent WHERE person_id = $1 AND purpose_id = $2`, target, purpose).Scan(&state)
 	}); err != nil {

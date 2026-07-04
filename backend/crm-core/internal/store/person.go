@@ -10,9 +10,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // DuplicateEmailError carries the existing person for the 409 dedupe
@@ -26,7 +26,7 @@ type DuplicateEmailError struct {
 func (e *DuplicateEmailError) Error() string {
 	return "person with email " + e.Email + " already exists"
 }
-func (e *DuplicateEmailError) Is(target error) bool { return target == errs.ErrConflict }
+func (e *DuplicateEmailError) Is(target error) bool { return target == apperrors.ErrConflict }
 
 // PersonEmailInput / PersonPhoneInput are the child rows a create carries.
 type PersonEmailInput struct {
@@ -58,7 +58,7 @@ type CreatePersonInput struct {
 // CreatePerson inserts the person + child rows + audit + event atomically.
 // The email dedupe unique index turns a duplicate into the 409 contract.
 func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "person", principal.ActionCreate); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	by, err := capturedBy(ctx)
@@ -116,7 +116,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 						// omits existing_id.
 						return &DuplicateEmailError{Email: e.Email}
 					}
-					return errs.ErrConflict // e.g. two primary emails of one type
+					return apperrors.ErrConflict // e.g. two primary emails of one type
 				}
 				return err
 			}
@@ -147,7 +147,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 // GetPerson returns one person with child rows; archived rows resolve
 // only when includeArchived (they stay fetchable by id after merge).
 func (s *Store) GetPerson(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
@@ -170,7 +170,7 @@ type ListPeopleInput struct {
 }
 
 func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontracts.Person, Page, error) {
-	if err := require(ctx, "person", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "person", principal.ActionRead); err != nil {
 		return nil, Page{}, err
 	}
 	limit := clampLimit(in.Limit)
@@ -252,7 +252,7 @@ type UpdatePersonInput struct {
 }
 
 func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonInput) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
@@ -308,7 +308,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 // ArchivePerson soft-deletes the person and cascades to its owned child
 // rows and referencing edges in the same transaction (data-model §1.10).
 func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", crmctx.ActionDelete); err != nil {
+	if err := require(ctx, "person", principal.ActionDelete); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
@@ -367,7 +367,7 @@ func readPerson(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived boo
 	row := tx.QueryRow(ctx, q, id)
 	p, err := scanPerson(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Person{}, errs.ErrNotFound
+		return crmcontracts.Person{}, apperrors.ErrNotFound
 	}
 	if err != nil {
 		return crmcontracts.Person{}, err

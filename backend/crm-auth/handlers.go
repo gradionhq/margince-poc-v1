@@ -15,10 +15,10 @@ import (
 
 	"github.com/gradionhq/margince/backend/crm-auth/internal/ratelimit"
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/httperr"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 const sessionCookie = "crm_session"
@@ -69,7 +69,7 @@ func clientIP(r *http.Request) string {
 // + session in one transaction. Unauthenticated by design.
 func (h Handlers) BootstrapWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !h.bootstrapPerIP.Allow(clientIP(r)) {
-		httperr.Write(w, r, errs.ErrBudgetExceeded)
+		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
 	var req crmcontracts.BootstrapWorkspaceRequest
@@ -118,7 +118,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	// account from anywhere.
 	accountKey := strings.ToLower(string(req.Email)) + "|" + clientIP(r)
 	if !h.loginPerIP.Allow(clientIP(r)) || h.loginFailures.Blocked(accountKey) {
-		httperr.Write(w, r, errs.ErrBudgetExceeded)
+		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
 
@@ -234,12 +234,12 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 
 		if slug := workspaceSlug(r); slug != "" {
 			wsID, err := h.svc.ResolveWorkspace(ctx, slug)
-			if err != nil && !errors.Is(err, errs.ErrNotFound) {
+			if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 				httperr.Write(w, r, err)
 				return
 			}
 			if err == nil {
-				ctx = crmctx.WithWorkspaceID(ctx, wsID)
+				ctx = principal.WithWorkspaceID(ctx, wsID)
 			}
 		}
 
@@ -248,7 +248,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if _, ok := crmctx.WorkspaceID(ctx); !ok {
+		if _, ok := principal.WorkspaceID(ctx); !ok {
 			httperr.Unauthorized(w, r, "unknown workspace")
 			return
 		}
@@ -264,7 +264,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		if bearer := bearerToken(r); bearer != "" {
 			agent, err := h.svc.AuthenticateAgent(ctx, bearer)
 			if err != nil {
-				if errors.Is(err, errs.ErrNotFound) {
+				if errors.Is(err, apperrors.ErrNotFound) {
 					httperr.Unauthorized(w, r, "passport expired, revoked or unknown")
 					return
 				}
@@ -272,14 +272,14 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 				return
 			}
 			if sc := restScope(r.Method); !agent.Scopes.Has(sc) {
-				httperr.Write(w, r, errs.ErrScopeExceeded)
+				httperr.Write(w, r, apperrors.ErrScopeExceeded)
 				return
 			}
 			if isMutating(r.Method) {
-				httperr.Write(w, r, errs.ErrAgentSurfaceRestricted)
+				httperr.Write(w, r, apperrors.ErrAgentSurfaceRestricted)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(crmctx.WithActor(ctx, agent.Principal())))
+			next.ServeHTTP(w, r.WithContext(principal.WithActor(ctx, agent.Principal())))
 			return
 		}
 
@@ -290,7 +290,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		}
 		id, err := h.svc.Authenticate(ctx, cookie.Value)
 		if err != nil {
-			if errors.Is(err, errs.ErrNotFound) {
+			if errors.Is(err, apperrors.ErrNotFound) {
 				httperr.Unauthorized(w, r, "session expired or revoked")
 				return
 			}
@@ -302,18 +302,18 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// (A62/ADR-0047): a read seat may read but never mutate over REST,
 		// whatever its role grants. Method-based, matching restScope — the
 		// contract has no mutating GET.
-		if id.SeatType == string(crmctx.SeatRead) && isMutating(r.Method) {
-			httperr.Write(w, r, errs.ErrSeatTierInsufficient)
+		if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) {
+			httperr.Write(w, r, apperrors.ErrSeatTierInsufficient)
 			return
 		}
 
 		ctx = withIdentity(ctx, id)
-		ctx = crmctx.WithActor(ctx, crmctx.Principal{
-			Type:        crmctx.PrincipalHuman,
+		ctx = principal.WithActor(ctx, principal.Principal{
+			Type:        principal.PrincipalHuman,
 			ID:          "human:" + id.UserID.String(),
 			UserID:      id.UserID,
 			TeamIDs:     id.Teams,
-			SeatType:    crmctx.SeatType(id.SeatType),
+			SeatType:    principal.SeatType(id.SeatType),
 			Permissions: id.Permissions,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -335,12 +335,12 @@ func bearerToken(r *http.Request) string {
 // the REST surface: reads need `read`, everything mutating needs `write`.
 // (send/enrich guard their own tools on the MCP surface; no REST path
 // sends email today.)
-func restScope(method string) crmctx.Scope {
+func restScope(method string) principal.Scope {
 	switch method {
 	case http.MethodGet, http.MethodHead:
-		return crmctx.ScopeRead
+		return principal.ScopeRead
 	default:
-		return crmctx.ScopeWrite
+		return principal.ScopeWrite
 	}
 }
 
@@ -349,7 +349,7 @@ func restScope(method string) crmctx.Scope {
 // contract exposes no read-over-POST endpoint (searches are GET), so the
 // method alone is authoritative here.
 func isMutating(method string) bool {
-	return restScope(method) != crmctx.ScopeRead
+	return restScope(method) != principal.ScopeRead
 }
 
 // workspaceSlug resolves the tenant slug: production uses the

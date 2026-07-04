@@ -7,7 +7,7 @@ package retrieval
 import (
 	"context"
 
-	"github.com/gradionhq/margince/backend/sor"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // Retriever serves grounded context to the AI layers. Results carry
@@ -20,18 +20,18 @@ type Retriever interface {
 	// AssembleContext builds the provenance-stamped context object an
 	// intent tool returns for one anchor record — the assembled picture,
 	// not raw rows the agent must re-stitch.
-	AssembleContext(ctx context.Context, anchor sor.EntityRef, opts AssembleOptions) (Context, error)
+	AssembleContext(ctx context.Context, anchor datasource.EntityRef, opts AssembleOptions) (Context, error)
 }
 
 type Query struct {
 	Text        string
-	EntityTypes []sor.EntityType
+	EntityTypes []datasource.EntityType
 	Limit       int
 }
 
 // Hit is one ranked result with the evidence that grounds it.
 type Hit struct {
-	Ref      sor.EntityRef
+	Ref      datasource.EntityRef
 	Score    float64
 	Evidence []Evidence
 }
@@ -51,7 +51,7 @@ type AssembleOptions struct {
 
 // Context is the assembled, provenance-stamped picture for one anchor.
 type Context struct {
-	Anchor   sor.EntityRef
+	Anchor   datasource.EntityRef
 	Sections []Section
 }
 
@@ -61,7 +61,7 @@ type Section struct {
 }
 
 type Item struct {
-	Ref      sor.EntityRef
+	Ref      datasource.EntityRef
 	Summary  string
 	Evidence []Evidence
 }

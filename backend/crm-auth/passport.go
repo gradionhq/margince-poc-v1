@@ -17,10 +17,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // passportTokenPrefix makes an agent bearer token visually and
@@ -35,9 +35,9 @@ const (
 )
 
 // validScopes is the closed verb vocabulary (interfaces.md §2).
-var validScopes = map[crmctx.Scope]bool{
-	crmctx.ScopeRead: true, crmctx.ScopeDraft: true, crmctx.ScopeWrite: true,
-	crmctx.ScopeSend: true, crmctx.ScopeEnrich: true,
+var validScopes = map[principal.Scope]bool{
+	principal.ScopeRead: true, principal.ScopeDraft: true, principal.ScopeWrite: true,
+	principal.ScopeSend: true, principal.ScopeEnrich: true,
 }
 
 // IssuePassportInput — the granting human comes from the session, never
@@ -69,7 +69,7 @@ func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePasspo
 		return IssuedPassport{}, &InvalidScopeError{Scope: "(none)"}
 	}
 	for _, sc := range in.Scopes {
-		if !validScopes[crmctx.Scope(sc)] {
+		if !validScopes[principal.Scope(sc)] {
 			return IssuedPassport{}, &InvalidScopeError{Scope: sc}
 		}
 	}
@@ -130,7 +130,7 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 			`SELECT on_behalf_of, revoked_at FROM passport WHERE id = $1`, passportID).
 			Scan(&onBehalfOf, &revokedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
@@ -138,7 +138,7 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 		// Another user's passport reads as absent, not forbidden —
 		// existence-hiding matches the row-scope convention.
 		if onBehalfOf != id.UserID && !isAdmin {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if revokedAt != nil {
 			return nil // idempotent
@@ -162,24 +162,24 @@ type AgentIdentity struct {
 	WorkspaceID ids.UUID
 	OnBehalfOf  ids.UUID
 	SeatType    string
-	Scopes      crmctx.ScopeSet
+	Scopes      principal.ScopeSet
 	Roles       []string
 	Teams       []ids.UUID
-	Permissions crmctx.Permissions
+	Permissions principal.Permissions
 }
 
 // Principal renders the crmctx shape every store entry point enforces. The
 // seat is the granting human's ("agent ≤ human", A62/ADR-0047): an agent
 // acting for a read seat inherits that read-only ceiling at the gate.
-func (a AgentIdentity) Principal() crmctx.Principal {
-	return crmctx.Principal{
-		Type:        crmctx.PrincipalAgent,
+func (a AgentIdentity) Principal() principal.Principal {
+	return principal.Principal{
+		Type:        principal.PrincipalAgent,
 		ID:          "agent:" + a.PassportID.String(),
 		UserID:      a.OnBehalfOf,
 		PassportID:  a.PassportID,
 		OnBehalfOf:  a.OnBehalfOf,
 		TeamIDs:     a.Teams,
-		SeatType:    crmctx.SeatType(a.SeatType),
+		SeatType:    principal.SeatType(a.SeatType),
 		Scopes:      a.Scopes,
 		Permissions: a.Permissions,
 	}
@@ -191,7 +191,7 @@ func (a AgentIdentity) Principal() crmctx.Principal {
 // human" is a runtime property, not a snapshot at mint time).
 func (s *Service) AuthenticateAgent(ctx context.Context, rawToken string) (AgentIdentity, error) {
 	if !strings.HasPrefix(rawToken, passportTokenPrefix) {
-		return AgentIdentity{}, errs.ErrNotFound
+		return AgentIdentity{}, apperrors.ErrNotFound
 	}
 
 	var a AgentIdentity
@@ -207,14 +207,14 @@ func (s *Service) AuthenticateAgent(ctx context.Context, rawToken string) (Agent
 			   AND u.status = 'active' AND u.archived_at IS NULL`,
 			hashToken(rawToken)).Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
 		}
-		a.Scopes = crmctx.NewScopeSet()
+		a.Scopes = principal.NewScopeSet()
 		for _, sc := range scopes {
-			a.Scopes[crmctx.Scope(sc)] = struct{}{}
+			a.Scopes[principal.Scope(sc)] = struct{}{}
 		}
 		var loadErr error
 		a.Roles, a.Teams, a.Permissions, loadErr = loadGrants(ctx, tx, a.OnBehalfOf)

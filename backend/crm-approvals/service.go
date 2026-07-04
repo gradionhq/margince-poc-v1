@@ -16,11 +16,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/events"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // stagingTTL bounds how long an unactioned staging stays approvable; a
@@ -54,11 +54,11 @@ type StageInput struct {
 // emits approval.requested. It runs in the write shape every mutation
 // uses: approval row + audit row + event in one transaction.
 func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
-	p, ok := crmctx.Actor(ctx)
+	p, ok := principal.Actor(ctx)
 	if !ok {
 		return ids.Nil, errors.New("crmapprovals: no actor bound to context")
 	}
-	wsID, _ := crmctx.WorkspaceID(ctx)
+	wsID, _ := principal.WorkspaceID(ctx)
 
 	id := ids.NewV7()
 	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -145,7 +145,7 @@ func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, e
 	if err := humanOnly(ctx); err != nil {
 		return nil, err
 	}
-	p, _ := crmctx.Actor(ctx)
+	p, _ := principal.Actor(ctx)
 	if limit <= 0 || limit > inboxFetchCap {
 		limit = 50
 	}
@@ -188,7 +188,7 @@ func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
 	if err := humanOnly(ctx); err != nil {
 		return row{}, err
 	}
-	p, _ := crmctx.Actor(ctx)
+	p, _ := principal.Actor(ctx)
 	var a row
 	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
 		a, err = get(ctx, tx, id)
@@ -201,7 +201,7 @@ func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
 	// existence-hiding the row-scope convention uses, so Get never becomes
 	// a lookup oracle for out-of-scope proposed changes (C3).
 	if !canDecide(p, a) {
-		return row{}, errs.ErrNotFound
+		return row{}, apperrors.ErrNotFound
 	}
 	return a, nil
 }
@@ -209,7 +209,7 @@ func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
 func get(ctx context.Context, tx pgx.Tx, id ids.UUID) (row, error) {
 	a, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM approval WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return row{}, errs.ErrNotFound
+		return row{}, apperrors.ErrNotFound
 	}
 	return a, err
 }
@@ -235,7 +235,7 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 	if err := humanOnly(ctx); err != nil {
 		return row{}, err
 	}
-	p, _ := crmctx.Actor(ctx)
+	p, _ := principal.Actor(ctx)
 
 	var a row
 	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -285,7 +285,7 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 // at the version the human saw. Single-use is enforced by the conditional
 // UPDATE — two racing redemptions cannot both pass.
 func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string) error {
-	p, ok := crmctx.Actor(ctx)
+	p, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
 	}
@@ -294,21 +294,21 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 		if err != nil {
 			// An unknown approval id reads as an invalid token, not a 404:
 			// the caller is asserting authority, not browsing.
-			return fmt.Errorf("no such approval: %w", errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("no such approval: %w", apperrors.ErrApprovalTokenInvalid)
 		}
 		switch {
 		case a.Status != "approved":
-			return fmt.Errorf("approval is %s: %w", a.effectiveStatus(), errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval is %s: %w", a.effectiveStatus(), apperrors.ErrApprovalTokenInvalid)
 		case a.ConsumedAt != nil:
-			return fmt.Errorf("approval already redeemed: %w", errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
 		case a.DecidedAt != nil && time.Since(*a.DecidedAt) > redemptionTTL:
-			return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
 		case a.Kind != tool:
-			return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
 		case a.DiffHash != diffHash:
-			return fmt.Errorf("call differs from the approved change: %w", errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("call differs from the approved change: %w", apperrors.ErrApprovalTokenInvalid)
 		case a.PassportID != nil && (p.PassportID.IsZero() || *a.PassportID != p.PassportID):
-			return fmt.Errorf("approval was staged by a different passport: %w", errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
 		}
 
 		if a.TargetVersion != nil && a.TargetID != nil && a.TargetType != nil {
@@ -320,7 +320,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 				// The world moved since the human saw the diff — their yes
 				// no longer covers it (ADR-0036); re-stage.
 				return fmt.Errorf("target changed since approval (v%d → v%d): %w",
-					*a.TargetVersion, current, errs.ErrVersionSkew)
+					*a.TargetVersion, current, apperrors.ErrVersionSkew)
 			}
 		}
 
@@ -330,7 +330,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return fmt.Errorf("approval already redeemed: %w", errs.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
 		}
 		_, err = s.audit(ctx, tx, p, "update", id, map[string]any{"kind": a.Kind, "redeemed": true})
 		return err
@@ -349,7 +349,7 @@ func targetVersion(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) (i
 	var v int64
 	err := tx.QueryRow(ctx, `SELECT version FROM `+table+` WHERE id = $1`, id).Scan(&v)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, errs.ErrNotFound
+		return 0, apperrors.ErrNotFound
 	}
 	return v, err
 }
@@ -358,10 +358,10 @@ func targetVersion(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) (i
 // effect needs; approving requires every one of them.
 var decisionGrants = map[string][]struct {
 	Object string
-	Action crmctx.Action
+	Action principal.Action
 }{
-	"advance_deal":   {{"deal", crmctx.ActionUpdate}},
-	"promote_lead":   {{"lead", crmctx.ActionUpdate}, {"person", crmctx.ActionCreate}},
+	"advance_deal":   {{"deal", principal.ActionUpdate}},
+	"promote_lead":   {{"lead", principal.ActionUpdate}, {"person", principal.ActionCreate}},
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below
 }
@@ -371,11 +371,11 @@ var decisionGrants = map[string][]struct {
 // so triage visibility and the decision gate can never drift apart — you
 // see exactly what you could act on. An unknown kind (no mapping) is not
 // decidable and so not visible: fail-closed.
-func canDecide(p crmctx.Principal, a row) bool {
+func canDecide(p principal.Principal, a row) bool {
 	return requireDecisionGrants(p, a) == nil
 }
 
-func requireDecisionGrants(p crmctx.Principal, a row) error {
+func requireDecisionGrants(p principal.Principal, a row) error {
 	grants, known := decisionGrants[a.Kind]
 	if !known {
 		return fmt.Errorf("crmapprovals: kind %q has no decision-grant mapping", a.Kind)
@@ -386,8 +386,8 @@ func requireDecisionGrants(p crmctx.Principal, a row) error {
 		}
 		grants = append(grants, struct {
 			Object string
-			Action crmctx.Action
-		}{*a.TargetType, crmctx.ActionDelete})
+			Action principal.Action
+		}{*a.TargetType, principal.ActionDelete})
 	}
 	// A merge rewrites where records point — the store maps the merge verb to
 	// update, so approving needs update on the target's entity type.
@@ -397,12 +397,12 @@ func requireDecisionGrants(p crmctx.Principal, a row) error {
 		}
 		grants = append(grants, struct {
 			Object string
-			Action crmctx.Action
-		}{*a.TargetType, crmctx.ActionUpdate})
+			Action principal.Action
+		}{*a.TargetType, principal.ActionUpdate})
 	}
 	for _, g := range grants {
 		if !p.Permissions.Allows(g.Object, g.Action) {
-			return fmt.Errorf("approving %s needs %s.%s: %w", a.Kind, g.Object, g.Action, errs.ErrPermissionDenied)
+			return fmt.Errorf("approving %s needs %s.%s: %w", a.Kind, g.Object, g.Action, apperrors.ErrPermissionDenied)
 		}
 	}
 	return nil
@@ -411,20 +411,20 @@ func requireDecisionGrants(p crmctx.Principal, a row) error {
 // humanOnly guards the inbox and the decision: an agent approving its own
 // staged action would collapse the whole tier model.
 func humanOnly(ctx context.Context) error {
-	p, ok := crmctx.Actor(ctx)
+	p, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
 	}
-	if p.Type != crmctx.PrincipalHuman {
-		return fmt.Errorf("approvals are decided by humans: %w", errs.ErrPermissionDenied)
+	if p.Type != principal.PrincipalHuman {
+		return fmt.Errorf("approvals are decided by humans: %w", apperrors.ErrPermissionDenied)
 	}
 	return nil
 }
 
 // audit appends this module's audit rows — same append-only table, this
 // module's own writer (modules do not share store internals).
-func (s *Service) audit(ctx context.Context, tx pgx.Tx, p crmctx.Principal, action string, entityID ids.UUID, evidence map[string]any) (ids.UUID, error) {
-	wsID, _ := crmctx.WorkspaceID(ctx)
+func (s *Service) audit(ctx context.Context, tx pgx.Tx, p principal.Principal, action string, entityID ids.UUID, evidence map[string]any) (ids.UUID, error) {
+	wsID, _ := principal.WorkspaceID(ctx)
 	raw, err := json.Marshal(evidence)
 	if err != nil {
 		return ids.Nil, err
@@ -440,9 +440,9 @@ func (s *Service) audit(ctx context.Context, tx pgx.Tx, p crmctx.Principal, acti
 
 // emit stages one approval.* event in the transactional outbox, complete
 // envelope, exactly like every other module's writes.
-func (s *Service) emit(ctx context.Context, tx pgx.Tx, p crmctx.Principal, auditID ids.UUID, eventType string, entityID ids.UUID, payload map[string]any) error {
-	wsID, _ := crmctx.WorkspaceID(ctx)
-	correlationID, ok := crmctx.CorrelationID(ctx)
+func (s *Service) emit(ctx context.Context, tx pgx.Tx, p principal.Principal, auditID ids.UUID, eventType string, entityID ids.UUID, payload map[string]any) error {
+	wsID, _ := principal.WorkspaceID(ctx)
+	correlationID, ok := principal.CorrelationID(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no correlation id bound to context")
 	}

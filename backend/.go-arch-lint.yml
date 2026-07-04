@@ -23,8 +23,7 @@ vendors:
   yaml:   { in: gopkg.in/** }
 
 components:
-  kernel:      { in: kernel/** }
-  seams:       { in: [crmctx, sor, mcp, connector, workflow, model, retrieval, jurisdiction] }
+  shared:      { in: internal/shared/** }
   contracts:   { in: crm-contracts }
   core:        { in: [crm-core, crm-core/**] }
   auth:        { in: [crm-auth, crm-auth/**] }
@@ -33,15 +32,14 @@ components:
   capture:     { in: [crm-capture, crm-capture/**] }
   agents:      { in: [crm-agents, crm-agents/**] }
   approvals:   { in: [crm-approvals, crm-approvals/**] }
-  platform:    { in: [internal, internal/**] }
+  platform:    { in: [internal/bus, internal/gate, internal/httpapi, internal/httperr, internal/pg, internal/pgmigrate] }
   migrations:  { in: migrations }
   web:         { in: web }
   edge:        { in: cmd/** }
   root:        { in: . }
 
 commonComponents:
-  - kernel
-  - seams
+  - shared
 
 deps:
   # The generated contract package carries its transport runtime; it

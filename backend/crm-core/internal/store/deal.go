@@ -10,9 +10,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type CreateDealInput struct {
@@ -28,7 +28,7 @@ type CreateDealInput struct {
 }
 
 func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "deal", principal.ActionCreate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	by, err := capturedBy(ctx)
@@ -49,7 +49,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			`SELECT semantic FROM stage WHERE id = $1 AND pipeline_id = $2 AND archived_at IS NULL`,
 			in.StageID, in.PipelineID).Scan(&semantic)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
@@ -69,7 +69,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			// Covers the remaining FKs (pipeline, organization, owner);
 			// the stage/pipeline pairing was pre-checked above.
 			if isForeignKeyViolation(err) {
-				return errs.ErrNotFound
+				return apperrors.ErrNotFound
 			}
 			return err
 		}
@@ -95,7 +95,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 }
 
 func (s *Store) GetDeal(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "deal", principal.ActionRead); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
@@ -122,7 +122,7 @@ type ListDealsInput struct {
 }
 
 func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontracts.Deal, Page, error) {
-	if err := require(ctx, "deal", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "deal", principal.ActionRead); err != nil {
 		return nil, Page{}, err
 	}
 	limit := clampLimit(in.Limit)
@@ -216,7 +216,7 @@ type UpdateDealInput struct {
 }
 
 func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
@@ -376,7 +376,7 @@ func (e *LostReasonRequiredError) Error() string { return "lost_reason is requir
 // stage history snapshot and emitting the first-class deal.stage_changed
 // event — never a generic deal.updated (events.md §1).
 func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInput) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", crmctx.ActionUpdate); err != nil {
+	if err := require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	by, err := capturedBy(ctx)
@@ -401,7 +401,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 			`SELECT semantic, pipeline_id, win_probability FROM stage WHERE id = $1 AND archived_at IS NULL`,
 			in.ToStageID).Scan(&semantic, &stagePipeline, &winProbability)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
@@ -530,7 +530,7 @@ func freezeFx(ctx context.Context, tx pgx.Tx, currency string, asOf time.Time) (
 }
 
 func (s *Store) ArchiveDeal(ctx context.Context, id ids.UUID) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", crmctx.ActionDelete); err != nil {
+	if err := require(ctx, "deal", principal.ActionDelete); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
@@ -584,7 +584,7 @@ func readDeal(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool)
 	}
 	d, err := scanDeal(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Deal{}, errs.ErrNotFound
+		return crmcontracts.Deal{}, apperrors.ErrNotFound
 	}
 	return d, err
 }

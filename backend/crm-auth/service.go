@@ -15,10 +15,10 @@ import (
 
 	"github.com/gradionhq/margince/backend/crm-auth/internal/password"
 	"github.com/gradionhq/margince/backend/crm-auth/internal/policy"
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // Session lifetimes (ADR-0043: idle + absolute, both enforced at lookup).
@@ -48,7 +48,7 @@ type Identity struct {
 	SeatType    string
 	Roles       []string
 	Teams       []ids.UUID
-	Permissions crmctx.Permissions
+	Permissions principal.Permissions
 }
 
 // systemRoles is the seeded default role set (data-model §2.4); custom
@@ -158,8 +158,8 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 		// transaction, as the system actor, so the whole tenant — identity
 		// and defaults — is atomic (C5). The GUC is already bound above.
 		if seed != nil {
-			seedCtx := crmctx.WithActor(crmctx.WithWorkspaceID(ctx, wsID), crmctx.Principal{
-				Type: crmctx.PrincipalSystem, ID: "system",
+			seedCtx := principal.WithActor(principal.WithWorkspaceID(ctx, wsID), principal.Principal{
+				Type: principal.PrincipalSystem, ID: "system",
 			})
 			if err := seed(seedCtx, tx); err != nil {
 				return err
@@ -178,7 +178,7 @@ type slugTakenError struct{ slug string }
 
 func (e *slugTakenError) Error() string { return fmt.Sprintf("workspace slug %q taken", e.slug) }
 func (e *slugTakenError) Is(target error) bool {
-	return target == errs.ErrConflict
+	return target == apperrors.ErrConflict
 }
 
 // ResolveWorkspace maps a tenant slug (subdomain in production, header in
@@ -191,7 +191,7 @@ func (s *Service) ResolveWorkspace(ctx context.Context, slug string) (ids.UUID, 
 			`SELECT id FROM workspace WHERE slug = $1 AND archived_at IS NULL`, slug).Scan(&id)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.Nil, errs.ErrNotFound
+		return ids.Nil, apperrors.ErrNotFound
 	}
 	return id, err
 }
@@ -226,7 +226,7 @@ func mustRandomSecret() string {
 // audit_log (the failure row commits in its own transaction, because the
 // attempt's transaction rolls back with the error).
 func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity, string, error) {
-	wsID, ok := crmctx.WorkspaceID(ctx)
+	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return Identity{}, "", pg.ErrNoWorkspace
 	}
@@ -320,7 +320,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 			   AND u.status = 'active' AND u.archived_at IS NULL`,
 			tokenHash).Scan(&sessionID, &userID, &id.Email, &id.DisplayName, &id.SeatType, &id.WorkspaceID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
@@ -370,11 +370,11 @@ func auditLogin(ctx context.Context, tx pgx.Tx, wsID, userID ids.UUID, detail st
 	return err
 }
 
-func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UUID) (roles []string, teams []ids.UUID, perms crmctx.Permissions, err error) {
+func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UUID) (roles []string, teams []ids.UUID, perms principal.Permissions, err error) {
 	rows, err := tx.Query(ctx,
 		`SELECT r.key, r.permissions FROM role_assignment ra JOIN role r ON r.id = ra.role_id WHERE ra.user_id = $1`, userID)
 	if err != nil {
-		return nil, nil, crmctx.Permissions{}, err
+		return nil, nil, principal.Permissions{}, err
 	}
 	defer rows.Close()
 	byRole := map[string]policy.Document{}
@@ -382,31 +382,31 @@ func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UUID) (roles []string
 		var key string
 		var raw []byte
 		if err := rows.Scan(&key, &raw); err != nil {
-			return nil, nil, crmctx.Permissions{}, err
+			return nil, nil, principal.Permissions{}, err
 		}
 		doc, err := policy.Parse(raw)
 		if err != nil {
 			// A role carrying an invalid policy document is a data defect
 			// the login must surface, not silently downgrade to no access.
-			return nil, nil, crmctx.Permissions{}, fmt.Errorf("crmauth: role %q: %w", key, err)
+			return nil, nil, principal.Permissions{}, fmt.Errorf("crmauth: role %q: %w", key, err)
 		}
 		roles = append(roles, key)
 		byRole[key] = doc
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, crmctx.Permissions{}, err
+		return nil, nil, principal.Permissions{}, err
 	}
 
 	teamRows, err := tx.Query(ctx,
 		`SELECT team_id FROM team_membership WHERE user_id = $1`, userID)
 	if err != nil {
-		return nil, nil, crmctx.Permissions{}, err
+		return nil, nil, principal.Permissions{}, err
 	}
 	defer teamRows.Close()
 	for teamRows.Next() {
 		var t ids.UUID
 		if err := teamRows.Scan(&t); err != nil {
-			return nil, nil, crmctx.Permissions{}, err
+			return nil, nil, principal.Permissions{}, err
 		}
 		teams = append(teams, t)
 	}

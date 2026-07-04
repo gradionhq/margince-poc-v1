@@ -4,14 +4,14 @@
 // adapter (Overlay-mode). Nothing above this seam imports crm-core or an
 // incumbent SDK directly (AC-OV-1); identical signatures in both modes
 // (AC-OV-2).
-package sor
+package datasource
 
 import (
 	"context"
 	"encoding/json"
 	"time"
 
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // EntityType names the domain entities the provider serves.
@@ -84,7 +84,7 @@ type CreateInput struct {
 }
 
 // UpdateInput — IfVersion carries the caller's If-Match value; on skew the
-// provider returns errs.ErrVersionSkew and changes nothing.
+// provider returns apperrors.ErrVersionSkew and changes nothing.
 type UpdateInput struct {
 	Ref        EntityRef
 	Patch      any

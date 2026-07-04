@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 const problemTypeBase = "https://errors.gradion.com/"
@@ -32,22 +32,22 @@ var mapping = []struct {
 	status   int
 	code     string
 }{
-	{errs.ErrNotFound, http.StatusNotFound, "not_found"},
-	{errs.ErrVersionSkew, http.StatusConflict, "version_skew"},
-	{errs.ErrConflict, http.StatusConflict, "conflict"},
-	{errs.ErrPermissionDenied, http.StatusForbidden, "permission_denied"},
-	{errs.ErrScopeExceeded, http.StatusForbidden, "scope_exceeds_grantor"},
-	{errs.ErrRequiresApproval, http.StatusForbidden, "requires_approval"},
-	{errs.ErrApprovalTokenInvalid, http.StatusForbidden, "approval_token_invalid"},
-	{errs.ErrSeatTierInsufficient, http.StatusForbidden, "seat_tier_insufficient"},
-	{errs.ErrAgentSurfaceRestricted, http.StatusForbidden, "agent_surface_restricted"},
-	{errs.ErrConsentNotGranted, http.StatusConflict, "consent_not_granted"},
-	{errs.ErrBudgetExceeded, http.StatusTooManyRequests, "rate_limited"},
-	{errs.ErrModeNotOverlay, http.StatusNotFound, "mode_not_overlay"},
-	{errs.ErrUnsupportedBySoR, http.StatusUnprocessableEntity, "unsupported_by_sor"},
-	{errs.ErrIncumbentAlreadyConnected, http.StatusConflict, "incumbent_already_connected"},
-	{errs.ErrOverlayFlipBlocked, http.StatusConflict, "overlay_flip_blocked"},
-	{errs.ErrIncumbentBudgetExhausted, http.StatusServiceUnavailable, "incumbent_budget_exhausted"},
+	{apperrors.ErrNotFound, http.StatusNotFound, "not_found"},
+	{apperrors.ErrVersionSkew, http.StatusConflict, "version_skew"},
+	{apperrors.ErrConflict, http.StatusConflict, "conflict"},
+	{apperrors.ErrPermissionDenied, http.StatusForbidden, "permission_denied"},
+	{apperrors.ErrScopeExceeded, http.StatusForbidden, "scope_exceeds_grantor"},
+	{apperrors.ErrRequiresApproval, http.StatusForbidden, "requires_approval"},
+	{apperrors.ErrApprovalTokenInvalid, http.StatusForbidden, "approval_token_invalid"},
+	{apperrors.ErrSeatTierInsufficient, http.StatusForbidden, "seat_tier_insufficient"},
+	{apperrors.ErrAgentSurfaceRestricted, http.StatusForbidden, "agent_surface_restricted"},
+	{apperrors.ErrConsentNotGranted, http.StatusConflict, "consent_not_granted"},
+	{apperrors.ErrBudgetExceeded, http.StatusTooManyRequests, "rate_limited"},
+	{apperrors.ErrModeNotOverlay, http.StatusNotFound, "mode_not_overlay"},
+	{apperrors.ErrUnsupportedBySoR, http.StatusUnprocessableEntity, "unsupported_by_sor"},
+	{apperrors.ErrIncumbentAlreadyConnected, http.StatusConflict, "incumbent_already_connected"},
+	{apperrors.ErrOverlayFlipBlocked, http.StatusConflict, "overlay_flip_blocked"},
+	{apperrors.ErrIncumbentBudgetExhausted, http.StatusServiceUnavailable, "incumbent_budget_exhausted"},
 }
 
 // Write maps err onto the wire. Unknown errors become an opaque 500 — the

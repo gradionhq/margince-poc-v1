@@ -2,7 +2,7 @@
 // not optional: every write path takes or stamps it, and the store APIs
 // accept no overload without it — a missing provenance is a compile
 // failure, not a runtime surprise.
-package prov
+package provenance
 
 import "errors"
 

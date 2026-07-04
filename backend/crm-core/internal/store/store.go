@@ -17,11 +17,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/crmctx"
 	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/events"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // Store owns crm-core's tables (data-seam ownership, ADR-0014 Am.1).
@@ -39,10 +39,10 @@ func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
 
 // actor resolves the audit identity of the current call. A missing actor
 // is a programming error (the middleware always binds one).
-func actor(ctx context.Context) (crmctx.Principal, error) {
-	p, ok := crmctx.Actor(ctx)
+func actor(ctx context.Context) (principal.Principal, error) {
+	p, ok := principal.Actor(ctx)
 	if !ok {
-		return crmctx.Principal{}, errors.New("store: no actor bound to context")
+		return principal.Principal{}, errors.New("store: no actor bound to context")
 	}
 	return p, nil
 }
@@ -67,7 +67,7 @@ func audit(ctx context.Context, tx pgx.Tx, action, entityType string, entityID i
 	if err != nil {
 		return ids.Nil, err
 	}
-	wsID, _ := crmctx.WorkspaceID(ctx)
+	wsID, _ := principal.WorkspaceID(ctx)
 
 	beforeJSON, err := marshalOrNil(before)
 	if err != nil {
@@ -98,8 +98,8 @@ func emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityTyp
 	if err != nil {
 		return err
 	}
-	wsID, _ := crmctx.WorkspaceID(ctx)
-	correlationID, ok := crmctx.CorrelationID(ctx)
+	wsID, _ := principal.WorkspaceID(ctx)
+	correlationID, ok := principal.CorrelationID(ctx)
 	if !ok {
 		// Every write path opens an operation scope (the HTTP middleware,
 		// a consumer re-binding its trigger); a missing one is a
@@ -125,7 +125,7 @@ func emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityTyp
 			AuditLogID:    auditID,
 		},
 	}
-	if causeID, ok := crmctx.CausationEvent(ctx); ok {
+	if causeID, ok := principal.CausationEvent(ctx); ok {
 		env.Trace.CausationID = &causeID
 	}
 	if payload != nil {
@@ -261,9 +261,9 @@ func (p *patch) apply(ctx context.Context, tx pgx.Tx, table string, id ids.UUID,
 		return err
 	}
 	if exists {
-		return errs.ErrVersionSkew
+		return apperrors.ErrVersionSkew
 	}
-	return errs.ErrNotFound
+	return apperrors.ErrNotFound
 }
 
 func marshalOrNil(v any) ([]byte, error) {

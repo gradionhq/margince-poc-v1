@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestEverySystemRoleHasAValidDefaultDocument(t *testing.T) {
@@ -38,7 +38,7 @@ func TestParseDefaultsAnUnsetScopeToNarrowest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.RowScope != crmctx.RowScopeOwn {
+	if doc.RowScope != principal.RowScopeOwn {
 		t.Errorf("unset row_scope resolved to %q, must fail closed to own", doc.RowScope)
 	}
 }
@@ -49,15 +49,15 @@ func TestMergeUnionsGrantsAndWidensScope(t *testing.T) {
 	merged := Merge(map[string]Document{"rep": rep, "read_only": readonly})
 
 	// Union: rep's writes survive the read-only role being added.
-	if !merged.Allows("person", crmctx.ActionCreate) {
+	if !merged.Allows("person", principal.ActionCreate) {
 		t.Error("merge lost rep's person.create")
 	}
 	// Neither role deletes people; the union must not invent it.
-	if merged.Allows("person", crmctx.ActionDelete) {
+	if merged.Allows("person", principal.ActionDelete) {
 		t.Error("merge invented person.delete that no role grants")
 	}
 	// Widest scope wins: read_only's `all` over rep's `team`.
-	if merged.RowScope != crmctx.RowScopeAll {
+	if merged.RowScope != principal.RowScopeAll {
 		t.Errorf("merged row scope %q, want all (the widest held)", merged.RowScope)
 	}
 	if len(merged.RoleKeys) != 2 {
@@ -68,7 +68,7 @@ func TestMergeUnionsGrantsAndWidensScope(t *testing.T) {
 func TestZeroRolesDenyEverything(t *testing.T) {
 	merged := Merge(nil)
 	for _, object := range coreObjects {
-		for _, a := range []crmctx.Action{crmctx.ActionCreate, crmctx.ActionRead, crmctx.ActionUpdate, crmctx.ActionDelete} {
+		for _, a := range []principal.Action{principal.ActionCreate, principal.ActionRead, principal.ActionUpdate, principal.ActionDelete} {
 			if merged.Allows(object, a) {
 				t.Errorf("a user with no roles was granted %s.%s", object, a)
 			}

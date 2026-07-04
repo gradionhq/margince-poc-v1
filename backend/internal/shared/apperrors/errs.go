@@ -5,7 +5,7 @@
 //
 // Adding a sentinel is rare and lands in interfaces.md §0 in the same
 // change, together with its HTTP and MCP mapping.
-package errs
+package apperrors
 
 import "errors"
 

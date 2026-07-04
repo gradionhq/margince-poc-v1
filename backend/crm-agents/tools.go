@@ -14,10 +14,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/ids"
-	"github.com/gradionhq/margince/backend/mcp"
-	"github.com/gradionhq/margince/backend/sor"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // toolSource is the provenance channel every MCP write carries.
@@ -36,7 +36,7 @@ type StageResolver interface {
 // `archive_record` and `promote_lead`. run_report joins when the compiled
 // report engine lands; merge/disqualify/enrich/send join with their
 // underlying verbs.
-func RegisterCoreTools(r *Registry, p sor.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter) {
+func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter) {
 	r.Register(searchRecords{p: p})
 	r.Register(readRecord{p: p})
 	r.Register(createRecord{p: p})
@@ -69,12 +69,14 @@ func schema(s string) json.RawMessage { return json.RawMessage(s) }
 
 // --- search_records (🟢 read) ---
 
-type searchRecords struct{ p sor.SystemOfRecordProvider }
+type searchRecords struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "search_records", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"Full-text query over names/titles"},
@@ -96,9 +98,9 @@ func (t searchRecords) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	q := sor.SearchQuery{Text: args.Q, Limit: args.Limit, Cursor: args.Cursor}
+	q := datasource.SearchQuery{Text: args.Q, Limit: args.Limit, Cursor: args.Cursor}
 	if args.RecordType != "" {
-		q.EntityTypes = []sor.EntityType{sor.EntityType(args.RecordType)}
+		q.EntityTypes = []datasource.EntityType{datasource.EntityType(args.RecordType)}
 	}
 	res, err := t.p.Search(ctx, q)
 	if err != nil {
@@ -114,7 +116,7 @@ type wireRecord struct {
 	Version    int64           `json:"version,omitempty"`
 }
 
-func searchResult(res sor.SearchResult) map[string]any {
+func searchResult(res datasource.SearchResult) map[string]any {
 	records := make([]wireRecord, 0, len(res.Records))
 	for _, r := range res.Records {
 		records = append(records, wireRecord{
@@ -130,12 +132,14 @@ func searchResult(res sor.SearchResult) map[string]any {
 
 // --- read_record (🟢 read) ---
 
-type readRecord struct{ p sor.SystemOfRecordProvider }
+type readRecord struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "read_record", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity"]},
@@ -153,7 +157,7 @@ func (t readRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	rec, err := t.p.Read(ctx, sor.EntityRef{Type: sor.EntityType(args.RecordType), ID: args.ID})
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -164,12 +168,14 @@ func (t readRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 
 // --- create_record (🟢 write, reversible) ---
 
-type createRecord struct{ p sor.SystemOfRecordProvider }
+type createRecord struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity"]},
@@ -187,8 +193,8 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	ref, err := t.p.Create(ctx, sor.CreateInput{
-		EntityType: sor.EntityType(args.RecordType),
+	ref, err := t.p.Create(ctx, datasource.CreateInput{
+		EntityType: datasource.EntityType(args.RecordType),
 		Fields:     args.Fields,
 		Source:     toolSource,
 	})
@@ -200,12 +206,14 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 
 // --- update_record (🟢 write, reversible) ---
 
-type updateRecord struct{ p sor.SystemOfRecordProvider }
+type updateRecord struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t updateRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "update_record", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen,
 		OpenAPIOp: "updatePerson/updateOrganization/updateDeal/updateLead",
 		InputSchema: schema(`{"type":"object","required":["record_type","id","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead"]},
@@ -227,8 +235,8 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	ref, err := t.p.Update(ctx, sor.UpdateInput{
-		Ref:       sor.EntityRef{Type: sor.EntityType(args.RecordType), ID: args.ID},
+	ref, err := t.p.Update(ctx, datasource.UpdateInput{
+		Ref:       datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID},
 		Patch:     args.Fields,
 		Source:    toolSource,
 		IfVersion: args.IfVersion,
@@ -241,12 +249,14 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 
 // --- log_activity (🟢 write) ---
 
-type logActivity struct{ p sor.SystemOfRecordProvider }
+type logActivity struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "log_activity", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen,
 		OpenAPIOp: "logActivity",
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
 			"kind":{"type":"string","enum":["note","email","call","meeting","task"]},
@@ -266,8 +276,8 @@ func (t logActivity) Spec() mcp.ToolSpec {
 func (t logActivity) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	// The args ARE the contract's create-activity body (minus provenance,
 	// which this surface stamps); the provider re-validates strictly.
-	ref, err := t.p.Create(ctx, sor.CreateInput{
-		EntityType: sor.EntityActivity,
+	ref, err := t.p.Create(ctx, datasource.CreateInput{
+		EntityType: datasource.EntityActivity,
 		Fields:     in,
 		Source:     toolSource,
 	})
@@ -287,14 +297,14 @@ type advanceDealArgs struct {
 }
 
 type advanceDeal struct {
-	p      sor.SystemOfRecordProvider
+	p      datasource.SystemOfRecordProvider
 	stages StageResolver
 }
 
 func (t advanceDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "advance_deal", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite,
+		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		TierResolver:  advanceDealTier,
 		OpenAPIOp:     "advanceDeal",
@@ -344,7 +354,7 @@ func (t advanceDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, sor.EntityRef{Type: sor.EntityDeal, ID: args.DealID})
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityDeal, ID: args.DealID})
 	if err != nil {
 		return StageInfo{}, err
 	}
@@ -363,7 +373,7 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	ref, err := t.p.AdvanceDeal(ctx, sor.AdvanceDealInput{
+	ref, err := t.p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
 		DealID:     args.DealID,
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
@@ -379,7 +389,7 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 // readBack answers every write with the resulting record — the agent
 // needs the post-write state (server-derived fields, bumped version)
 // without a second round-trip.
-func readBack(ctx context.Context, p sor.SystemOfRecordProvider, ref sor.EntityRef) (json.RawMessage, error) {
+func readBack(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (json.RawMessage, error) {
 	rec, err := p.Read(ctx, ref)
 	if err != nil {
 		return nil, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
@@ -396,12 +406,14 @@ type archiveArgs struct {
 	ID         ids.UUID `json:"id"`
 }
 
-type archiveRecord struct{ p sor.SystemOfRecordProvider }
+type archiveRecord struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "archive_record", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierYellow,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow,
 		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal"]},
@@ -417,7 +429,7 @@ func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	rec, err := t.p.Read(ctx, sor.EntityRef{Type: sor.EntityType(args.RecordType), ID: args.ID})
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {
 		return StageInfo{}, err
 	}
@@ -432,7 +444,7 @@ func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	ref, err := t.p.Archive(ctx, sor.EntityRef{Type: sor.EntityType(args.RecordType), ID: args.ID})
+	ref, err := t.p.Archive(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +456,7 @@ func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 // LeadPromoter is the provider extension promotion rides (the sor seam
 // has no promotion verb yet — fable feedback/17).
 type LeadPromoter interface {
-	PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (sor.EntityRef, bool, error)
+	PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (datasource.EntityRef, bool, error)
 }
 
 type promoteArgs struct {
@@ -454,14 +466,14 @@ type promoteArgs struct {
 }
 
 type promoteLead struct {
-	p        sor.SystemOfRecordProvider
+	p        datasource.SystemOfRecordProvider
 	promoter LeadPromoter
 }
 
 func (t promoteLead) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "promote_lead", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierYellow,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow,
 		OpenAPIOp: "promoteLead",
 		InputSchema: schema(`{"type":"object","required":["lead_id","trigger"],"properties":{
 			"lead_id":{"type":"string","format":"uuid"},
@@ -482,7 +494,7 @@ func (t promoteLead) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	if !validTriggers[args.Trigger] {
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("trigger %q is not genuine engagement", args.Trigger)}
 	}
-	rec, err := t.p.Read(ctx, sor.EntityRef{Type: sor.EntityLead, ID: args.LeadID})
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityLead, ID: args.LeadID})
 	if err != nil {
 		return StageInfo{}, err
 	}
@@ -532,12 +544,14 @@ type mergeArgs struct {
 // leads leave through their own lifecycle).
 var mergeableTypes = map[string]bool{"person": true, "organization": true}
 
-type mergeRecords struct{ p sor.SystemOfRecordProvider }
+type mergeRecords struct {
+	p datasource.SystemOfRecordProvider
+}
 
 func (t mergeRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "merge_records", Version: "1.0.0",
-		RequiredScope: crmctx.ScopeWrite, Tier: mcp.TierYellow,
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow,
 		OpenAPIOp: "mergePerson/mergeOrganization",
 		InputSchema: schema(`{"type":"object","required":["record_type","source_id","target_id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization"]},
@@ -564,11 +578,11 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	// merging into B as it is now, so if B changes before redemption the
 	// approval no longer covers it (version skew, re-stage). Read the source
 	// too, only to label the inbox entry.
-	survivor, err := t.p.Read(ctx, sor.EntityRef{Type: sor.EntityType(args.RecordType), ID: args.TargetID})
+	survivor, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.TargetID})
 	if err != nil {
 		return StageInfo{}, err
 	}
-	source, err := t.p.Read(ctx, sor.EntityRef{Type: sor.EntityType(args.RecordType), ID: args.SourceID})
+	source, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.SourceID})
 	if err != nil {
 		return StageInfo{}, err
 	}
@@ -586,8 +600,8 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if !mergeableTypes[args.RecordType] {
 		return nil, &BadArgsError{Cause: fmt.Errorf("record_type %q cannot be merged", args.RecordType)}
 	}
-	ref, err := t.p.Merge(ctx, sor.MergeInput{
-		Type: sor.EntityType(args.RecordType), SourceID: args.SourceID, TargetID: args.TargetID,
+	ref, err := t.p.Merge(ctx, datasource.MergeInput{
+		Type: datasource.EntityType(args.RecordType), SourceID: args.SourceID, TargetID: args.TargetID,
 	})
 	if err != nil {
 		return nil, err
@@ -599,7 +613,7 @@ func (t mergeRecords) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 
 // recordLabel pulls a human-readable name out of a record's fields for
 // inbox summaries; falls back to the id.
-func recordLabel(rec sor.Record) string {
+func recordLabel(rec datasource.Record) string {
 	var f struct {
 		FullName    string `json:"full_name"`
 		DisplayName string `json:"display_name"`

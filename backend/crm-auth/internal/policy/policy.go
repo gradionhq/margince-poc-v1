@@ -2,7 +2,7 @@
 // data-model §2.4): the JSONB shape stored in role.permissions, the five
 // seeded system-role defaults (decisions/0006), the validator that keeps
 // a policy honest, and the merge that resolves a user's role set into
-// one effective crmctx.Permissions at authentication time.
+// one effective principal.Permissions at authentication time.
 package policy
 
 import (
@@ -11,7 +11,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // coreObjects is the closed set of RBAC-governed object types
@@ -25,8 +25,8 @@ var coreObjects = []string{"person", "organization", "deal", "lead", "activity",
 //
 //	"row_scope": "own"|"team"|"all", "field_masks": […]}.
 type Document struct {
-	Objects  map[string]grant `json:"objects"`
-	RowScope crmctx.RowScope  `json:"row_scope"`
+	Objects  map[string]grant   `json:"objects"`
+	RowScope principal.RowScope `json:"row_scope"`
 	// FieldMasks is carried for shape-completeness; enforcement is
 	// B-EP03.4 (field-level masking), not built yet.
 	FieldMasks []string `json:"field_masks,omitempty"`
@@ -51,11 +51,11 @@ var (
 var defaults = map[string]Document{
 	"admin": {
 		Objects:  objects(crud, crud, crud, crud, crud, crud),
-		RowScope: crmctx.RowScopeAll,
+		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
 		Objects:  objects(crud, crud, crud, crud, crud, readOnly),
-		RowScope: crmctx.RowScopeTeam,
+		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
 		// Reps create and work records but never delete them — except
@@ -67,15 +67,15 @@ var defaults = map[string]Document{
 			crud,
 			grant{Create: true, Read: true, Update: true},
 			readOnly),
-		RowScope: crmctx.RowScopeTeam,
+		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
 		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
-		RowScope: crmctx.RowScopeAll,
+		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
 		Objects:  objects(crud, crud, crud, crud, crud, crud),
-		RowScope: crmctx.RowScopeAll,
+		RowScope: principal.RowScopeAll,
 	},
 }
 
@@ -117,10 +117,10 @@ func Parse(raw []byte) (Document, error) {
 		}
 	}
 	switch doc.RowScope {
-	case crmctx.RowScopeOwn, crmctx.RowScopeTeam, crmctx.RowScopeAll:
+	case principal.RowScopeOwn, principal.RowScopeTeam, principal.RowScopeAll:
 	case "":
 		// An unset scope means the narrowest, never a silent widest.
-		doc.RowScope = crmctx.RowScopeOwn
+		doc.RowScope = principal.RowScopeOwn
 	default:
 		return Document{}, fmt.Errorf("policy: invalid row_scope %q (want own|team|all)", doc.RowScope)
 	}
@@ -130,17 +130,17 @@ func Parse(raw []byte) (Document, error) {
 // Merge resolves a user's assigned roles into the effective permission
 // set: grants union (any role allowing an action allows it), row scope
 // widens to the maximum any role holds. Zero roles yield zero grants.
-func Merge(byRole map[string]Document) crmctx.Permissions {
-	merged := crmctx.Permissions{
-		Objects:  make(map[string]crmctx.ObjectGrant, len(coreObjects)),
-		RowScope: crmctx.RowScopeOwn,
+func Merge(byRole map[string]Document) principal.Permissions {
+	merged := principal.Permissions{
+		Objects:  make(map[string]principal.ObjectGrant, len(coreObjects)),
+		RowScope: principal.RowScopeOwn,
 	}
 	for _, key := range slices.Sorted(maps.Keys(byRole)) {
 		doc := byRole[key]
 		merged.RoleKeys = append(merged.RoleKeys, key)
 		for object, g := range doc.Objects {
 			have := merged.Objects[object]
-			merged.Objects[object] = crmctx.ObjectGrant{
+			merged.Objects[object] = principal.ObjectGrant{
 				Create: have.Create || g.Create,
 				Read:   have.Read || g.Read,
 				Update: have.Update || g.Update,

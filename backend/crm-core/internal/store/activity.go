@@ -10,9 +10,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ActivityLinkInput ties one activity to a person, organization or deal.
@@ -40,7 +40,7 @@ type LogActivityInput struct {
 // the stalled flag). Idempotent on (source_system, source_id): replaying
 // a capture returns the existing activity.
 func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontracts.Activity, bool, error) {
-	if err := require(ctx, "activity", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "activity", principal.ActionCreate); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
 	by, err := capturedBy(ctx)
@@ -69,8 +69,8 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 				// scope answers the same 409 the unique-index race does —
 				// the key is taken, the record is not disclosed.
 				if verr := ensureActivityVisible(ctx, tx, existing); verr != nil {
-					if errors.Is(verr, errs.ErrNotFound) {
-						return errs.ErrConflict
+					if errors.Is(verr, apperrors.ErrNotFound) {
+						return apperrors.ErrConflict
 					}
 					return verr
 				}
@@ -92,7 +92,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			in.DueAt, in.AssigneeID, in.SourceSystem, in.SourceID, in.Source, by)
 		if err != nil {
 			if isUniqueViolation(err) {
-				return errs.ErrConflict
+				return apperrors.ErrConflict
 			}
 			return err
 		}
@@ -147,7 +147,7 @@ func (e *InvalidLinkTypeError) Error() string {
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Activity, error) {
-	if err := require(ctx, "activity", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "activity", principal.ActionRead); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	var out crmcontracts.Activity
@@ -173,7 +173,7 @@ type ListActivitiesInput struct {
 // ListActivities is the timeline read: newest first, optionally scoped to
 // one entity through activity_link (the indexed 360-view join).
 func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]crmcontracts.Activity, Page, error) {
-	if err := require(ctx, "activity", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, Page{}, err
 	}
 	limit := clampLimit(in.Limit)
@@ -263,7 +263,7 @@ func readActivity(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived b
 	}
 	a, err := scanActivity(tx.QueryRow(ctx, q, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Activity{}, errs.ErrNotFound
+		return crmcontracts.Activity{}, apperrors.ErrNotFound
 	}
 	return a, err
 }

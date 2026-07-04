@@ -17,7 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
 func TestWriteStagesOneCompleteEnvelope(t *testing.T) {

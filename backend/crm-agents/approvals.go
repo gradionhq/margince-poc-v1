@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 var errInvalidApprovalID = errors.New("approval_id must be a UUID string")

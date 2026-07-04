@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // protocolVersion is the MCP revision this server implements.
@@ -173,16 +173,16 @@ func toolError(msg string) map[string]any {
 // changes what the agent should do next.
 func explain(err error) string {
 	switch {
-	case errors.Is(err, errs.ErrRequiresApproval):
+	case errors.Is(err, apperrors.ErrRequiresApproval):
 		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +
 			"Ask the user to perform it in the CRM, or wait for the approval flow. Nothing was changed. (" + err.Error() + ")"
-	case errors.Is(err, errs.ErrScopeExceeded):
+	case errors.Is(err, apperrors.ErrScopeExceeded):
 		return "The passport this session runs under does not grant the scope this tool needs. (" + err.Error() + ")"
-	case errors.Is(err, errs.ErrPermissionDenied):
+	case errors.Is(err, apperrors.ErrPermissionDenied):
 		return "The human this passport acts for is not permitted to do this — the agent inherits exactly their access. (" + err.Error() + ")"
-	case errors.Is(err, errs.ErrNotFound):
+	case errors.Is(err, apperrors.ErrNotFound):
 		return "No such record in this workspace (or it is outside the acting user's row scope). (" + err.Error() + ")"
-	case errors.Is(err, errs.ErrVersionSkew):
+	case errors.Is(err, apperrors.ErrVersionSkew):
 		return "The record changed since it was read; re-read it and retry with the new version. (" + err.Error() + ")"
 	default:
 		return err.Error()

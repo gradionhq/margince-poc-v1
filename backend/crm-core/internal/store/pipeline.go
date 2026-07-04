@@ -8,9 +8,9 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/crmctx"
-	"github.com/gradionhq/margince/backend/kernel/errs"
-	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type StageInput struct {
@@ -31,7 +31,7 @@ type CreatePipelineInput struct {
 // stage_terminal_prob CHECK and uq_pipeline_default index enforce the
 // won=100/lost=0 and one-default rules at the database.
 func (s *Store) CreatePipeline(ctx context.Context, in CreatePipelineInput) (crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", crmctx.ActionCreate); err != nil {
+	if err := require(ctx, "pipeline", principal.ActionCreate); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
@@ -54,7 +54,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 		id, wsID, in.Name, in.IsDefault, in.Position)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return crmcontracts.Pipeline{}, errs.ErrConflict
+			return crmcontracts.Pipeline{}, apperrors.ErrConflict
 		}
 		return crmcontracts.Pipeline{}, err
 	}
@@ -77,7 +77,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 }
 
 func (s *Store) GetPipeline(ctx context.Context, id ids.UUID) (crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
@@ -89,7 +89,7 @@ func (s *Store) GetPipeline(ctx context.Context, id ids.UUID) (crmcontracts.Pipe
 }
 
 func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return nil, err
 	}
 	var out []crmcontracts.Pipeline
@@ -130,7 +130,7 @@ func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, err
 
 // DefaultPipeline returns the workspace's seeded default.
 func (s *Store) DefaultPipeline(ctx context.Context) (crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", crmctx.ActionRead); err != nil {
+	if err := require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
@@ -139,7 +139,7 @@ func (s *Store) DefaultPipeline(ctx context.Context) (crmcontracts.Pipeline, err
 		err := tx.QueryRow(ctx,
 			`SELECT id FROM pipeline WHERE is_default AND archived_at IS NULL`).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		if err != nil {
 			return err
@@ -158,7 +158,7 @@ func readPipeline(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Pip
 		 FROM pipeline WHERE id = $1 AND archived_at IS NULL`, id).
 		Scan(&pid, &wsID, &p.Name, &p.IsDefault, &p.Position, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p, errs.ErrNotFound
+		return p, apperrors.ErrNotFound
 	}
 	if err != nil {
 		return p, err
@@ -234,7 +234,7 @@ func (s *Store) StageSemantic(ctx context.Context, stageID ids.UUID) (semantic s
 			`SELECT semantic, pipeline_id FROM stage WHERE id = $1 AND archived_at IS NULL`,
 			stageID).Scan(&semantic, &pipelineID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return errs.ErrNotFound
+			return apperrors.ErrNotFound
 		}
 		return err
 	})
