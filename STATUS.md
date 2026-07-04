@@ -5,10 +5,28 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-04 (Codex red-team review).** Roughly **18 %** of the
+**Last updated: 2026-07-05 (overnight build, in progress).** Roughly **18 %** of the
 701-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is
 implemented and gate-verified.
+
+## ACTIVE overnight build session (2026-07-04/05) — read this first
+
+An autonomous overnight session is COMMITTING TO MAIN continuously
+(every slice gate-green, pushed immediately). Landed so far: modules/ai
+(providers, router, budget, metering), the Surface-B runner + scheduler
+(agent_run/runner_job, suspend/resume), modules/search (FTS + pgvector
++ RRF + context graph + Retriever), the report engine + schema
+introspection, modules/capture (connector seam substrate),
+modules/consent (default-deny suppression + DOI), the A2 OAuth
+authorization server + hosted MCP transport + ADR-0036 JWS,
+modules/collections (lists/tags), and the fixes for ALL findings in
+review_codex_20260704_194430.md. Migrations are at 0025. db-up now uses
+pgvector/pgvector:pg16 — recreate the dev container once
+(docker rm -f fable-pg16 && make db-up && make migrate).
+
+This section is replaced by the full close-out at session end; until
+then treat the sections below as the previous sessions' record.
 
 ## Current session: Codex red-team review filed
 
