@@ -275,6 +275,11 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 		if err != nil {
 			return err
 		}
+		// Same rule as create: editing an edge is editing its anchor.
+		anchorObject, _ := relationshipAnchor(current.Kind)
+		if err := auth.Require(ctx, anchorObject, principal.ActionUpdate); err != nil {
+			return err
+		}
 		if in.IfVersion != nil && *in.IfVersion != current.Version {
 			return apperrors.ErrVersionSkew
 		}
@@ -310,12 +315,17 @@ func (s *Store) ArchiveRelationship(ctx context.Context, id ids.UUID) (relations
 	}
 	var out relationshipRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := s.visibleRelationship(ctx, tx, id); err != nil {
+		current, err := s.visibleRelationship(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		// Same rule as create: removing an edge is editing its anchor.
+		anchorObject, _ := relationshipAnchor(current.Kind)
+		if err := auth.Require(ctx, anchorObject, principal.ActionUpdate); err != nil {
 			return err
 		}
 		row := tx.QueryRow(ctx,
 			`UPDATE relationship SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING `+relationshipColumns, id)
-		var err error
 		if out, err = scanRelationship(row); errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		} else if err != nil {

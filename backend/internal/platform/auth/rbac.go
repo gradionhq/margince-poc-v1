@@ -192,14 +192,17 @@ func EnsureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) er
 // auditActionGrant maps each audit_log.action verb onto the CRUD grant
 // that authorizes it. Package-level: AuthzRule sits on every write path.
 var auditActionGrant = map[string]principal.Action{
-	"create":        principal.ActionCreate,
-	"update":        principal.ActionUpdate,
-	"assign":        principal.ActionUpdate,
-	"advance_stage": principal.ActionUpdate,
-	"restore":       principal.ActionUpdate,
-	"archive":       principal.ActionDelete,
-	"merge":         principal.ActionUpdate,
-	"promote":       principal.ActionUpdate,
+	"create":           principal.ActionCreate,
+	"update":           principal.ActionUpdate,
+	"assign":           principal.ActionUpdate,
+	"advance_stage":    principal.ActionUpdate,
+	"restore":          principal.ActionUpdate,
+	"archive":          principal.ActionDelete,
+	"merge":            principal.ActionUpdate,
+	"promote":          principal.ActionUpdate,
+	"consent_grant":    principal.ActionUpdate,
+	"consent_withdraw": principal.ActionUpdate,
+	"activity_relink":  principal.ActionUpdate,
 }
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a

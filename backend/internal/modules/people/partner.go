@@ -59,6 +59,12 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 	if err := auth.Require(ctx, "partner", principal.ActionUpdate); err != nil {
 		return partnerRow{}, err
 	}
+	// Promotion flips organization.classification — that is an org
+	// mutation, so the org's own write grant is required too; the
+	// partner grant alone must not become a side door onto orgs.
+	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
+		return partnerRow{}, err
+	}
 	capturedBy, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return partnerRow{}, err
@@ -121,6 +127,10 @@ func (s *Store) GetPartner(ctx context.Context, organizationID ids.UUID) (partne
 	if err := auth.Require(ctx, "partner", principal.ActionRead); err != nil {
 		return partnerRow{}, err
 	}
+	// Partner rows are organization-derived data.
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		return partnerRow{}, err
+	}
 	var out partnerRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "organization", organizationID); err != nil {
@@ -147,6 +157,9 @@ type ListPartnersInput struct {
 
 func (s *Store) ListPartners(ctx context.Context, in ListPartnersInput) ([]partnerRow, storekit.Page, error) {
 	if err := auth.Require(ctx, "partner", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
