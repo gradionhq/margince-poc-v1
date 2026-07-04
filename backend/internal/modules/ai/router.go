@@ -2,8 +2,10 @@ package ai
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"sync"
 	"time"
 
@@ -88,7 +90,7 @@ func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (mo
 	ladder = r.applyProfile(ladder)
 
 	key := cacheKey(wsID, task, req)
-	if resp, tier, hit := r.cache.get(key); hit {
+	if resp, tier, hit := r.cache.get(key, wsID); hit {
 		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); err != nil {
 			return model.Response{}, RouteInfo{}, fmt.Errorf("ai: metering cache hit: %w", err)
 		}
@@ -228,16 +230,20 @@ func embedTokenEstimate(inputs []string) int {
 	return total
 }
 
-func cacheKey(wsID ids.UUID, task Task, req model.Request) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(wsID.String()))
-	_, _ = h.Write([]byte(task))
-	_, _ = h.Write([]byte(req.System))
-	for _, m := range req.Messages {
-		_, _ = h.Write([]byte(m.Role))
-		_, _ = h.Write([]byte(m.Content))
-	}
-	return h.Sum64()
+// cacheKey covers EVERY completion-shaping input (system, messages,
+// tools, max tokens) via a collision-resistant digest, prefixed with the
+// plaintext workspace id: a hash collision may spoil a cache hit but can
+// never cross a tenant boundary, because the workspace segment is
+// compared literally (and re-checked against the stored entry on read).
+func cacheKey(wsID ids.UUID, task Task, req model.Request) string {
+	material, _ := json.Marshal(struct {
+		System    string          `json:"system"`
+		Messages  []model.Message `json:"messages"`
+		Tools     []model.ToolDef `json:"tools"`
+		MaxTokens int             `json:"max_tokens"`
+	}{req.System, req.Messages, req.Tools, req.MaxTokens})
+	sum := sha256.Sum256(material)
+	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:])
 }
 
 // resultCache is the §6 result cache: workspace_id is part of the key
@@ -247,7 +253,7 @@ type resultCache struct {
 	mu      sync.Mutex
 	ttl     time.Duration
 	now     func() time.Time
-	entries map[uint64]cacheEntry
+	entries map[string]cacheEntry
 }
 
 type cacheEntry struct {
@@ -258,10 +264,10 @@ type cacheEntry struct {
 }
 
 func newResultCache(ttl time.Duration) *resultCache {
-	return &resultCache{ttl: ttl, now: time.Now, entries: map[uint64]cacheEntry{}}
+	return &resultCache{ttl: ttl, now: time.Now, entries: map[string]cacheEntry{}}
 }
 
-func (c *resultCache) get(key uint64) (model.Response, Tier, bool) {
+func (c *resultCache) get(key string, wsID ids.UUID) (model.Response, Tier, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[key]
@@ -269,10 +275,15 @@ func (c *resultCache) get(key uint64) (model.Response, Tier, bool) {
 		delete(c.entries, key)
 		return model.Response{}, "", false
 	}
+	// Defense in depth for RT-AI-M7: even a corrupted key can never
+	// serve another workspace's answer.
+	if entry.workspaceID != wsID {
+		return model.Response{}, "", false
+	}
 	return entry.resp, entry.tier, true
 }
 
-func (c *resultCache) put(key uint64, wsID ids.UUID, resp model.Response, tier Tier) {
+func (c *resultCache) put(key string, wsID ids.UUID, resp model.Response, tier Tier) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[key] = cacheEntry{workspaceID: wsID, resp: resp, tier: tier, expires: c.now().Add(c.ttl)}
