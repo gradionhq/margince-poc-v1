@@ -69,12 +69,9 @@ func projectImports(t *testing.T, dir string) []string {
 
 // TestPlatformOwnsNoDomain: internal/platform is technical plumbing
 // (ADR-0054 §5) — it may import shared and other platform packages, but
-// never a domain module or the composition layer. The dir prefixes below
-// cover both the current tree and the post-split modules/ tree, so the
-// test cannot silently pass through the migration.
+// never a domain module, the composition layer, or a process role.
 func TestPlatformOwnsNoDomain(t *testing.T) {
 	forbidden := []string{
-		modulePath + "/crm-",
 		modulePath + "/internal/modules/",
 		modulePath + "/internal/compose",
 		modulePath + "/cmd/",

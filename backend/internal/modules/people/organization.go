@@ -80,6 +80,16 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			}
 		}
 
+		// Naming a parent is a read of the parent: the child discloses the
+		// hierarchy edge, so the target must be visible under the caller's
+		// row scope, not merely same-workspace (H1 — an FK argument to a
+		// row-scoped record is a read of that record).
+		if in.ParentOrgID != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.ParentOrgID); err != nil {
+				return err
+			}
+		}
+
 		id := ids.NewV7()
 		_, err := tx.Exec(ctx,
 			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id, source, captured_by)
@@ -254,6 +264,10 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 			p.Set("owner_id", current.OwnerId, *in.OwnerID)
 		}
 		if in.ParentOrgID != nil {
+			// Re-parenting is a read of the new parent (the create-path rule).
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.ParentOrgID); err != nil {
+				return err
+			}
 			p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
 		}
 		if p.Empty() {

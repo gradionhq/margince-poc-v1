@@ -5,38 +5,45 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-04 (current red-team review).** Roughly **17–18 %** of the
+**Last updated: 2026-07-04 (red-team remediation).** Roughly **17–18 %** of the
 701-leaf-ticket V1 backlog
 (`../margince/margince specs/spec/product/build-backlog/`) is
 implemented and gate-verified.
 
-## Current session: post-restructure red-team review
+## Current session: post-restructure red-team, all findings fixed
 
-Created
-[REVIEW-current-red-team-2026-07-04.md](REVIEW-current-red-team-2026-07-04.md),
-a current-state red-team pass after the prior C1-C5 remediation and the
-triad restructure. The gates are green: `make check` and
-`make test-integration` both passed (after granting normal Go build-cache
-and Docker access in the sandbox).
+A current-state red-team pass ran after the triad restructure (its
+review file is addressed in full and retired to git history). Every
+finding is fixed with a regression or fitness test:
 
-Top current findings:
-
-- **H1** — secondary FK targets are not consistently row-scope gated:
-  activity links prove target visibility, but deal organization/partner
-  fields and organization parent fields currently trust same-workspace FK
-  enforcement without proving the caller can read the referenced record.
-- **H2/H3** — approval inbox/decision authority checks object grants but
-  not target row scope, and rejecting a known approval id requires only a
-  human principal.
-- **M1** — pipeline creation is audit-only, contradicting the repo's
-  stated mutation = domain row + audit + outbox shape unless the spec
-  explicitly blesses pipeline config as audit-only.
-- **M2/M3** — approval list can starve visible approvals behind the hard
-  200-row pre-filter cap, and duplicate conflict responses include the zero
-  UUID when the real existing id is hidden/unknown.
-- **M4/M5** — stale pre-triad comment residue remains in architecture tests,
-  and several important obligations are still social conventions rather
-  than fitness functions.
+- **H1** — an FK argument naming a row-scoped record is now a READ of
+  the target: deal organization/partner and organization parent
+  references go through `auth.EnsureLinkTarget` (the rule activity links
+  already followed), pinned by `TestFKTargetsRequireRowScopeVisibility`
+  and made mechanical by the schema-derived
+  `TestFK_rowScopedTargetsHaveVisibilityDecision` — every FK to a
+  row-scoped table must carry an explicit gated/child-row/server-derived
+  classification or the suite fails.
+- **H2/H3** — the approval surface now applies the target row's
+  own/team scope AND the decision grants uniformly across List, Get,
+  approve and reject (`decidable` = grants ∧ target visibility; an
+  undecidable approval reads as absent, so a leaked UUID buys nothing —
+  a reject is a decision too). `TestApprovalAuthorityHonorsTargetRowScope`.
+- **M1** — the write shape is now a fitness function:
+  `TestEveryAuditedMutationEmitsAnEvent` (AST scan) fails any module
+  mutation that audits without emitting; pipeline config is the one
+  ratified audit-only exception, spec question filed as
+  [feedback/03](feedback/03-pipeline-config-events-vs-write-shape.md).
+- **M2** — the approval inbox pages past the scan window until the
+  display limit fills, so a burst of undecidable stagings can't starve
+  older decidable rows (`TestApprovalListPagesPastUndecidableBurst`,
+  220 hidden rows over one visible).
+- **M3** — duplicate 409s omit `existing_id` when the dedupe pre-check
+  hid the row (no more zero UUID on the wire).
+- **M4/M5** — stale pre-triad comment residue removed from the arch
+  tests; the "every 🟡 tool kind has a decision-grant mapping"
+  obligation is now derived from the live registry
+  (`TestEveryYellowToolHasADecisionGrantMapping`).
 
 ## Last session: the triad restructure (ADR-0054/A69)
 

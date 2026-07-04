@@ -14,6 +14,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 type Handlers struct {
@@ -22,6 +23,18 @@ type Handlers struct {
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
 	return Handlers{store: NewStore(pool)}
+}
+
+// duplicateID renders a duplicate error's existing-row pointer for the
+// wire. The dedupe pre-checks leave ExistingID zero when the row is not
+// visible to the caller (or a race hid it); the response then omits
+// existing_id entirely — a literal zero UUID is not an id, and clients
+// must never be trained to special-case one.
+func duplicateID(id ids.UUID) string {
+	if id.IsZero() {
+		return ""
+	}
+	return id.String()
 }
 
 // writeStoreErr maps this module's typed store errors onto the wire
@@ -34,17 +47,17 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var dupEmail *DuplicateEmailError
 	if errors.As(err, &dupEmail) {
-		httperr.Write(w, r, httperr.Duplicate("duplicate_email", dupEmail.ExistingID.String()))
+		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupEmail.ExistingID)))
 		return
 	}
 	var dupDomain *DuplicateDomainError
 	if errors.As(err, &dupDomain) {
-		httperr.Write(w, r, httperr.Duplicate("duplicate_domain", dupDomain.ExistingID.String()))
+		httperr.Write(w, r, httperr.Duplicate("duplicate_domain", duplicateID(dupDomain.ExistingID)))
 		return
 	}
 	var dupLead *DuplicateLeadError
 	if errors.As(err, &dupLead) {
-		httperr.Write(w, r, httperr.Duplicate("duplicate_email", dupLead.ExistingID.String()))
+		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID)))
 		return
 	}
 	var promoted *AlreadyPromotedError

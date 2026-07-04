@@ -421,3 +421,92 @@ func TestFK_tenantLocalReferencesAreComposite(t *testing.T) {
 		t.Fatalf("found only %d tenant-local FKs — the fitness query no longer sees the schema", fks)
 	}
 }
+
+// TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
+// from the schema: an FK argument that names a row-scoped business record
+// (person/organization/deal/lead/activity) is a READ of that record, so
+// every such column must carry an explicit decision — client-supplied
+// references are gated by a target-visibility probe (auth.EnsureLinkTarget
+// or the activity link walk), server-derived pointers and owned child rows
+// are named as such. A new FK to a row-scoped table that nobody classified
+// fails here, so the decision cannot be skipped silently.
+func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
+	// The classification. Values are prose for the reader; the map's
+	// completeness is the invariant.
+	decisions := map[string]string{
+		// Client-supplied references — visibility-gated at the store:
+		"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
+		"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
+		"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
+		"activity_link.person_id":       "gated: auth.EnsureLinkTarget in LogActivity",
+		"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
+		"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+		// Owned child rows: the row is an attribute of its visible parent,
+		// written only through the parent's own gated paths.
+		"activity_link.activity_id":           "child row: written only inside LogActivity for the new activity",
+		"consent_event.person_id":             "child row: written through the person's own gated paths",
+		"organization_domain.organization_id": "child row: written through the organization's own gated paths",
+		"person_email.person_id":              "child row: written through the person's own gated paths",
+		"person_phone.person_id":              "child row: written through the person's own gated paths",
+		"person_consent.person_id":            "child row: written through the person's own gated paths",
+		// Server-derived pointers: stamped from an operation's outcome,
+		// never accepted from the request body.
+		"lead.promoted_person_id":       "server-derived: stamped by PromoteLead",
+		"person.merged_into_id":         "server-derived: stamped by MergePerson",
+		"organization.merged_into_id":   "server-derived: stamped by MergeOrganization",
+		"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
+		"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
+		// No client-facing write path exists yet; the builder of one must
+		// re-classify the column here (relationship/partner rows today are
+		// written only by merge's server-side relink).
+		"relationship.person_id":           "no client write path yet: merge relink only",
+		"relationship.counterparty_org_id": "no client write path yet: merge relink only",
+		"relationship.organization_id":     "no client write path yet: merge relink only",
+		"relationship.deal_id":             "no client write path yet: merge relink only",
+		"partner.organization_id":          "no client write path yet: merge relink only",
+	}
+
+	ownerDSN, _ := dsns(t)
+	owner := connect(t, ownerDSN)
+	resetSchema(t, owner)
+	migrateAll(t, owner)
+	ctx := context.Background()
+
+	rows, err := owner.Query(ctx, `
+		SELECT c.conrelid::regclass::text AS src_table, a.attname AS src_col,
+		       c.confrelid::regclass::text AS target_table
+		FROM pg_constraint c
+		JOIN unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) ON true
+		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+		WHERE c.contype = 'f'
+		  AND c.confrelid::regclass::text IN ('person','organization','deal','lead','activity')
+		  AND a.attname <> 'workspace_id'
+		ORDER BY 1, 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	seen := map[string]bool{}
+	for rows.Next() {
+		var srcTable, srcCol, target string
+		if err := rows.Scan(&srcTable, &srcCol, &target); err != nil {
+			t.Fatal(err)
+		}
+		key := srcTable + "." + srcCol
+		seen[key] = true
+		if _, decided := decisions[key]; !decided {
+			t.Errorf("FK %s -> %s has no visibility decision: a reference to a row-scoped record is a read of it — gate it (auth.EnsureLinkTarget) or classify it here", key, target)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	// The map must not carry dead entries either — a renamed column would
+	// otherwise keep a stale decision alive forever.
+	for key := range decisions {
+		if !seen[key] {
+			t.Errorf("decision map entry %s matches no FK in the live schema — remove or fix it", key)
+		}
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -135,57 +136,100 @@ func (a row) effectiveStatus() string {
 	return a.Status
 }
 
-// inboxFetchCap bounds how many rows List scans before permission
-// filtering; the display limit applies to what survives the filter.
-const inboxFetchCap = 200
+// inboxBatch is the scan window List filters per round trip; List keeps
+// paging until the display limit is met or the table is exhausted, so a
+// burst of undecidable stagings can never starve older visible rows out
+// of a caller's inbox.
+const inboxBatch = 200
 
 // List returns the inbox, newest first — but only the approvals the caller
 // could themselves decide. Deciding is human work, and so is triage: an
 // agent cannot browse the queue of withheld authority, and neither can a
-// human who lacks the grant the staged effect needs. Without this filter
-// the inbox is a workspace-wide side channel that leaks proposed_change,
-// target ids, and diffs to any low-privilege user (C3/ADR-0036).
+// human who lacks the grant the staged effect needs or cannot see the
+// target row under their own/team scope. Without this filter the inbox is
+// a workspace-wide side channel that leaks proposed_change, target ids,
+// and diffs to any low-privilege user (C3/ADR-0036).
 func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, error) {
 	if err := humanOnly(ctx); err != nil {
 		return nil, err
 	}
 	p, _ := principal.Actor(ctx)
-	if limit <= 0 || limit > inboxFetchCap {
+	if limit <= 0 || limit > inboxBatch {
 		limit = 50
 	}
 	var out []row
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		q := `SELECT ` + columns + ` FROM approval`
-		args := []any{}
-		if status != nil {
-			q += ` WHERE status = $1`
-			args = append(args, *status)
-		}
-		// Fetch up to the hard cap, then filter and truncate to the display
-		// limit — decidability is role/target-shaped, not expressible as a
-		// single WHERE without joining every object grant.
-		q += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, inboxFetchCap)
-		rows, err := tx.Query(ctx, q, args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			a, err := scan(rows)
+		// Decidability is role/target/row-scope-shaped, not expressible as
+		// one WHERE without joining every object grant — so scan keyset
+		// batches and filter in memory until the display limit fills or the
+		// table runs out.
+		var afterCreated *time.Time
+		var afterID *ids.UUID
+		for {
+			q := `SELECT ` + columns + ` FROM approval`
+			args := []any{}
+			arg := func(v any) int { args = append(args, v); return len(args) }
+			where := []string{}
+			if status != nil {
+				where = append(where, fmt.Sprintf("status = $%d", arg(*status)))
+			}
+			if afterCreated != nil {
+				where = append(where, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(*afterCreated), arg(*afterID)))
+			}
+			for i, w := range where {
+				if i == 0 {
+					q += " WHERE " + w
+				} else {
+					q += " AND " + w
+				}
+			}
+			q += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, inboxBatch)
+
+			batch, err := collect(ctx, tx, q, args)
 			if err != nil {
 				return err
 			}
-			if !canDecide(p, a) {
-				continue
+			for i := range batch {
+				a := batch[i]
+				visible, err := decidable(ctx, tx, p, a)
+				if err != nil {
+					return err
+				}
+				if !visible {
+					continue
+				}
+				out = append(out, a)
+				if len(out) >= limit {
+					return nil
+				}
 			}
-			out = append(out, a)
-			if len(out) >= limit {
-				break
+			if len(batch) < inboxBatch {
+				return nil // table exhausted
 			}
+			last := batch[len(batch)-1]
+			afterCreated, afterID = &last.CreatedAt, &last.ID
 		}
-		return rows.Err()
 	})
 	return out, err
+}
+
+// collect materializes one query's rows (the row-scope probes inside the
+// filter loop need the connection, so the cursor cannot stay open).
+func collect(ctx context.Context, tx pgx.Tx, q string, args []any) ([]row, error) {
+	rows, err := tx.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []row
+	for rows.Next() {
+		a, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
 
 func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
@@ -196,16 +240,25 @@ func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
 	var a row
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
 		a, err = get(ctx, tx, id)
-		return err
+		if err != nil {
+			return err
+		}
+		// An approval the caller could not decide reads as absent — the
+		// same existence-hiding the row-scope convention uses, so Get never
+		// becomes a lookup oracle for out-of-scope proposed changes (C3),
+		// whether the gap is a missing grant or a target row outside the
+		// caller's row scope.
+		visible, err := decidable(ctx, tx, p, a)
+		if err != nil {
+			return err
+		}
+		if !visible {
+			return apperrors.ErrNotFound
+		}
+		return nil
 	})
 	if err != nil {
 		return row{}, err
-	}
-	// An approval the caller could not decide reads as absent — the same
-	// existence-hiding the row-scope convention uses, so Get never becomes
-	// a lookup oracle for out-of-scope proposed changes (C3).
-	if !canDecide(p, a) {
-		return row{}, apperrors.ErrNotFound
 	}
 	return a, nil
 }
@@ -232,9 +285,13 @@ func (e *EditNotSupportedError) Error() string {
 	return "edited_payload is not supported yet; reject and let the agent re-propose"
 }
 
-// Decide approves or rejects one pending approval. The approver must hold
-// the RBAC the staged action itself requires — a user cannot green-light
-// an effect they could not perform (ADR-0036 "who may approve").
+// Decide approves or rejects one pending approval. Both verdicts demand
+// the same authority the inbox demands for visibility: the RBAC the
+// staged action itself requires plus row-scope visibility of the target —
+// a user cannot green-light an effect they could not perform, and a
+// rejection is a decision too, not a free action anyone holding a leaked
+// UUID may take. An undecidable approval reads as absent, exactly like
+// Get, so Decide never becomes the lookup oracle the inbox filter closed.
 func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason *string) (row, error) {
 	if err := humanOnly(ctx); err != nil {
 		return row{}, err
@@ -248,13 +305,15 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		if err != nil {
 			return err
 		}
+		visible, err := decidable(ctx, tx, p, a)
+		if err != nil {
+			return err
+		}
+		if !visible {
+			return apperrors.ErrNotFound
+		}
 		if st := a.effectiveStatus(); st != "pending" {
 			return &AlreadyDecidedError{Status: st}
-		}
-		if approve {
-			if err := requireDecisionGrants(p, a); err != nil {
-				return err
-			}
 		}
 
 		status, action, verdict := "rejected", "reject", "rejected"
@@ -370,13 +429,47 @@ var decisionGrants = map[string][]struct {
 	"merge_records":  {}, // resolved from the target's entity type below
 }
 
-// canDecide is the visibility predicate for the inbox: true when p holds
-// every grant approving a would require. It shares requireDecisionGrants
-// so triage visibility and the decision gate can never drift apart — you
-// see exactly what you could act on. An unknown kind (no mapping) is not
-// decidable and so not visible: fail-closed.
-func canDecide(p principal.Principal, a row) bool {
-	return requireDecisionGrants(p, a) == nil
+// decidable is the ONE visibility-and-authority predicate for the inbox
+// and the decision: true when p holds every grant approving a would
+// require AND can see the target row under their own/team/all scope. It
+// backs List, Get and Decide alike, so triage visibility and the decision
+// gate can never drift apart — you see exactly what you could act on, and
+// what you cannot see you cannot decide (in either direction). An unknown
+// kind (no mapping) or unknown target type is not decidable: fail-closed.
+func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bool, error) {
+	if requireDecisionGrants(p, a) != nil {
+		return false, nil
+	}
+	return targetVisible(ctx, tx, a)
+}
+
+// targetVisible applies the target row's own/team/all row scope to the
+// approval: holding deal.update does not entitle a rep to see — or
+// decide — a staged change against another team's deal. The probe uses
+// the same platform/auth clauses the owning store's reads use, so the
+// approval surface can never disclose more than the record itself would.
+// A staged row without a target (none exist today) is scoped by grants
+// alone; a target the probe errors on stays invisible.
+func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
+	if a.TargetType == nil || a.TargetID == nil {
+		return true, nil
+	}
+	switch *a.TargetType {
+	case "person", "organization", "deal", "lead":
+		return auth.VisibleTo(ctx, tx, *a.TargetType, *a.TargetID)
+	case "activity":
+		err := auth.EnsureActivityVisible(ctx, tx, *a.TargetID)
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, apperrors.ErrNotFound):
+			return false, nil
+		default:
+			return false, err
+		}
+	default:
+		return false, nil // unknown target type: fail closed
+	}
 }
 
 func requireDecisionGrants(p principal.Principal, a row) error {
@@ -495,4 +588,14 @@ func nullStr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// KindHasDecisionGrants reports whether a stageable kind carries a
+// decision-grant mapping. The composition layer's fitness test calls it
+// for every 🟡/dynamic tool in the registry: a tool that can stage an
+// approval nobody is mapped to decide would strand its stagings in a
+// queue no inbox shows (decidable fails closed on unknown kinds).
+func KindHasDecisionGrants(kind string) bool {
+	_, ok := decisionGrants[kind]
+	return ok
 }

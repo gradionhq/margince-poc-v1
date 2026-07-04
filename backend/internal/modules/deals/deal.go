@@ -61,6 +61,19 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			return &TerminalStageOnCreateError{Semantic: semantic}
 		}
 
+		// An FK argument that names a row-scoped business record is a read
+		// of that record: embedding organization_id into a deal the caller
+		// will read back discloses the link, so the target must be visible
+		// under the caller's row scope — not merely same-workspace (which
+		// the composite FK already enforces). Owner references point at
+		// app_user, which carries no row scope: any workspace member may be
+		// an owner, so the FK check alone governs them.
+		if in.OrganizationID != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.OrganizationID); err != nil {
+				return err
+			}
+		}
+
 		id := ids.NewV7()
 		_, err = tx.Exec(ctx,
 			`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
@@ -69,8 +82,8 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
 			in.OrganizationID, in.OwnerID, in.ExpectedClose, in.Source, by)
 		if err != nil {
-			// Covers the remaining FKs (pipeline, organization, owner);
-			// the stage/pipeline pairing was pre-checked above.
+			// Covers the remaining FKs (pipeline, owner); the stage/pipeline
+			// pairing and the organization target were pre-checked above.
 			if storekit.IsForeignKeyViolation(err) {
 				return apperrors.ErrNotFound
 			}
@@ -243,12 +256,20 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 			p.Set("currency", current.Currency, *in.Currency)
 		}
 		if in.OrganizationID != nil {
+			// Re-pointing the deal at an organization is a read of that
+			// organization (the create-path rule); same for the partner.
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.OrganizationID); err != nil {
+				return err
+			}
 			p.Set("organization_id", current.OrganizationId, *in.OrganizationID)
 		}
 		if in.OwnerID != nil {
 			p.Set("owner_id", current.OwnerId, *in.OwnerID)
 		}
 		if in.PartnerOrgID != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.PartnerOrgID); err != nil {
+				return err
+			}
 			p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrgID)
 		}
 		if in.ExpectedClose != nil {
