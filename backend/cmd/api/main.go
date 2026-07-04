@@ -1,3 +1,8 @@
+// Command api is the HTTP process role (ADR-0054, amended §2): thin
+// main, a testable run(), wiring through internal/compose. By default it
+// also runs the outbox relay inline (decisions/0005 — one process for
+// dev and small self-hosted installs); a split deployment passes
+// --inline-relay=false and runs cmd/worker.
 package main
 
 import (
@@ -9,7 +14,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -17,19 +24,30 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 )
 
-// runServe boots the HTTP server plus the outbox relay (decisions/0005)
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "api:", err)
+		os.Exit(1)
+	}
+}
+
+// run boots the HTTP server (plus, by default, the inline outbox relay)
 // with explicit operational limits and graceful shutdown — a server
 // without timeouts leaks connections under slow clients.
-func runServe(ctx context.Context, args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+func run(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("api", flag.ContinueOnError)
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	addr := fs.String("addr", ":8080", "listen address")
 	redisAddr := fs.String("redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
+	inlineRelay := fs.Bool("inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *dsn == "" {
-		return errors.New("serve: --dsn or MARGINCE_DSN required")
+		return errors.New("api: --dsn or MARGINCE_DSN required")
 	}
 
 	pool, err := database.NewPool(ctx, *dsn)
@@ -38,21 +56,25 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
+	logger := slog.New(slog.NewTextHandler(stdout, nil))
+
 	// The bus is not optional plumbing: without a relay every committed
 	// write strands its outbox row, so an unreachable Redis fails the
 	// boot the same way an unreachable Postgres does (B-EP04.1).
-	rdb, err := events.NewClient(ctx, *redisAddr)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rdb.Close() }()
-
-	logger := slog.New(slog.NewTextHandler(stdout, nil))
-	relayCtx, stopRelay := context.WithCancel(context.Background())
 	var relay sync.WaitGroup
-	relay.Go(func() {
-		events.NewRelay(pool, rdb, logger).Run(relayCtx)
-	})
+	stopRelay := func() {}
+	if *inlineRelay {
+		rdb, err := events.NewClient(ctx, *redisAddr)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rdb.Close() }()
+		relayCtx, cancel := context.WithCancel(context.Background())
+		stopRelay = cancel
+		relay.Go(func() {
+			events.NewRelay(pool, rdb, logger).Run(relayCtx)
+		})
+	}
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -65,11 +87,15 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	_, _ = fmt.Fprintf(stdout, "crm listening on %s (base path /v1), relaying events to %s\n", *addr, *redisAddr)
+	if *inlineRelay {
+		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1), relaying events to %s\n", *addr, *redisAddr)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1); the outbox relay runs in cmd/worker\n", *addr)
+	}
 
 	// The relay stops after the HTTP server so late-committing requests
 	// usually ship before exit; anything still unshipped waits durably in
-	// the outbox for the next boot — shutdown loses no kevents.
+	// the outbox for the next boot — shutdown loses no events.
 	stopHTTP := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

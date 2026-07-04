@@ -60,10 +60,10 @@ db-init:
 	docker exec -i fable-pg16 psql -U margince_owner -d $(DB_NAME) < ../scripts/db-init.sql
 
 migrate:
-	$(GO) run ./cmd/crm migrate up --dsn "$(OWNER_DSN)"
+	$(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
 
 dev: db-up migrate
-	$(GO) run ./cmd/crm serve --dsn "$(APP_DSN)"
+	$(GO) run ./cmd/api --dsn "$(APP_DSN)"
 
 clean:
 	docker rm -f fable-pg16 fable-redis 2>/dev/null || true

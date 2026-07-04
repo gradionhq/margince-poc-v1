@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -42,10 +43,9 @@ type mcpClient struct {
 	seq int
 }
 
-func startMCP(t *testing.T, token, slug string, svc *identity.Service, provider *compose.Provider, approvalsSvc *approvals.Service) *mcpClient {
+func startMCP(t *testing.T, token, slug string, svc *identity.Service, pool *pgxpool.Pool) *mcpClient {
 	t.Helper()
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvalsSvc})
-	agents.RegisterCoreTools(registry, provider, provider, provider)
+	registry := compose.NewRegistry(pool)
 
 	bind := func(ctx context.Context) (context.Context, error) {
 		wsID, err := svc.ResolveWorkspace(ctx, slug)
@@ -155,7 +155,6 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 
 	svc := identity.NewService(pool)
 	dealsHandlers := deals.NewHandlers(pool)
-	provider := compose.NewProvider(pool)
 
 	admin, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
 		WorkspaceName: "Agent Test", Slug: "agent-test",
@@ -181,7 +180,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	}
 
 	approvalsSvc := approvals.NewService(pool)
-	c := startMCP(t, rw.Token, "agent-test", svc, provider, approvalsSvc)
+	c := startMCP(t, rw.Token, "agent-test", svc, pool)
 
 	// The protocol handshake + the declared surface.
 	var init struct {
@@ -414,7 +413,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 
 	// A read-only passport cannot reach a write tool — refused at the
 	// gate, before the handler.
-	roClient := startMCP(t, ro.Token, "agent-test", svc, provider, approvalsSvc)
+	roClient := startMCP(t, ro.Token, "agent-test", svc, pool)
 	text, isErr = roClient.callTool("create_record", map[string]any{
 		"record_type": "person", "fields": map[string]any{"full_name": "Should not exist"},
 	})

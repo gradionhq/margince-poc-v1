@@ -1,3 +1,14 @@
+// Command mcp is the A1 local MCP process role (ADR-0054, amended §2):
+// MCP over stdio, authenticated by an Agent Seat Passport token from the
+// environment (never a flag — argv is world-readable in `ps`). The agent
+// client config points here:
+//
+//	{"command": "mcp", "args": ["--workspace", "acme"],
+//	 "env": {"MARGINCE_PASSPORT_TOKEN": "mgp_…", "MARGINCE_DSN": "…"}}
+//
+// Every tools/call re-authenticates the token and re-loads the granting
+// human's RBAC, so revocation and demotion bind mid-session. Protocol
+// traffic owns stdout; diagnostics go to stderr.
 package main
 
 import (
@@ -7,27 +18,28 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// runMCP boots the A1 local MCP server: MCP over stdio, authenticated by
-// an Agent Seat Passport token from the environment (never a flag — argv
-// is world-readable in `ps`). The agent client config points here:
-//
-//	{"command": "crm", "args": ["mcp", "--workspace", "acme"],
-//	 "env": {"MARGINCE_PASSPORT_TOKEN": "mgp_…", "MARGINCE_DSN": "…"}}
-//
-// Every tools/call re-authenticates the token and re-loads the granting
-// human's RBAC, so revocation and demotion bind mid-session. Protocol
-// traffic owns stdout; diagnostics go to stderr.
-func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "mcp:", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	workspace := fs.String("workspace", os.Getenv("MARGINCE_WORKSPACE"), "workspace slug the passport belongs to")
@@ -52,10 +64,7 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 	defer pool.Close()
 
 	auth := identity.NewService(pool)
-	provider := compose.NewProvider(pool)
-
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)})
-	agents.RegisterCoreTools(registry, provider, provider, provider)
+	registry := compose.NewRegistry(pool)
 
 	bind := func(ctx context.Context) (context.Context, error) {
 		wsID, err := auth.ResolveWorkspace(ctx, *workspace)
@@ -77,29 +86,8 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("mcp: passport check failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "crm mcp: serving %d tools for workspace %q over stdio\n",
+	fmt.Fprintf(os.Stderr, "mcp: serving %d tools for workspace %q over stdio\n",
 		len(registry.Specs()), *workspace)
 	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
 		Serve(ctx, os.Stdin, stdout)
-}
-
-// approvalsAdapter maps the tool surface's staging/redemption dependency
-// onto the approvals module — composed here so crm-agents never imports a
-// sibling module.
-type approvalsAdapter struct{ svc *approvals.Service }
-
-func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.UUID, error) {
-	return a.svc.Stage(ctx, approvals.StageInput{
-		Kind:           in.Tool,
-		ProposedChange: in.ProposedChange,
-		DiffHash:       in.DiffHash,
-		TargetType:     in.TargetType,
-		TargetID:       in.TargetID,
-		TargetVersion:  in.TargetVersion,
-		Summary:        in.Summary,
-	})
-}
-
-func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.UUID, tool, diffHash string) error {
-	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
 }

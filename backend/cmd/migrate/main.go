@@ -1,6 +1,6 @@
-// Command crm is the composition root (architecture/02): thin main, a
-// testable run(), and explicit wiring. Adding a feature never edits this
-// file — features self-register and the generated manifests import them.
+// Command migrate is the schema-migration process role (ADR-0054,
+// amended §2): applies the embedded core + custom namespaces (ADR-0017)
+// with the owner-role DSN. Thin main, a testable run().
 package main
 
 import (
@@ -24,30 +24,14 @@ func main() {
 	defer stop()
 
 	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "crm:", err)
+		fmt.Fprintln(os.Stderr, "migrate:", err)
 		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: crm <migrate|serve|mcp> [flags]")
-	}
-	switch args[0] {
-	case "migrate":
-		return runMigrate(ctx, args[1:], stdout)
-	case "serve":
-		return runServe(ctx, args[1:], stdout)
-	case "mcp":
-		return runMCP(ctx, args[1:], stdout)
-	default:
-		return fmt.Errorf("unknown command %q (want migrate, serve or mcp)", args[0])
-	}
-}
-
-func runMigrate(ctx context.Context, args []string, stdout io.Writer) error {
-	if len(args) == 0 {
-		return errors.New("usage: crm migrate <up|down> --dsn <dsn> [--steps n]")
+		return errors.New("usage: migrate <up|down> --dsn <dsn> [--steps n]")
 	}
 	direction := args[0]
 
