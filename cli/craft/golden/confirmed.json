@@ -1,0 +1,9 @@
+{
+  "_comment": "The prior-confirmed case ids. Every id here MUST stay present in corpus.json — the golden set only grows; cases are never silently pruned (mirrors the doc-03 notMatched-zero discipline). Adding a case: append it to corpus.json and, once its verdict is confirmed, add its id here. Removing one requires an explicit decision, not a silent edit.",
+  "ids": [
+    "slop-over-comment",
+    "slop-any-escape-hatch",
+    "good-clean-handler",
+    "good-table-test"
+  ]
+}

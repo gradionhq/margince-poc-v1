@@ -1,0 +1,21 @@
+{
+  "version": "1",
+  "exemplars": [
+    {
+      "id": "ex-over-comment",
+      "polarity": "positive",
+      "category": "over-commenting",
+      "code": "i++ // increment i",
+      "rationale": "The comment restates the code (T1). A senior engineer deletes it.",
+      "provenance": "seed:architecture/15 T1"
+    },
+    {
+      "id": "ex-any-cast",
+      "polarity": "positive",
+      "category": "type-escape-hatch",
+      "code": "var data any = person",
+      "rationale": "`any` discards the real type (T6). Use the concrete type.",
+      "provenance": "seed:architecture/15 T6"
+    }
+  ]
+}

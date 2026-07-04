@@ -1,0 +1,139 @@
+{
+  "version": "1",
+  "source": "docs/quality/craftsmanship.md (foundation architecture/15, ADR-0045/A60)",
+  "binds": [
+    "Google Go Style Guide",
+    "Google Go Style Decisions",
+    "Uber Go Style Guide",
+    "Go Code Review Comments",
+    "docs/architecture/frontend.md (project React/TS conventions)"
+  ],
+  "meta_rule": "The addition is indistinguishable in style from a senior human's edit to the surrounding file.",
+  "severity_model": {
+    "BLOCKER": "Blocks merge ONLY when confidence:high and the category is block_eligible. Emitted as an in-source CRAFT-FIX marker.",
+    "MAJOR": "Non-blocking inline review comment. Tracked for calibration.",
+    "MINOR": "Non-blocking inline comment."
+  },
+  "rules": [
+    {
+      "id": "T1",
+      "kind": "anti_tell",
+      "category": "over-commenting",
+      "block_eligible": true,
+      "title": "Over-commenting",
+      "rule": "Comments explain why, never what. No comment that restates the code. No docstring on a self-evident function. Match the surrounding file's comment density."
+    },
+    {
+      "id": "T2",
+      "kind": "anti_tell",
+      "category": "defensive-noise",
+      "block_eligible": true,
+      "title": "Defensive-programming noise",
+      "rule": "No redundant nil check or re-validation of an input already validated upstream or guaranteed by the type. Errors flow via crm/errs sentinels; handlers return them, the choke-point maps them. No swallowing errors into generic logs."
+    },
+    {
+      "id": "T3",
+      "kind": "anti_tell",
+      "category": "premature-abstraction",
+      "block_eligible": true,
+      "title": "Over-engineering / premature abstraction",
+      "rule": "No interface, factory, generic, or base type without a second concrete caller today (YAGNI). A 20-line job is a function, not a hierarchy. The Mat-Ryer service shape is the ceiling of ceremony, not the floor."
+    },
+    {
+      "id": "T4",
+      "kind": "anti_tell",
+      "category": "textbook-naming",
+      "block_eligible": true,
+      "title": "Textbook uniformity",
+      "rule": "Names read like the domain (deal, passport, captureRun), not CS-textbook filler (data, result, tmp, helper, manager, processData). No verbose identifiers where the package already gives context."
+    },
+    {
+      "id": "T5",
+      "kind": "anti_tell",
+      "category": "style-drift",
+      "block_eligible": true,
+      "title": "Style drift",
+      "rule": "Naming, formatting, error-wrapping, file structure, and test shape match the module the change lands in. Compare every hunk against its surrounding code, not an abstract ideal."
+    },
+    {
+      "id": "T6",
+      "kind": "anti_tell",
+      "category": "type-escape-hatch",
+      "block_eligible": true,
+      "title": "Type escape hatches",
+      "rule": "No Go interface{}/any or unchecked type assertion, no TS any/as/@ts-ignore, no //nolint to dodge a real type or lint fix. Fix the type. A genuine any at a serialization boundary is justified in the PR, not silently."
+    },
+    {
+      "id": "T7",
+      "kind": "anti_tell",
+      "category": "dropped-edge-case",
+      "block_eligible": true,
+      "title": "Surface polish over substance",
+      "rule": "Edge cases handled honestly: the empty list, the timezone boundary, the concurrent write (If-Match/version), the cross-tenant query (RLS). A PR that looks complete but drops the hard case is slop."
+    },
+    {
+      "id": "T8",
+      "kind": "anti_tell",
+      "category": "dead-code",
+      "block_eligible": true,
+      "title": "Dead / speculative code",
+      "rule": "No commented-out blocks, no unreferenced for-future-use exports, no TODO without an issue ref. The diff contains only what this change needs."
+    },
+    {
+      "id": "T9",
+      "kind": "anti_tell",
+      "category": "untrusted-dependency",
+      "block_eligible": true,
+      "title": "Untrustworthy dependencies",
+      "rule": "No new dependency without justification in the PR; no import of a package absent from the lockfile (hallucination / slopsquatting guard). Prefer the stdlib and the existing gw-* libraries."
+    },
+    {
+      "id": "T10",
+      "kind": "anti_tell",
+      "category": "oversized-pr",
+      "block_eligible": true,
+      "title": "Oversized, unexplained PRs",
+      "rule": "The change is scoped and tells a story. A huge PR the author cannot explain line by line is the canonical rejected case; PR hygiene is in scope."
+    },
+    {
+      "id": "P1",
+      "kind": "positive",
+      "category": "idiomatic",
+      "block_eligible": false,
+      "title": "Idiomatic to this codebase",
+      "rule": "Use the crm/errs sentinels, the Mat-Ryer service shape, ctx first, provenance-on-write, the seam-vs-internal rule; leave generated _gen.go files untouched."
+    },
+    {
+      "id": "P2",
+      "kind": "positive",
+      "category": "small-focused",
+      "block_eligible": false,
+      "title": "Small, focused, legible",
+      "rule": "Prefer many small files over a few large; the ~400-500-line norm is the smell threshold. One concept per file."
+    },
+    {
+      "id": "P3",
+      "kind": "positive",
+      "category": "tests-as-spec",
+      "block_eligible": false,
+      "title": "Tests read as specifications",
+      "rule": "Pure-unit mapping tests favored; table-driven where it clarifies; names state the behavior, not the mechanics; tests cover the honest edge cases of T7."
+    },
+    {
+      "id": "P4",
+      "kind": "positive",
+      "category": "pr-tells-story",
+      "block_eligible": false,
+      "title": "The PR tells a story",
+      "rule": "A title that names the change, a body that says what/why/how-verified, a commit history a reviewer can follow. Conventional, present-tense commit subjects."
+    },
+    {
+      "id": "P5",
+      "kind": "positive",
+      "category": "restraint",
+      "block_eligible": false,
+      "title": "Restraint",
+      "rule": "The best diff is often the smallest. Deleting code, reusing an existing helper, or picking the one opinionated default beats adding a clever new abstraction."
+    }
+  ]
+}

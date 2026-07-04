@@ -1,7 +1,15 @@
 // Reserved for the CRM↔Dispact↔@gradion/contracts seam (ADR-0014 §1) and
 // future jurisdictions/<cc> packs (ADR-0042). The backend is ONE Go module;
 // its modules are fenced by internal/ + depguard + go-arch-lint, never by
-// workspace membership.
+// workspace membership. backend/tools is build tooling only — a separate
+// module so the codegen tool chain's dependencies stay out of the product
+// module's go.mod. cli/craft is the code-craftsmanship gate (ADR-0045),
+// copied from the foundation repo (github.com/gradionhq/margince/cli/craft);
+// stdlib-only, run pre-push via .githooks/pre-push.
 go 1.26.0
 
-use ./backend
+use (
+	./backend
+	./backend/tools
+	./cli/craft
+)

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Diff-scoped code-craftsmanship gate (ADR-0045, `craft static`).
+#
+# Runs the deterministic craftsmanship linter on the backend Go files that
+# THIS push changes vs origin/main — not the whole tree. That gates *new*
+# code to the beauty bar without blocking on the pre-existing backlog. Only
+# BLOCKER findings fail the push; MAJOR/MINOR are advisory. A genuine false
+# positive is waived in-source with a reason: //craft:ignore <check> <reason>.
+#
+# Install once (or run `make hooks`):  git config core.hooksPath .githooks
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+
+# Base = merge-base with origin/main. No base (fresh repo / no remote) → skip.
+base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+if [ -z "$base" ]; then
+	echo "craft static: no origin/main base — skipping"
+	exit 0
+fi
+
+# Changed-and-still-present backend Go files, excluding generated code.
+files="$(git diff --name-only --diff-filter=d "$base"...HEAD -- backend \
+	| grep -E '\.go$' | grep -v '_gen\.go$' || true)"
+if [ -z "$files" ]; then
+	echo "craft static: no changed backend Go files — ok"
+	exit 0
+fi
+
+# Absolute paths, because `go run -C cli/craft` changes the working directory.
+args=()
+while IFS= read -r f; do
+	[ -n "$f" ] && args+=("$root/$f")
+done <<< "$files"
+
+echo "craft static: checking ${#args[@]} changed backend file(s)…"
+if ! go run -C "$root/cli/craft" . static "${args[@]}"; then
+	echo ""
+	echo "craft static BLOCKED the push. Fix the findings above, or waive a"
+	echo "genuine false positive in-source:  //craft:ignore <check> <reason>"
+	exit 1
+fi

@@ -1,0 +1,5 @@
+{
+  "_comment": "The pinned gate identity. prompt_version + model_id are pinned here; rubric_version comes from cli/craft/rubric/rubric.json and exemplar_set_version from cli/craft/version/exemplars.json. Every verdict stamps the composed gate_version, so any commit's review is reproducible and auditable (architecture/17 §1). Bumping any field is an explicit, version-controlled promotion (B-EP11.8b), never a live edit of a running gate.",
+  "prompt_version": "1",
+  "model_id": "claude-opus-4-8"
+}

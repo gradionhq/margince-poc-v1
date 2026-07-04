@@ -1,0 +1,45 @@
+{
+  "version": "1",
+  "cases": [
+    {
+      "id": "slop-over-comment",
+      "kind": "slop",
+      "diff": "--- a/crm/crm-core/x.go\n+++ b/crm/crm-core/x.go\n@@\n+\ti++ // increment i\n",
+      "files": {
+        "crm/crm-core/x.go": "package crmcore\n\nfunc tick(i int) int {\n\ti++ // increment i\n\treturn i\n}\n"
+      },
+      "expect_verdict": "BLOCK",
+      "expect_categories": ["over-commenting"]
+    },
+    {
+      "id": "slop-any-escape-hatch",
+      "kind": "slop",
+      "diff": "--- a/crm/crm-core/y.go\n+++ b/crm/crm-core/y.go\n@@\n+\tvar data any = p\n",
+      "files": {
+        "crm/crm-core/y.go": "package crmcore\n\nfunc wrap(p Person) any {\n\tvar data any = p\n\treturn data\n}\n"
+      },
+      "expect_verdict": "BLOCK",
+      "expect_categories": ["type-escape-hatch"]
+    },
+    {
+      "id": "good-clean-handler",
+      "kind": "good",
+      "diff": "--- a/crm/crm-core/z.go\n+++ b/crm/crm-core/z.go\n@@\n+func (s *Store) Person(ctx context.Context, id ID) (Person, error) {\n+\treturn s.repo.person(ctx, id)\n+}\n",
+      "files": {
+        "crm/crm-core/z.go": "package crmcore\n\nfunc (s *Store) Person(ctx context.Context, id ID) (Person, error) {\n\treturn s.repo.person(ctx, id)\n}\n"
+      },
+      "expect_verdict": "PASS",
+      "expect_categories": []
+    },
+    {
+      "id": "good-table-test",
+      "kind": "good",
+      "diff": "--- a/crm/crm-core/z_test.go\n+++ b/crm/crm-core/z_test.go\n@@\n+func TestAdvanceDeal_rejectsWhenScopeExceeded(t *testing.T) {}\n",
+      "files": {
+        "crm/crm-core/z_test.go": "package crmcore\n\nfunc TestAdvanceDeal_rejectsWhenScopeExceeded(t *testing.T) {}\n"
+      },
+      "expect_verdict": "PASS",
+      "expect_categories": []
+    }
+  ]
+}
