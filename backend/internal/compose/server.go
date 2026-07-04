@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/web"
@@ -37,6 +38,7 @@ type (
 	dealsHandlers      = deals.Handlers
 	activitiesHandlers = activities.Handlers
 	approvalsHandlers  = approvals.Handlers
+	searchHandlers     = search.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: the module
@@ -47,6 +49,7 @@ type Server struct {
 	dealsHandlers
 	activitiesHandlers
 	approvalsHandlers
+	searchHandlers
 	fallback
 }
 
@@ -68,6 +71,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 		dealsHandlers:      dealsH,
 		activitiesHandlers: activities.NewHandlers(pool),
 		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
+		searchHandlers:     search.NewHandlers(pool),
 	}
 
 	// The ADR-0055 admission layer rides INSIDE the router (it needs the

@@ -97,6 +97,19 @@ func ScopeClause(ctx context.Context, arg func(any) int) (string, error) {
 	return OwnerPredicate(p, arg)(""), nil
 }
 
+// ScopeClauseFor is ScopeClause with a table alias — for queries (the
+// search union, reports) whose owner_id needs qualification.
+func ScopeClauseFor(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if Unbounded(p) {
+		return "", nil
+	}
+	return OwnerPredicate(p, arg)(alias), nil
+}
+
 // EnsureLinkTarget verifies an activity link's target row exists AND is
 // visible to the caller — an explicit RLS-scoped probe, because the FK
 // that would otherwise catch a bad id is checked as the table owner and
