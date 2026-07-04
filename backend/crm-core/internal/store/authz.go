@@ -1,105 +1,37 @@
 package store
 
-// Object-level RBAC + row-level scoping (B-EP03.2/.3a, features/04 §1).
-// Both live at the store entry points so every caller — HTTP today, the
-// MCP tool surface later — rides the same enforcement path (architecture
-// /06: no agent bypass). Object denial answers ErrPermissionDenied
-// (403); a row outside the caller's scope answers ErrNotFound, exactly
-// like a row in another tenant (existence is not disclosed).
+// Activity row-scoping (B-EP03.3a, decisions/0006). The entity-agnostic
+// RBAC lives in platform/auth (ADR-0054 §8); what stays here is the one
+// scope rule that knows this module's tables: an activity has no owner,
+// so its visibility walks the activity_link rows to the person/
+// organization/deal records it attaches to.
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// require is the object-level admission gate: the actor's merged role
-// policy must grant the action on the object type. The system principal
-// (workspace provisioning) is trusted by construction and has no role.
-func require(ctx context.Context, object string, action principal.Action) error {
-	p, err := actor(ctx)
-	if err != nil {
-		return err
-	}
-	if p.Type == principal.PrincipalSystem {
-		return nil
-	}
-	if !p.Permissions.Allows(object, action) {
-		return fmt.Errorf("%s.%s: %w", object, action, apperrors.ErrPermissionDenied)
-	}
-	return nil
-}
-
-// unbounded reports whether the actor sees every row of a permitted
-// object: the system principal, or row_scope=all.
-func unbounded(p principal.Principal) bool {
-	return p.Type == principal.PrincipalSystem || p.Permissions.RowScope == principal.RowScopeAll
-}
-
-// ownerPredicate renders the own/team visibility test over one table's
-// owner_id (qualified by alias when non-empty). It returns a FUNCTION so
-// callers embedding the predicate for several tables (the activity link
-// walk) register $me/$teams once and reuse the positions.
-func ownerPredicate(p principal.Principal, arg func(any) int) func(alias string) string {
-	me := arg(p.UserID)
-	col := func(alias string) string {
-		if alias == "" {
-			return "owner_id"
-		}
-		return alias + ".owner_id"
-	}
-	if p.Permissions.RowScope == principal.RowScopeTeam {
-		teams := arg(p.TeamIDs)
-		return func(alias string) string {
-			return sprintf(`(%[1]s IS NULL OR %[1]s = $%[2]d OR %[1]s IN (
-			   SELECT tm.user_id FROM team_membership tm WHERE tm.team_id = ANY($%[3]d)))`,
-				col(alias), me, teams)
-		}
-	}
-	// own — and the zero value: an unresolved scope never widens.
-	return func(alias string) string {
-		return sprintf(`(%[1]s IS NULL OR %[1]s = $%[2]d)`, col(alias), me)
-	}
-}
-
-// scopeClause renders the own/team/all row-visibility predicate over an
-// owner_id column (B-EP03.3a). arg registers a query argument and
-// returns its 1-based position, matching the list builders' convention.
-// An empty clause means unbounded (row_scope=all, or the system actor).
-// Ownerless rows (owner_id IS NULL) are workspace-shared and visible at
-// every tier (decisions/0006).
-func scopeClause(ctx context.Context, arg func(any) int) (string, error) {
-	p, err := actor(ctx)
-	if err != nil {
-		return "", err
-	}
-	if unbounded(p) {
-		return "", nil
-	}
-	return ownerPredicate(p, arg)(""), nil
-}
-
-// activityScopeClause is the activity analogue of scopeClause:
+// activityScopeClause is the activity analogue of auth.ScopeClause:
 // activities have no owner, but their free-text inherits the
 // sensitivity of the records they attach to. An activity is visible when
 // ANY linked person/organization/deal is visible under the caller's row
 // scope, or when it has no links at all (a workspace-shared note —
 // decisions/0006). alias names the activity table in the outer query.
 func activityScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
-	p, err := actor(ctx)
+	p, err := storekit.Actor(ctx)
 	if err != nil {
 		return "", err
 	}
-	if unbounded(p) {
+	if auth.Unbounded(p) {
 		return "", nil
 	}
-	visible := ownerPredicate(p, arg)
+	visible := auth.OwnerPredicate(p, arg)
 	return sprintf(`(NOT EXISTS (SELECT 1 FROM activity_link nl WHERE nl.activity_id = %[1]s.id)
 	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND (
 	      (l.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = l.person_id AND %[2]s))
@@ -108,7 +40,7 @@ func activityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 		alias, visible("sp"), visible("so"), visible("sd")), nil
 }
 
-// ensureActivityVisible is ensureVisible for activities, using the
+// ensureActivityVisible is auth.EnsureVisible for activities, using the
 // linked-entity scope above; out of scope reads as ErrNotFound.
 func ensureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 	var args []any
@@ -133,108 +65,4 @@ func ensureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 		return apperrors.ErrNotFound
 	}
 	return nil
-}
-
-// ensureLinkTarget verifies an activity link's target row exists AND is
-// visible to the caller — an explicit RLS-scoped probe, because the FK
-// that would otherwise catch a bad id is checked as the table owner and
-// so bypasses RLS: without this, a guessed foreign UUID would persist a
-// cross-tenant link. Unlike ensureVisible, unbounded actors do not skip
-// the existence half.
-func ensureLinkTarget(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := scopeClause(ctx, arg)
-	if err != nil {
-		return err
-	}
-	q := sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $%d AND archived_at IS NULL`, table, idPos)
-	if clause != "" {
-		q += " AND " + clause
-	}
-	q += ")"
-
-	var visible bool
-	if err := tx.QueryRow(ctx, q, args...).Scan(&visible); err != nil {
-		return err
-	}
-	if !visible {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-// visibleTo probes whether one row passes the caller's row scope WITHOUT
-// erroring — for the dedupe pre-checks, which must answer 409 either way
-// but may only disclose the existing row's id when the caller could read
-// it (existence-hiding must survive the conflict path).
-func visibleTo(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) (bool, error) {
-	err := ensureVisible(ctx, tx, table, id)
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, apperrors.ErrNotFound):
-		return false, nil
-	default:
-		return false, err
-	}
-}
-
-// ensureVisible applies the row scope to a single-row operation: get,
-// update, archive, advance. Out of scope reads as ErrNotFound — the
-// caller cannot distinguish "not yours" from "not there", by design.
-// Activities scope through their links (ensureActivityVisible);
-// pipelines have no owner and are governed by object grants only.
-func ensureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := scopeClause(ctx, arg)
-	if err != nil {
-		return err
-	}
-	if clause == "" {
-		return nil
-	}
-
-	var visible bool
-	err = tx.QueryRow(ctx,
-		sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $%d AND %s)`, table, idPos, clause),
-		args...).Scan(&visible)
-	if err != nil {
-		return err
-	}
-	if !visible {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-// auditActionGrant maps each audit_log.action verb onto the CRUD grant
-// that authorizes it. Package-level: authzRule sits on every write path.
-var auditActionGrant = map[string]principal.Action{
-	"create":        principal.ActionCreate,
-	"update":        principal.ActionUpdate,
-	"assign":        principal.ActionUpdate,
-	"advance_stage": principal.ActionUpdate,
-	"restore":       principal.ActionUpdate,
-	"archive":       principal.ActionDelete,
-	"merge":         principal.ActionUpdate,
-	"promote":       principal.ActionUpdate,
-}
-
-// authzRule renders the audit_log.authorization_rule attribution for a
-// permitted mutation: which merged role policy allowed which action.
-func authzRule(p principal.Principal, entityType string, auditAction string) string {
-	if p.Type == principal.PrincipalSystem {
-		return "system"
-	}
-	action, ok := auditActionGrant[auditAction]
-	if !ok {
-		return ""
-	}
-	return p.Permissions.Rule(entityType, action)
 }

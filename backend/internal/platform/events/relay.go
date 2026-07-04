@@ -1,11 +1,11 @@
-// Package bus is the Redis Streams side of the event backbone (events.md
+// Package events is the Redis Streams side of the event backbone (events.md
 // §3/§4): the outbox relay that ships committed writes onto the bus, the
 // consumer-group subscriber, and the event_id dedupe wrapper that makes
 // at-least-once delivery safe. The write side stays in crm-core's stores
 // (domain row + audit + outbox in one transaction); this package never
 // originates an event — it only moves and delivers what a transaction
 // already committed.
-package bus
+package events
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -116,7 +116,7 @@ type outboxRow struct {
 func (r *Relay) relayBatch(ctx context.Context) (int, error) {
 	var published int
 	var xaddErr error
-	err := pg.WithInfraTx(ctx, r.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, r.pool, func(tx pgx.Tx) error {
 		// seq, not created_at: created_at is transaction-start time, so
 		// a long tx could publish "before" an earlier-committed short
 		// one. seq is insert-ordered, and row locks serialize same-entity

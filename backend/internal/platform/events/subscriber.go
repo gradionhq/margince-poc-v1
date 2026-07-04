@@ -1,4 +1,4 @@
-package bus
+package events
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -24,7 +24,7 @@ const envelopeField = "v"
 // returning an error leaves it pending, and the reclaim pass re-delivers
 // it after minIdle (events.md §3 at-least-once). Handlers therefore run
 // under Dedupe and effect idempotently.
-type Handler func(ctx context.Context, env events.Envelope) error
+type Handler func(ctx context.Context, env kevents.Envelope) error
 
 // Subscriber consumes one events.md §4.3 consumer group across its
 // declared streams: XREADGROUP for fresh entries, XACK only after the
@@ -33,7 +33,7 @@ type Handler func(ctx context.Context, env events.Envelope) error
 // same group and distinct consumer names.
 type Subscriber struct {
 	rdb      *redis.Client
-	group    events.Group
+	group    kevents.Group
 	consumer string
 	handler  Handler
 	log      *slog.Logger
@@ -53,7 +53,7 @@ type Subscriber struct {
 // NewSubscriber wires a handler to a consumer group. The consumer name is
 // host+pid: stable enough to reclaim its own pending entries after a
 // restart, unique enough that replicas never collide.
-func NewSubscriber(rdb *redis.Client, group events.Group, handler Handler, log *slog.Logger) *Subscriber {
+func NewSubscriber(rdb *redis.Client, group kevents.Group, handler Handler, log *slog.Logger) *Subscriber {
 	host, _ := os.Hostname()
 	return &Subscriber{
 		rdb:      rdb,
@@ -192,17 +192,17 @@ func (s *Subscriber) ack(ctx context.Context, stream, entryID string) {
 	}
 }
 
-func decodeEnvelope(entry redis.XMessage) (events.Envelope, error) {
+func decodeEnvelope(entry redis.XMessage) (kevents.Envelope, error) {
 	raw, ok := entry.Values[envelopeField].(string)
 	if !ok {
-		return events.Envelope{}, fmt.Errorf("bus: entry has no %q field", envelopeField)
+		return kevents.Envelope{}, fmt.Errorf("bus: entry has no %q field", envelopeField)
 	}
-	var env events.Envelope
+	var env kevents.Envelope
 	if err := json.Unmarshal([]byte(raw), &env); err != nil {
-		return events.Envelope{}, fmt.Errorf("bus: malformed envelope: %w", err)
+		return kevents.Envelope{}, fmt.Errorf("bus: malformed envelope: %w", err)
 	}
 	if err := env.Validate(); err != nil {
-		return events.Envelope{}, err
+		return kevents.Envelope{}, err
 	}
 	return env, nil
 }
@@ -226,7 +226,7 @@ func isBusyGroup(err error) bool {
 // either by dispatching inside one group-wide handler or by giving each
 // workspace its own group, never by filtered consumers in a shared group.
 func ForWorkspace(workspaceID ids.UUID, next Handler) Handler {
-	return func(ctx context.Context, env events.Envelope) error {
+	return func(ctx context.Context, env kevents.Envelope) error {
 		if env.WorkspaceID != workspaceID {
 			return nil
 		}

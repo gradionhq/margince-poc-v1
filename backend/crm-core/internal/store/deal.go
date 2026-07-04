@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -28,17 +31,17 @@ type CreateDealInput struct {
 }
 
 func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", principal.ActionCreate); err != nil {
+	if err := auth.Require(ctx, "deal", principal.ActionCreate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	by, err := capturedBy(ctx)
+	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := mustWorkspace(ctx)
+		wsID := storekit.MustWorkspace(ctx)
 
 		// Deals are born open: AdvanceDeal is the ONE path that derives
 		// won/lost and maintains the closed_at/lost_reason/FX invariants.
@@ -68,7 +71,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 		if err != nil {
 			// Covers the remaining FKs (pipeline, organization, owner);
 			// the stage/pipeline pairing was pre-checked above.
-			if isForeignKeyViolation(err) {
+			if storekit.IsForeignKeyViolation(err) {
 				return apperrors.ErrNotFound
 			}
 			return err
@@ -81,11 +84,11 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "create", "deal", id, nil, map[string]any{"name": in.Name})
+		auditID, err := storekit.Audit(ctx, tx, "create", "deal", id, nil, map[string]any{"name": in.Name})
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "deal.created", "deal", id, map[string]any{"name": in.Name}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.created", "deal", id, map[string]any{"name": in.Name}); err != nil {
 			return err
 		}
 		out, err = readDeal(ctx, tx, id, false)
@@ -95,12 +98,12 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 }
 
 func (s *Store) GetDeal(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := ensureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
 			return err
 		}
 		out, err = readDeal(ctx, tx, id, includeArchived)
@@ -121,19 +124,19 @@ type ListDealsInput struct {
 	IncludeArchived bool
 }
 
-func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontracts.Deal, Page, error) {
-	if err := require(ctx, "deal", principal.ActionRead); err != nil {
-		return nil, Page{}, err
+func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontracts.Deal, storekit.Page, error) {
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
 	}
-	limit := clampLimit(in.Limit)
+	limit := storekit.ClampLimit(in.Limit)
 
 	where := []string{"1=1"}
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := scopeClause(ctx, arg)
+	scope, err := auth.ScopeClause(ctx, arg)
 	if err != nil {
-		return nil, Page{}, err
+		return nil, storekit.Page{}, err
 	}
 	if scope != "" {
 		where = append(where, scope)
@@ -161,15 +164,15 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 		where = append(where, sprintf("status = $%d", arg(*in.Status)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := decodeCursor(*in.Cursor)
+		c, err := storekit.DecodeCursor(*in.Cursor)
 		if err != nil {
-			return nil, Page{}, err
+			return nil, storekit.Page{}, err
 		}
 		where = append(where, sprintf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 
 	var deals []crmcontracts.Deal
-	var page Page
+	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+dealColumns+` FROM deal WHERE `+strings.Join(where, " AND ")+
@@ -192,7 +195,7 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 		if len(deals) > limit {
 			deals = deals[:limit]
 			last := deals[len(deals)-1]
-			page = Page{HasMore: true, NextCursor: encodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return nil
 	})
@@ -216,12 +219,12 @@ type UpdateDealInput struct {
 }
 
 func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
 			return err
 		}
 		current, err := readDeal(ctx, tx, id, false)
@@ -229,35 +232,35 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 			return err
 		}
 
-		p := newPatch()
+		p := storekit.NewPatch()
 		if in.Name != nil {
-			p.set("name", current.Name, *in.Name)
+			p.Set("name", current.Name, *in.Name)
 		}
 		if in.AmountMinor != nil {
-			p.set("amount_minor", current.AmountMinor, *in.AmountMinor)
+			p.Set("amount_minor", current.AmountMinor, *in.AmountMinor)
 		}
 		if in.Currency != nil {
-			p.set("currency", current.Currency, *in.Currency)
+			p.Set("currency", current.Currency, *in.Currency)
 		}
 		if in.OrganizationID != nil {
-			p.set("organization_id", current.OrganizationId, *in.OrganizationID)
+			p.Set("organization_id", current.OrganizationId, *in.OrganizationID)
 		}
 		if in.OwnerID != nil {
-			p.set("owner_id", current.OwnerId, *in.OwnerID)
+			p.Set("owner_id", current.OwnerId, *in.OwnerID)
 		}
 		if in.PartnerOrgID != nil {
-			p.set("partner_org_id", current.PartnerOrgId, *in.PartnerOrgID)
+			p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrgID)
 		}
 		if in.ExpectedClose != nil {
-			p.set("expected_close_date", current.ExpectedCloseDate, *in.ExpectedClose)
+			p.Set("expected_close_date", current.ExpectedCloseDate, *in.ExpectedClose)
 		}
 		if in.ForecastCat != nil {
-			p.set("forecast_category", current.ForecastCategory, *in.ForecastCat)
+			p.Set("forecast_category", current.ForecastCategory, *in.ForecastCat)
 		}
 		if in.WaitUntil != nil {
-			p.set("wait_until", current.WaitUntil, *in.WaitUntil)
+			p.Set("wait_until", current.WaitUntil, *in.WaitUntil)
 		}
-		if p.empty() {
+		if p.Empty() {
 			out = current
 			return nil
 		}
@@ -291,14 +294,14 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 			if err != nil {
 				return err
 			}
-			p.set("fx_rate_to_base", nil, rate)
-			p.set("fx_rate_date", nil, rateDate)
+			p.Set("fx_rate_to_base", nil, rate)
+			p.Set("fx_rate_date", nil, rateDate)
 		}
 
-		if err := p.apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
+		if err := p.Apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
 			return err
 		}
-		auditID, err := audit(ctx, tx, "update", "deal", id, p.before, p.after)
+		auditID, err := storekit.Audit(ctx, tx, "update", "deal", id, p.Before(), p.After())
 		if err != nil {
 			return err
 		}
@@ -313,19 +316,19 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 			if current.OwnerId != nil {
 				payload["from_owner_id"] = *current.OwnerId
 			}
-			if err := emit(ctx, tx, auditID, "deal.owner_changed", "deal", id, payload); err != nil {
+			if err := storekit.Emit(ctx, tx, auditID, "deal.owner_changed", "deal", id, payload); err != nil {
 				return err
 			}
 		}
-		rest := make(map[string]any, len(p.after))
-		for field, v := range p.after {
+		rest := make(map[string]any, len(p.After()))
+		for field, v := range p.After() {
 			if ownerChanged && field == "owner_id" {
 				continue
 			}
 			rest[field] = v
 		}
 		if len(rest) > 0 {
-			if err := emit(ctx, tx, auditID, "deal.updated", "deal", id, rest); err != nil {
+			if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", id, rest); err != nil {
 				return err
 			}
 		}
@@ -376,17 +379,17 @@ func (e *LostReasonRequiredError) Error() string { return "lost_reason is requir
 // stage history snapshot and emitting the first-class deal.stage_changed
 // event — never a generic deal.updated (events.md §1).
 func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInput) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	by, err := capturedBy(ctx)
+	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
 			return err
 		}
 		current, err := readDeal(ctx, tx, id, false)
@@ -422,19 +425,19 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 			}
 		}
 
-		p := newPatch()
-		p.set("stage_id", current.StageId, in.ToStageID)
+		p := storekit.NewPatch()
+		p.Set("stage_id", current.StageId, in.ToStageID)
 		if status != string(current.Status) {
-			p.set("status", current.Status, status)
+			p.Set("status", current.Status, status)
 		}
 		if closedAt != nil {
-			p.set("closed_at", current.ClosedAt, *closedAt)
+			p.Set("closed_at", current.ClosedAt, *closedAt)
 		}
 		// lost_reason only exists on a lost deal — never on won or open
 		// (on a reopen the terminal-field sweep below clears it; setting
 		// it twice would be a malformed UPDATE anyway).
 		if status == "lost" && in.LostReason != nil {
-			p.set("lost_reason", current.LostReason, *in.LostReason)
+			p.Set("lost_reason", current.LostReason, *in.LostReason)
 		}
 		// Closing with an amount freezes today's FX rate so base-currency
 		// roll-ups stay reproducible (deal_closed_fx).
@@ -443,39 +446,39 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 			if err != nil {
 				return err
 			}
-			p.set("fx_rate_to_base", nil, rate)
-			p.set("fx_rate_date", nil, rateDate)
+			p.Set("fx_rate_to_base", nil, rate)
+			p.Set("fx_rate_date", nil, rateDate)
 		}
 		// Reopening a won/lost deal must clear every terminal field —
 		// the DB CHECKs are one-directional, so a stale closed_at or
 		// lost_reason on an open deal would silently corrupt forecast
 		// and won-lost reporting.
 		if status == "open" && string(current.Status) != "open" {
-			p.set("closed_at", current.ClosedAt, nil)
-			p.set("lost_reason", current.LostReason, nil)
-			p.set("fx_rate_to_base", nil, nil)
-			p.set("fx_rate_date", nil, nil)
+			p.Set("closed_at", current.ClosedAt, nil)
+			p.Set("lost_reason", current.LostReason, nil)
+			p.Set("fx_rate_to_base", nil, nil)
+			p.Set("fx_rate_date", nil, nil)
 		}
-		if err := p.apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
+		if err := p.Apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
 			return err
 		}
 
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO deal_stage_history (workspace_id, deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			mustWorkspace(ctx), id, ids.UUID(current.StageId), in.ToStageID, by,
+			storekit.MustWorkspace(ctx), id, ids.UUID(current.StageId), in.ToStageID, by,
 			current.AmountMinor, current.Currency); err != nil {
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "advance_stage", "deal", id, p.before, p.after)
+		auditID, err := storekit.Audit(ctx, tx, "advance_stage", "deal", id, p.Before(), p.After())
 		if err != nil {
 			return err
 		}
 		// The §5.3 payload carries the amount snapshot so as-of-date
 		// pipeline reports and the overnight stalled/forecast sweep react
 		// without a read-back; to_status records the 🟡 won/lost class.
-		if err := emit(ctx, tx, auditID, "deal.stage_changed", "deal", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "deal.stage_changed", "deal", id, map[string]any{
 			"from_stage_id":          current.StageId,
 			"to_stage_id":            in.ToStageID,
 			"from_status":            current.Status,
@@ -508,7 +511,7 @@ func freezeFx(ctx context.Context, tx pgx.Tx, currency string, asOf time.Time) (
 	asOfDate := asOf.UTC().Truncate(24 * time.Hour)
 	var base string
 	if err := tx.QueryRow(ctx,
-		`SELECT base_currency FROM workspace WHERE id = $1`, mustWorkspace(ctx)).Scan(&base); err != nil {
+		`SELECT base_currency FROM workspace WHERE id = $1`, storekit.MustWorkspace(ctx)).Scan(&base); err != nil {
 		return "", time.Time{}, err
 	}
 	if currency == base {
@@ -530,12 +533,12 @@ func freezeFx(ctx context.Context, tx pgx.Tx, currency string, asOf time.Time) (
 }
 
 func (s *Store) ArchiveDeal(ctx context.Context, id ids.UUID) (crmcontracts.Deal, error) {
-	if err := require(ctx, "deal", principal.ActionDelete); err != nil {
+	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
 			return err
 		}
 		if _, err := readDeal(ctx, tx, id, false); err != nil {
@@ -559,11 +562,11 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.UUID) (crmcontracts.Deal
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "archive", "deal", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "deal", id, nil, nil)
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "deal.archived", "deal", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.archived", "deal", id, nil); err != nil {
 			return err
 		}
 		out, err = readDeal(ctx, tx, id, true)

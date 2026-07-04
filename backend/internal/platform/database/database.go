@@ -1,8 +1,8 @@
-// Package pg is the shared Postgres platform layer: the configured
+// Package database is the shared Postgres platform layer: the configured
 // connection pool and the tenant-scoped transaction helper every store
 // uses. It is the ONE place the RLS GUC contract (data-model §1.3) is
 // implemented — no store issues its own SET LOCAL.
-package pg
+package database
 
 import (
 	"context"

@@ -23,7 +23,7 @@ out = ['// Code generated from crm-contracts/api_gen.go ServerInterface; DO NOT 
        '\topenapi_types "github.com/oapi-codegen/runtime/types"',
        '',
        '\tcrmcontracts "github.com/gradionhq/margince/backend/crm-contracts"',
-       '\t"github.com/gradionhq/margince/backend/internal/httperr"',
+       '\t"github.com/gradionhq/margince/backend/internal/platform/httperr"',
        ')',
        '',
        '// stubs satisfies every crmcontracts.ServerInterface operation with an',

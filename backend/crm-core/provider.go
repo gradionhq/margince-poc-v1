@@ -13,6 +13,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -102,7 +104,7 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 	out := datasource.SearchResult{Records: []datasource.Record{}}
 	for _, t := range types {
 		var (
-			page store.Page
+			page storekit.Page
 			err  error
 		)
 		switch t {

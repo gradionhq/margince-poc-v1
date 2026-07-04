@@ -5,6 +5,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -49,13 +52,13 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 	// Promotion mutates the lead AND writes the person side, so it needs
 	// both grants — a rep who may work leads but not create contacts
 	// cannot mint contacts through this door.
-	if err := require(ctx, "lead", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, false, err
 	}
-	if err := require(ctx, "person", principal.ActionCreate); err != nil {
+	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
 		return crmcontracts.Person{}, false, err
 	}
-	by, err := capturedBy(ctx)
+	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Person{}, false, err
 	}
@@ -63,7 +66,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 	var person crmcontracts.Person
 	merged := false
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "lead", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
 			return err
 		}
 		// Archived leads resolve here so a re-promote answers 409 with
@@ -121,7 +124,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		if in.EvidenceNote != nil {
 			after["evidence_note"] = *in.EvidenceNote
 		}
-		auditID, err := audit(ctx, tx, "promote", "lead", id,
+		auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id,
 			map[string]any{"status": lead.Status}, after)
 		if err != nil {
 			return err
@@ -134,7 +137,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 
 		// lead.promoted is the first-class verb (events.md §5.5) — the
 		// moment the context graph adds the node; never a lead.updated.
-		if err := emit(ctx, tx, auditID, "lead.promoted", "lead", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id, map[string]any{
 			"promoted_person_id": personID,
 			"dedupe_outcome":     outcome,
 			"trigger":            in.Trigger,
@@ -146,7 +149,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		if merged {
 			personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
 		}
-		return emit(ctx, tx, auditID, personEvent, "person", personID, personPayload)
+		return storekit.Emit(ctx, tx, auditID, personEvent, "person", personID, personPayload)
 	})
 	return person, merged, err
 }
@@ -164,7 +167,7 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		case err == nil:
 			// Merging returns the person, so it is a read: a match the
 			// promoter cannot see answers a bare conflict, not the record.
-			visible, verr := visibleTo(ctx, tx, "person", existing)
+			visible, verr := auth.VisibleTo(ctx, tx, "person", existing)
 			if verr != nil {
 				return ids.Nil, verr
 			}
@@ -184,7 +187,7 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		// needs SOME name until enrichment fills it.
 		name = string(*lead.Email)
 	}
-	wsID := mustWorkspace(ctx)
+	wsID := storekit.MustWorkspace(ctx)
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO person (id, workspace_id, full_name, title, owner_id, source, captured_by, converted_from_lead_id)
@@ -211,17 +214,17 @@ func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcont
 	if err != nil {
 		return err
 	}
-	p := newPatch()
+	p := storekit.NewPatch()
 	if current.ConvertedFromLeadId == nil {
-		p.set("converted_from_lead_id", nil, ids.UUID(lead.Id))
+		p.Set("converted_from_lead_id", nil, ids.UUID(lead.Id))
 	}
 	if current.Title == nil && lead.Title != nil {
-		p.set("title", nil, *lead.Title)
+		p.Set("title", nil, *lead.Title)
 	}
-	if p.empty() {
+	if p.Empty() {
 		return nil
 	}
-	return p.apply(ctx, tx, "person", personID, nil)
+	return p.Apply(ctx, tx, "person", personID, nil)
 }
 
 // uuidPtrToIDs converts the contract's optional UUID back to the kernel

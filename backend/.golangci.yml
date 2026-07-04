@@ -23,6 +23,24 @@ linters:
           allow:
             - $gostd
             - github.com/gradionhq/margince/backend/internal/shared
+        platform:
+          files:
+            - "**/internal/platform/**"
+          deny:
+            - pkg: github.com/gradionhq/margince/backend/crm-core
+              desc: platform owns no domain module
+            - pkg: github.com/gradionhq/margince/backend/crm-auth
+              desc: platform owns no domain module
+            - pkg: github.com/gradionhq/margince/backend/crm-agents
+              desc: platform owns no domain module
+            - pkg: github.com/gradionhq/margince/backend/crm-approvals
+              desc: platform owns no domain module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules
+              desc: platform owns no domain module
+            - pkg: github.com/gradionhq/margince/backend/internal/compose
+              desc: platform never sees the composition layer
+            - pkg: github.com/gradionhq/margince/backend/internal/httpapi
+              desc: platform never sees the composition layer
         crm-core:
           files:
             - "**/crm-core/**"

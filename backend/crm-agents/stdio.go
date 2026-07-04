@@ -4,7 +4,7 @@ package crmagents
 // (the MCP stdio transport). It speaks the protocol subset a tools-only
 // server needs — initialize, tools/list, tools/call, ping — and dispatches
 // every call through the Registry, which means through the admission
-// gate. Tool failures travel IN-BAND as isError results (the agent should
+// auth. Tool failures travel IN-BAND as isError results (the agent should
 // read them and adapt); only malformed JSON-RPC is a protocol error.
 
 import (

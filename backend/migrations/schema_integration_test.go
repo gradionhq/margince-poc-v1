@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 )
 
 // ownerDSN administers the throwaway test database; appDSNFmt is the
@@ -52,7 +52,7 @@ func migrateAll(t *testing.T, conn *pgx.Conn) {
 	if err != nil {
 		t.Fatalf("loading custom migrations: %v", err)
 	}
-	if _, err := pgmigrate.Up(context.Background(), conn, core, custom); err != nil {
+	if _, err := dbmigrate.Up(context.Background(), conn, core, custom); err != nil {
 		t.Fatalf("migrate up: %v", err)
 	}
 }
@@ -80,7 +80,7 @@ func TestMigrations_applyReverseReapply(t *testing.T) {
 		t.Fatalf("loading core: %v", err)
 	}
 
-	applied, err := pgmigrate.Up(ctx, conn, core)
+	applied, err := dbmigrate.Up(ctx, conn, core)
 	if err != nil {
 		t.Fatalf("first up: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestMigrations_applyReverseReapply(t *testing.T) {
 	}
 
 	// Idempotent: a second run applies nothing.
-	applied, err = pgmigrate.Up(ctx, conn, core)
+	applied, err = dbmigrate.Up(ctx, conn, core)
 	if err != nil {
 		t.Fatalf("second up: %v", err)
 	}
@@ -98,14 +98,14 @@ func TestMigrations_applyReverseReapply(t *testing.T) {
 	}
 
 	// Every migration reverses (B-EP02.1b), then the schema re-applies.
-	reverted, err := pgmigrate.Down(ctx, conn, core, len(core.Migrations))
+	reverted, err := dbmigrate.Down(ctx, conn, core, len(core.Migrations))
 	if err != nil {
 		t.Fatalf("down: %v", err)
 	}
 	if reverted != len(core.Migrations) {
 		t.Fatalf("reverted %d, want %d", reverted, len(core.Migrations))
 	}
-	if _, err := pgmigrate.Up(ctx, conn, core); err != nil {
+	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
 		t.Fatalf("re-apply after full down: %v", err)
 	}
 }
@@ -123,7 +123,7 @@ func seedWorkspace(t *testing.T, conn *pgx.Conn, slug string) string {
 }
 
 // withGUC runs fn in a transaction bound to a workspace, mirroring the
-// production pg.WithWorkspaceTx contract.
+// production database.WithWorkspaceTx contract.
 func withGUC(t *testing.T, conn *pgx.Conn, wsID string, fn func(pgx.Tx) error) error {
 	t.Helper()
 	ctx := context.Background()

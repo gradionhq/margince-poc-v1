@@ -22,8 +22,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/httpapi"
-	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -60,11 +60,11 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatalf("loading custom migrations: %v", err)
 	}
-	if _, err := pgmigrate.Up(ctx, owner, core, custom); err != nil {
+	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
 
-	pool, err := pg.NewPool(ctx, appDSN)
+	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
 		t.Fatalf("opening app pool: %v", err)
 	}

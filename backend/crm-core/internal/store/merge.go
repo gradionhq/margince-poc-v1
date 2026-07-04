@@ -5,6 +5,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
@@ -71,7 +74,7 @@ type relinkCounts struct {
 func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
 	// authz.go maps the merge verb to update: rewriting where records
 	// point is curation of both rows, not deletion of one.
-	if err := require(ctx, "person", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	if sourceID == targetID {
@@ -130,18 +133,18 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 
 		// Survivorship is fill-only: A never overwrites what B has.
 		src, tgt := source.(crmcontracts.Person), target.(crmcontracts.Person)
-		p := newPatch()
+		p := storekit.NewPatch()
 		fillString(p, "first_name", tgt.FirstName, src.FirstName)
 		fillString(p, "last_name", tgt.LastName, src.LastName)
 		fillString(p, "title", tgt.Title, src.Title)
 		if tgt.ConvertedFromLeadId == nil && src.ConvertedFromLeadId != nil {
-			p.set("converted_from_lead_id", nil, ids.UUID(*src.ConvertedFromLeadId))
+			p.Set("converted_from_lead_id", nil, ids.UUID(*src.ConvertedFromLeadId))
 		}
 		if (tgt.Social == nil || len(*tgt.Social) == 0) && src.Social != nil && len(*src.Social) > 0 {
-			p.set("social", nil, jsonArg(*src.Social))
+			p.Set("social", nil, storekit.JSONArg(*src.Social))
 		}
-		if !p.empty() {
-			if err := p.apply(ctx, tx, "person", targetID, nil); err != nil {
+		if !p.Empty() {
+			if err := p.Apply(ctx, tx, "person", targetID, nil); err != nil {
 				return err
 			}
 		}
@@ -150,15 +153,15 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "merge", "person", sourceID,
+		auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID,
 			map[string]any{"merged_into_id": nil},
-			map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.after})
+			map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
 		if err != nil {
 			return err
 		}
 		// One event, its own verb: the context graph collapses two nodes,
 		// which neither person.updated nor person.archived can say.
-		if err := emit(ctx, tx, auditID, "person.merged", "person", sourceID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID, map[string]any{
 			"merged_from_id": sourceID,
 			"merged_into_id": targetID,
 			"relinked":       counts,
@@ -176,7 +179,7 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 // survivor. The org half additionally re-homes the hierarchy (A's
 // children become B's) and the deal/partner attributions.
 func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UUID) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	if sourceID == targetID {
@@ -251,16 +254,16 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 		}
 
 		src, tgt := source.(crmcontracts.Organization), target.(crmcontracts.Organization)
-		p := newPatch()
+		p := storekit.NewPatch()
 		fillString(p, "legal_name", tgt.LegalName, src.LegalName)
 		fillString(p, "industry", tgt.Industry, src.Industry)
 		if targetIsPartner && (tgt.Classification == nil || *tgt.Classification != crmcontracts.OrganizationClassificationPartner) {
 			// The partner invariant (A41): classification='partner' iff a
 			// partner row exists — the survivor gained one, so it flips.
-			p.set("classification", tgt.Classification, "partner")
+			p.Set("classification", tgt.Classification, "partner")
 		}
-		if !p.empty() {
-			if err := p.apply(ctx, tx, "organization", targetID, nil); err != nil {
+		if !p.Empty() {
+			if err := p.Apply(ctx, tx, "organization", targetID, nil); err != nil {
 				return err
 			}
 		}
@@ -269,13 +272,13 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "merge", "organization", sourceID,
+		auditID, err := storekit.Audit(ctx, tx, "merge", "organization", sourceID,
 			map[string]any{"merged_into_id": nil},
-			map[string]any{"merged_into_id": targetID, "filled": p.after})
+			map[string]any{"merged_into_id": targetID, "filled": p.After()})
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "organization.merged", "organization", sourceID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "organization.merged", "organization", sourceID, map[string]any{
 			"merged_from_id": sourceID,
 			"merged_into_id": targetID,
 		}); err != nil {
@@ -322,7 +325,7 @@ func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *ids.U
 // can survive nothing.
 func mergePair(ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.UUID,
 	read func(context.Context, pgx.Tx, ids.UUID) (any, *ids.UUID, error)) (source, target any, err error) {
-	if err := ensureVisible(ctx, tx, kind, sourceID); err != nil {
+	if err := auth.EnsureVisible(ctx, tx, kind, sourceID); err != nil {
 		return nil, nil, err
 	}
 	source, mergedInto, err := read(ctx, tx, sourceID)
@@ -333,7 +336,7 @@ func mergePair(ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID i
 		return nil, nil, err
 	}
 
-	visible, err := visibleTo(ctx, tx, kind, targetID)
+	visible, err := auth.VisibleTo(ctx, tx, kind, targetID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -524,8 +527,8 @@ func archiveMergedAway(ctx context.Context, tx pgx.Tx, table string, sourceID, t
 
 // fillString sets a nullable text column from the source only when the
 // survivor has none (fill-only survivorship).
-func fillString(p *patch, column string, target, source *string) {
+func fillString(p *storekit.Patch, column string, target, source *string) {
 	if target == nil && source != nil {
-		p.set(column, nil, *source)
+		p.Set(column, nil, *source)
 	}
 }

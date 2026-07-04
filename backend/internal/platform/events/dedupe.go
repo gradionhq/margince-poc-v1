@@ -1,4 +1,4 @@
-package bus
+package events
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
 // DedupeTTL is how long a processed event_id is remembered: ≥ the stream
@@ -27,7 +27,7 @@ const DedupeTTL = 96 * time.Hour
 // wrapper is therefore an optimization over that layer, never a
 // correctness substitute for it.
 func Dedupe(rdb *redis.Client, group string, next Handler) Handler {
-	return func(ctx context.Context, env events.Envelope) error {
+	return func(ctx context.Context, env kevents.Envelope) error {
 		key := dedupeKey(group, env)
 		seen, err := rdb.Exists(ctx, key).Result()
 		if err != nil {
@@ -54,6 +54,6 @@ func Dedupe(rdb *redis.Client, group string, next Handler) Handler {
 
 // dedupeKey is per group: each consumer group owns its own processed set
 // (events.md §4.3 — every group sees every event once).
-func dedupeKey(group string, env events.Envelope) string {
+func dedupeKey(group string, env kevents.Envelope) string {
 	return "gw:dedupe:" + group + ":" + env.EventID.String()
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -61,7 +61,7 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
 	wsID, _ := principal.WorkspaceID(ctx)
 
 	id := ids.NewV7()
-	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO approval (id, workspace_id, kind, proposed_by, on_behalf_of, passport_id,
 			                       target_entity_type, target_entity_id, target_version,
@@ -150,7 +150,7 @@ func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, e
 		limit = 50
 	}
 	var out []row
-	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		q := `SELECT ` + columns + ` FROM approval`
 		args := []any{}
 		if status != nil {
@@ -190,7 +190,7 @@ func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
 	}
 	p, _ := principal.Actor(ctx)
 	var a row
-	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
 		a, err = get(ctx, tx, id)
 		return err
 	})
@@ -238,7 +238,7 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 	p, _ := principal.Actor(ctx)
 
 	var a row
-	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		a, err = get(ctx, tx, id)
 		if err != nil {
@@ -289,7 +289,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
 	}
-	return pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		a, err := get(ctx, tx, id)
 		if err != nil {
 			// An unknown approval id reads as an invalid token, not a 404:

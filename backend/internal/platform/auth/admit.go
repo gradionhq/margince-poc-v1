@@ -1,10 +1,10 @@
-// Package gate is the ONE admission point for governed tool calls
+// Package auth is the ONE admission point for governed tool calls
 // (interfaces.md §2, api-rate-limits §2.2): scope ∧ tier, resolved
 // against the calling Principal, BEFORE any handler runs. It is its own
 // package so nothing else can mint an admitted capability — Surface A
 // (inbound agents) and Surface B (our own runner) both enter here, and
 // there is no other door.
-package gate
+package auth
 
 import (
 	"context"

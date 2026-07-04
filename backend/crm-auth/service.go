@@ -15,7 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/crm-auth/internal/password"
 	"github.com/gradionhq/margince/backend/crm-auth/internal/policy"
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -93,7 +93,7 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 	}
 
 	var id Identity
-	err = pg.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var wsID ids.UUID
 		err := tx.QueryRow(ctx,
 			`INSERT INTO workspace (name, slug, base_currency, timezone) VALUES ($1, $2, 'EUR', $3) RETURNING id`,
@@ -186,7 +186,7 @@ func (e *slugTakenError) Is(target error) bool {
 // non-tenant table.
 func (s *Service) ResolveWorkspace(ctx context.Context, slug string) (ids.UUID, error) {
 	var id ids.UUID
-	err := pg.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT id FROM workspace WHERE slug = $1 AND archived_at IS NULL`, slug).Scan(&id)
 	})
@@ -228,7 +228,7 @@ func mustRandomSecret() string {
 func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity, string, error) {
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return Identity{}, "", pg.ErrNoWorkspace
+		return Identity{}, "", database.ErrNoWorkspace
 	}
 	token, tokenHash, err := mintSessionToken()
 	if err != nil {
@@ -236,7 +236,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 	}
 
 	var id Identity
-	err = pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var userID ids.UUID
 		var hash *string
 		var displayName, seatType string
@@ -290,7 +290,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 // email rides evidence (there may be no user row to reference); the
 // actor is the anonymous claimant, not a resolved identity.
 func (s *Service) auditFailedLogin(ctx context.Context, wsID ids.UUID, email string) error {
-	return pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, evidence)
 			 VALUES ($1, 'human', 'human:unauthenticated', 'login', 'session',
@@ -307,7 +307,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 	tokenHash := hashToken(rawToken)
 
 	var id Identity
-	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var sessionID, userID ids.UUID
 		err := tx.QueryRow(ctx,
 			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, s.workspace_id
@@ -346,7 +346,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 // Logout revokes the session behind the cookie. Revoking an unknown or
 // already-revoked token is a no-op: logout is idempotent.
 func (s *Service) Logout(ctx context.Context, rawToken string) error {
-	return pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`UPDATE session SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
 			hashToken(rawToken))

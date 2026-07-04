@@ -12,7 +12,7 @@ import (
 	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -45,7 +45,7 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New("mcp: MARGINCE_PASSPORT_TOKEN is not set (mint one via POST /passports)")
 	}
 
-	pool, err := pg.NewPool(ctx, *dsn)
+	pool, err := database.NewPool(ctx, *dsn)
 	if err != nil {
 		return err
 	}

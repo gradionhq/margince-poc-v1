@@ -15,7 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -25,7 +25,7 @@ import (
 func (e *authzEnv) wsExec(t *testing.T, sql string, args ...any) {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
-	if err := pg.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, sql, args...)
 		return err
 	}); err != nil {
@@ -38,7 +38,7 @@ func (e *authzEnv) wsCount(t *testing.T, sql string, args ...any) int {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	var n int
-	if err := pg.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, sql, args...).Scan(&n)
 	}); err != nil {
 		t.Fatalf("count query: %v", err)
@@ -133,7 +133,7 @@ func TestMergePerson_consentMergesRestrictively(t *testing.T) {
 
 	var state string
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
-	if err := pg.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(ctx, e.store.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT state FROM person_consent WHERE person_id = $1 AND purpose_id = $2`, target, purpose).Scan(&state)
 	}); err != nil {
 		t.Fatalf("read survivor consent: %v", err)

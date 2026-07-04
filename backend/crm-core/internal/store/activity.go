@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -40,10 +43,10 @@ type LogActivityInput struct {
 // the stalled flag). Idempotent on (source_system, source_id): replaying
 // a capture returns the existing activity.
 func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontracts.Activity, bool, error) {
-	if err := require(ctx, "activity", principal.ActionCreate); err != nil {
+	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
-	by, err := capturedBy(ctx)
+	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
@@ -55,7 +58,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 	var out crmcontracts.Activity
 	created := true
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := mustWorkspace(ctx)
+		wsID := storekit.MustWorkspace(ctx)
 
 		if in.SourceSystem != nil && in.SourceID != nil {
 			var existing ids.UUID
@@ -91,7 +94,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
 			in.DueAt, in.AssigneeID, in.SourceSystem, in.SourceID, in.Source, by)
 		if err != nil {
-			if isUniqueViolation(err) {
+			if storekit.IsUniqueViolation(err) {
 				return apperrors.ErrConflict
 			}
 			return err
@@ -107,7 +110,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			// The FK alone is not enough: it is checked as the table
 			// owner, bypassing RLS, so it would accept a guessed
 			// cross-tenant or out-of-scope UUID as a link target.
-			if err := ensureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(ctx,
@@ -124,13 +127,13 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			}
 		}
 
-		auditID, err := audit(ctx, tx, "create", "activity", id, nil, map[string]any{"kind": in.Kind, "subject": in.Subject})
+		auditID, err := storekit.Audit(ctx, tx, "create", "activity", id, nil, map[string]any{"kind": in.Kind, "subject": in.Subject})
 		if err != nil {
 			return err
 		}
 		// activity.captured is the first-class verb — emitted instead of
 		// a generic activity.created, never in addition (events.md §1).
-		if err := emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{"kind": in.Kind}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{"kind": in.Kind}); err != nil {
 			return err
 		}
 		out, err = readActivity(ctx, tx, id, false)
@@ -147,7 +150,7 @@ func (e *InvalidLinkTypeError) Error() string {
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Activity, error) {
-	if err := require(ctx, "activity", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	var out crmcontracts.Activity
@@ -172,11 +175,11 @@ type ListActivitiesInput struct {
 
 // ListActivities is the timeline read: newest first, optionally scoped to
 // one entity through activity_link (the indexed 360-view join).
-func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]crmcontracts.Activity, Page, error) {
-	if err := require(ctx, "activity", principal.ActionRead); err != nil {
-		return nil, Page{}, err
+func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]crmcontracts.Activity, storekit.Page, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
 	}
-	limit := clampLimit(in.Limit)
+	limit := storekit.ClampLimit(in.Limit)
 
 	where := []string{"1=1"}
 	args := []any{}
@@ -186,7 +189,7 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 	// it is scoped through the linked records.
 	scope, err := activityScopeClause(ctx, "a", arg)
 	if err != nil {
-		return nil, Page{}, err
+		return nil, storekit.Page{}, err
 	}
 	if scope != "" {
 		where = append(where, scope)
@@ -206,20 +209,20 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 			"person": "al.person_id", "organization": "al.organization_id", "deal": "al.deal_id",
 		}[*in.EntityType]
 		if column == "" {
-			return nil, Page{}, &InvalidLinkTypeError{EntityType: *in.EntityType}
+			return nil, storekit.Page{}, &InvalidLinkTypeError{EntityType: *in.EntityType}
 		}
 		where = append(where, sprintf("%s = $%d", column, arg(*in.EntityID)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := decodeCursor(*in.Cursor)
+		c, err := storekit.DecodeCursor(*in.Cursor)
 		if err != nil {
-			return nil, Page{}, err
+			return nil, storekit.Page{}, err
 		}
 		where = append(where, sprintf("(a.occurred_at, a.id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 
 	var activities []crmcontracts.Activity
-	var page Page
+	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+activityColumns+` FROM activity a`+join+` WHERE `+strings.Join(where, " AND ")+
@@ -242,7 +245,7 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 		if len(activities) > limit {
 			activities = activities[:limit]
 			last := activities[len(activities)-1]
-			page = Page{HasMore: true, NextCursor: encodeCursor(last.OccurredAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.OccurredAt, ids.UUID(last.Id))}
 		}
 		return nil
 	})

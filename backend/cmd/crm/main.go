@@ -15,7 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -78,7 +78,7 @@ func runMigrate(ctx context.Context, args []string, stdout io.Writer) error {
 
 	switch direction {
 	case "up":
-		applied, err := pgmigrate.Up(ctx, conn, core, custom)
+		applied, err := dbmigrate.Up(ctx, conn, core, custom)
 		if err != nil {
 			return err
 		}
@@ -87,12 +87,12 @@ func runMigrate(ctx context.Context, args []string, stdout io.Writer) error {
 	case "down":
 		// Down is namespace-scoped and deliberate: custom first (it sits
 		// on top of core), and only --steps at a time.
-		reverted, err := pgmigrate.Down(ctx, conn, custom, *steps)
+		reverted, err := dbmigrate.Down(ctx, conn, custom, *steps)
 		if err != nil {
 			return err
 		}
 		if reverted < *steps {
-			more, err := pgmigrate.Down(ctx, conn, core, *steps-reverted)
+			more, err := dbmigrate.Down(ctx, conn, core, *steps-reverted)
 			if err != nil {
 				return err
 			}

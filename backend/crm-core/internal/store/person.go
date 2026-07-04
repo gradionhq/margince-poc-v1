@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -58,10 +61,10 @@ type CreatePersonInput struct {
 // CreatePerson inserts the person + child rows + audit + event atomically.
 // The email dedupe unique index turns a duplicate into the 409 contract.
 func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", principal.ActionCreate); err != nil {
+	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
 		return crmcontracts.Person{}, err
 	}
-	by, err := capturedBy(ctx)
+	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
@@ -80,7 +83,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 				// Disclose the existing id only when the caller could
 				// read that row; the conflict itself is still answered
 				// (existence-hiding survives the 409).
-				visible, verr := visibleTo(ctx, tx, "person", existing)
+				visible, verr := auth.VisibleTo(ctx, tx, "person", existing)
 				if verr != nil {
 					return verr
 				}
@@ -94,12 +97,12 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			}
 		}
 
-		wsID := mustWorkspace(ctx)
+		wsID := storekit.MustWorkspace(ctx)
 		id := ids.NewV7()
 		_, err := tx.Exec(ctx,
 			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id, social, source, captured_by)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8, '{}'::jsonb), $9, $10)`,
-			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID, jsonArg(in.Social), in.Source, by)
+			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID, storekit.JSONArg(in.Social), in.Source, by)
 		if err != nil {
 			return err
 		}
@@ -109,7 +112,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 				`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
 				 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8)`,
 				wsID, id, e.Email, e.EmailType, e.IsPrimary, e.Position, in.Source, by); err != nil {
-				if name, ok := uniqueViolation(err); ok {
+				if name, ok := storekit.UniqueViolation(err); ok {
 					if name == "uq_person_email_dedupe" {
 						// Race with a concurrent create: the transaction is
 						// aborted, so no id re-query is possible; the 409
@@ -130,11 +133,11 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			}
 		}
 
-		auditID, err := audit(ctx, tx, "create", "person", id, nil, map[string]any{"full_name": in.FullName})
+		auditID, err := storekit.Audit(ctx, tx, "create", "person", id, nil, map[string]any{"full_name": in.FullName})
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "person.created", "person", id, map[string]any{"full_name": in.FullName}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.created", "person", id, map[string]any{"full_name": in.FullName}); err != nil {
 			return err
 		}
 
@@ -147,12 +150,12 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 // GetPerson returns one person with child rows; archived rows resolve
 // only when includeArchived (they stay fetchable by id after merge).
 func (s *Store) GetPerson(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := ensureVisible(ctx, tx, "person", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, includeArchived)
@@ -169,19 +172,19 @@ type ListPeopleInput struct {
 	IncludeArchived bool
 }
 
-func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontracts.Person, Page, error) {
-	if err := require(ctx, "person", principal.ActionRead); err != nil {
-		return nil, Page{}, err
+func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontracts.Person, storekit.Page, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
 	}
-	limit := clampLimit(in.Limit)
+	limit := storekit.ClampLimit(in.Limit)
 
 	where := []string{"1=1"}
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := scopeClause(ctx, arg)
+	scope, err := auth.ScopeClause(ctx, arg)
 	if err != nil {
-		return nil, Page{}, err
+		return nil, storekit.Page{}, err
 	}
 	if scope != "" {
 		where = append(where, scope)
@@ -197,15 +200,15 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		where = append(where, sprintf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := decodeCursor(*in.Cursor)
+		c, err := storekit.DecodeCursor(*in.Cursor)
 		if err != nil {
-			return nil, Page{}, err
+			return nil, storekit.Page{}, err
 		}
 		where = append(where, sprintf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 
 	var people []crmcontracts.Person
-	var page Page
+	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+personColumns+` FROM person WHERE `+strings.Join(where, " AND ")+
@@ -230,7 +233,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		if len(people) > limit {
 			people = people[:limit]
 			last := people[len(people)-1]
-			page = Page{HasMore: true, NextCursor: encodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return attachPersonChildren(ctx, tx, people)
 	})
@@ -252,12 +255,12 @@ type UpdatePersonInput struct {
 }
 
 func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonInput) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "person", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
 			return err
 		}
 		current, err := readPerson(ctx, tx, id, false)
@@ -265,38 +268,38 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 			return err
 		}
 
-		p := newPatch()
+		p := storekit.NewPatch()
 		if in.FullName != nil {
-			p.set("full_name", current.FullName, *in.FullName)
+			p.Set("full_name", current.FullName, *in.FullName)
 		}
 		if in.FirstName != nil {
-			p.set("first_name", current.FirstName, *in.FirstName)
+			p.Set("first_name", current.FirstName, *in.FirstName)
 		}
 		if in.LastName != nil {
-			p.set("last_name", current.LastName, *in.LastName)
+			p.Set("last_name", current.LastName, *in.LastName)
 		}
 		if in.Title != nil {
-			p.set("title", current.Title, *in.Title)
+			p.Set("title", current.Title, *in.Title)
 		}
 		if in.OwnerID != nil {
-			p.set("owner_id", current.OwnerId, *in.OwnerID)
+			p.Set("owner_id", current.OwnerId, *in.OwnerID)
 		}
 		if in.Social != nil {
-			p.set("social", current.Social, jsonArg(in.Social))
+			p.Set("social", current.Social, storekit.JSONArg(in.Social))
 		}
-		if p.empty() {
+		if p.Empty() {
 			out = current
 			return nil
 		}
 
-		if err := p.apply(ctx, tx, "person", id, in.IfVersion); err != nil {
+		if err := p.Apply(ctx, tx, "person", id, in.IfVersion); err != nil {
 			return err
 		}
-		auditID, err := audit(ctx, tx, "update", "person", id, p.before, p.after)
+		auditID, err := storekit.Audit(ctx, tx, "update", "person", id, p.Before(), p.After())
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "person.updated", "person", id, p.after); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id, p.After()); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, false)
@@ -308,12 +311,12 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 // ArchivePerson soft-deletes the person and cascades to its owned child
 // rows and referencing edges in the same transaction (data-model §1.10).
 func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Person, error) {
-	if err := require(ctx, "person", principal.ActionDelete); err != nil {
+	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "person", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
 			return err
 		}
 		if _, err := readPerson(ctx, tx, id, false); err != nil {
@@ -342,11 +345,11 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Pe
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "archive", "person", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "person", id, nil, nil)
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "person.archived", "person", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.archived", "person", id, nil); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, true)

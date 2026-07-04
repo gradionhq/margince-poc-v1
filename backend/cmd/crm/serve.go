@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/bus"
 	"github.com/gradionhq/margince/backend/internal/httpapi"
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/events"
 )
 
 // runServe boots the HTTP server plus the outbox relay (decisions/0005)
@@ -32,7 +32,7 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New("serve: --dsn or MARGINCE_DSN required")
 	}
 
-	pool, err := pg.NewPool(ctx, *dsn)
+	pool, err := database.NewPool(ctx, *dsn)
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,7 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 	// The bus is not optional plumbing: without a relay every committed
 	// write strands its outbox row, so an unreachable Redis fails the
 	// boot the same way an unreachable Postgres does (B-EP04.1).
-	rdb, err := bus.NewClient(ctx, *redisAddr)
+	rdb, err := events.NewClient(ctx, *redisAddr)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 	relayCtx, stopRelay := context.WithCancel(context.Background())
 	var relay sync.WaitGroup
 	relay.Go(func() {
-		bus.NewRelay(pool, rdb, logger).Run(relayCtx)
+		events.NewRelay(pool, rdb, logger).Run(relayCtx)
 	})
 
 	srv := &http.Server{
@@ -69,7 +69,7 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 
 	// The relay stops after the HTTP server so late-committing requests
 	// usually ship before exit; anything still unshipped waits durably in
-	// the outbox for the next boot — shutdown loses no events.
+	// the outbox for the next boot — shutdown loses no kevents.
 	stopHTTP := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

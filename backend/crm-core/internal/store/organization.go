@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -44,17 +47,17 @@ type CreateOrganizationInput struct {
 }
 
 func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInput) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", principal.ActionCreate); err != nil {
+	if err := auth.Require(ctx, "organization", principal.ActionCreate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
-	by, err := capturedBy(ctx)
+	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
 
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := mustWorkspace(ctx)
+		wsID := storekit.MustWorkspace(ctx)
 
 		for _, d := range in.Domains {
 			var existing ids.UUID
@@ -63,7 +66,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 				d.Domain).Scan(&existing)
 			if err == nil {
 				dup := &DuplicateDomainError{Domain: d.Domain}
-				visible, verr := visibleTo(ctx, tx, "organization", existing)
+				visible, verr := auth.VisibleTo(ctx, tx, "organization", existing)
 				if verr != nil {
 					return verr
 				}
@@ -91,7 +94,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 				`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
 				 VALUES ($1, $2, lower($3), $4, $5, $6)`,
 				wsID, id, d.Domain, d.IsPrimary, in.Source, by); err != nil {
-				if name, ok := uniqueViolation(err); ok {
+				if name, ok := storekit.UniqueViolation(err); ok {
 					if name == "uq_org_domain" {
 						return &DuplicateDomainError{Domain: d.Domain}
 					}
@@ -101,11 +104,11 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			}
 		}
 
-		auditID, err := audit(ctx, tx, "create", "organization", id, nil, map[string]any{"display_name": in.DisplayName})
+		auditID, err := storekit.Audit(ctx, tx, "create", "organization", id, nil, map[string]any{"display_name": in.DisplayName})
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "organization.created", "organization", id, map[string]any{"display_name": in.DisplayName}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, false)
@@ -115,12 +118,12 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 }
 
 func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := ensureVisible(ctx, tx, "organization", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, includeArchived)
@@ -138,19 +141,19 @@ type ListOrganizationsInput struct {
 	IncludeArchived bool
 }
 
-func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, Page, error) {
-	if err := require(ctx, "organization", principal.ActionRead); err != nil {
-		return nil, Page{}, err
+func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
 	}
-	limit := clampLimit(in.Limit)
+	limit := storekit.ClampLimit(in.Limit)
 
 	where := []string{"1=1"}
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := scopeClause(ctx, arg)
+	scope, err := auth.ScopeClause(ctx, arg)
 	if err != nil {
-		return nil, Page{}, err
+		return nil, storekit.Page{}, err
 	}
 	if scope != "" {
 		where = append(where, scope)
@@ -169,15 +172,15 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		where = append(where, sprintf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := decodeCursor(*in.Cursor)
+		c, err := storekit.DecodeCursor(*in.Cursor)
 		if err != nil {
-			return nil, Page{}, err
+			return nil, storekit.Page{}, err
 		}
 		where = append(where, sprintf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 
 	var orgs []crmcontracts.Organization
-	var page Page
+	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT `+orgColumns+` FROM organization WHERE `+strings.Join(where, " AND ")+
@@ -200,7 +203,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		if len(orgs) > limit {
 			orgs = orgs[:limit]
 			last := orgs[len(orgs)-1]
-			page = Page{HasMore: true, NextCursor: encodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return attachOrgDomains(ctx, tx, orgs)
 	})
@@ -221,12 +224,12 @@ type UpdateOrganizationInput struct {
 }
 
 func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOrganizationInput) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "organization", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
 			return err
 		}
 		current, err := readOrganization(ctx, tx, id, false)
@@ -234,38 +237,38 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 			return err
 		}
 
-		p := newPatch()
+		p := storekit.NewPatch()
 		if in.DisplayName != nil {
-			p.set("display_name", current.DisplayName, *in.DisplayName)
+			p.Set("display_name", current.DisplayName, *in.DisplayName)
 		}
 		if in.LegalName != nil {
-			p.set("legal_name", current.LegalName, *in.LegalName)
+			p.Set("legal_name", current.LegalName, *in.LegalName)
 		}
 		if in.Industry != nil {
-			p.set("industry", current.Industry, *in.Industry)
+			p.Set("industry", current.Industry, *in.Industry)
 		}
 		if in.SizeBand != nil {
-			p.set("size_band", current.SizeBand, *in.SizeBand)
+			p.Set("size_band", current.SizeBand, *in.SizeBand)
 		}
 		if in.OwnerID != nil {
-			p.set("owner_id", current.OwnerId, *in.OwnerID)
+			p.Set("owner_id", current.OwnerId, *in.OwnerID)
 		}
 		if in.ParentOrgID != nil {
-			p.set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
+			p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
 		}
-		if p.empty() {
+		if p.Empty() {
 			out = current
 			return nil
 		}
 
-		if err := p.apply(ctx, tx, "organization", id, in.IfVersion); err != nil {
+		if err := p.Apply(ctx, tx, "organization", id, in.IfVersion); err != nil {
 			return err
 		}
-		auditID, err := audit(ctx, tx, "update", "organization", id, p.before, p.after)
+		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id, p.Before(), p.After())
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "organization.updated", "organization", id, p.after); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id, p.After()); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, false)
@@ -275,12 +278,12 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 }
 
 func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontracts.Organization, error) {
-	if err := require(ctx, "organization", principal.ActionDelete); err != nil {
+	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureVisible(ctx, tx, "organization", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
 			return err
 		}
 		if _, err := readOrganization(ctx, tx, id, false); err != nil {
@@ -306,11 +309,11 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontra
 			return err
 		}
 
-		auditID, err := audit(ctx, tx, "archive", "organization", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "organization", id, nil, nil)
 		if err != nil {
 			return err
 		}
-		if err := emit(ctx, tx, auditID, "organization.archived", "organization", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "organization.archived", "organization", id, nil); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, true)

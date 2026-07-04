@@ -9,7 +9,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
-	"github.com/gradionhq/margince/backend/internal/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
 // stubs satisfies every crmcontracts.ServerInterface operation with an

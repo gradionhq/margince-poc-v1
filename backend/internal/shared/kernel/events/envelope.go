@@ -66,7 +66,7 @@ type Trace struct {
 }
 
 // Validate rejects an envelope that would be unroutable or unauditable on
-// the bus. It is the shared gate for both directions: the publisher runs
+// the events. It is the shared gate for both directions: the publisher runs
 // it before staging an outbox row, the subscriber before dispatching to a
 // handler (a malformed entry must fail loudly, not corrupt a consumer).
 func (e Envelope) Validate() error {

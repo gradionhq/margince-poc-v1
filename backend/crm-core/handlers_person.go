@@ -3,6 +3,8 @@ package crmcore
 import (
 	"net/http"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	"github.com/gradionhq/margince/backend/crm-core/internal/store"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -104,7 +106,7 @@ func (h Handlers) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmco
 	writeJSON(w, http.StatusOK, person)
 }
 
-func pageInfo(p store.Page) crmcontracts.PageInfo {
+func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 	info := crmcontracts.PageInfo{HasMore: p.HasMore}
 	if p.NextCursor != "" {
 		info.NextCursor = &p.NextCursor

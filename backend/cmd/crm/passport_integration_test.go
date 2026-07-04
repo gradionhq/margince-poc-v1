@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
-	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/migrations"
@@ -51,11 +51,11 @@ func passportEnv(t *testing.T) (*crmauth.Service, crmauth.Identity) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pgmigrate.Up(ctx, owner, core, custom); err != nil {
+	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
 		t.Fatal(err)
 	}
 
-	pool, err := pg.NewPool(ctx, appDSN)
+	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}

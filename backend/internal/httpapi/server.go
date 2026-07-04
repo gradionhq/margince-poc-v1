@@ -15,7 +15,7 @@ import (
 	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
-	"github.com/gradionhq/margince/backend/internal/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/web"

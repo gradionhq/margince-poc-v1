@@ -32,7 +32,7 @@ components:
   capture:     { in: [crm-capture, crm-capture/**] }
   agents:      { in: [crm-agents, crm-agents/**] }
   approvals:   { in: [crm-approvals, crm-approvals/**] }
-  platform:    { in: [internal/bus, internal/gate, internal/httpapi, internal/httperr, internal/pg, internal/pgmigrate] }
+  platform:    { in: [internal/platform/**, internal/httpapi] }
   migrations:  { in: migrations }
   web:         { in: web }
   edge:        { in: cmd/** }

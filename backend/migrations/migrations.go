@@ -7,28 +7,28 @@ package migrations
 import (
 	"embed"
 
-	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 )
 
 //go:embed core custom
 var files embed.FS
 
 // Core returns the upstream-owned namespace.
-func Core() (pgmigrate.Namespace, error) {
-	ms, err := pgmigrate.Load(files, "core")
+func Core() (dbmigrate.Namespace, error) {
+	ms, err := dbmigrate.Load(files, "core")
 	if err != nil {
-		return pgmigrate.Namespace{}, err
+		return dbmigrate.Namespace{}, err
 	}
-	return pgmigrate.Namespace{Name: "core", Migrations: ms}, nil
+	return dbmigrate.Namespace{Name: "core", Migrations: ms}, nil
 }
 
 // Custom returns the fork-owned namespace. Empty upstream by design: a
 // fork's agent-authored migrations land here with x_-prefixed columns and
 // never collide with a core upgrade (ADR-0017 Amendment 1).
-func Custom() (pgmigrate.Namespace, error) {
-	ms, err := pgmigrate.Load(files, "custom")
+func Custom() (dbmigrate.Namespace, error) {
+	ms, err := dbmigrate.Load(files, "custom")
 	if err != nil {
-		return pgmigrate.Namespace{}, err
+		return dbmigrate.Namespace{}, err
 	}
-	return pgmigrate.Namespace{Name: "custom", Migrations: ms}, nil
+	return dbmigrate.Namespace{Name: "custom", Migrations: ms}, nil
 }

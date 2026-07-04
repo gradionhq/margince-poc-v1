@@ -67,6 +67,30 @@ func projectImports(t *testing.T, dir string) []string {
 	return out
 }
 
+// TestPlatformOwnsNoDomain: internal/platform is technical plumbing
+// (ADR-0054 §5) — it may import shared and other platform packages, but
+// never a domain module or the composition layer. The dir prefixes below
+// cover both the current tree and the post-split modules/ tree, so the
+// test cannot silently pass through the migration.
+func TestPlatformOwnsNoDomain(t *testing.T) {
+	forbidden := []string{
+		modulePath + "/crm-",
+		modulePath + "/internal/modules/",
+		modulePath + "/internal/compose",
+		modulePath + "/internal/httpapi",
+		modulePath + "/cmd/",
+	}
+	for _, dir := range packagesUnder(t, "internal/platform") {
+		for _, imp := range projectImports(t, dir) {
+			for _, bad := range forbidden {
+				if strings.HasPrefix(imp, bad) {
+					t.Errorf("%s imports %s: platform owns no domain", dir, imp)
+				}
+			}
+		}
+	}
+}
+
 // TestSharedIsPure: internal/shared (kernel + apperrors + ports) is the
 // Tier-0 leaf layer — stdlib and each other, nothing else. A third-party
 // or project import here is an architecture defect.

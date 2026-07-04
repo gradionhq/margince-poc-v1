@@ -1,6 +1,6 @@
 //go:build integration
 
-package bus
+package events
 
 // Real-infrastructure lane for the event backbone (B-EP04.4/.6/.13):
 // relay exactly-once + crash-safety + commit order against a migrated
@@ -22,9 +22,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/gradionhq/margince/backend/internal/pg"
-	"github.com/gradionhq/margince/backend/internal/pgmigrate"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/migrations"
 )
@@ -65,7 +65,7 @@ func setup(t *testing.T) *busEnv {
 	if err != nil {
 		t.Fatalf("loading custom migrations: %v", err)
 	}
-	if _, err := pgmigrate.Up(ctx, owner, core, custom); err != nil {
+	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
 
@@ -77,7 +77,7 @@ func setup(t *testing.T) *busEnv {
 		t.Fatalf("seeding workspace: %v", err)
 	}
 
-	pool, err := pg.NewPool(ctx, appDSN)
+	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
 		t.Fatalf("opening app pool: %v", err)
 	}
@@ -101,17 +101,17 @@ func testLogger() *slog.Logger {
 
 // stage writes an outbox row the way a domain transaction would: a
 // complete, validated envelope staged for the relay.
-func (e *busEnv) stage(t *testing.T, eventType string, entityID ids.UUID) events.Envelope {
+func (e *busEnv) stage(t *testing.T, eventType string, entityID ids.UUID) kevents.Envelope {
 	t.Helper()
-	env := events.Envelope{
+	env := kevents.Envelope{
 		EventID:     ids.NewV7(),
 		Type:        eventType,
 		Version:     1,
 		WorkspaceID: e.ws,
 		OccurredAt:  time.Now().UTC(),
-		Actor:       events.Actor{Type: "human", ID: "human:" + ids.NewV7().String()},
-		Entity:      events.EntityRef{Type: "person", ID: entityID},
-		Trace:       events.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
+		Actor:       kevents.Actor{Type: "human", ID: "human:" + ids.NewV7().String()},
+		Entity:      kevents.EntityRef{Type: "person", ID: entityID},
+		Trace:       kevents.Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
 	}
 	if err := env.Validate(); err != nil {
 		t.Fatalf("fixture envelope: %v", err)
@@ -120,7 +120,7 @@ func (e *busEnv) stage(t *testing.T, eventType string, entityID ids.UUID) events
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := events.StreamFor(eventType)
+	stream, err := kevents.StreamFor(eventType)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestRelayCrashBeforeStampRepublishes_atLeastOnce(t *testing.T) {
 
 	// The duplicate is the consumer's problem by design — Dedupe absorbs it.
 	var effects atomic.Int32
-	handler := Dedupe(e.rdb, "cg:read-model", func(context.Context, events.Envelope) error {
+	handler := Dedupe(e.rdb, "cg:read-model", func(context.Context, kevents.Envelope) error {
 		effects.Add(1)
 		return nil
 	})
@@ -305,8 +305,8 @@ func TestSubscriberDeliversAcksAndFiltersWorkspaces(t *testing.T) {
 
 	var seen atomic.Int32
 	var sawForeign atomic.Bool
-	group := events.Group{Name: "cg:read-model", Streams: []string{"gw:events:crm:person"}}
-	s := NewSubscriber(e.rdb, group, ForWorkspace(e.ws, func(_ context.Context, env events.Envelope) error {
+	group := kevents.Group{Name: "cg:read-model", Streams: []string{"gw:events:crm:person"}}
+	s := NewSubscriber(e.rdb, group, ForWorkspace(e.ws, func(_ context.Context, env kevents.Envelope) error {
 		if env.WorkspaceID != e.ws {
 			sawForeign.Store(true)
 		}
@@ -344,8 +344,8 @@ func TestSubscriberReclaimRedeliversAfterHandlerCrash(t *testing.T) {
 	// First delivery "crashes" (handler errors → no ack); once the entry
 	// has sat pending past minIdle, the reclaim pass re-delivers it.
 	var attempts atomic.Int32
-	group := events.Group{Name: "cg:workflows", Streams: []string{"gw:events:crm:lead"}}
-	s := NewSubscriber(e.rdb, group, func(_ context.Context, got events.Envelope) error {
+	group := kevents.Group{Name: "cg:workflows", Streams: []string{"gw:events:crm:lead"}}
+	s := NewSubscriber(e.rdb, group, func(_ context.Context, got kevents.Envelope) error {
 		if got.EventID != env.EventID {
 			t.Errorf("delivered %s, staged %s", got.EventID, env.EventID)
 		}
@@ -370,8 +370,8 @@ func TestSubscriberReclaimRedeliversAfterHandlerCrash(t *testing.T) {
 
 func TestSubscriberEnsuresEverySpecGroup(t *testing.T) {
 	e := setup(t)
-	noop := func(context.Context, events.Envelope) error { return nil }
-	for _, group := range events.Groups() {
+	noop := func(context.Context, kevents.Envelope) error { return nil }
+	for _, group := range kevents.Groups() {
 		s := NewSubscriber(e.rdb, group, noop, testLogger())
 		if err := s.ensureGroups(t.Context()); err != nil {
 			t.Fatalf("declaring %s: %v", group.Name, err)
@@ -407,7 +407,7 @@ func TestDedupeMarksOnlyAfterTheEffectSucceeded(t *testing.T) {
 	markKey := dedupeKey("cg:context-graph", env)
 
 	var calls atomic.Int32
-	handler := Dedupe(e.rdb, "cg:context-graph", func(context.Context, events.Envelope) error {
+	handler := Dedupe(e.rdb, "cg:context-graph", func(context.Context, kevents.Envelope) error {
 		if calls.Add(1) == 1 {
 			return fmt.Errorf("transient effect failure")
 		}

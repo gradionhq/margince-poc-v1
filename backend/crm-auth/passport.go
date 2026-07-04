@@ -17,7 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -90,7 +90,7 @@ func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePasspo
 	token := passportTokenPrefix + raw
 	out := IssuedPassport{Token: token, Scopes: in.Scopes}
 
-	err = pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
 			`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
 			 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval)
@@ -123,7 +123,7 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 			isAdmin = true
 		}
 	}
-	return pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var onBehalfOf ids.UUID
 		var revokedAt *time.Time
 		err := tx.QueryRow(ctx,
@@ -170,7 +170,7 @@ type AgentIdentity struct {
 
 // Principal renders the crmctx shape every store entry point enforces. The
 // seat is the granting human's ("agent ≤ human", A62/ADR-0047): an agent
-// acting for a read seat inherits that read-only ceiling at the gate.
+// acting for a read seat inherits that read-only ceiling at the auth.
 func (a AgentIdentity) Principal() principal.Principal {
 	return principal.Principal{
 		Type:        principal.PrincipalAgent,
@@ -195,7 +195,7 @@ func (s *Service) AuthenticateAgent(ctx context.Context, rawToken string) (Agent
 	}
 
 	var a AgentIdentity
-	err := pg.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var scopes []string
 		err := tx.QueryRow(ctx,
 			`SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type

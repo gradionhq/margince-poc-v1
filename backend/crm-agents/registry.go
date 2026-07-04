@@ -14,7 +14,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/gradionhq/margince/backend/internal/gate"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
@@ -84,7 +84,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		resolve = func() (mcp.TierResolverInput, error) { return dyn.ResolverInput(ctx, args) }
 	}
 
-	err = gate.Admit(ctx, spec, resolve)
+	err = auth.Admit(ctx, spec, resolve)
 	switch {
 	case err == nil:
 		return t.Handle(ctx, args)

@@ -12,11 +12,13 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/crm-core/internal/store"
-	"github.com/gradionhq/margince/backend/internal/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
 type Handlers struct {
@@ -172,7 +174,7 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a
 	// breach that slipped past the per-path validations still answers a
 	// typed 422 naming the rule — never an opaque 500.
-	if constraint, ok := store.CheckViolation(err); ok {
+	if constraint, ok := storekit.CheckViolation(err); ok {
 		httperr.Write(w, r, httperr.Validation(constraint, "constraint_violated",
 			"the request violates the "+constraint+" business rule"))
 		return

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -31,7 +34,7 @@ type CreatePipelineInput struct {
 // stage_terminal_prob CHECK and uq_pipeline_default index enforce the
 // won=100/lost=0 and one-default rules at the database.
 func (s *Store) CreatePipeline(ctx context.Context, in CreatePipelineInput) (crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", principal.ActionCreate); err != nil {
+	if err := auth.Require(ctx, "pipeline", principal.ActionCreate); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
@@ -47,13 +50,13 @@ func (s *Store) CreatePipeline(ctx context.Context, in CreatePipelineInput) (crm
 // atomic bootstrap seeds defaults in the same transaction that mints the
 // workspace (C5), so a seed failure rolls the whole tenant back.
 func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (crmcontracts.Pipeline, error) {
-	wsID := mustWorkspace(ctx)
+	wsID := storekit.MustWorkspace(ctx)
 	id := ids.NewV7()
 	_, err := tx.Exec(ctx,
 		`INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, $3, $4, $5)`,
 		id, wsID, in.Name, in.IsDefault, in.Position)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.Pipeline{}, apperrors.ErrConflict
 		}
 		return crmcontracts.Pipeline{}, err
@@ -70,14 +73,14 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 
 	// Audit-only: pipeline config changes have no §5 catalog event in
 	// V1 (consumers react to deal.* on the pipeline's deals instead).
-	if _, err := audit(ctx, tx, "create", "pipeline", id, nil, map[string]any{"name": in.Name}); err != nil {
+	if _, err := storekit.Audit(ctx, tx, "create", "pipeline", id, nil, map[string]any{"name": in.Name}); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	return readPipeline(ctx, tx, id)
 }
 
 func (s *Store) GetPipeline(ctx context.Context, id ids.UUID) (crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
@@ -89,7 +92,7 @@ func (s *Store) GetPipeline(ctx context.Context, id ids.UUID) (crmcontracts.Pipe
 }
 
 func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return nil, err
 	}
 	var out []crmcontracts.Pipeline
@@ -130,7 +133,7 @@ func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, err
 
 // DefaultPipeline returns the workspace's seeded default.
 func (s *Store) DefaultPipeline(ctx context.Context) (crmcontracts.Pipeline, error) {
-	if err := require(ctx, "pipeline", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
