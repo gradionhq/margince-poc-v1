@@ -1,7 +1,8 @@
 // Package httpapi assembles the contract surface: module transport
-// handlers (crm-auth, crm-core) shadow the generated-interface stubs by
-// embedding depth, so every one of the contract's operations either runs
-// real module code or answers an explicit 501 — never a silent 404.
+// handlers (identity, people, deals, activities, approvals) shadow the
+// generated-interface stubs by embedding depth, so every one of the
+// contract's operations either runs real module code or answers an
+// explicit 501 — never a silent 404.
 package httpapi
 
 import (
@@ -11,10 +12,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	crmcore "github.com/gradionhq/margince/backend/crm-core"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -26,19 +29,23 @@ import (
 // answers operations nothing implements.
 type fallback struct{ stubs }
 
-// Aliases give the two embedded handler sets distinct field names; the
-// alias carries the module's full method set.
+// Aliases give the embedded handler sets distinct field names; each
+// alias carries its module's full method set.
 type (
-	authHandlers      = identity.Handlers
-	coreHandlers      = crmcore.Handlers
-	approvalsHandlers = approvals.Handlers
+	authHandlers       = identity.Handlers
+	peopleHandlers     = people.Handlers
+	dealsHandlers      = deals.Handlers
+	activitiesHandlers = activities.Handlers
+	approvalsHandlers  = approvals.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: the module
 // transport handlers at depth one shadow the depth-two stubs.
 type Server struct {
 	authHandlers
-	coreHandlers
+	peopleHandlers
+	dealsHandlers
+	activitiesHandlers
 	approvalsHandlers
 	fallback
 }
@@ -48,16 +55,18 @@ var _ crmcontracts.ServerInterface = Server{}
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
 func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
-	core := crmcore.NewHandlers(pool)
-	// On workspace bootstrap, crm-core seeds its per-workspace defaults
+	dealsH := deals.NewHandlers(pool)
+	// On workspace bootstrap, deals seeds its per-workspace defaults
 	// (the default pipeline) — composed here so neither module imports
 	// the other.
-	auth := identity.NewHandlers(identity.NewService(pool), core.SeedWorkspaceDefaultsTx)
+	auth := identity.NewHandlers(identity.NewService(pool), dealsH.SeedWorkspaceDefaultsTx)
 
 	srv := Server{
-		authHandlers:      auth,
-		coreHandlers:      core,
-		approvalsHandlers: approvals.NewHandlers(approvals.NewService(pool)),
+		authHandlers:       auth,
+		peopleHandlers:     people.NewHandlers(pool),
+		dealsHandlers:      dealsH,
+		activitiesHandlers: activities.NewHandlers(pool),
+		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
 	}
 
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{

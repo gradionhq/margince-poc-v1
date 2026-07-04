@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -52,7 +52,7 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 	defer pool.Close()
 
 	auth := identity.NewService(pool)
-	provider := crmcore.NewProvider(pool)
+	provider := compose.NewProvider(pool)
 
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)})
 	agents.RegisterCoreTools(registry, provider, provider, provider)

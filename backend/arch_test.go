@@ -91,6 +91,32 @@ func TestPlatformOwnsNoDomain(t *testing.T) {
 	}
 }
 
+// TestNoSiblingModuleImports: a module reaches another module's behavior
+// only through a shared/ports seam or a dependency injected by the
+// composition layer (ADR-0054 §9) — never by importing the sibling. The
+// module list is derived from the tree, so a new module is enrolled the
+// moment its directory exists.
+func TestNoSiblingModuleImports(t *testing.T) {
+	modules, err := filepath.Glob("internal/modules/*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mod := range modules {
+		modImportPrefix := modulePath + "/" + filepath.ToSlash(mod)
+		for _, dir := range packagesUnder(t, mod) {
+			for _, imp := range projectImports(t, dir) {
+				if !strings.HasPrefix(imp, modulePath+"/internal/modules/") {
+					continue
+				}
+				if imp == modImportPrefix || strings.HasPrefix(imp, modImportPrefix+"/") {
+					continue // a module may import its own subpackages
+				}
+				t.Errorf("%s imports %s: modules never import a sibling module", dir, imp)
+			}
+		}
+	}
+}
+
 // TestSharedIsPure: internal/shared (kernel + apperrors + ports) is the
 // Tier-0 leaf layer — stdlib and each other, nothing else. A third-party
 // or project import here is an architecture defect.

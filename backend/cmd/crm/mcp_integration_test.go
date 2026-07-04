@@ -21,9 +21,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
@@ -41,7 +42,7 @@ type mcpClient struct {
 	seq int
 }
 
-func startMCP(t *testing.T, token, slug string, svc *identity.Service, provider *crmcore.Provider, approvalsSvc *approvals.Service) *mcpClient {
+func startMCP(t *testing.T, token, slug string, svc *identity.Service, provider *compose.Provider, approvalsSvc *approvals.Service) *mcpClient {
 	t.Helper()
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvalsSvc})
 	agents.RegisterCoreTools(registry, provider, provider, provider)
@@ -153,8 +154,8 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	defer pool.Close()
 
 	svc := identity.NewService(pool)
-	coreHandlers := crmcore.NewHandlers(pool)
-	provider := crmcore.NewProvider(pool)
+	dealsHandlers := deals.NewHandlers(pool)
+	provider := compose.NewProvider(pool)
 
 	admin, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
 		WorkspaceName: "Agent Test", Slug: "agent-test",
@@ -166,7 +167,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, admin.WorkspaceID)
 	seedCtx := principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
-	if err := coreHandlers.SeedWorkspaceDefaults(seedCtx); err != nil {
+	if err := dealsHandlers.SeedWorkspaceDefaults(seedCtx); err != nil {
 		t.Fatal(err)
 	}
 

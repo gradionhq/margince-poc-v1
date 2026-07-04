@@ -1,6 +1,7 @@
-# Layer C of the boundary stack (ADR-0014 §3): the seven-module DAG from
-# architecture/01 declared once; `go-arch-lint check` exits 1 on any
-# forbidden edge — a hard `make check` gate.
+# Layer C of the boundary stack (ADR-0014 §3): the triad DAG from
+# architecture/01 declared once — shared → platform → modules → compose →
+# cmd; `go-arch-lint check` exits 1 on any forbidden edge — a hard
+# `make check` gate.
 version: 3
 workdir: .
 
@@ -25,14 +26,18 @@ vendors:
 components:
   shared:      { in: internal/shared/** }
   contracts:   { in: internal/contracts }
-  core:        { in: [crm-core, crm-core/**] }
-  auth:        { in: [internal/modules/identity, internal/modules/identity/**] }
-  agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
-  approvals:   { in: [internal/modules/approvals, internal/modules/approvals/**] }
-  platform:    { in: [internal/platform/**, internal/httpapi] }
+  platform:    { in: internal/platform/** }
+  identity:    { in: [internal/modules/identity, internal/modules/identity/**] }
+  people:      { in: internal/modules/people }
+  deals:       { in: internal/modules/deals }
+  activities:  { in: internal/modules/activities }
+  approvals:   { in: internal/modules/approvals }
+  agents:      { in: internal/modules/agents }
+  compose:     { in: internal/compose }
+  httpapi:     { in: internal/httpapi }
   migrations:  { in: migrations }
   web:         { in: web }
-  edge:        { in: cmd/** }
+  cmd:         { in: cmd/** }
   root:        { in: . }
 
 commonComponents:
@@ -43,23 +48,37 @@ deps:
   # imports no project component.
   contracts:
     canUse: [chi, oapi]
-  core:
-    mayDependOn: [core, contracts, platform, migrations]
-    canUse: [pgx, oapi]
-  auth:
-    mayDependOn: [auth, contracts, platform]
+  platform:
+    mayDependOn: [platform, contracts, migrations]
+    canUse: [pgx, chi, oapi, redis]
+  # Modules import shared + platform + contracts — NEVER a sibling; every
+  # cross-module edge is injected by the composition layer.
+  identity:
+    mayDependOn: [identity, contracts, platform]
     canUse: [pgx, oapi, xcrypto]
-  agents:
-    mayDependOn: [auth, contracts, platform]
+  people:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
+  deals:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
+  activities:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   approvals:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
-  platform:
-    mayDependOn: [platform, contracts, core, auth, approvals, migrations, web]
-    canUse: [pgx, chi, oapi, redis]
+  agents:
+    mayDependOn: [contracts, platform]
+  compose:
+    mayDependOn: [identity, people, deals, activities, approvals, agents, contracts, platform, migrations]
+    canUse: [pgx, oapi]
+  httpapi:
+    mayDependOn: [httpapi, identity, people, deals, activities, approvals, contracts, platform, web, migrations]
+    canUse: [pgx, chi, oapi]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]
-  edge:
-    mayDependOn: [core, auth, agents, approvals, contracts, platform, migrations]
+  cmd:
+    mayDependOn: [compose, httpapi, identity, people, deals, activities, approvals, agents, contracts, platform, migrations]
     canUse: [pgx, redis]

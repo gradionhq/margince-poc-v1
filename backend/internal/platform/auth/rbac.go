@@ -201,3 +201,57 @@ func AuthzRule(p principal.Principal, entityType string, auditAction string) str
 	}
 	return p.Permissions.Rule(entityType, action)
 }
+
+// ActivityScopeClause is the activity analogue of ScopeClause:
+// activities have no owner, but their free-text inherits the
+// sensitivity of the records they attach to. An activity is visible when
+// ANY linked person/organization/deal is visible under the caller's row
+// scope, or when it has no links at all (a workspace-shared note —
+// decisions/0006). It lives here, not in a module: it is the one scope
+// rule that spans person, organization, deal and activity_link rows, and
+// both the activities timeline and people's promotion-evidence check
+// enforce it — scope policy has exactly one spelling (ADR-0054 §8).
+// alias names the activity table in the outer query.
+func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if Unbounded(p) {
+		return "", nil
+	}
+	visible := OwnerPredicate(p, arg)
+	return fmt.Sprintf(`(NOT EXISTS (SELECT 1 FROM activity_link nl WHERE nl.activity_id = %[1]s.id)
+	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND (
+	      (l.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = l.person_id AND %[2]s))
+	   OR (l.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization so WHERE so.id = l.organization_id AND %[3]s))
+	   OR (l.deal_id IS NOT NULL AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = l.deal_id AND %[4]s)))))`,
+		alias, visible("sp"), visible("so"), visible("sd")), nil
+}
+
+// EnsureActivityVisible is EnsureVisible for activities, using the
+// linked-entity scope above; out of scope reads as ErrNotFound.
+func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+
+	clause, err := ActivityScopeClause(ctx, "a", arg)
+	if err != nil {
+		return err
+	}
+	if clause == "" {
+		return nil
+	}
+	var visible bool
+	err = tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM activity a WHERE a.id = $%d AND %s)`, idPos, clause),
+		args...).Scan(&visible)
+	if err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
