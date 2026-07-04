@@ -52,6 +52,8 @@ linters:
               desc: identity imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
               desc: identity imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
+              desc: identity imports no sibling module
         module-people:
           files:
             - "**/internal/modules/people/**"
@@ -69,6 +71,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
               desc: people imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
+              desc: people imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: people imports no sibling module
         module-deals:
           files:
@@ -88,6 +92,8 @@ linters:
               desc: deals imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
               desc: deals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
+              desc: deals imports no sibling module
         module-activities:
           files:
             - "**/internal/modules/activities/**"
@@ -105,6 +111,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
               desc: activities imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
+              desc: activities imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: activities imports no sibling module
         module-approvals:
           files:
@@ -124,6 +132,8 @@ linters:
               desc: approvals imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
               desc: approvals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
+              desc: approvals imports no sibling module
         module-agents:
           files:
             - "**/internal/modules/agents/**"
@@ -141,6 +151,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
               desc: agents speaks to the model through the injected model.Client, never a provider package
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
+              desc: agents imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: agents imports no sibling module
         module-ai:
           files:
@@ -160,6 +172,8 @@ linters:
               desc: ai imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
               desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
+              desc: ai imports no sibling module
         module-search:
           files:
             - "**/internal/modules/search/**"
@@ -178,6 +192,28 @@ linters:
               desc: search imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
               desc: search imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
+              desc: search imports no sibling module
+        module-capture:
+          files:
+            - "**/internal/modules/capture/**"
+          deny:
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/identity
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/people
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/deals
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/activities
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/search
+              desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
         modules-common:
           files:
             - "**/internal/modules/**"
