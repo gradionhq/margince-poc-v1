@@ -33,7 +33,7 @@ components:
   deals:       { in: internal/modules/deals }
   activities:  { in: internal/modules/activities }
   approvals:   { in: internal/modules/approvals }
-  agents:      { in: internal/modules/agents }
+  agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
   compose:     { in: internal/compose }
   migrations:  { in: migrations }
   web:         { in: web }
@@ -72,7 +72,7 @@ deps:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   agents:
-    mayDependOn: [contracts, platform]
+    mayDependOn: [agents, contracts, platform]
   compose:
     mayDependOn: [compose, identity, people, deals, activities, approvals, agents, ai, contracts, platform, web, migrations]
     canUse: [pgx, chi, oapi]
