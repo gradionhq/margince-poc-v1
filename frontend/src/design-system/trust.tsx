@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from "react";
+import { useT } from "../i18n";
 import "./trust.css";
 
 // The Margince trust primitives (B-EP09.3a, design-language §4): the
@@ -15,11 +16,12 @@ export type Evidence = {
 };
 
 export function AutonomyDot({ tier }: { tier: "auto" | "confirm" }) {
+  const t = useT();
   return (
     <span
       className={`dot dot-${tier}`}
       role="img"
-      aria-label={tier === "auto" ? "auto-execute" : "confirm-first"}
+      aria-label={tier === "auto" ? t("autonomy.auto") : t("autonomy.confirm")}
     />
   );
 }
@@ -46,19 +48,14 @@ export function EvidenceChip({
   return <span className="evidence-chip">{text}</span>;
 }
 
-const confidenceLabel: Record<ConfidenceLevel, string> = {
-  high: "high",
-  med: "medium",
-  low: "low",
-};
-
 // Low confidence is shown as low, never hidden (§4.2) — there is no prop to
 // suppress the glyph.
 export function ConfidenceMeter({ level }: { level: ConfidenceLevel }) {
+  const t = useT();
   return (
     <span className={`confidence confidence-${level}`}>
       <span className="dot" />
-      {confidenceLabel[level]}
+      {t(`confidence.${level}`)}
     </span>
   );
 }
@@ -67,14 +64,17 @@ export function ConfidenceMeter({ level }: { level: ConfidenceLevel }) {
 export type Provenance = { kind: "agent"; agent: string } | { kind: "human" };
 
 export function ProvenanceTag({ provenance }: { provenance: Provenance }) {
+  const t = useT();
   if (provenance.kind === "agent") {
     return (
       <span className="provenance provenance-agent">
-        agent: {provenance.agent}
+        {t("trust.agentTag", { agent: provenance.agent })}
       </span>
     );
   }
-  return <span className="provenance provenance-human">typed by you</span>;
+  return (
+    <span className="provenance provenance-human">{t("trust.typedByYou")}</span>
+  );
 }
 
 export function ApprovalGate({
@@ -86,6 +86,7 @@ export function ApprovalGate({
   onEdit: () => void;
   onDismiss: () => void;
 }) {
+  const t = useT();
   return (
     <div className="approval-gate">
       <button
@@ -93,25 +94,26 @@ export function ApprovalGate({
         className="btn btn-primary btn-sm"
         onClick={onAccept}
       >
-        Accept
+        {t("trust.accept")}
       </button>
       <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
-        Edit
+        {t("trust.edit")}
       </button>
       <button
         type="button"
         className="btn btn-ghost btn-sm"
         onClick={onDismiss}
       >
-        Dismiss
+        {t("trust.dismiss")}
       </button>
     </div>
   );
 }
 
 export function StagingCard({ children }: { children: ReactNode }) {
+  const t = useT();
   return (
-    <section className="staging-card" aria-label="staged proposal">
+    <section className="staging-card" aria-label={t("trust.stagedProposal")}>
       {children}
     </section>
   );
@@ -145,6 +147,7 @@ export function StagedProposal({
   proposal: Proposal;
   onResolve?: (resolution: Resolution) => void;
 }) {
+  const t = useT();
   const [state, setState] = useState<ProposalState>({ phase: "staged" });
 
   const resolve = (resolution: Resolution) => {
@@ -155,7 +158,7 @@ export function StagedProposal({
   if (state.phase === "resolved") {
     const { resolution } = state;
     if (resolution.outcome === "dismissed") {
-      return <p className="t-small">Suggestion dismissed.</p>;
+      return <p className="t-small">{t("trust.dismissed")}</p>;
     }
     // Accepted keeps agent provenance; an edit makes the value human-typed.
     // Either way the original evidence stays attached (§4.4).
@@ -164,7 +167,7 @@ export function StagedProposal({
         ? { kind: "human" }
         : { kind: "agent", agent: proposal.agent };
     return (
-      <section className="real-card" aria-label="resolved value">
+      <section className="real-card" aria-label={t("trust.resolvedValue")}>
         <ProvenanceTag provenance={provenance} />
         <p style={{ marginTop: 8 }}>
           {proposal.description}: <strong>{resolution.value}</strong>
@@ -195,14 +198,16 @@ export function StagedProposal({
         >
           <input
             className="staged-edit"
-            aria-label={`Edit ${proposal.description}`}
+            aria-label={t("trust.editValue", {
+              description: proposal.description,
+            })}
             value={state.draft}
             onChange={(event) =>
               setState({ phase: "editing", draft: event.target.value })
             }
           />
           <button type="submit" className="btn btn-primary btn-sm">
-            Save
+            {t("trust.save")}
           </button>
         </form>
       ) : (

@@ -6,6 +6,7 @@ import {
   ProvenanceTag,
   StagedProposal,
 } from "./design-system/trust";
+import { useT } from "./i18n";
 
 // Token showcase — the B-EP09.1 verification surface, not a product screen.
 // Every colour reads through a custom property; the conformance tests reject
@@ -40,6 +41,7 @@ const statusTokens = [
 type Theme = "light" | "dark";
 
 export function App() {
+  const t = useT();
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
@@ -59,7 +61,7 @@ export function App() {
             color: "var(--textPrimary)",
           }}
         >
-          Margince design tokens
+          {t("app.title")}
         </h1>
         <button
           type="button"
@@ -77,17 +79,16 @@ export function App() {
             cursor: "pointer",
           }}
         >
-          {theme === "light" ? "Dark" : "Light"} theme
+          {theme === "light" ? t("theme.toDark") : t("theme.toLight")}
         </button>
       </header>
       <p style={{ fontSize: 13, color: "var(--textTertiary)", marginTop: 4 }}>
-        Ledger Green (ADR-0040) — canonical values mirror the spec mockups;
-        tests pin them.
+        {t("app.subtitle")}
       </p>
-      <Swatches title="Surfaces" tokens={surfaceTokens} />
-      <Swatches title="Accent & AI" tokens={accentTokens} />
-      <Swatches title="Text" tokens={textTokens} />
-      <Swatches title="Status" tokens={statusTokens} />
+      <Swatches title={t("section.surfaces")} tokens={surfaceTokens} />
+      <Swatches title={t("section.accentAi")} tokens={accentTokens} />
+      <Swatches title={t("section.text")} tokens={textTokens} />
+      <Swatches title={t("section.status")} tokens={statusTokens} />
       <section style={{ marginTop: 28 }}>
         <h2
           style={{
@@ -97,7 +98,7 @@ export function App() {
             color: "var(--textPrimary)",
           }}
         >
-          Type ramp
+          {t("section.typeRamp")}
         </h2>
         <p
           style={{
@@ -107,7 +108,7 @@ export function App() {
             color: "var(--textPrimary)",
           }}
         >
-          Display — Outfit 600
+          {t("type.display")}
         </p>
         <p
           style={{
@@ -116,7 +117,7 @@ export function App() {
             color: "var(--textContent)",
           }}
         >
-          Body — DM Sans 400, the default reading face.
+          {t("type.body")}
         </p>
         <p
           style={{
@@ -125,7 +126,7 @@ export function App() {
             color: "var(--textContent)",
           }}
         >
-          Mono — JetBrains Mono, evidence snippets and IDs.
+          {t("type.mono")}
         </p>
       </section>
       <TrustShowcase />
@@ -134,6 +135,7 @@ export function App() {
 }
 
 function TrustShowcase() {
+  const t = useT();
   return (
     <section style={{ marginTop: 28 }}>
       <h2
@@ -144,7 +146,7 @@ function TrustShowcase() {
           color: "var(--textPrimary)",
         }}
       >
-        Trust primitives (B-EP09.3a)
+        {t("section.trust")}
       </h2>
       <div
         style={{
@@ -167,10 +169,10 @@ function TrustShowcase() {
         <ProvenanceTag provenance={{ kind: "agent", agent: "capture" }} />
         <ProvenanceTag provenance={{ kind: "human" }} />
         <span style={{ fontSize: 13, color: "var(--textSecondary)" }}>
-          <AutonomyDot tier="auto" /> auto-execute
+          <AutonomyDot tier="auto" /> {t("autonomy.auto")}
         </span>
         <span style={{ fontSize: 13, color: "var(--textSecondary)" }}>
-          <AutonomyDot tier="confirm" /> confirm-first
+          <AutonomyDot tier="confirm" /> {t("autonomy.confirm")}
         </span>
       </div>
       <div style={{ marginTop: 14, maxWidth: 460 }}>

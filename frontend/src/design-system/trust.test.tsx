@@ -1,7 +1,9 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LocaleProvider } from "../i18n";
 import {
   ConfidenceMeter,
   type Proposal,
@@ -15,6 +17,11 @@ import {
 // low confidence always shown (§4.2).
 
 afterEach(cleanup);
+
+// The components read copy from the i18n catalogs; assertions here use the
+// English catalog so the strings under test are the spec's own wording.
+const render = (ui: ReactNode) =>
+  rtlRender(<LocaleProvider initial="en">{ui}</LocaleProvider>);
 
 const proposal: Proposal = {
   description: "Set Brandt Automotive's deal value",

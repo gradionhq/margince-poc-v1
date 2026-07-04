@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 // The two source-wide design gates from B-EP09.1, derived from the tree so a
@@ -57,6 +58,61 @@ describe("design-system conformance gates (B-EP09.1)", () => {
         }
       }
     }
+  });
+
+  // B-EP09.16: no inline user-facing copy — every string the user reads comes
+  // from the i18n catalogs. The walk covers JSX text nodes and the attributes
+  // that reach the user (aria-label, title, placeholder, alt); fixture data
+  // passed as props and non-alphabetic glyphs are not copy.
+  it("has no hard-coded user-facing copy outside the i18n catalogs", () => {
+    const userFacingAttrs = new Set([
+      "aria-label",
+      "title",
+      "placeholder",
+      "alt",
+    ]);
+    const hasWords = (text: string) => /[A-Za-z]{2,}/.test(text);
+    const violations: string[] = [];
+
+    for (const file of files) {
+      if (!file.endsWith(".tsx") || /\.test\.tsx$/.test(file)) {
+        continue;
+      }
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.ES2022,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      const visit = (node: ts.Node) => {
+        if (ts.isJsxText(node) && hasWords(node.text)) {
+          const { line } = source.getLineAndCharacterOfPosition(
+            node.getStart(),
+          );
+          violations.push(
+            `${relative(frontendRoot, file)}:${line + 1} JSX text "${node.text.trim()}"`,
+          );
+        }
+        if (
+          ts.isJsxAttribute(node) &&
+          userFacingAttrs.has(node.name.getText()) &&
+          node.initializer &&
+          ts.isStringLiteral(node.initializer) &&
+          hasWords(node.initializer.text)
+        ) {
+          const { line } = source.getLineAndCharacterOfPosition(
+            node.getStart(),
+          );
+          violations.push(
+            `${relative(frontendRoot, file)}:${line + 1} ${node.name.getText()}="${node.initializer.text}"`,
+          );
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
   });
 
   it("keeps literal colours in tokens.css only — everything else reads a token", () => {
