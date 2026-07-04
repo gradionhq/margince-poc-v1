@@ -96,9 +96,17 @@ on top of it.
 Next EP09 steps, in ticket order:
 - **B-EP09.2 (re-scoped):** build the Margince atom library lazily as screens
   need components — port nothing from Dispact.
-- **B-EP09.3a (unblocked):** Margince-owned trust primitives in React
-  (`EvidenceChip`, `ConfidenceMeter`, `StagingCard`, `ApprovalGate`,
-  `ProvenanceTag`) — the foundation v0 shows the target rendering.
+- **B-EP09.3a — done (2026-07-05):** the trust primitives are in React
+  (`frontend/src/design-system/trust.tsx`): `EvidenceChip`,
+  `ConfidenceMeter`, `ProvenanceTag`, `AutonomyDot`, `StagingCard`,
+  `ApprovalGate`, plus `StagedProposal` (the Accept/Edit/Dismiss state
+  machine). Tests pin §4: edit→human-typed retains evidence, staged≠real,
+  low confidence unhideable. Verified in-browser (light+dark). Deviation
+  from the ticket: no Storybook yet — the App page is the showcase; add
+  Storybook when the atom library (B-EP09.2) starts.
+- **B-EP09.3b next:** composed surfaces (`MorningBrief` item,
+  `PipelineBoard`+`DealCard`, `RecordView`+timeline) consuming the 3a
+  primitives; then B-EP09.4 (the `WorkspaceRail` shell).
 - Packaging call (decisions/0014): at prototype parity, `frontend/dist` is
   copied under `backend/web/` for the existing `go:embed`; until then the
   handwritten prototype keeps serving `/`.
