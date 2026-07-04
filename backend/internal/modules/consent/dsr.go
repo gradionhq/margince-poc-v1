@@ -128,6 +128,25 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 	return out, err
 }
 
+// GetDSR reads one request (staff surface — the person.update gate the
+// whole DSR surface carries).
+func (s *Store) GetDSR(ctx context.Context, id ids.UUID) (dsrRow, error) {
+	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+		return dsrRow{}, err
+	}
+	var out dsrRow
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		out, err = scanDSR(tx.QueryRow(ctx,
+			"SELECT "+dsrColumns+" FROM data_subject_request WHERE id = $1", id))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		return err
+	})
+	return out, err
+}
+
 type UpdateDSRInput struct {
 	Status     *string
 	AssigneeID *ids.UUID

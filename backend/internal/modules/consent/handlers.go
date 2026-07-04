@@ -1,6 +1,7 @@
 package consent
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -15,11 +16,25 @@ import (
 // Handlers is the module's transport slice; compose embeds it so the
 // generated consent stubs are shadowed by real code.
 type Handlers struct {
-	store *Store
+	store  *Store
+	eraser Eraser
+}
+
+// Eraser is the erase-path seam (compose injects the real one): DSR
+// fulfillment of an erasure request EXECUTES the erasure, it never just
+// marks a row done.
+type Eraser interface {
+	ErasePerson(ctx context.Context, personID ids.UUID, reason string) error
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
 	return Handlers{store: NewStore(pool)}
+}
+
+// WithEraser returns a copy wired to the erase path.
+func (h Handlers) WithEraser(e Eraser) Handlers {
+	h.eraser = e
+	return h
 }
 
 func (h Handlers) ListConsentPurposes(w http.ResponseWriter, r *http.Request, _ crmcontracts.ListConsentPurposesParams) {

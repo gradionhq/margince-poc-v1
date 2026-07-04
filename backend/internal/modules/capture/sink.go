@@ -97,6 +97,19 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 				"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
 			})
 		case LeadFields:
+			// The A13 resurrection guard: an erased subject's address
+			// refuses re-capture — deletion sticks. The natural key, not
+			// the address, names the skip (the log must not re-store PII).
+			if fields.Email != "" {
+				suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
+				if err != nil {
+					return err
+				}
+				if suppressed {
+					return fmt.Errorf("capture: %s/%s matches the erasure suppression list: %w",
+						rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, connector.ErrSkip)
+				}
+			}
 			id, created, err := s.upsertLead(ctx, tx, rec, fields)
 			if err != nil {
 				return err

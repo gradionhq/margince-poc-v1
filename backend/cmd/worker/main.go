@@ -46,6 +46,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	routingPath := fs.String("ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
 	fakeBrain := fs.Bool("ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	runnerInterval := fs.Duration("runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
+	retentionInterval := fs.Duration("retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -82,6 +83,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
 		go runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger)
 	}
+
+	retention := compose.NewRetentionService(pool, logger)
+	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", *retentionInterval)
+	go compose.RunRetention(ctx, retention, *retentionInterval, logger)
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")

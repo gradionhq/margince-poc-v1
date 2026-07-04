@@ -95,7 +95,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		if err := dealsH.SeedWorkspaceDefaultsTx(ctx, tx); err != nil {
 			return err
 		}
-		return consent.SeedDefaultPurposesTx(ctx, tx)
+		if err := consent.SeedDefaultPurposesTx(ctx, tx); err != nil {
+			return err
+		}
+		return consent.SeedDefaultRetentionTx(ctx, tx)
 	}
 	authH := identity.NewHandlers(identitySvc, seedDefaults)
 
@@ -106,7 +109,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		activitiesHandlers:  activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
 		approvalsHandlers:   approvals.NewHandlers(approvals.NewService(pool)),
 		searchHandlers:      search.NewHandlers(pool),
-		consentHandlers:     consent.NewHandlers(pool),
+		consentHandlers:     consent.NewHandlers(pool).WithEraser(NewEraser(pool)),
 		collectionsHandlers: collections.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
 	}

@@ -65,6 +65,25 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 		assignee := ids.UUID(*req.AssigneeId)
 		in.AssigneeID = &assignee
 	}
+	// Fulfilling an erasure request EXECUTES the erasure first — the
+	// status flip and the actual deletion must not drift apart. A
+	// subject_ref that is not a person id names someone the CRM never
+	// captured; there is nothing to erase and the request just closes.
+	if in.Status != nil && *in.Status == "fulfilled" && h.eraser != nil {
+		current, err := h.store.GetDSR(r.Context(), ids.UUID(id))
+		if err != nil {
+			writeConsentErr(w, r, err)
+			return
+		}
+		if current.Kind == "erasure" {
+			if personID, parseErr := ids.Parse(current.SubjectRef); parseErr == nil {
+				if err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String()); err != nil {
+					writeConsentErr(w, r, err)
+					return
+				}
+			}
+		}
+	}
 	updated, err := h.store.UpdateDSR(r.Context(), ids.UUID(id), in)
 	if err != nil {
 		writeConsentErr(w, r, err)
