@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type Store struct {
@@ -87,6 +88,11 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 			types = append(types, b.entity)
 		}
 	}
+	for _, t := range types {
+		if !knownEntity(t) {
+			return Page{}, &BadQueryError{Reason: fmt.Sprintf("unknown type %q", t)}
+		}
+	}
 
 	var cursor *rankedCursor
 	if in.Cursor != "" {
@@ -106,6 +112,12 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 		var branches []string
 		for _, branch := range searchBranches {
 			if !contains(types, branch.entity) {
+				continue
+			}
+			// A hit is a read twice over: object RBAC first (a role
+			// without person.read gets no person hits — search must not
+			// out-see the entity lists), then the row scope below.
+			if err := auth.Require(ctx, branch.entity, principal.ActionRead); err != nil {
 				continue
 			}
 			var scope string
@@ -131,7 +143,10 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 			branches = append(branches, sql)
 		}
 		if len(branches) == 0 {
-			return &BadQueryError{Reason: "no valid types requested"}
+			// Every requested type was denied by object RBAC: an empty
+			// page, not an error — search discloses nothing the entity
+			// lists would not.
+			return nil
 		}
 
 		sql := "SELECT rtype, id, title, snippet, score FROM (" + strings.Join(branches, " UNION ALL ") + ") ranked"
@@ -217,6 +232,15 @@ func decodeCursor(s string) (rankedCursor, error) {
 		return rankedCursor{}, &BadQueryError{Reason: "malformed cursor"}
 	}
 	return rankedCursor{Score: score, Type: parts[1], ID: id}, nil
+}
+
+func knownEntity(t string) bool {
+	for _, b := range searchBranches {
+		if b.entity == t {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(list []string, v string) bool {

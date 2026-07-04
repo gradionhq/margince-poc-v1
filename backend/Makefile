@@ -49,10 +49,11 @@ drift: gen
 	git diff --exit-code -- '*_gen.go' internal/contracts/
 
 db-up:
-	docker start fable-pg16 fable-redis 2>/dev/null || ( \
+	docker start fable-pg16 2>/dev/null || \
 	  docker run -d --name fable-pg16 -e POSTGRES_USER=margince_owner -e POSTGRES_PASSWORD=dev \
-	    -e POSTGRES_DB=$(DB_NAME) -p $(PG_PORT):5432 postgres:16 && \
-	  docker run -d --name fable-redis -p $(REDIS_PORT):6379 redis:7 )
+	    -e POSTGRES_DB=$(DB_NAME) -p $(PG_PORT):5432 pgvector/pgvector:pg16
+	docker start fable-redis 2>/dev/null || \
+	  docker run -d --name fable-redis -p $(REDIS_PORT):6379 redis:7
 	@until docker exec fable-pg16 pg_isready -U margince_owner -q; do sleep 0.5; done
 	$(MAKE) db-init
 

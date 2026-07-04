@@ -111,11 +111,19 @@ func (e *searchEnv) seed(t *testing.T, sql string, args ...any) ids.UUID {
 	return id
 }
 
+func searchReadGrants() map[string]principal.ObjectGrant {
+	grants := map[string]principal.ObjectGrant{}
+	for _, object := range []string{"person", "organization", "deal", "lead", "activity"} {
+		grants[object] = principal.ObjectGrant{Read: true}
+	}
+	return grants
+}
+
 func (e *searchEnv) admin() context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
-		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
+		Permissions: principal.Permissions{Objects: searchReadGrants(), RowScope: principal.RowScopeAll},
 	})
 }
 
@@ -124,8 +132,38 @@ func (e *searchEnv) asTeamRep(user ids.UUID, team ids.UUID) context.Context {
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
 		TeamIDs:     []ids.UUID{team},
-		Permissions: principal.Permissions{RowScope: principal.RowScopeTeam},
+		Permissions: principal.Permissions{Objects: searchReadGrants(), RowScope: principal.RowScopeTeam},
 	})
+}
+
+// A role with NO person grant gets no person hits — search must not
+// out-see the entity lists (object RBAC before row scope).
+func TestSearchHonorsObjectRBAC(t *testing.T) {
+	e := setupSearch(t)
+	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Rostock Person', 'manual', 'human:x')`)
+	e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Rostock Werft', 'manual', 'human:x')`)
+
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+	orgOnly := principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + e.rep1.String(), UserID: e.rep1,
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	page, err := e.store.Search(orgOnly, search.Input{Query: "rostock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Hits) != 1 || page.Hits[0].Type != "organization" {
+		t.Fatalf("object RBAC leaked into search: %+v", page.Hits)
+	}
+	// Explicitly requesting only the denied type answers an empty page,
+	// not an error — nothing to disclose.
+	page, err = e.store.Search(orgOnly, search.Input{Query: "rostock", Types: []string{"person"}})
+	if err != nil || len(page.Hits) != 0 {
+		t.Fatalf("denied-type search → %v %+v, want an empty page", err, page.Hits)
+	}
 }
 
 func TestSearchRanksAcrossObjectTypes(t *testing.T) {
