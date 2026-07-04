@@ -94,11 +94,21 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		var rawPurged int64
 		for _, email := range emails {
 			tag, err := tx.Exec(ctx,
-				`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%'`, email)
+				`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
+				storekit.EscapeLike(email))
 			if err != nil {
 				return err
 			}
 			rawPurged += tag.RowsAffected()
+		}
+		// Embeddings of activities on the subject's timeline embed text
+		// ABOUT them; the vector store must not keep what a similarity
+		// probe could partially reconstruct.
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM embedding e USING activity_link l
+			WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
+			personID); err != nil {
+			return err
 		}
 
 		for _, email := range emails {

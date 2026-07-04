@@ -16,10 +16,20 @@ import (
 )
 
 // SuppressionHash is the one identifier hashing rule: sha256 hex over
-// the lowercased value.
+// the trimmed, lowercased value — writer and reader must normalize
+// identically or a stray space resurrects an erased subject.
 func SuppressionHash(value string) string {
-	digest := sha256.Sum256([]byte(strings.ToLower(value)))
+	digest := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(value))))
 	return hex.EncodeToString(digest[:])
+}
+
+// EscapeLike neutralizes LIKE/ILIKE wildcards in a value that is about
+// to be embedded in a pattern (pair with ESCAPE '\'). An identifier
+// containing % or _ must match itself, not everything — in an erasure
+// purge an unescaped % would delete the whole evidence store.
+func EscapeLike(value string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(value)
 }
 
 // EmailSuppressed reports whether an address belongs to an erased

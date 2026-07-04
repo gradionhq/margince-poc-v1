@@ -36,13 +36,19 @@ type SARPackage struct {
 	RawCapture    []map[string]any `json:"raw_capture"`
 }
 
-// AssembleSAR builds the package. It is a privileged read (person.read
-// via the caller's scope gates the subject; export is for staff, so the
-// caller must also hold the delete grant — the same trust level erasure
-// needs).
+// AssembleSAR builds the package. It is a privileged read: the caller
+// needs the person.delete grant (the same trust level erasure needs)
+// AND an unbounded row scope — see the admin check below.
 func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SARPackage, error) {
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return SARPackage{}, err
+	}
+	// Admin-mediated means ADMIN: the assembly deliberately crosses the
+	// caller's row scope (Art. 15 owes the subject everything, not the
+	// slice one rep may see), so only an unbounded scope may run it.
+	actor, ok := principal.Actor(ctx)
+	if !ok || !auth.Unbounded(actor) {
+		return SARPackage{}, apperrors.ErrPermissionDenied
 	}
 	var pkg SARPackage
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
@@ -72,7 +78,8 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 			{&pkg.RawCapture, `SELECT rc.source_system, rc.source_id, rc.payload, rc.received_at
 			   FROM raw_capture rc
 			   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
-			                 AND rc.payload::text ILIKE '%' || pe.email || '%')`},
+			                 AND rc.payload::text ILIKE
+			                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')`},
 		}
 
 		subject, err := rowMaps(ctx, tx, `
