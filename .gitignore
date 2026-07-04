@@ -8,3 +8,6 @@ coverage.out
 # Session working notes — local only, not part of the published repo
 /decisions/
 /feedback/
+
+# Local secrets — never commit
+.env.local
