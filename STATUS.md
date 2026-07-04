@@ -68,6 +68,14 @@ leaves per the validator (older notes said 701).
 Session records: decisions/0013 (all build decisions of the night),
 feedback/07–09 (spec defects found), README review-loop rules unchanged.
 
+Codex review closure (2026-07-05): all gate-relevant findings fixed.
+The last one was the write-shape waiver test citing the gitignored
+`feedback/07` file via `os.Stat` — it now carries inline rationales, so
+`make check` survives a clean checkout. Remaining accepted risk: OAuth
+discovery's `requestIssuer` trusts the raw `Host` header (fine only
+behind a Host-sanitizing proxy; revisit before any direct-exposure
+deploy).
+
 ## Pick up here: next blocks
 
 No half-finished slice is in flight. Highest-value next, in order:
