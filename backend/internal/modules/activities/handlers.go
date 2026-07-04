@@ -18,6 +18,8 @@ import (
 
 type Handlers struct {
 	store *Store
+	// consent gates the send path; nil fails closed (WithConsent wires it).
+	consent ConsentGate
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {

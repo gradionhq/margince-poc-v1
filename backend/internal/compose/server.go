@@ -8,14 +8,17 @@ package compose
 // platform/httpserver; what lives here is the wiring.
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -39,6 +42,7 @@ type (
 	activitiesHandlers = activities.Handlers
 	approvalsHandlers  = approvals.Handlers
 	searchHandlers     = search.Handlers
+	consentHandlers    = consent.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: the module
@@ -50,6 +54,7 @@ type Server struct {
 	activitiesHandlers
 	approvalsHandlers
 	searchHandlers
+	consentHandlers
 	reportHandlers
 	fallback
 }
@@ -64,15 +69,25 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	// (the default pipeline) — composed here so neither module imports
 	// the other.
 	identitySvc := identity.NewService(pool)
-	authH := identity.NewHandlers(identitySvc, dealsH.SeedWorkspaceDefaultsTx)
+	// Workspace bootstrap seeds every module's per-workspace defaults in
+	// ONE transaction (C5): the default pipeline and the consent purpose
+	// catalog stand or fall together.
+	seedDefaults := func(ctx context.Context, tx pgx.Tx) error {
+		if err := dealsH.SeedWorkspaceDefaultsTx(ctx, tx); err != nil {
+			return err
+		}
+		return consent.SeedDefaultPurposesTx(ctx, tx)
+	}
+	authH := identity.NewHandlers(identitySvc, seedDefaults)
 
 	srv := Server{
 		authHandlers:       authH,
 		peopleHandlers:     people.NewHandlers(pool),
 		dealsHandlers:      dealsH,
-		activitiesHandlers: activities.NewHandlers(pool),
+		activitiesHandlers: activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
 		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
 		searchHandlers:     search.NewHandlers(pool),
+		consentHandlers:    consent.NewHandlers(pool),
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 	}
 

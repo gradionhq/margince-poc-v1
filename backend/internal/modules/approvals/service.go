@@ -427,6 +427,10 @@ var decisionGrants = map[string][]struct {
 	"promote_lead":   {{"lead", principal.ActionUpdate}, {"person", principal.ActionCreate}},
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below
+	// A send is an activity write plus consent enforcement at redemption
+	// time; the approver needs the write grant, the consent gate runs in
+	// the handler regardless of who approved.
+	"send_email": {{"activity", principal.ActionCreate}},
 }
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
