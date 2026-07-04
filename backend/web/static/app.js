@@ -138,11 +138,14 @@ let session = null;
 
 function shell(active, content) {
   const nav = [
+    ["#/search", "Search", "⌕"],
     ["#/people", "People", "👤"],
     ["#/leads", "Leads", "◍"],
     ["#/deals", "Deals", "◫"],
     ["#/timeline", "Timeline", "☰"],
     ["#/approvals", "Approvals", "✓"],
+    ["#/reports", "Reports", "∑"],
+    ["#/privacy", "Privacy", "⚖"],
   ];
   app.replaceChildren(
     h("div", { class: "shell" },
@@ -381,7 +384,9 @@ async function timelineView() {
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Timeline"),
         h("div", { class: "sub" }, "everything captured, newest first")),
-      h("button", { class: "btn primary", onclick: newNoteDialog }, "+ Log a note"),
+      h("div", { style: "display:flex; gap:8px" },
+        h("button", { class: "btn", onclick: bookMeetingDialog }, "Book meeting"),
+        h("button", { class: "btn primary", onclick: newNoteDialog }, "+ Log a note")),
     ),
     data.length === 0
       ? h("div", { class: "empty" }, "Nothing captured yet.")
@@ -410,6 +415,35 @@ function newNoteDialog() {
         captured_by: "ui",
       });
       toast("Note captured");
+      route();
+    });
+}
+
+function bookMeetingDialog() {
+  const day = h("input", { type: "date", required: "" });
+  const subject = h("input", { type: "text", placeholder: "Discovery call" });
+  const slotSelect = h("select", {}, h("option", { value: "" }, "pick a day first"));
+
+  day.addEventListener("change", async () => {
+    try {
+      const from = new Date(day.value + "T00:00:00Z").toISOString();
+      const to = new Date(day.value + "T23:59:59Z").toISOString();
+      const { slots } = await api("GET", `/availability?from=${from}&to=${to}&duration_minutes=60`);
+      slotSelect.replaceChildren(...(slots.length
+        ? slots.map((s) => h("option", { value: JSON.stringify(s) },
+            new Date(s.start).toLocaleTimeString(undefined, { timeStyle: "short" })))
+        : [h("option", { value: "" }, "no free business-hour slots")]));
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  openDialog("Book a meeting", [field("Day", day), field("Free slot", slotSelect), field("Subject", subject)],
+    async () => {
+      if (!slotSelect.value) throw new ApiError(422, { detail: "pick a free slot" });
+      const slot = JSON.parse(slotSelect.value);
+      await api("POST", "/bookings", { start: slot.start, end: slot.end, subject: subject.value || undefined, links: [] });
+      toast("Meeting booked onto your calendar");
       route();
     });
 }
@@ -458,6 +492,138 @@ async function decide(approval, verdict) {
   route();
 }
 
+/* ---------- search ---------- */
+
+const typeGlyphs = { person: "👤", organization: "▦", deal: "◫", activity: "☰", lead: "◍" };
+
+async function searchView() {
+  const q = h("input", { type: "search", placeholder: "Search people, orgs, deals, activities…", value: searchView.lastQ || "" });
+  const results = h("div", {});
+
+  async function run() {
+    const query = q.value.trim();
+    searchView.lastQ = query;
+    if (!query) return results.replaceChildren();
+    const { data } = await api("GET", `/search?q=${encodeURIComponent(query)}&limit=25`);
+    results.replaceChildren(
+      data.length === 0
+        ? h("div", { class: "empty" }, "Nothing matches — search is scoped to what you may see.")
+        : h("div", {}, ...data.map((r) =>
+            h("div", { class: "timeline-item" },
+              h("div", { class: "kind" }, typeGlyphs[r.type] ?? "•"),
+              h("div", { class: "what" },
+                h("div", { class: "subject" }, r.title || r.id),
+                r.snippet ? h("div", { class: "body" }, r.snippet) : null,
+                h("div", { class: "meta" }, r.type))))),
+    );
+  }
+
+  shell("#/search", [
+    h("div", { class: "page-head" },
+      h("div", {}, h("h1", {}, "Search"),
+        h("div", { class: "sub" }, "hybrid, row-scoped, across every record type"))),
+    h("form", { onsubmit: (e) => { e.preventDefault(); run().catch((err) => toast(err.message, true)); } },
+      h("div", { class: "card", style: "display:flex; gap:8px" }, q,
+        h("button", { class: "btn primary" }, "Search"))),
+    results,
+  ]);
+  if (searchView.lastQ) run().catch(() => {});
+}
+
+/* ---------- reports ---------- */
+
+async function reportsView() {
+  const report = h("input", { type: "text", value: reportsView.lastReport || "open-deals-per-company" });
+  const out = h("div", {});
+
+  async function run() {
+    reportsView.lastReport = report.value.trim();
+    const res = await api("POST", `/reports/${encodeURIComponent(report.value.trim())}`, {});
+    const cols = res.columns || [];
+    out.replaceChildren(
+      h("div", { class: "card", style: "padding:0" },
+        h("table", {},
+          h("thead", {}, h("tr", {}, ...cols.map((c) => h("th", {}, c)))),
+          h("tbody", {}, ...(res.rows || []).map((row) =>
+            h("tr", {}, ...cols.map((c) => h("td", {}, String(row[c] ?? "—")))))))),
+      h("div", { class: "meta", style: "margin-top:8px" },
+        `${(res.rows || []).length} rows · generated ${when(res.generated_at)}`),
+    );
+  }
+
+  shell("#/reports", [
+    h("div", { class: "page-head" },
+      h("div", {}, h("h1", {}, "Reports"),
+        h("div", { class: "sub" }, "bounded aggregates through your own row scope"))),
+    h("form", { onsubmit: (e) => { e.preventDefault(); run().catch((err) => toast(err.message, true)); } },
+      h("div", { class: "card", style: "display:flex; gap:8px" }, report,
+        h("button", { class: "btn primary" }, "Run"))),
+    out,
+  ]);
+}
+
+/* ---------- privacy (GDPR requests) ---------- */
+
+async function privacyView() {
+  const { data } = await api("GET", "/data-subject-requests?limit=100");
+
+  const items = data.map((d) =>
+    h("div", { class: "timeline-item" },
+      h("div", { class: "kind" }, d.kind === "erasure" ? "🗑" : d.kind === "access" ? "📄" : "✎"),
+      h("div", { class: "what", style: "flex:1" },
+        h("div", { class: "subject" }, `${d.kind} — ${d.subject_ref}`),
+        h("div", { class: "meta" }, `${d.status} · due ${when(d.due_at)}`)),
+      ["open", "in_progress"].includes(d.status)
+        ? h("div", { style: "display:flex; gap:8px" },
+            h("button", { class: "btn", onclick: () => closeDSR(d, "rejected") }, "Reject"),
+            h("button", { class: "btn primary", onclick: () => closeDSR(d, "fulfilled") },
+              d.kind === "erasure" ? "Erase & fulfill" : "Fulfill"))
+        : h("span", { class: "meta" }, d.resolution || ""),
+    ));
+
+  shell("#/privacy", [
+    h("div", { class: "page-head" },
+      h("div", {}, h("h1", {}, "Privacy"),
+        h("div", { class: "sub" }, "data-subject requests — fulfilling an erasure EXECUTES it")),
+      h("button", { class: "btn primary", onclick: newDSRDialog }, "+ New request"),
+    ),
+    data.length === 0
+      ? h("div", { class: "empty" }, "No open requests.")
+      : h("div", {}, ...items),
+  ]);
+}
+
+function newDSRDialog() {
+  const kind = h("select", {},
+    h("option", { value: "access" }, "Access (Art. 15)"),
+    h("option", { value: "rectify" }, "Rectification (Art. 16)"),
+    h("option", { value: "erasure" }, "Erasure (Art. 17)"));
+  const subject = h("input", { type: "text", required: "", placeholder: "person id or external identifier" });
+  const due = h("input", { type: "date", required: "" });
+  openDialog("New data-subject request", [field("Kind", kind), field("Subject", subject), field("Due", due)],
+    async () => {
+      await api("POST", "/data-subject-requests", {
+        kind: kind.value, subject_ref: subject.value,
+        due_at: new Date(due.value + "T00:00:00Z").toISOString(),
+      });
+      toast("Request opened");
+      route();
+    });
+}
+
+async function closeDSR(dsr, status) {
+  const reason = status === "fulfilled" ? "fulfilled via UI" : "rejected via UI";
+  try {
+    await api("PATCH", `/data-subject-requests/${dsr.id}`, { status, resolution: reason });
+    toast(status === "fulfilled" && dsr.kind === "erasure"
+      ? "Erased — PII removed, tombstone written, suppression active"
+      : `Request ${status}`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+  route();
+}
+
 /* ---------- dialog plumbing ---------- */
 
 function openDialog(title, fields, onSubmit) {
@@ -489,7 +655,11 @@ function openDialog(title, fields, onSubmit) {
 
 /* ---------- router ---------- */
 
-const routes = { "#/people": peopleView, "#/leads": leadsView, "#/deals": dealsView, "#/timeline": timelineView, "#/approvals": approvalsView };
+const routes = {
+  "#/people": peopleView, "#/leads": leadsView, "#/deals": dealsView,
+  "#/timeline": timelineView, "#/approvals": approvalsView,
+  "#/search": searchView, "#/reports": reportsView, "#/privacy": privacyView,
+};
 
 async function route() {
   const view = routes[location.hash] ?? peopleView;
