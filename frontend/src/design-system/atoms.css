@@ -225,3 +225,19 @@
 .input-icon .input {
   padding-left: 30px;
 }
+
+.textarea {
+  font-family: var(--f-body);
+  font-size: 14px;
+  color: var(--textPrimary);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 8px 11px;
+  outline: none;
+  resize: vertical;
+}
+.textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}

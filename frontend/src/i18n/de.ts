@@ -59,4 +59,25 @@ export const de = {
 
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
+
+  "palette.aria": "Befehlspalette",
+  "palette.placeholder": "Springe zu, oder frag etwas…",
+  "palette.empty": "Keine Treffer.",
+  "palette.askAi": "KI fragen: \u201e{query}\u201c",
+  "palette.typeScreen": "Ansicht",
+  "palette.typeAction": "Aktion",
+  "palette.typeRecord": "Datensatz",
+  "action.newDeal": "Neuer Deal",
+  "action.readCompany": "Firma einlesen",
+  "action.booking": "Buchungsseite",
+  "action.connected": "Verbundene Oberflächen",
+
+  "fab.open": "Zu diesem Datensatz fragen",
+  "fab.close": "Schließen",
+  "fab.panelAria": "Zu diesem Datensatz fragen",
+  "fab.context": "Frage zu {context}",
+  "fab.scope": "Dein Agent liest nur, was du sehen kannst.",
+  "fab.inputAria": "Deine Frage",
+  "fab.placeholder": "Frag zu dem, was du gerade siehst…",
+  "fab.send": "Fragen",
 } as const satisfies Record<MessageKey, string>;

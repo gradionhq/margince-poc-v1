@@ -57,6 +57,27 @@ export const en = {
 
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
+
+  "palette.aria": "Command palette",
+  "palette.placeholder": "Jump to, or ask anything…",
+  "palette.empty": "No matches.",
+  "palette.askAi": "Ask AI: \u201c{query}\u201d",
+  "palette.typeScreen": "Screen",
+  "palette.typeAction": "Action",
+  "palette.typeRecord": "Record",
+  "action.newDeal": "New deal",
+  "action.readCompany": "Read a company",
+  "action.booking": "Booking page",
+  "action.connected": "Connected surfaces",
+
+  "fab.open": "Ask about this",
+  "fab.close": "Close",
+  "fab.panelAria": "Ask about this record",
+  "fab.context": "Ask about {context}",
+  "fab.scope": "Your agent reads only what you can see.",
+  "fab.inputAria": "Your question",
+  "fab.placeholder": "Ask about what you're looking at…",
+  "fab.send": "Ask",
 } as const;
 
 export type MessageKey = keyof typeof en;

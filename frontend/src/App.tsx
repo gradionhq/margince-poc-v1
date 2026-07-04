@@ -1,4 +1,10 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { AskFab } from "./app/fab";
+import {
+  CommandPalette,
+  useBuiltinCommands,
+  usePaletteHotkey,
+} from "./app/palette";
 import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
@@ -27,13 +33,21 @@ function ScreenView({ screen }: { screen: string }) {
 
 export function App() {
   const route = useRoute();
-  // The palette (B-EP09.5) mounts here; until it lands, the search affordance
-  // exists but opens nothing — state is wired so 09.5 is a drop-in.
-  const [, setPaletteOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const commands = useBuiltinCommands();
+  usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
 
   return (
-    <Shell onOpenSearch={() => setPaletteOpen(true)}>
-      <ScreenView screen={route.screen} />
-    </Shell>
+    <>
+      <Shell onOpenSearch={() => setPaletteOpen(true)}>
+        <ScreenView screen={route.screen} />
+      </Shell>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={commands}
+      />
+      <AskFab route={route} />
+    </>
   );
 }
