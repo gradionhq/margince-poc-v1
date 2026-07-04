@@ -1,4 +1,4 @@
-package crmagents
+package agents
 
 import (
 	"context"

@@ -4,7 +4,7 @@ package main
 
 // The Agent Seat Passport lifecycle (data-model §2.7, ADR-0043): mint,
 // authenticate, the agent≤human bound, revoke, expire — against the real
-// migrated schema, through the same crmauth.Service the middleware uses.
+// migrated schema, through the same identity.Service the middleware uses.
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmauth "github.com/gradionhq/margince/backend/crm-auth"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -26,7 +26,7 @@ import (
 
 // passportEnv migrates a fresh schema and bootstraps one workspace,
 // returning the service and the admin identity.
-func passportEnv(t *testing.T) (*crmauth.Service, crmauth.Identity) {
+func passportEnv(t *testing.T) (*identity.Service, identity.Identity) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
@@ -61,8 +61,8 @@ func passportEnv(t *testing.T) (*crmauth.Service, crmauth.Identity) {
 	}
 	t.Cleanup(pool.Close)
 
-	svc := crmauth.NewService(pool)
-	admin, _, err := svc.Bootstrap(ctx, crmauth.BootstrapInput{
+	svc := identity.NewService(pool)
+	admin, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
 		WorkspaceName: "Passport Test", Slug: "passport-test",
 		AdminEmail: "admin@passport.test", AdminName: "Admin",
 		AdminPassword: "correct-horse-battery",
@@ -73,7 +73,7 @@ func passportEnv(t *testing.T) (*crmauth.Service, crmauth.Identity) {
 	return svc, admin
 }
 
-func wsCtx(id crmauth.Identity) context.Context {
+func wsCtx(id identity.Identity) context.Context {
 	return principal.WithWorkspaceID(context.Background(), id.WorkspaceID)
 }
 
@@ -82,7 +82,7 @@ func TestPassportLifecycle(t *testing.T) {
 	ctx := wsCtx(admin)
 
 	label := "Claude Desktop"
-	issued, err := svc.IssuePassport(ctx, admin, crmauth.IssuePassportInput{
+	issued, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{
 		Label: &label, Scopes: []string{"read", "write"},
 	})
 	if err != nil {
@@ -132,7 +132,7 @@ func TestBootstrapSeedFailureRollsBackTenant(t *testing.T) {
 	ctx := context.Background()
 
 	boom := errors.New("seed blew up")
-	_, _, err := svc.Bootstrap(ctx, crmauth.BootstrapInput{
+	_, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
 		WorkspaceName: "Atomic Test", Slug: "atomic-test",
 		AdminEmail: "admin@atomic.test", AdminName: "Admin",
 		AdminPassword: "correct-horse-battery",
@@ -147,7 +147,7 @@ func TestBootstrapSeedFailureRollsBackTenant(t *testing.T) {
 	}
 
 	// And the slug is free — a retry with a working seed succeeds.
-	if _, _, err := svc.Bootstrap(ctx, crmauth.BootstrapInput{
+	if _, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
 		WorkspaceName: "Atomic Test", Slug: "atomic-test",
 		AdminEmail: "admin@atomic.test", AdminName: "Admin",
 		AdminPassword: "correct-horse-battery",
@@ -160,21 +160,21 @@ func TestPassportRefusesBadScopesAndExpiry(t *testing.T) {
 	svc, admin := passportEnv(t)
 	ctx := wsCtx(admin)
 
-	var badScope *crmauth.InvalidScopeError
-	if _, err := svc.IssuePassport(ctx, admin, crmauth.IssuePassportInput{Scopes: []string{"admin"}}); !errors.As(err, &badScope) {
+	var badScope *identity.InvalidScopeError
+	if _, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{Scopes: []string{"admin"}}); !errors.As(err, &badScope) {
 		t.Fatalf("scope outside the verb vocabulary → %v", err)
 	}
-	if _, err := svc.IssuePassport(ctx, admin, crmauth.IssuePassportInput{Scopes: nil}); !errors.As(err, &badScope) {
+	if _, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{Scopes: nil}); !errors.As(err, &badScope) {
 		t.Fatalf("empty scopes → %v", err)
 	}
 	over := 91 * 24 * time.Hour
-	if _, err := svc.IssuePassport(ctx, admin, crmauth.IssuePassportInput{Scopes: []string{"read"}, TTL: &over}); !errors.As(err, &badScope) {
+	if _, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{Scopes: []string{"read"}, TTL: &over}); !errors.As(err, &badScope) {
 		t.Fatalf("ttl over the 90-day cap → %v", err)
 	}
 
 	// An expired passport reads as absent.
 	short := time.Second
-	issued, err := svc.IssuePassport(ctx, admin, crmauth.IssuePassportInput{Scopes: []string{"read"}, TTL: &short})
+	issued, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{Scopes: []string{"read"}, TTL: &short})
 	if err != nil {
 		t.Fatal(err)
 	}

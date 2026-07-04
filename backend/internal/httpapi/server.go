@@ -11,10 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
-	crmauth "github.com/gradionhq/margince/backend/crm-auth"
-	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -29,9 +29,9 @@ type fallback struct{ stubs }
 // Aliases give the two embedded handler sets distinct field names; the
 // alias carries the module's full method set.
 type (
-	authHandlers      = crmauth.Handlers
+	authHandlers      = identity.Handlers
 	coreHandlers      = crmcore.Handlers
-	approvalsHandlers = crmapprovals.Handlers
+	approvalsHandlers = approvals.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: the module
@@ -52,12 +52,12 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	// On workspace bootstrap, crm-core seeds its per-workspace defaults
 	// (the default pipeline) — composed here so neither module imports
 	// the other.
-	auth := crmauth.NewHandlers(crmauth.NewService(pool), core.SeedWorkspaceDefaultsTx)
+	auth := identity.NewHandlers(identity.NewService(pool), core.SeedWorkspaceDefaultsTx)
 
 	srv := Server{
 		authHandlers:      auth,
 		coreHandlers:      core,
-		approvalsHandlers: crmapprovals.NewHandlers(crmapprovals.NewService(pool)),
+		approvalsHandlers: approvals.NewHandlers(approvals.NewService(pool)),
 	}
 
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{

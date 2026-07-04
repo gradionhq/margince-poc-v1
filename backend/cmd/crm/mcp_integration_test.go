@@ -21,10 +21,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmagents "github.com/gradionhq/margince/backend/crm-agents"
-	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
-	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -41,10 +41,10 @@ type mcpClient struct {
 	seq int
 }
 
-func startMCP(t *testing.T, token, slug string, svc *crmauth.Service, provider *crmcore.Provider, approvals *crmapprovals.Service) *mcpClient {
+func startMCP(t *testing.T, token, slug string, svc *identity.Service, provider *crmcore.Provider, approvalsSvc *approvals.Service) *mcpClient {
 	t.Helper()
-	registry := crmagents.NewRegistry(approvalsAdapter{svc: approvals})
-	crmagents.RegisterCoreTools(registry, provider, provider, provider)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvalsSvc})
+	agents.RegisterCoreTools(registry, provider, provider, provider)
 
 	bind := func(ctx context.Context) (context.Context, error) {
 		wsID, err := svc.ResolveWorkspace(ctx, slug)
@@ -61,7 +61,7 @@ func startMCP(t *testing.T, token, slug string, svc *crmauth.Service, provider *
 
 	clientIn, serverOut := io.Pipe()
 	serverIn, clientOut := io.Pipe()
-	srv := crmagents.NewStdioServer(registry, bind, "margince-crm", "test")
+	srv := agents.NewStdioServer(registry, bind, "margince-crm", "test")
 	go func() {
 		_ = srv.Serve(context.Background(), serverIn, serverOut)
 		_ = serverOut.Close()
@@ -152,11 +152,11 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	}
 	defer pool.Close()
 
-	svc := crmauth.NewService(pool)
+	svc := identity.NewService(pool)
 	coreHandlers := crmcore.NewHandlers(pool)
 	provider := crmcore.NewProvider(pool)
 
-	admin, _, err := svc.Bootstrap(ctx, crmauth.BootstrapInput{
+	admin, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
 		WorkspaceName: "Agent Test", Slug: "agent-test",
 		AdminEmail: "admin@agent.test", AdminName: "Admin",
 		AdminPassword: "correct-horse-battery",
@@ -170,17 +170,17 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rw, err := svc.IssuePassport(wsCtx, admin, crmauth.IssuePassportInput{Scopes: []string{"read", "write"}})
+	rw, err := svc.IssuePassport(wsCtx, admin, identity.IssuePassportInput{Scopes: []string{"read", "write"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ro, err := svc.IssuePassport(wsCtx, admin, crmauth.IssuePassportInput{Scopes: []string{"read"}})
+	ro, err := svc.IssuePassport(wsCtx, admin, identity.IssuePassportInput{Scopes: []string{"read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	approvals := crmapprovals.NewService(pool)
-	c := startMCP(t, rw.Token, "agent-test", svc, provider, approvals)
+	approvalsSvc := approvals.NewService(pool)
+	c := startMCP(t, rw.Token, "agent-test", svc, provider, approvalsSvc)
 
 	// The protocol handshake + the declared surface.
 	var init struct {
@@ -292,7 +292,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 		Type: principal.PrincipalHuman, ID: "human:" + admin.UserID.String(),
 		UserID: admin.UserID, Permissions: admin.Permissions,
 	}), ids.NewV7())
-	pending, err := approvals.List(humanCtx, strPtr("pending"), 50)
+	pending, err := approvalsSvc.List(humanCtx, strPtr("pending"), 50)
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("inbox: %v (%d items)", err, len(pending))
 	}
@@ -304,10 +304,10 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	strangerCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:stranger", UserID: ids.NewV7(),
 	}), ids.NewV7())
-	if leaked, err := approvals.List(strangerCtx, strPtr("pending"), 50); err != nil || len(leaked) != 0 {
+	if leaked, err := approvalsSvc.List(strangerCtx, strPtr("pending"), 50); err != nil || len(leaked) != 0 {
 		t.Fatalf("C3: low-priv inbox leaked %d items (err=%v), want 0", len(leaked), err)
 	}
-	if _, err := approvals.Get(strangerCtx, approvalID); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := approvalsSvc.Get(strangerCtx, approvalID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("C3: low-priv Get on a foreign approval → %v, want ErrNotFound", err)
 	}
 
@@ -318,12 +318,12 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	agentCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:" + rw.ID.String(), PassportID: rw.ID,
 	}), ids.NewV7())
-	if _, err := approvals.Decide(agentCtx, approvalID, true, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := approvalsSvc.Decide(agentCtx, approvalID, true, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("an agent decided its own staging: %v", err)
 	}
 
 	// The human approves; the agent repeats the IDENTICAL call + approval_id.
-	if _, err := approvals.Decide(humanCtx, approvalID, true, nil); err != nil {
+	if _, err := approvalsSvc.Decide(humanCtx, approvalID, true, nil); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
 	// A retry with DIFFERENT args must not ride the approval.
@@ -355,7 +355,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	}); isErr {
 		t.Fatalf("bump: %s", text)
 	}
-	if _, err := approvals.Decide(humanCtx, skewID, true, nil); err != nil {
+	if _, err := approvalsSvc.Decide(humanCtx, skewID, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if text, isErr = c.callTool("archive_record", withApproval(archiveArgs, skewID)); !isErr || !strings.Contains(text, "changed since") {
@@ -365,7 +365,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 	// Reject path: a rejected staging never becomes authority.
 	text, _ = c.callTool("archive_record", archiveArgs)
 	rejectID := extractApprovalID(t, text)
-	if _, err := approvals.Decide(humanCtx, rejectID, false, strPtr("keep them")); err != nil {
+	if _, err := approvalsSvc.Decide(humanCtx, rejectID, false, strPtr("keep them")); err != nil {
 		t.Fatal(err)
 	}
 	if text, isErr = c.callTool("archive_record", withApproval(archiveArgs, rejectID)); !isErr || !strings.Contains(text, "rejected") {
@@ -397,7 +397,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 		t.Fatalf("merge_records must stage a 🟡 approval, got err=%v %s", isErr, text)
 	}
 	mergeID := extractApprovalID(t, text)
-	if _, err := approvals.Decide(humanCtx, mergeID, true, nil); err != nil {
+	if _, err := approvalsSvc.Decide(humanCtx, mergeID, true, nil); err != nil {
 		t.Fatalf("approve merge: %v", err)
 	}
 	if text, isErr = c.callTool("merge_records", withApproval(mergeArgs, mergeID)); isErr {
@@ -413,7 +413,7 @@ func TestMCPSurfaceEndToEnd(t *testing.T) {
 
 	// A read-only passport cannot reach a write tool — refused at the
 	// gate, before the handler.
-	roClient := startMCP(t, ro.Token, "agent-test", svc, provider, approvals)
+	roClient := startMCP(t, ro.Token, "agent-test", svc, provider, approvalsSvc)
 	text, isErr = roClient.callTool("create_record", map[string]any{
 		"record_type": "person", "fields": map[string]any{"full_name": "Should not exist"},
 	})

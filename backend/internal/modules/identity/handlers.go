@@ -1,4 +1,4 @@
-package crmauth
+package identity
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/gradionhq/margince/backend/crm-auth/internal/ratelimit"
-	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"

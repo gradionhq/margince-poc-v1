@@ -46,7 +46,7 @@ gen:
 	$(GO) generate ./...
 
 drift: gen
-	git diff --exit-code -- '*_gen.go' crm-contracts/
+	git diff --exit-code -- '*_gen.go' internal/contracts/
 
 db-up:
 	docker start fable-pg16 fable-redis 2>/dev/null || ( \

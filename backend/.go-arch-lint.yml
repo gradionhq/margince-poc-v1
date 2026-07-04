@@ -24,14 +24,11 @@ vendors:
 
 components:
   shared:      { in: internal/shared/** }
-  contracts:   { in: crm-contracts }
+  contracts:   { in: internal/contracts }
   core:        { in: [crm-core, crm-core/**] }
-  auth:        { in: [crm-auth, crm-auth/**] }
-  search:      { in: [crm-search, crm-search/**] }
-  ai:          { in: [crm-ai, crm-ai/**] }
-  capture:     { in: [crm-capture, crm-capture/**] }
-  agents:      { in: [crm-agents, crm-agents/**] }
-  approvals:   { in: [crm-approvals, crm-approvals/**] }
+  auth:        { in: [internal/modules/identity, internal/modules/identity/**] }
+  agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
+  approvals:   { in: [internal/modules/approvals, internal/modules/approvals/**] }
   platform:    { in: [internal/platform/**, internal/httpapi] }
   migrations:  { in: migrations }
   web:         { in: web }
@@ -52,14 +49,6 @@ deps:
   auth:
     mayDependOn: [auth, contracts, platform]
     canUse: [pgx, oapi, xcrypto]
-  search:
-    mayDependOn: [contracts, platform]
-    canUse: [pgx]
-  ai:
-    mayDependOn: [contracts, platform]
-  capture:
-    mayDependOn: [contracts, platform]
-    canUse: [pgx]
   agents:
     mayDependOn: [auth, contracts, platform]
   approvals:
@@ -72,5 +61,5 @@ deps:
     mayDependOn: [platform]
     canUse: [pgx]
   edge:
-    mayDependOn: [core, auth, search, ai, capture, agents, approvals, contracts, platform, migrations]
+    mayDependOn: [core, auth, agents, approvals, contracts, platform, migrations]
     canUse: [pgx, redis]

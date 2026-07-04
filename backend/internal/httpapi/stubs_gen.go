@@ -1,4 +1,4 @@
-// Code generated from crm-contracts/api_gen.go ServerInterface; DO NOT EDIT.
+// Code generated from internal/contracts/api_gen.go ServerInterface; DO NOT EDIT.
 // Regenerate: make gen (tools/gen-stubs).
 
 package httpapi
@@ -8,7 +8,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 

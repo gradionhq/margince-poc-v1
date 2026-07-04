@@ -8,10 +8,10 @@ import (
 	"io"
 	"os"
 
-	crmagents "github.com/gradionhq/margince/backend/crm-agents"
-	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
-	crmauth "github.com/gradionhq/margince/backend/crm-auth"
 	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -51,11 +51,11 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
-	auth := crmauth.NewService(pool)
+	auth := identity.NewService(pool)
 	provider := crmcore.NewProvider(pool)
 
-	registry := crmagents.NewRegistry(approvalsAdapter{svc: crmapprovals.NewService(pool)})
-	crmagents.RegisterCoreTools(registry, provider, provider, provider)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)})
+	agents.RegisterCoreTools(registry, provider, provider, provider)
 
 	bind := func(ctx context.Context) (context.Context, error) {
 		wsID, err := auth.ResolveWorkspace(ctx, *workspace)
@@ -79,17 +79,17 @@ func runMCP(ctx context.Context, args []string, stdout io.Writer) error {
 
 	fmt.Fprintf(os.Stderr, "crm mcp: serving %d tools for workspace %q over stdio\n",
 		len(registry.Specs()), *workspace)
-	return crmagents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
+	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
 		Serve(ctx, os.Stdin, stdout)
 }
 
 // approvalsAdapter maps the tool surface's staging/redemption dependency
 // onto the approvals module — composed here so crm-agents never imports a
 // sibling module.
-type approvalsAdapter struct{ svc *crmapprovals.Service }
+type approvalsAdapter struct{ svc *approvals.Service }
 
-func (a approvalsAdapter) Stage(ctx context.Context, in crmagents.StageRequest) (ids.UUID, error) {
-	return a.svc.Stage(ctx, crmapprovals.StageInput{
+func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.UUID, error) {
+	return a.svc.Stage(ctx, approvals.StageInput{
 		Kind:           in.Tool,
 		ProposedChange: in.ProposedChange,
 		DiffHash:       in.DiffHash,

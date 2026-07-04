@@ -1,4 +1,4 @@
-package crmagents
+package agents
 
 // The canonical V1 CRUD tool set (interfaces.md §2.1), composed over the
 // SystemOfRecordProvider seam so the same tools serve SoR-mode today and

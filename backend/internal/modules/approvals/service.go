@@ -1,10 +1,10 @@
-// Package crmapprovals is the 🟡 confirm-first engine (ADR-0036,
+// Package approvals is the 🟡 confirm-first engine (ADR-0036,
 // features/07 §8): agents STAGE an action they may not perform, humans
 // DECIDE it in the inbox, and the agent REDEEMS the decision by
 // re-invoking the identical call. The staged row is the authority
 // object — bound to the exact proposed change (diff_hash), the staging
 // passport, and the target row's version, consumed exactly once.
-package crmapprovals
+package approvals
 
 import (
 	"context"

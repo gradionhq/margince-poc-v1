@@ -1,4 +1,4 @@
-package crmauth
+package identity
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/crm-auth/internal/password"
-	"github.com/gradionhq/margince/backend/crm-auth/internal/policy"
+	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
+	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/policy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"

@@ -1,4 +1,4 @@
-package crmagents
+package agents
 
 // The 🟡 loop from the tool surface's side. A refused confirm-first call
 // is STAGED (approval.requested) so the human sees exactly what the agent

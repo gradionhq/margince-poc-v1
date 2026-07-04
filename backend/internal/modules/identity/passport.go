@@ -1,4 +1,4 @@
-package crmauth
+package identity
 
 // Agent Seat Passports (data-model §2.7, ADR-0043): a human binds their
 // agent to their OWN identity with a scoped, expiring, revocable bearer

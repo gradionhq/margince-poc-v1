@@ -3,8 +3,8 @@ package crmcore
 import (
 	"net/http"
 
-	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
 	"github.com/gradionhq/margince/backend/crm-core/internal/store"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )

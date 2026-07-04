@@ -45,64 +45,42 @@ linters:
           files:
             - "**/crm-core/**"
           deny:
-            - pkg: github.com/gradionhq/margince/backend/crm-agents
-              desc: crm-agents sits above crm-core; the reverse edge is forbidden
-            - pkg: github.com/gradionhq/margince/backend/crm-capture
-              desc: capture feeds core through the Sink, never the reverse
-            - pkg: github.com/gradionhq/margince/backend/crm-ai
-              desc: core never calls the AI tier
-            - pkg: github.com/gradionhq/margince/backend/crm-search
-              desc: core never imports search internals
-            - pkg: github.com/gradionhq/margince/backend/crm-auth
-              desc: core reads the Principal from crmctx, not from crm-auth
-        crm-auth:
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: agents sits above core; the reverse edge is forbidden
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
+              desc: core never reaches the approval engine; the composition root wires them
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/identity
+              desc: core reads the Principal from shared kernel, not from identity
+        module-identity:
           files:
-            - "**/crm-auth/**"
+            - "**/internal/modules/identity/**"
           deny:
             - pkg: github.com/gradionhq/margince/backend/crm-core
-              desc: auth is identity only; it imports no other module
-            - pkg: github.com/gradionhq/margince/backend/crm-search
-              desc: auth is identity only; it imports no other module
-            - pkg: github.com/gradionhq/margince/backend/crm-ai
-              desc: auth is identity only; it imports no other module
-            - pkg: github.com/gradionhq/margince/backend/crm-capture
-              desc: auth is identity only; it imports no other module
-            - pkg: github.com/gradionhq/margince/backend/crm-agents
-              desc: auth is identity only; it imports no other module
-        crm-search:
+              desc: identity imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: identity imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
+              desc: identity imports no sibling module
+        module-approvals:
           files:
-            - "**/crm-search/**"
-          deny:
-            - pkg: github.com/gradionhq/margince/backend/crm-agents
-              desc: search never reaches the agent surface
-            - pkg: github.com/gradionhq/margince/backend/crm-capture
-              desc: search never reaches capture
-            - pkg: github.com/gradionhq/margince/backend/crm-core
-              desc: search reads through the sor seam, not core internals
-        crm-ai:
-          files:
-            - "**/crm-ai/**"
+            - "**/internal/modules/approvals/**"
           deny:
             - pkg: github.com/gradionhq/margince/backend/crm-core
-              desc: the AI tier reads through the sor seam, not core internals
-            - pkg: github.com/gradionhq/margince/backend/crm-agents
-              desc: crm-agents composes crm-ai, never the reverse
-            - pkg: github.com/gradionhq/margince/backend/crm-search
-              desc: crm-ai reaches search only via the retrieval seam
-        crm-capture:
+              desc: approvals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: approvals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/identity
+              desc: approvals imports no sibling module
+        module-agents:
           files:
-            - "**/crm-capture/**"
-          deny:
-            - pkg: github.com/gradionhq/margince/backend/crm-agents
-              desc: capture never reaches the agent surface
-            - pkg: github.com/gradionhq/margince/backend/crm-core
-              desc: capture writes through the connector Sink, not core internals
-        crm-agents:
-          files:
-            - "**/crm-agents/**"
+            - "**/internal/modules/agents/**"
           deny:
             - pkg: github.com/gradionhq/margince/backend/crm-core
-              desc: the agent surface reaches records only through the sor seam
+              desc: the agent surface reaches records only through the datasource seam
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
+              desc: agents stages approvals through the injected adapter, never directly
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/identity
+              desc: agents imports no sibling module
     revive:
       rules:
         - name: package-comments

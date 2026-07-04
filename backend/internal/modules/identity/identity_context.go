@@ -1,4 +1,4 @@
-package crmauth
+package identity
 
 import "context"
 

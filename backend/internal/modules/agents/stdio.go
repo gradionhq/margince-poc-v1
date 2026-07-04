@@ -1,4 +1,4 @@
-package crmagents
+package agents
 
 // The A1 local MCP server: JSON-RPC 2.0 over stdio, one message per line
 // (the MCP stdio transport). It speaks the protocol subset a tools-only
