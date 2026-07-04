@@ -62,6 +62,21 @@ type searchBranch struct {
 	activityWalk bool
 }
 
+// branchScope is the ONE admission + row-scope resolution every union
+// branch (lexical and vector alike) runs: object RBAC hides a denied
+// type silently, then the branch carries the caller's scope clause.
+func branchScope(ctx context.Context, branch searchBranch, arg func(any) int) (scope string, admitted bool, err error) {
+	if auth.Require(ctx, branch.entity, principal.ActionRead) != nil {
+		return "", false, nil
+	}
+	if branch.activityWalk {
+		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
+	} else {
+		scope, err = auth.ScopeClauseFor(ctx, branch.entity, "t", arg)
+	}
+	return scope, true, err
+}
+
 var searchBranches = []searchBranch{
 	{entity: "person", table: "person", title: "full_name", snippet: "NULL"},
 	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL"},
@@ -114,19 +129,13 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 			}
 			// A hit is a read twice over: object RBAC first (a role
 			// without person.read gets no person hits — search must not
-			// out-see the entity lists), then the row scope below.
-			if err := auth.Require(ctx, branch.entity, principal.ActionRead); err != nil {
-				continue
-			}
-			var scope string
-			var err error
-			if branch.activityWalk {
-				scope, err = auth.ActivityScopeClause(ctx, "t", arg)
-			} else {
-				scope, err = auth.ScopeClauseFor(ctx, branch.entity, "t", arg)
-			}
+			// out-see the entity lists), then the row scope.
+			scope, admitted, err := branchScope(ctx, branch, arg)
 			if err != nil {
 				return err
+			}
+			if !admitted {
+				continue
 			}
 			sql := fmt.Sprintf(
 				`SELECT '%s'::text AS rtype, t.id, %s AS title, %s AS snippet,

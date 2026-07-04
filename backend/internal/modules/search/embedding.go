@@ -11,10 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -107,18 +105,12 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit i
 
 		var branches []string
 		for _, branch := range searchBranches {
-			if err := auth.Require(ctx, branch.entity, principal.ActionRead); err != nil {
-				continue
-			}
-			var scope string
-			var err error
-			if branch.activityWalk {
-				scope, err = auth.ActivityScopeClause(ctx, "t", arg)
-			} else {
-				scope, err = auth.ScopeClauseFor(ctx, branch.entity, "t", arg)
-			}
+			scope, admitted, err := branchScope(ctx, branch, arg)
 			if err != nil {
 				return err
+			}
+			if !admitted {
+				continue
 			}
 			sql := fmt.Sprintf(
 				`SELECT '%s'::text AS rtype, e.entity_id AS id, %s AS title,

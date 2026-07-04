@@ -33,6 +33,16 @@ type mergeStager struct {
 
 func (m mergeStager) StageMerge(ctx context.Context, in capture.MergeProposal) (ids.UUID, error) {
 	digest := sha256.Sum256(in.ProposedChange)
+	// A connector re-syncing the same upstream record hits the same
+	// collision every cycle; an identical pending proposal must absorb
+	// the repeat, not multiply in the inbox.
+	pending, err := m.svc.HasPendingFor(ctx, "merge_records", in.TargetID, hex.EncodeToString(digest[:]))
+	if err != nil {
+		return ids.Nil, err
+	}
+	if pending {
+		return ids.Nil, nil
+	}
 	return m.svc.Stage(ctx, approvals.StageInput{
 		Kind:           "merge_records",
 		ProposedChange: in.ProposedChange,

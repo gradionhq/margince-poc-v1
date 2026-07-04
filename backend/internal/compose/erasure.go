@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -82,6 +83,19 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
 			return err
 		}
+		// The subject may also live in the SEGREGATED lead table: the
+		// lead they were promoted from, and any lead row carrying one of
+		// their addresses. Same anonymize-in-place shape as the person.
+		if _, err := tx.Exec(ctx, `
+			UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
+			  company_name = NULL, candidate_org_key = NULL, raw = NULL,
+			  archived_at = coalesce(archived_at, now())
+			WHERE promoted_person_id = $1
+			   OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
+			   OR (email IS NOT NULL AND lower(email) = ANY($2))`,
+			personID, lowercased(emails)); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
 			return err
@@ -132,6 +146,15 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			"action": "erase", "reason": reason,
 		})
 	})
+}
+
+// lowercased normalizes identifiers for SQL ANY matching.
+func lowercased(values []string) []string {
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = strings.ToLower(strings.TrimSpace(v))
+	}
+	return out
 }
 
 func collectStrings(ctx context.Context, tx pgx.Tx, query string, args ...any) ([]string, error) {

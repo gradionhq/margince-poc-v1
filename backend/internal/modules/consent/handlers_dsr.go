@@ -1,10 +1,12 @@
 package consent
 
 import (
+	"errors"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -67,17 +69,26 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 	}
 	// Fulfilling an erasure request EXECUTES the erasure first — the
 	// status flip and the actual deletion must not drift apart. A
-	// subject_ref that is not a person id names someone the CRM never
-	// captured; there is nothing to erase and the request just closes.
-	if in.Status != nil && *in.Status == "fulfilled" && h.eraser != nil {
+	// subject_ref that is not a person id (or a person already gone —
+	// e.g. an earlier erasure) names nothing left to erase and the
+	// request just closes.
+	if in.Status != nil && *in.Status == "fulfilled" {
 		current, err := h.store.GetDSR(r.Context(), ids.UUID(id))
 		if err != nil {
 			writeConsentErr(w, r, err)
 			return
 		}
 		if current.Kind == "erasure" {
+			if h.eraser == nil {
+				// Fail closed: fulfilling an erasure on a surface with no
+				// erase path wired would certify a deletion that never
+				// happened.
+				writeConsentErr(w, r, errors.New("consent: erasure fulfillment has no erase path wired"))
+				return
+			}
 			if personID, parseErr := ids.Parse(current.SubjectRef); parseErr == nil {
-				if err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String()); err != nil {
+				err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String())
+				if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 					writeConsentErr(w, r, err)
 					return
 				}

@@ -290,6 +290,7 @@ const (
 	pgUniqueViolation     = "23505"
 	pgForeignKeyViolation = "23503"
 	pgCheckViolation      = "23514"
+	pgExclusionViolation  = "23P01"
 )
 
 // pgViolation names the violated constraint when err is the given
@@ -319,6 +320,12 @@ func UniqueViolation(err error) (constraint string, ok bool) {
 func IsForeignKeyViolation(err error) bool {
 	_, ok := pgViolation(err, pgForeignKeyViolation)
 	return ok
+}
+
+// ExclusionViolation names a fired EXCLUDE constraint — the overlap
+// guards (double-booking) map it to their domain conflict.
+func ExclusionViolation(err error) (constraint string, ok bool) {
+	return pgViolation(err, pgExclusionViolation)
 }
 
 // CheckViolation exposes a fired CHECK constraint's name so the transport

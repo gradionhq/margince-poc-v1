@@ -30,6 +30,7 @@ type SARPackage struct {
 	Phones        []map[string]any `json:"phones"`
 	Relationships []map[string]any `json:"relationships"`
 	Deals         []map[string]any `json:"deals"`
+	Leads         []map[string]any `json:"leads"`
 	Activities    []map[string]any `json:"activities"`
 	Consent       []map[string]any `json:"consent"`
 	ConsentEvents []map[string]any `json:"consent_events"`
@@ -66,6 +67,12 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 			{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency
 			   FROM deal d JOIN relationship r ON r.deal_id = d.id
 			   WHERE r.kind = 'deal_stakeholder' AND r.person_id = $1 AND r.archived_at IS NULL`},
+			{&pkg.Leads, `SELECT l.id, l.full_name, l.email, l.title, l.company_name, l.status, l.created_at
+			   FROM lead l
+			   WHERE l.promoted_person_id = $1
+			      OR l.id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
+			      OR (l.email IS NOT NULL AND EXISTS (
+			            SELECT 1 FROM person_email pe WHERE pe.person_id = $1 AND pe.email = lower(l.email)))`},
 			{&pkg.Activities, `SELECT a.id, a.kind, a.subject, a.body, a.occurred_at, a.source_system
 			   FROM activity a JOIN activity_link l ON l.activity_id = a.id
 			   WHERE l.person_id = $1`},

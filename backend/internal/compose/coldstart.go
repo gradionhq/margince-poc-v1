@@ -344,15 +344,14 @@ func (f webFetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
 func stripTags(html string) string {
 	var b strings.Builder
 	inTag, inScript := false, false
-	lower := strings.ToLower(html)
 	for i, r := range html {
 		switch {
 		case inScript:
-			if r == '<' && (strings.HasPrefix(lower[i:], "</script") || strings.HasPrefix(lower[i:], "</style")) {
+			if r == '<' && (foldPrefix(html[i:], "</script") || foldPrefix(html[i:], "</style")) {
 				inScript, inTag = false, true
 			}
 		case r == '<':
-			if strings.HasPrefix(lower[i:], "<script") || strings.HasPrefix(lower[i:], "<style") {
+			if foldPrefix(html[i:], "<script") || foldPrefix(html[i:], "<style") {
 				inScript = true
 			} else {
 				inTag = true
@@ -365,4 +364,12 @@ func stripTags(html string) string {
 		}
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// foldPrefix is an ASCII case-insensitive prefix test on the ORIGINAL
+// bytes. Lowercasing the whole document first is not an option: Unicode
+// case mapping changes byte lengths (U+212A → "k"), so indexes into a
+// lowered copy drift off the source and can slice out of range.
+func foldPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }

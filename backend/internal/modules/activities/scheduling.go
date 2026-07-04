@@ -18,6 +18,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -104,9 +105,20 @@ func (s *Store) Availability(ctx context.Context, host ids.UUID, from, to time.T
 		return nil, err
 	}
 
+	// Candidates align to the duration grid, never before the caller's
+	// window, and must END inside business hours (17:00 sharp is fine,
+	// 17:01 is not).
+	cursor := from.UTC().Truncate(duration)
+	if cursor.Before(from.UTC()) {
+		cursor = cursor.Add(duration)
+	}
 	var free []slot
-	for cursor := from.UTC().Truncate(duration); cursor.Add(duration).Before(to.UTC().Add(time.Nanosecond)); cursor = cursor.Add(duration) {
-		if cursor.Hour() < businessDayStartHour || cursor.Add(duration).Hour() > businessDayEndHour ||
+	for ; !cursor.Add(duration).After(to.UTC()); cursor = cursor.Add(duration) {
+		end := cursor.Add(duration)
+		endsAtClose := end.Hour() == businessDayEndHour && end.Minute() == 0 && end.Second() == 0
+		if cursor.Hour() < businessDayStartHour ||
+			(!endsAtClose && (end.Hour() > businessDayEndHour || end.Hour() == businessDayEndHour && end.Minute() > 0)) ||
+			end.Hour() < businessDayStartHour ||
 			cursor.Weekday() == time.Saturday || cursor.Weekday() == time.Sunday {
 			continue
 		}
@@ -162,9 +174,10 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 		return crmcontracts.Activity{}, &RequiredFieldError{Field: "end (must follow start)"}
 	}
 	// The conflict probe reads only the calendar the caller may write
-	// (their own, or any as admin — gated above), and answers one bit.
-	// The slot check and the write share one transaction path; a race
-	// lands on the second reader as 409.
+	// (their own, or any as admin — gated above) and gives the polite
+	// answer; the GUARANTEE is the activity_meeting_no_overlap exclusion
+	// constraint (0032) — two racing bookings cannot both commit, the
+	// loser's 23P01 maps to the same slot_taken below.
 	var taken bool
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
@@ -194,6 +207,9 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 		Links:      in.Links,
 		Source:     "manual",
 	})
+	if _, excluded := storekit.ExclusionViolation(err); excluded {
+		return crmcontracts.Activity{}, &SlotTakenError{Start: in.Start}
+	}
 	// Invite delivery rides the deployment's calendar/mail seam; the
 	// governed, audited fact is the meeting on the timeline.
 	return activity, err

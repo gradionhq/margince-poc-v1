@@ -112,6 +112,23 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
 	return id, err
 }
 
+// HasPendingFor reports whether a live pending staging of this kind,
+// target and exact proposed change already sits in the inbox. Stagers
+// fed by at-least-once triggers (connector syncs re-hitting the same
+// collision) consult it so a recurring trigger cannot multiply
+// identical proposals.
+func (s *Service) HasPendingFor(ctx context.Context, kind string, targetID ids.UUID, diffHash string) (bool, error) {
+	var exists bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM approval
+			  WHERE kind = $1 AND target_entity_id = $2 AND diff_hash = $3
+			    AND status = 'pending' AND expires_at > now())`,
+			kind, targetID, diffHash).Scan(&exists)
+	})
+	return exists, err
+}
+
 // row is the store shape of one approval.
 type row struct {
 	ID             ids.UUID
