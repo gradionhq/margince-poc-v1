@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 var errInvalidApprovalID = errors.New("approval_id must be a UUID string")

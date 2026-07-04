@@ -16,9 +16,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // dealFixture provisions a workspace with the seeded default pipeline

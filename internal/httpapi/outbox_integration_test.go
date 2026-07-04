@@ -17,7 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/fable-poc/kernel/events"
+	"github.com/gradionhq/margince/backend/kernel/events"
 )
 
 func TestWriteStagesOneCompleteEnvelope(t *testing.T) {

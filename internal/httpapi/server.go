@@ -11,14 +11,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	crmapprovals "github.com/gradionhq/fable-poc/crm-approvals"
-	crmauth "github.com/gradionhq/fable-poc/crm-auth"
-	crmcontracts "github.com/gradionhq/fable-poc/crm-contracts"
-	crmcore "github.com/gradionhq/fable-poc/crm-core"
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/internal/httperr"
-	"github.com/gradionhq/fable-poc/kernel/ids"
-	"github.com/gradionhq/fable-poc/web"
+	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
+	crmauth "github.com/gradionhq/margince/backend/crm-auth"
+	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/httperr"
+	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/web"
 )
 
 // fallback pushes the stubs one embedding level deeper than the module

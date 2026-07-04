@@ -21,10 +21,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/fable-poc/internal/httpapi"
-	"github.com/gradionhq/fable-poc/internal/pg"
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
-	"github.com/gradionhq/fable-poc/migrations"
+	"github.com/gradionhq/margince/backend/internal/httpapi"
+	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 type env struct {

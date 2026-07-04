@@ -12,7 +12,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/gradionhq/fable-poc/crmctx"
+	"github.com/gradionhq/margince/backend/crmctx"
 )
 
 // Tool is a single governed MCP tool, exposed identically to every

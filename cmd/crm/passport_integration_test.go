@@ -16,12 +16,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmauth "github.com/gradionhq/fable-poc/crm-auth"
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/internal/pg"
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/migrations"
+	crmauth "github.com/gradionhq/margince/backend/crm-auth"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // passportEnv migrates a fresh schema and bootstraps one workspace,

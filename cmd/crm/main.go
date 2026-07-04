@@ -15,8 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
-	"github.com/gradionhq/fable-poc/migrations"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func main() {

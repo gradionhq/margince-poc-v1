@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/gradionhq/fable-poc/kernel/events"
+	"github.com/gradionhq/margince/backend/kernel/events"
 )
 
 // DedupeTTL is how long a processed event_id is remembered: ≥ the stream

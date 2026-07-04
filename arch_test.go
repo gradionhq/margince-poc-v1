@@ -1,4 +1,4 @@
-package fablearch
+package backendarch
 
 // Structural fitness functions (architecture/03 §1): these tests make the
 // boundary rules mechanical. B-EP01.2 — Tier-0 seam and kernel packages
@@ -29,7 +29,7 @@ var leafPackages = []string{
 	"kernel/prov",
 }
 
-const modulePath = "github.com/gradionhq/fable-poc"
+const modulePath = "github.com/gradionhq/margince/backend"
 
 func TestLeafPackagesAreDependencyFree(t *testing.T) {
 	leafSet := make(map[string]bool, len(leafPackages))

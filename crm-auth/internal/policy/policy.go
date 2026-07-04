@@ -11,7 +11,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/gradionhq/fable-poc/crmctx"
+	"github.com/gradionhq/margince/backend/crmctx"
 )
 
 // coreObjects is the closed set of RBAC-governed object types

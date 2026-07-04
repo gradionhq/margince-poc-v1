@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // EntityType names the domain entities the provider serves.

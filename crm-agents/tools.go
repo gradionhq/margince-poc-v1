@@ -14,10 +14,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/kernel/ids"
-	"github.com/gradionhq/fable-poc/mcp"
-	"github.com/gradionhq/fable-poc/sor"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/sor"
 )
 
 // toolSource is the provenance channel every MCP write carries.

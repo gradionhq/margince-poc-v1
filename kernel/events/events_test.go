@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 func TestStreamsMatchSpecList(t *testing.T) {

@@ -3,10 +3,10 @@ package crmcore
 import (
 	"net/http"
 
-	crmcontracts "github.com/gradionhq/fable-poc/crm-contracts"
-	"github.com/gradionhq/fable-poc/crm-core/internal/store"
-	"github.com/gradionhq/fable-poc/internal/httperr"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	"github.com/gradionhq/margince/backend/crm-core/internal/store"
+	"github.com/gradionhq/margince/backend/internal/httperr"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 func (h Handlers) ListDeals(w http.ResponseWriter, r *http.Request, params crmcontracts.ListDealsParams) {

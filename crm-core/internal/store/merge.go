@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmcontracts "github.com/gradionhq/fable-poc/crm-contracts"
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // The §1.3 two-record merge (features/01, data-model §3.2): A→B relinks

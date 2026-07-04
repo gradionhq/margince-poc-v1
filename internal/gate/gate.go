@@ -11,9 +11,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/mcp"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/mcp"
 )
 
 // Admit decides whether the context's principal may run the tool with

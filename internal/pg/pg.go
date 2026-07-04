@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/fable-poc/crmctx"
+	"github.com/gradionhq/margince/backend/crmctx"
 )
 
 // NewPool opens a pgxpool with explicit operational limits (a defaultless

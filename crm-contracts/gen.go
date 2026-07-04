@@ -5,5 +5,5 @@ package crmcontracts
 // the committed, drift-gated output. `make gen` runs both steps;
 // `make drift` fails the merge on any divergence.
 
-//go:generate go run github.com/gradionhq/fable-poc/tools/contract-overlay -in ../contracts/crm.yaml -out .build/openapi30.yaml
+//go:generate go run github.com/gradionhq/margince/backend/tools/contract-overlay -in ../contracts/crm.yaml -out .build/openapi30.yaml
 //go:generate go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen --config oapi.yaml .build/openapi30.yaml

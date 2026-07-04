@@ -8,13 +8,13 @@ import (
 	"io"
 	"os"
 
-	crmagents "github.com/gradionhq/fable-poc/crm-agents"
-	crmapprovals "github.com/gradionhq/fable-poc/crm-approvals"
-	crmauth "github.com/gradionhq/fable-poc/crm-auth"
-	crmcore "github.com/gradionhq/fable-poc/crm-core"
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/internal/pg"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	crmagents "github.com/gradionhq/margince/backend/crm-agents"
+	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
+	crmauth "github.com/gradionhq/margince/backend/crm-auth"
+	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // runMCP boots the A1 local MCP server: MCP over stdio, authenticated by

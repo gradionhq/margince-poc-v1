@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // Envelope is the events.md §2 shape every bus entry carries. Payload is

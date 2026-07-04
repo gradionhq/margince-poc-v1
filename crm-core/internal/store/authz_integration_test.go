@@ -16,12 +16,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/internal/pg"
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/kernel/ids"
-	"github.com/gradionhq/fable-poc/migrations"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 type authzEnv struct {

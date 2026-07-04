@@ -13,12 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/fable-poc/crm-auth/internal/password"
-	"github.com/gradionhq/fable-poc/crm-auth/internal/policy"
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/internal/pg"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/crm-auth/internal/password"
+	"github.com/gradionhq/margince/backend/crm-auth/internal/policy"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // Session lifetimes (ADR-0043: idle + absolute, both enforced at lookup).

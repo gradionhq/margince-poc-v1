@@ -11,9 +11,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/mcp"
-	"github.com/gradionhq/fable-poc/sor"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/sor"
 )
 
 // Connector is the seam every integration implements, registered in the

@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/gradionhq/fable-poc/crmctx"
+	"github.com/gradionhq/margince/backend/crmctx"
 )
 
 func TestEverySystemRoleHasAValidDefaultDocument(t *testing.T) {

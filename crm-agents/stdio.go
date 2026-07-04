@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/mcp"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/mcp"
 )
 
 // protocolVersion is the MCP revision this server implements.

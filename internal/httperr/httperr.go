@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gradionhq/fable-poc/kernel/errs"
+	"github.com/gradionhq/margince/backend/kernel/errs"
 )
 
 const problemTypeBase = "https://errors.gradion.com/"

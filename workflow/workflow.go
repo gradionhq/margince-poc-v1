@@ -10,9 +10,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/gradionhq/fable-poc/kernel/ids"
-	"github.com/gradionhq/fable-poc/mcp"
-	"github.com/gradionhq/fable-poc/sor"
+	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/mcp"
+	"github.com/gradionhq/margince/backend/sor"
 )
 
 // Handler is the seam an agent implements to add automation. Registered

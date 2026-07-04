@@ -12,8 +12,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/gradionhq/fable-poc/kernel/events"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	"github.com/gradionhq/margince/backend/kernel/events"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // envelopeField is the single stream-entry field holding the envelope

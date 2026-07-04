@@ -15,8 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/fable-poc/crm-core/internal/store"
-	"github.com/gradionhq/fable-poc/internal/httperr"
+	"github.com/gradionhq/margince/backend/crm-core/internal/store"
+	"github.com/gradionhq/margince/backend/internal/httperr"
 )
 
 type Handlers struct {

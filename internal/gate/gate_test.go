@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/mcp"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/mcp"
 )
 
 func agentCtx(scopes ...crmctx.Scope) context.Context {

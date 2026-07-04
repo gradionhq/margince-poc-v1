@@ -3,9 +3,9 @@ package crmcore
 import (
 	"net/http"
 
-	crmcontracts "github.com/gradionhq/fable-poc/crm-contracts"
-	"github.com/gradionhq/fable-poc/crm-core/internal/store"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	"github.com/gradionhq/margince/backend/crm-core/internal/store"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // MergePerson: POST /people/{id}/merge — merge this person (A, the path id)

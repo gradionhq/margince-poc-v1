@@ -21,16 +21,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmagents "github.com/gradionhq/fable-poc/crm-agents"
-	crmapprovals "github.com/gradionhq/fable-poc/crm-approvals"
-	crmauth "github.com/gradionhq/fable-poc/crm-auth"
-	crmcore "github.com/gradionhq/fable-poc/crm-core"
-	"github.com/gradionhq/fable-poc/crmctx"
-	"github.com/gradionhq/fable-poc/internal/pg"
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/kernel/ids"
-	"github.com/gradionhq/fable-poc/migrations"
+	crmagents "github.com/gradionhq/margince/backend/crm-agents"
+	crmapprovals "github.com/gradionhq/margince/backend/crm-approvals"
+	crmauth "github.com/gradionhq/margince/backend/crm-auth"
+	crmcore "github.com/gradionhq/margince/backend/crm-core"
+	"github.com/gradionhq/margince/backend/crmctx"
+	"github.com/gradionhq/margince/backend/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // mcpClient drives one stdio server session like an agent client would.

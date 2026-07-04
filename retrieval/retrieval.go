@@ -7,7 +7,7 @@ package retrieval
 import (
 	"context"
 
-	"github.com/gradionhq/fable-poc/sor"
+	"github.com/gradionhq/margince/backend/sor"
 )
 
 // Retriever serves grounded context to the AI layers. Results carry

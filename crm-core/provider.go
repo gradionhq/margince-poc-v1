@@ -17,10 +17,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	crmcontracts "github.com/gradionhq/fable-poc/crm-contracts"
-	"github.com/gradionhq/fable-poc/crm-core/internal/store"
-	"github.com/gradionhq/fable-poc/kernel/ids"
-	"github.com/gradionhq/fable-poc/sor"
+	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	"github.com/gradionhq/margince/backend/crm-core/internal/store"
+	"github.com/gradionhq/margince/backend/kernel/ids"
+	"github.com/gradionhq/margince/backend/sor"
 )
 
 // Provider implements sor.SystemOfRecordProvider over the store.

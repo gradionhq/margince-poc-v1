@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gradionhq/fable-poc/internal/bus"
-	"github.com/gradionhq/fable-poc/internal/httpapi"
-	"github.com/gradionhq/fable-poc/internal/pg"
+	"github.com/gradionhq/margince/backend/internal/bus"
+	"github.com/gradionhq/margince/backend/internal/httpapi"
+	"github.com/gradionhq/margince/backend/internal/pg"
 )
 
 // runServe boots the HTTP server plus the outbox relay (decisions/0005)

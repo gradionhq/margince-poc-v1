@@ -14,9 +14,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/gradionhq/fable-poc/internal/gate"
-	"github.com/gradionhq/fable-poc/kernel/errs"
-	"github.com/gradionhq/fable-poc/mcp"
+	"github.com/gradionhq/margince/backend/internal/gate"
+	"github.com/gradionhq/margince/backend/kernel/errs"
+	"github.com/gradionhq/margince/backend/mcp"
 )
 
 // Registry implements mcp.Registry. Registration happens at composition

@@ -7,7 +7,7 @@ package migrations
 import (
 	"embed"
 
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
 )
 
 //go:embed core custom

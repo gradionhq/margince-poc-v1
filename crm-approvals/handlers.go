@@ -7,9 +7,9 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	crmcontracts "github.com/gradionhq/fable-poc/crm-contracts"
-	"github.com/gradionhq/fable-poc/internal/httperr"
-	"github.com/gradionhq/fable-poc/kernel/ids"
+	crmcontracts "github.com/gradionhq/margince/backend/crm-contracts"
+	"github.com/gradionhq/margince/backend/internal/httperr"
+	"github.com/gradionhq/margince/backend/kernel/ids"
 )
 
 // Handlers is the module's transport surface: the /approvals inbox ops.

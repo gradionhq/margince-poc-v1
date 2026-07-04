@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/gradionhq/fable-poc/internal/pgmigrate"
+	"github.com/gradionhq/margince/backend/internal/pgmigrate"
 )
 
 // ownerDSN administers the throwaway test database; appDSNFmt is the
