@@ -176,7 +176,7 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := auth.ScopeClause(ctx, arg)
+	scope, err := auth.ScopeClauseFor(ctx, "lead", "", arg)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}

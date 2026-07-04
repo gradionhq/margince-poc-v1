@@ -161,7 +161,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := auth.ScopeClause(ctx, arg)
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "", arg)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}

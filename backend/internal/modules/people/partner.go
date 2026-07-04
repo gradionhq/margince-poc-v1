@@ -184,7 +184,7 @@ func (s *Store) ListPartners(ctx context.Context, in ListPartnersInput) ([]partn
 		}
 		// A partner row is a read of its organization: the org's own
 		// row scope bounds the list.
-		scope, err := auth.ScopeClauseFor(ctx, "o", arg)
+		scope, err := auth.ScopeClauseFor(ctx, "organization", "o", arg)
 		if err != nil {
 			return err
 		}

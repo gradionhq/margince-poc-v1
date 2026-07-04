@@ -88,7 +88,6 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 	if auth.Unbounded(actor) {
 		return "", nil
 	}
-	predicate := auth.OwnerPredicate(actor, arg)
 	var clauses []string
 	for _, endpoint := range []struct{ column, table string }{
 		{"person_id", "person"},
@@ -96,6 +95,7 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 		{"counterparty_org_id", "organization"},
 		{"deal_id", "deal"},
 	} {
+		predicate := auth.VisiblePredicate(actor, endpoint.table, arg)
 		clauses = append(clauses, fmt.Sprintf(
 			`(%[1]s.%[2]s IS NULL OR EXISTS (
 			   SELECT 1 FROM %[3]s ep WHERE ep.id = %[1]s.%[2]s AND ep.archived_at IS NULL AND %[4]s))`,

@@ -115,7 +115,7 @@ func (s *Store) SimilarEntities(ctx context.Context, queryVec []float32, limit i
 			if branch.activityWalk {
 				scope, err = auth.ActivityScopeClause(ctx, "t", arg)
 			} else {
-				scope, err = auth.ScopeClauseFor(ctx, "t", arg)
+				scope, err = auth.ScopeClauseFor(ctx, branch.entity, "t", arg)
 			}
 			if err != nil {
 				return err

@@ -25,14 +25,16 @@ import (
 // entry whose filing vanished (resolved or never written) fails the
 // test, so a waiver cannot outlive its justification.
 var auditOnlyWrites = map[string]string{
-	"CreateList":  "feedback/07-list-tag-events-missing-from-catalog.md",
-	"ArchiveList": "feedback/07-list-tag-events-missing-from-catalog.md",
-	"AddMember":   "feedback/07-list-tag-events-missing-from-catalog.md",
-	"CreateTag":   "feedback/07-list-tag-events-missing-from-catalog.md",
-	"ArchiveTag":  "feedback/07-list-tag-events-missing-from-catalog.md",
-	"ApplyTag":    "feedback/07-list-tag-events-missing-from-catalog.md",
-	"CreateDSR":   "feedback/07-list-tag-events-missing-from-catalog.md",
-	"UpdateDSR":   "feedback/07-list-tag-events-missing-from-catalog.md",
+	"CreateList":        "feedback/07-list-tag-events-missing-from-catalog.md",
+	"ArchiveList":       "feedback/07-list-tag-events-missing-from-catalog.md",
+	"AddMember":         "feedback/07-list-tag-events-missing-from-catalog.md",
+	"CreateTag":         "feedback/07-list-tag-events-missing-from-catalog.md",
+	"ArchiveTag":        "feedback/07-list-tag-events-missing-from-catalog.md",
+	"ApplyTag":          "feedback/07-list-tag-events-missing-from-catalog.md",
+	"CreateDSR":         "feedback/07-list-tag-events-missing-from-catalog.md",
+	"UpdateDSR":         "feedback/07-list-tag-events-missing-from-catalog.md",
+	"CreateRecordGrant": "feedback/07-list-tag-events-missing-from-catalog.md",
+	"RevokeRecordGrant": "feedback/07-list-tag-events-missing-from-catalog.md",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {

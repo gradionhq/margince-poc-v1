@@ -427,6 +427,7 @@ var decisionGrants = map[string][]struct {
 	"promote_lead":   {{"lead", principal.ActionUpdate}, {"person", principal.ActionCreate}},
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below
+	"share_record":   {}, // resolved from the target's entity type below
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
@@ -489,6 +490,17 @@ func requireDecisionGrants(p principal.Principal, a row) error {
 			Object string
 			Action principal.Action
 		}{*a.TargetType, principal.ActionDelete})
+	}
+	// Sharing widens who sees the target — approving needs the target
+	// type's update grant, exactly like a direct share would.
+	if a.Kind == "share_record" {
+		if a.TargetType == nil {
+			return errors.New("crmapprovals: share_record staged without a target type")
+		}
+		grants = append(grants, struct {
+			Object string
+			Action principal.Action
+		}{*a.TargetType, principal.ActionUpdate})
 	}
 	// A merge rewrites where records point — the store maps the merge verb to
 	// update, so approving needs update on the target's entity type.

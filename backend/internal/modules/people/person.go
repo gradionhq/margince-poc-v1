@@ -182,7 +182,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := auth.ScopeClause(ctx, arg)
+	scope, err := auth.ScopeClauseFor(ctx, "person", "", arg)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}

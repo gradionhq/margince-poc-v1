@@ -217,7 +217,7 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		if spec.activityWalk {
 			scope, err = auth.ActivityScopeClause(ctx, "t", arg)
 		} else {
-			scope, err = auth.ScopeClauseFor(ctx, "t", arg)
+			scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
 		}
 		if err != nil {
 			return err

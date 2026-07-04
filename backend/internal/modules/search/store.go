@@ -123,7 +123,7 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 			if branch.activityWalk {
 				scope, err = auth.ActivityScopeClause(ctx, "t", arg)
 			} else {
-				scope, err = auth.ScopeClauseFor(ctx, "t", arg)
+				scope, err = auth.ScopeClauseFor(ctx, branch.entity, "t", arg)
 			}
 			if err != nil {
 				return err

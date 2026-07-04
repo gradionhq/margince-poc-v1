@@ -147,7 +147,7 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	scope, err := auth.ScopeClause(ctx, arg)
+	scope, err := auth.ScopeClauseFor(ctx, "deal", "", arg)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}

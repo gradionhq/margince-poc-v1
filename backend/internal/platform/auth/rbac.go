@@ -80,6 +80,42 @@ func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string)
 	}
 }
 
+// shareableTables are the record types manual per-record grants can
+// widen (A52/ADR-0039); grants on anything else cannot exist (the
+// record_grant CHECK is the schema-side twin of this set).
+var shareableTables = map[string]bool{"person": true, "organization": true, "deal": true, "lead": true}
+
+// VisiblePredicate is the FULL row-visibility test for one table: the
+// own/team owner predicate OR a live manual grant to the caller or one
+// of their teams (write satisfies read). This — not OwnerPredicate — is
+// what every read path over a shareable table composes; the grant check
+// evaluates LIVE, so revoking or expiring a share binds on the next
+// query.
+func VisiblePredicate(p principal.Principal, table string, arg func(any) int) func(alias string) string {
+	owner := OwnerPredicate(p, arg)
+	if !shareableTables[table] {
+		return owner
+	}
+	me := arg(p.UserID)
+	teams := arg(p.TeamIDs)
+	return func(alias string) string {
+		// The grant subquery correlates on the OUTER row's id; an
+		// unqualified "id" would capture record_grant's own column, so
+		// the table name qualifies when no alias does.
+		id := table + ".id"
+		if alias != "" {
+			id = alias + ".id"
+		}
+		return fmt.Sprintf(`(%s OR EXISTS (
+		   SELECT 1 FROM record_grant rg
+		   WHERE rg.record_type = '%s' AND rg.record_id = %s
+		     AND (rg.expires_at IS NULL OR rg.expires_at > now())
+		     AND ((rg.subject_type = 'user' AND rg.subject_id = $%d)
+		       OR (rg.subject_type = 'team' AND rg.subject_id = ANY($%d)))))`,
+			owner(alias), table, id, me, teams)
+	}
+}
+
 // ScopeClause renders the own/team/all row-visibility predicate over an
 // owner_id column (B-EP03.3a). arg registers a query argument and
 // returns its 1-based position, matching the list builders' convention.
@@ -97,9 +133,10 @@ func ScopeClause(ctx context.Context, arg func(any) int) (string, error) {
 	return OwnerPredicate(p, arg)(""), nil
 }
 
-// ScopeClauseFor is ScopeClause with a table alias — for queries (the
-// search union, reports) whose owner_id needs qualification.
-func ScopeClauseFor(ctx context.Context, alias string, arg func(any) int) (string, error) {
+// ScopeClauseFor renders the full visibility predicate (owner scope OR
+// live record grant) for one named table with an alias — the spelling
+// every list/search/report path over a shareable table uses.
+func ScopeClauseFor(ctx context.Context, table, alias string, arg func(any) int) (string, error) {
 	p, err := rbacActor(ctx)
 	if err != nil {
 		return "", err
@@ -107,7 +144,7 @@ func ScopeClauseFor(ctx context.Context, alias string, arg func(any) int) (strin
 	if Unbounded(p) {
 		return "", nil
 	}
-	return OwnerPredicate(p, arg)(alias), nil
+	return VisiblePredicate(p, table, arg)(alias), nil
 }
 
 // EnsureLinkTarget verifies an activity link's target row exists AND is
@@ -121,7 +158,7 @@ func EnsureLinkTarget(ctx context.Context, tx pgx.Tx, table string, id ids.UUID)
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(id)
 
-	clause, err := ScopeClause(ctx, arg)
+	clause, err := ScopeClauseFor(ctx, table, "", arg)
 	if err != nil {
 		return err
 	}
@@ -168,7 +205,7 @@ func EnsureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) er
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(id)
 
-	clause, err := ScopeClause(ctx, arg)
+	clause, err := ScopeClauseFor(ctx, table, "", arg)
 	if err != nil {
 		return err
 	}
@@ -236,13 +273,15 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 	if Unbounded(p) {
 		return "", nil
 	}
-	visible := OwnerPredicate(p, arg)
+	person := VisiblePredicate(p, "person", arg)
+	organization := VisiblePredicate(p, "organization", arg)
+	deal := VisiblePredicate(p, "deal", arg)
 	return fmt.Sprintf(`(NOT EXISTS (SELECT 1 FROM activity_link nl WHERE nl.activity_id = %[1]s.id)
 	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND (
 	      (l.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = l.person_id AND %[2]s))
 	   OR (l.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization so WHERE so.id = l.organization_id AND %[3]s))
 	   OR (l.deal_id IS NOT NULL AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = l.deal_id AND %[4]s)))))`,
-		alias, visible("sp"), visible("so"), visible("sd")), nil
+		alias, person("sp"), organization("so"), deal("sd")), nil
 }
 
 // EnsureActivityVisible is EnsureVisible for activities, using the
