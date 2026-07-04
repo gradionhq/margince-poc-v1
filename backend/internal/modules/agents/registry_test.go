@@ -6,9 +6,23 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
+
+// fullSeatAuthority satisfies the gate's live-authority seam with a full
+// seat and no grants — enough for the registry's admission-order tests.
+type fullSeatAuthority struct{}
+
+func (fullSeatAuthority) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
+	return authz.RBAC{}, nil
+}
+func (fullSeatAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
+	return principal.SeatFull, nil
+}
 
 type fakeTool struct {
 	spec    mcp.ToolSpec
@@ -32,7 +46,7 @@ func mustPanic(t *testing.T, why string, fn func()) {
 }
 
 func TestRegisterRefusesAuthorityDefects(t *testing.T) {
-	r := NewRegistry(nil)
+	r := NewRegistry(nil, nil)
 	r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierGreen}})
 
 	mustPanic(t, "duplicate name puts two handlers behind one admission decision", func() {
@@ -50,12 +64,13 @@ func TestRegisterRefusesAuthorityDefects(t *testing.T) {
 }
 
 func TestInvokeGatesBeforeHandle(t *testing.T) {
-	r := NewRegistry(nil)
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
 	yellow := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow}}
 	r.Register(yellow)
 
-	ctx := principal.WithActor(context.Background(), principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:t",
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
 		Scopes: principal.NewScopeSet(principal.ScopeWrite),
 	})
 	if _, err := r.Invoke(ctx, "archive_record", json.RawMessage(`{}`)); err == nil {

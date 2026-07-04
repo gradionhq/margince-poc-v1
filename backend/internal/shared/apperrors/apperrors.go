@@ -55,16 +55,6 @@ var (
 	// attempted a mutate/send/approve/grant (403 seat_tier_insufficient,
 	// A62/ADR-0047).
 	ErrSeatTierInsufficient = errors.New("seat tier insufficient")
-
-	// ErrAgentSurfaceRestricted: an agent passport attempted a MUTATING REST
-	// call. Agent mutations must flow through the governed MCP tool surface,
-	// where scope ∧ tier ∧ the 🟡 approval gate apply (platform/auth); the
-	// REST surface is read-only for passports so there is exactly one agent
-	// mutation choke point (403 agent_surface_restricted). ADR-0013's
-	// "same REST surface as everyone else" language predates the gate and
-	// needs reconciling — tracked as ../fable feedback/18; registered here
-	// pending the spec update. See ../decisions/0010.
-	ErrAgentSurfaceRestricted = errors.New("agent surface restricted")
 )
 
 // Overlay sentinels — only reachable when workspace.sor_mode = overlay

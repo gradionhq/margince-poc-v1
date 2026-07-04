@@ -17,6 +17,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -456,12 +457,13 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 	}
 }
 
-// C1: a WRITE-scoped passport still cannot mutate over REST — agent
-// mutations must flow through the governed MCP tool surface, so the REST
-// surface is read-only for passports and there is exactly one agent
-// mutation choke point. The scope is present, so the refusal is the
-// surface restriction, not a scope miss.
-func TestEndToEnd_passportCannotMutateOverREST(t *testing.T) {
+// ADR-0055: agent REST writes are governed, not blocked. A write-scoped
+// passport's 🟢 mutation lands (with server-stamped agent provenance); a
+// 🟡 mutation stages an approval and only a HUMAN decision releases it —
+// the agent's own attempt to approve is the self-approval bypass and is
+// rejected on principal type; human-only config ops reject the agent
+// outright.
+func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 	e := setup(t)
 
 	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
@@ -481,25 +483,78 @@ func TestEndToEnd_passportCannotMutateOverREST(t *testing.T) {
 	}
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
-	// Reads still work under the read scope…
-	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != 200 {
-		t.Fatalf("write-passport GET /people → %d", status)
+	// 🟢 (create_record): the write goes through, and provenance is the
+	// authenticated agent — never the body's claim.
+	var created struct {
+		ID         string `json:"id"`
+		CapturedBy string `json:"captured_by"`
 	}
-	// …but a mutating REST call is refused with the surface-restriction code
-	// even though the passport HOLDS write scope.
+	if status := e.call(t, "POST", "/v1/people", anyMap{
+		"full_name": "Governed Green Write", "source": "mcp", "captured_by": "human:forged",
+	}, bearer, &created); status != 201 {
+		t.Fatalf("write-scope 🟢 REST mutation → %d, want 201 (ADR-0055 admits governed agent writes)", status)
+	}
+	if !strings.HasPrefix(created.CapturedBy, "agent:") {
+		t.Fatalf("agent create stamped captured_by=%q, want the authenticated agent", created.CapturedBy)
+	}
+
+	// 🟡 (archivePerson is on the confirm-first floor): no effect, a
+	// staged approval instead.
 	var problem struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}
+	status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, bearer, &problem)
+	if status != 403 || problem.Code != "approval_required" {
+		t.Fatalf("🟡 REST mutation → %d %q, want 403 approval_required", status, problem.Code)
+	}
+	if getStatus := e.call(t, "GET", "/v1/people/"+created.ID, nil, bearer, nil); getStatus != 200 {
+		t.Fatalf("staged archive must not have executed; GET → %d", getStatus)
+	}
+	approvalID := extractStagedApprovalID(t, problem.Detail)
+
+	// The agent may STAGE but never APPROVE — including its own staging.
+	var denyBody struct {
 		Code string `json:"code"`
 	}
-	status := e.call(t, "POST", "/v1/people", anyMap{
-		"full_name": "Should not exist", "source": "mcp", "captured_by": "x",
-	}, bearer, &problem)
-	if status != 403 || problem.Code != "agent_surface_restricted" {
-		t.Fatalf("write-scope REST mutation → %d %q, want 403 agent_surface_restricted", status, problem.Code)
+	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
+		t.Fatalf("agent self-approval → %d %q, want 403 permission_denied", status, denyBody.Code)
 	}
-	// The refusal is not a stray scope error.
-	if problem.Code == "scope_exceeds_grantor" {
-		t.Fatal("a write-scoped passport must not be refused as out-of-scope")
+
+	// Human-only config surface rejects the agent whatever its scopes.
+	if status := e.call(t, "POST", "/v1/pipelines", anyMap{"name": "Shadow"}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
+		t.Fatalf("agent on human-only pipeline config → %d %q, want 403 permission_denied", status, denyBody.Code)
 	}
+
+	// A human approves; the agent repeats the IDENTICAL request with the
+	// approval token and the effect lands exactly once.
+	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != 200 {
+		t.Fatalf("human approve → %d", status)
+	}
+	withToken := map[string]string{"Authorization": "Bearer " + minted.Token, "X-Approval-Token": approvalID}
+	if status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, nil); status != 200 {
+		t.Fatalf("approved retry → %d, want the archive to execute", status)
+	}
+	// Single-use: the same token cannot authorize a second effect.
+	if status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem); status == 200 {
+		t.Fatal("a consumed approval token authorized a second effect")
+	}
+}
+
+// extractStagedApprovalID pulls the staged approval's id out of the 403
+// approval_required detail — the same reference the human inbox lists.
+func extractStagedApprovalID(t *testing.T, detail string) string {
+	t.Helper()
+	const marker = "staged as approval "
+	i := strings.Index(detail, marker)
+	if i < 0 {
+		t.Fatalf("no staged approval reference in %q", detail)
+	}
+	rest := detail[i+len(marker):]
+	if j := strings.IndexByte(rest, ' '); j > 0 {
+		rest = rest[:j]
+	}
+	return rest
 }
 
 // C2: a read seat is a hard capability ceiling — a read-seat human may read

@@ -5,12 +5,51 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-04 (red-team remediation).** Roughly **17–18 %** of the
+**Last updated: 2026-07-04 (ADR-0055 adoption).** Roughly **18 %** of the
 701-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is
 implemented and gate-verified.
 
-## Current session: post-restructure red-team, all findings fixed
+## Current session: the spec's red-team fixes landed in code (ADR-0055)
+
+The spec repo fixed the 2026-07-04 design-review findings (fail-open
+gate, self-approval bypass, DAG-illegal RBAC read, overloaded SoR seam,
+contract mismatches) in commits `b322372` + `47da93d`; this session
+implements them here — full record in
+[decisions/0012](decisions/0012-adr0055-transport-agnostic-gate.md):
+
+- **Agents keep REST writes, governed** — the C1 read-only stopgap
+  (`ErrAgentSurfaceRestricted`) is withdrawn per ADR-0055. A generated
+  route→policy table (`tools/gen-agentpolicy`, drift-linted: every
+  mutating contract op MUST carry `x-mcp-tool` or `x-agent-access`)
+  drives the compose agent gate: 🟢 admits, 🟡 stages the same approval
+  the MCP tool would (retry with `X-Approval-Token`), unmapped routes
+  default-deny, tighten-only when annotation and ToolSpec disagree.
+- **Self-approval closed at three layers** — approve/reject (+ consent,
+  DSR, pipeline/stage config, passport issue/revoke) are
+  `x-agent-access: human-only` + cookieAuth-only in the contract,
+  rejected by the gate, and re-checked in the approvals service
+  (`TestGovernanceOperationsAreHumanOnly`, e2e self-approval test).
+- **`shared/ports/authz` seam** — identity implements, compose injects,
+  `gate.Admit` re-derives seat + RBAC live per admission (revocation
+  binds mid-session) without a platform→modules edge.
+- **SoR v1 frozen** — `StageSemantic`/`PromoteLead` lifted into the
+  interface; `TestSystemOfRecordProviderV1MethodSetIsFrozen` is the
+  interface-diff gate; post-v1 verbs go on `...V2` + capability probe.
+- **Contract synced to the spec** (If-Match↔version reconciled,
+  `captured_by` readOnly/server-stamped, DDL-aligned enums,
+  `approval_required` wire code, scope/seat 403 responses), keeping the
+  A1 `/passports` surface in place of the not-yet-built OAuth2 AS
+  (deliberate, recorded in decisions/0012). Spec defects found while
+  syncing: [feedback/04](feedback/04-crmyaml-login-duplicate-security-key.md),
+  [feedback/05](feedback/05-archive-disqualify-xmcptool-verb-mismatch.md).
+
+All gates green at session close: `make check`, `make test-integration`
+(cold cache), incl. the new e2e loop: agent 🟢 create lands
+agent-stamped → 🟡 archive stages → agent self-approve refused → human
+approves → token retry executes once.
+
+## Previous session: post-restructure red-team, all findings fixed
 
 A current-state red-team pass ran after the triad restructure (its
 review file is addressed in full and retired to git history). Every
@@ -90,6 +129,8 @@ finished. Recorded in [decisions/0009](decisions/0009-two-record-merge-survivors
 - **C1** — passport bearer tokens are read-only on REST; agent mutations go
   through the governed MCP tools (one choke point). New sentinel
   `ErrAgentSurfaceRestricted`. Spec reconciliation filed as `../fable feedback/18`.
+  *(Superseded: ADR-0055 withdrew the stopgap — agent REST writes are now
+  admitted and gated, decisions/0012.)*
 - **C2** — read/full seat ceiling now on `crmctx.Principal` (human + agent),
   enforced before RBAC in the REST middleware and `gate.Admit`; unset fails closed.
 - **C3** — the approval inbox (`List`/`Get`) filters by the same grant the

@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/web"
 )
@@ -58,18 +59,28 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	// On workspace bootstrap, deals seeds its per-workspace defaults
 	// (the default pipeline) — composed here so neither module imports
 	// the other.
-	auth := identity.NewHandlers(identity.NewService(pool), dealsH.SeedWorkspaceDefaultsTx)
+	identitySvc := identity.NewService(pool)
+	authH := identity.NewHandlers(identitySvc, dealsH.SeedWorkspaceDefaultsTx)
 
 	srv := Server{
-		authHandlers:       auth,
+		authHandlers:       authH,
 		peopleHandlers:     people.NewHandlers(pool),
 		dealsHandlers:      dealsH,
 		activitiesHandlers: activities.NewHandlers(pool),
 		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
 	}
 
+	// The ADR-0055 admission layer rides INSIDE the router (it needs the
+	// matched route pattern) and shares the MCP surface's tier table,
+	// approvals staging, and live-authority gate — one gate, two
+	// transports.
+	gate := auth.NewGate(identitySvc)
+	registry := newRegistry(pool, gate)
+	provider := NewProvider(pool)
+	staging := approvalsAdapter{svc: approvals.NewService(pool)}
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
-		BaseURL: "/v1",
+		BaseURL:     "/v1",
+		Middlewares: []crmcontracts.MiddlewareFunc{agentGate(registry, staging, provider, gate)},
 	})
 
 	// Only /v1 rides the session middleware; the embedded SPA and the
@@ -77,7 +88,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	// access goes back through /v1 — it holds no privileged path).
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.Handle("/v1/", httpserver.Correlate(auth.Middleware(api)))
+	mux.Handle("/v1/", httpserver.Correlate(authH.Middleware(api)))
 	mux.Handle("/", web.Handler())
 
 	return httpserver.RecoverPanics(log, httpserver.SecureHeaders(mux))

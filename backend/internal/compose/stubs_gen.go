@@ -216,7 +216,7 @@ func (stubs) GetPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 	httperr.NotImplemented(w, r, "GetPartner")
 }
 
-func (stubs) UpsertPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) UpsertPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpsertPartnerParams) {
 	httperr.NotImplemented(w, r, "UpsertPartner")
 }
 
@@ -304,7 +304,7 @@ func (stubs) ArchiveRelationship(w nethttp.ResponseWriter, r *nethttp.Request, i
 	httperr.NotImplemented(w, r, "ArchiveRelationship")
 }
 
-func (stubs) UpdateRelationship(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) UpdateRelationship(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateRelationshipParams) {
 	httperr.NotImplemented(w, r, "UpdateRelationship")
 }
 

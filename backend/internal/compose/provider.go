@@ -157,15 +157,15 @@ func (p *Provider) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealInp
 }
 
 // StageSemantic feeds the advance_deal tier resolver (interfaces.md
-// §2.1). Not part of the sor interface — the gate needs it before the
-// provider verb runs.
+// §2.1) — part of the frozen v1 seam, resolved from pipeline config,
+// never from labels or request args.
 func (p *Provider) StageSemantic(ctx context.Context, stageID ids.UUID) (semantic string, pipelineID ids.UUID, err error) {
 	return p.deals.StageSemantic(ctx, stageID)
 }
 
-// PromoteLead exposes the features/01 §6.4 graduation to the tool
-// surface (a provider extension: interfaces.md §3 has no promotion verb
-// yet).
+// PromoteLead is the features/01 §6.4 graduation — a cross-module
+// orchestration verb of the frozen v1 seam (interfaces.md §3), owned by
+// the people module's transaction and dispatched here.
 func (p *Provider) PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (datasource.EntityRef, bool, error) {
 	return p.people.PromoteLead(ctx, id, trigger, evidenceNote)
 }

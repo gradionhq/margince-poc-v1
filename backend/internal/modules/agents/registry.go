@@ -28,10 +28,14 @@ type Registry struct {
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
 	approvals Approvals
+	// gate is the platform/auth admission point; it re-derives the
+	// granting human's authority live per call. A nil gate fails closed
+	// for agent principals (Gate.Admit owns that rule).
+	gate *auth.Gate
 }
 
-func NewRegistry(approvals Approvals) *Registry {
-	return &Registry{tools: map[string]mcp.Tool{}, approvals: approvals}
+func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
+	return &Registry{tools: map[string]mcp.Tool{}, approvals: approvals, gate: gate}
 }
 
 var _ mcp.Registry = (*Registry)(nil)
@@ -84,7 +88,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		resolve = func() (mcp.TierResolverInput, error) { return dyn.ResolverInput(ctx, args) }
 	}
 
-	err = auth.Admit(ctx, spec, resolve)
+	ctx, err = r.gate.Admit(ctx, spec, resolve)
 	switch {
 	case err == nil:
 		return t.Handle(ctx, args)
@@ -122,6 +126,18 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			"staged as approval %s — once a human approves it, repeat this exact call with \"approval_id\": %q: %w",
 			id, id.String(), apperrors.ErrRequiresApproval)
 	}
+}
+
+// Spec returns the registered spec for name — the REST admission path
+// (ADR-0055) resolves a mutating operation's tool twin through this.
+func (r *Registry) Spec(name string) (mcp.ToolSpec, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.tools[name]
+	if !ok {
+		return mcp.ToolSpec{}, false
+	}
+	return t.Spec(), true
 }
 
 // Specs lists the registered surface, stably ordered for tools/list.

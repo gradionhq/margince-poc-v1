@@ -13,12 +13,41 @@ openapi: 3.1.0
 #   - Resources are plural nouns (/people, /organizations, /deals, ...).
 #   - Pagination is cursor-based: ?cursor=&limit= -> { data, page: {next_cursor, has_more} }.
 #   - Errors are RFC 7807 problem+json with a stable machine `code`, plus `details`.
-#   - Auth is bearer JWT (workspace + user/agent principal in claims).
+#   - Auth is two schemes (ADR-0043): `cookieAuth` — an opaque `crm_session` cookie for
+#     interactive humans; and `bearerAuth` — an opaque bearer token (the Agent Seat Passport,
+#     ADR-0013, minted via POST /passports — the local/A1 path) for agents. Both resolve the same
+#     workspace + principal and hit the same server-side RBAC enforcement; neither is a JWT path.
 #   - POST is idempotent via the `Idempotency-Key` header.
-#   - Every domain response carries provenance: `source` + `captured_by`.
+#   - Every domain response carries provenance: `source` (client-supplied — names the producing
+#     artifact) + `captured_by` (server-stamped from the authenticated principal, read-only, never
+#     accepted on a create/update request — Finding 09).
 #   - Soft-delete only: archive endpoints set `archived_at`; rows stay fetchable by id.
 #   - Client custom fields appear additively, marked with the `x-extension` vendor key.
 #   - Operations that back a Layer-1 MCP tool verb carry `x-mcp-tool` with a 🟢/🟡 tier.
+#   - `correlation_id` (the events.md envelope field grouping all events from one originating
+#     request) is minted SERVER-SIDE per request and is NEVER client-supplied — no request header
+#     is honored for it. Clients do not set it.
+#   - Autonomy gate applies identically on REST and MCP (ADR-0055): when the caller is an AGENT
+#     principal (bearer/Passport), a mutating operation whose mapped autonomy tier is 🟡 does NOT
+#     perform the change — it stages an approval (ErrRequiresApproval) exactly as the MCP tool does,
+#     keyed by operationId→ToolSpec, and returns the approval-required response (403 code:
+#     approval_required, or 202 where a staging ref is returned). REST is NOT read-only for agents;
+#     the SAME resolver/approval flow gates both surfaces. A human's direct call is itself approval.
+#   - DEFAULT-DENY (fail-closed): the gate resolves an agent-principal mutation's tier from
+#     `operationId → ToolSpec`. A mutating operation that maps to NO ToolSpec tier is REFUSED for an
+#     agent principal (403 code: permission_denied) — never silently admitted. So a new endpoint that
+#     forgets `x-mcp-tool` fails closed, not open. CONTRACT INVARIANT (drift-lint): every mutating
+#     operation (POST/PUT/PATCH/DELETE) MUST carry either `x-mcp-tool` (a tier) OR `x-agent-access`.
+#   - `x-agent-access: human-only` — the operation rejects an AGENT (Passport) principal outright
+#     (403 code: permission_denied), whatever its scope/seat. Used for governance the agent must not
+#     self-serve: approval decisions (approve/reject — an agent may STAGE a 🟡 action but never
+#     APPROVE it, incl. its own), consent + DSR writes, and pipeline/stage *config* (the semantic
+#     ground truth advance_deal's 🟡 floor reads). DEFENSE IN DEPTH: these ops also OVERRIDE the global
+#     `security:` to `cookieAuth` only (human session) — an agent bearer/Passport is not even an accepted
+#     credential at the transport, so the human-only rule holds at the contract layer, not only in the gate.
+#     `x-agent-access: auth-bootstrap` — the auth/session machinery itself (workspace bootstrap,
+#     login/logout); the pre-auth endpoints (bootstrap, login) override `security: []` (no prior
+#     credential required); not tier-gated, not an agent tool.
 #
 # Deferred areas (NOT specified here — see data-model.md §12): sequences/cadences,
 # telephony/click-to-call, the dedicated embedding store, workflow-run records.
@@ -88,7 +117,7 @@ tags:
   - name: Approvals
     description: The 🟡 confirm-first approval inbox (approve/reject staged agent actions).
   - name: Identity
-    description: Current user / principal.
+    description: Current user / principal, plus Agent Seat Passport issuance (the local/A1 path).
 
 # =============================================================================
 paths:
@@ -128,6 +157,7 @@ paths:
     post:
       tags: [Identity]
       operationId: bootstrapWorkspace
+      x-agent-access: auth-bootstrap
       summary: Bootstrap a workspace and its first admin user (ADR-0043).
       description: |
         Creates a workspace **and** its first admin `app_user` in one transaction, then opens
@@ -162,6 +192,8 @@ paths:
     post:
       tags: [Identity]
       operationId: login
+      security: []   # pre-auth endpoint — no prior credential required
+      x-agent-access: auth-bootstrap
       summary: Authenticate with email + password (+ MFA when required) and open a session.
       description: |
         Baseline interactive sign-in (ADR-0043). On success mints an opaque server-side session
@@ -169,7 +201,6 @@ paths:
         workspace requires MFA, a first call without `mfa_code` returns `403 code: mfa_required`;
         when SSO-enforced, password login returns `403 code: sso_enforced`. Every attempt
         (success/failure/lockout/MFA challenge) is audited (`features/04 §7`).
-      security: []
       requestBody:
         required: true
         content:
@@ -201,6 +232,8 @@ paths:
     post:
       tags: [Identity]
       operationId: logout
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: auth-bootstrap
       summary: End the current session and clear the cookie.
       description: Deletes the current `session` row and clears `crm_session`. Idempotent. Audited.
       responses:
@@ -212,18 +245,23 @@ paths:
               description: 'crm_session=; Max-Age=0; HttpOnly; Secure; SameSite=Strict; Path=/'
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ------------------------------ /passports --------------------------------
   /passports:
     post:
       tags: [Identity]
       operationId: issuePassport
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Mint an Agent Seat Passport for the calling user's own agent.
       description: |
         Session-authenticated (human) minting of a Passport bearer token bounding an agent to the
         caller's own identity (`on_behalf_of` = the session user, always — "agent ≤ human",
         ADR-0013/ADR-0043). Scopes are the verb classes a tool may require; the agent's effective
         authority is scopes ∩ the granting human's RBAC, resolved at every call. The raw token is
-        returned ONCE and never stored. This is the local/A1 issuance path; the hosted A2 surface
-        replaces it with the full OAuth2 + PKCE + DCR flow (see `fable feedback/04`).
+        returned ONCE and never stored. Human-only: an agent minting (or widening) a Passport would
+        be self-granted authority. This is the local/A1 issuance path; the hosted A2 surface
+        replaces it with the spec's full OAuth2 + PKCE + DCR Authorization-Server flow
+        (decisions/0012 records the deliberate contract lag).
       requestBody:
         required: true
         content:
@@ -244,10 +282,13 @@ paths:
     delete:
       tags: [Identity]
       operationId: revokePassport
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Revoke a Passport (kill switch for one agent binding).
       description: |
         Revocation is enforced at the next token lookup. A user revokes their own passports;
-        revoking another user's requires the admin role. Idempotent. Audited.
+        revoking another user's requires the admin role. Idempotent. Audited. Human-only: the
+        kill switch belongs to the granting human, never to the agent it bounds.
       responses:
         '204':
           description: Passport revoked (or already revoked).
@@ -354,7 +395,6 @@ paths:
                   emails:
                     - { email: dana@acme.com, email_type: work, is_primary: true }
                   source: ui
-                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
       responses:
         '201':
           description: Created. Body round-trips identically on GET.
@@ -410,6 +450,7 @@ paths:
       x-mcp-tool: { verb: update_record, record_type: person, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -433,7 +474,7 @@ paths:
       description: |
         Sets `archived_at`, removes from default lists, retains in audit; the row is
         still fetchable by id (features/01 §1.1 AC). No hard delete by default.
-      x-mcp-tool: { verb: update_record, record_type: person, tier: yellow }
+      x-mcp-tool: { verb: archive_record, record_type: person, tier: yellow }
       responses:
         '200':
           description: Archived person (now carries a non-null `archived_at`).
@@ -450,6 +491,7 @@ paths:
     post:
       tags: [People]
       operationId: mergePerson
+      x-mcp-tool: { verb: merge_records, record_type: person, tier: yellow }
       summary: Merge this person into a target (non-lossy).
       description: |
         Merge A→B relinks A's emails/phones/relationships/activity links to B with zero
@@ -457,6 +499,7 @@ paths:
         transaction; reversible within audit.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -529,7 +572,6 @@ paths:
                   display_name: Acme Inc
                   domains: [{ domain: acme.com, is_primary: true }]
                   source: ui
-                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
       responses:
         '201':
           description: Created organization.
@@ -569,6 +611,7 @@ paths:
       x-mcp-tool: { verb: update_record, record_type: organization, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -587,7 +630,7 @@ paths:
       tags: [Organizations]
       operationId: archiveOrganization
       summary: Archive (soft-delete) an organization.
-      x-mcp-tool: { verb: update_record, record_type: organization, tier: yellow }
+      x-mcp-tool: { verb: archive_record, record_type: organization, tier: yellow }
       responses:
         '200':
           description: Archived organization.
@@ -612,6 +655,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -636,10 +680,13 @@ paths:
     put:
       tags: [Organizations, Partners]
       operationId: upsertPartner
+      x-mcp-tool: { verb: update_record, record_type: partner, tier: green }
       summary: Create/update the partner extension on an org (sets classification='partner').
       description: |
         Promotes an org to a first-class partner (A41/ADR-0032) by upserting its `partner` row and
         setting `classification='partner'`. Company identity is never duplicated. 🟢 admin write.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'   # partner is versioned (data-model §4.3) — optimistic concurrency on update
       requestBody:
         required: true
         content:
@@ -679,7 +726,7 @@ paths:
           schema: { type: string, enum: [hosting, consulting, strategic] }
         - name: cert_status
           in: query
-          schema: { type: string, enum: [prospect, in_certification, certified, suspended, churned] }
+          schema: { type: string, enum: [applied, certified, suspended] }
       x-mcp-tool: { verb: search_records, record_type: partner, tier: green }
       responses:
         '200':
@@ -759,7 +806,6 @@ paths:
                   stage_id: 018f3a1b-0000-7000-8000-0000000000c1
                   organization_id: 018f3a1b-0000-7000-8000-000000000020
                   source: ui
-                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
       responses:
         '201':
           description: Created deal.
@@ -809,6 +855,7 @@ paths:
       x-mcp-tool: { verb: update_record, record_type: deal, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -827,7 +874,7 @@ paths:
       tags: [Deals]
       operationId: archiveDeal
       summary: Archive (soft-delete) a deal.
-      x-mcp-tool: { verb: update_record, record_type: deal, tier: yellow }
+      x-mcp-tool: { verb: archive_record, record_type: deal, tier: yellow }
       responses:
         '200':
           description: Archived deal.
@@ -857,6 +904,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -927,6 +975,8 @@ paths:
     post:
       tags: [Pipelines]
       operationId: createPipeline
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Create a pipeline.
       description: At most one default pipeline per workspace (409 if a second default).
       parameters:
@@ -963,6 +1013,8 @@ paths:
     patch:
       tags: [Pipelines]
       operationId: updatePipeline
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Update a pipeline (rename / reorder / set default — bounded config).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1002,6 +1054,8 @@ paths:
     post:
       tags: [Pipelines]
       operationId: createStage
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Create a stage in a pipeline.
       description: |
         `position` is unique within the pipeline. Terminal stages enforce probability:
@@ -1040,6 +1094,8 @@ paths:
     patch:
       tags: [Pipelines]
       operationId: updateStage
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Update a stage (rename / reorder / probability).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1121,7 +1177,6 @@ paths:
                     - { entity_type: person, entity_id: 018f3a1b-0000-7000-8000-000000000010 }
                     - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
                   source: ui
-                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
               capturedEmail:
                 summary: Idempotent captured email (re-run → no dupe)
                 value:
@@ -1133,7 +1188,6 @@ paths:
                   links:
                     - { entity_type: deal, entity_id: 018f3a1b-0000-7000-8000-000000000030 }
                   source: 'email:CAF=abc@mail.gmail.com'
-                  captured_by: 'agent:capture'
       responses:
         '201':
           description: Created activity.
@@ -1173,6 +1227,7 @@ paths:
       x-mcp-tool: { verb: update_record, record_type: activity, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -1189,6 +1244,7 @@ paths:
     delete:
       tags: [Activities]
       operationId: archiveActivity
+      x-mcp-tool: { verb: archive_record, record_type: activity, tier: yellow }
       summary: Archive (soft-delete) an activity.
       responses:
         '200':
@@ -1457,7 +1513,6 @@ paths:
                   source_system: apollo
                   source_id: apollo-9931
                   source: 'connector:apollo:apollo-9931'
-                  captured_by: 'connector:apollo'
       responses:
         '201':
           description: Created lead.
@@ -1497,6 +1552,7 @@ paths:
       x-mcp-tool: { verb: update_record, record_type: lead, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -1515,7 +1571,7 @@ paths:
       operationId: disqualifyLead
       summary: Disqualify (soft-archive) a lead.
       description: Sets `archived_at` + `status=disqualified`; still fetchable by id.
-      x-mcp-tool: { verb: update_record, record_type: lead, tier: yellow }
+      x-mcp-tool: { verb: disqualify_lead, record_type: lead, tier: yellow }
       responses:
         '200':
           description: Disqualified lead.
@@ -1530,6 +1586,7 @@ paths:
     post:
       tags: [Leads]
       operationId: promoteLead
+      x-mcp-tool: { verb: promote_lead, record_type: lead, tier: yellow }
       summary: Promote a lead to a person on genuine engagement (non-lossy merge).
       description: |
         Promotion runs in one transaction (features/01 §6.4, ADR-0008): if the lead email
@@ -1608,6 +1665,7 @@ paths:
     post:
       tags: [Relationships]
       operationId: createRelationship
+      x-mcp-tool: { verb: create_record, record_type: relationship, tier: green }
       summary: Create a relationship edge (employment or deal stakeholder).
       description: |
         `employment` requires person_id + organization_id; `deal_stakeholder` requires
@@ -1626,7 +1684,6 @@ paths:
                   role: vp_engineering
                   is_current_primary: true
                   source: ui
-                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
               stakeholder:
                 value:
                   kind: deal_stakeholder
@@ -1634,7 +1691,6 @@ paths:
                   person_id: 018f3a1b-0000-7000-8000-000000000010
                   role: champion
                   source: ui
-                  captured_by: 'human:018f3a1b-0000-7000-8000-000000000001'
       responses:
         '201':
           description: Created relationship.
@@ -1651,7 +1707,10 @@ paths:
     patch:
       tags: [Relationships]
       operationId: updateRelationship
+      x-mcp-tool: { verb: update_record, record_type: relationship, tier: green }
       summary: Update a relationship (role, primary flag, dates).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -1669,6 +1728,7 @@ paths:
     delete:
       tags: [Relationships]
       operationId: archiveRelationship
+      x-mcp-tool: { verb: archive_record, record_type: relationship, tier: yellow }
       summary: Archive (soft-delete) a relationship.
       responses:
         '200':
@@ -1699,6 +1759,7 @@ paths:
     post:
       tags: [Lists]
       operationId: createList
+      x-mcp-tool: { verb: create_record, record_type: list, tier: green }
       summary: Create a list (static set or dynamic segment).
       requestBody:
         required: true
@@ -1730,6 +1791,7 @@ paths:
     delete:
       tags: [Lists]
       operationId: archiveList
+      x-mcp-tool: { verb: archive_record, record_type: list, tier: yellow }
       summary: Archive a list.
       responses:
         '200':
@@ -1759,6 +1821,7 @@ paths:
     post:
       tags: [Lists]
       operationId: addListMember
+      x-mcp-tool: { verb: update_record, record_type: list, tier: green }
       summary: Add a member to a static list.
       requestBody:
         required: true
@@ -1792,6 +1855,7 @@ paths:
     post:
       tags: [Tags]
       operationId: createTag
+      x-mcp-tool: { verb: create_record, record_type: tag, tier: green }
       summary: Create a tag.
       requestBody:
         required: true
@@ -1813,6 +1877,7 @@ paths:
     delete:
       tags: [Tags]
       operationId: archiveTag
+      x-mcp-tool: { verb: archive_record, record_type: tag, tier: yellow }
       summary: Archive a tag.
       responses:
         '200':
@@ -1828,6 +1893,7 @@ paths:
     post:
       tags: [Tags]
       operationId: applyTag
+      x-mcp-tool: { verb: update_record, record_type: tag, tier: green }
       summary: Apply a tag to an entity (person/org/deal/lead).
       requestBody:
         required: true
@@ -2052,6 +2118,8 @@ paths:
     post:
       tags: [Approvals]
       operationId: approveApproval
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Approve a staged action (commits it; mints the approval token).
       description: |
         Approving commits the proposed change in one audit transaction. The (optionally
@@ -2088,6 +2156,8 @@ paths:
     post:
       tags: [Approvals]
       operationId: rejectApproval
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Reject a staged action (discards it; nothing commits).
       requestBody:
         required: false
@@ -2135,6 +2205,8 @@ paths:
     post:
       tags: [Compliance]
       operationId: createDataSubjectRequest
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Open a data-subject request (access/rectify/erasure). Admin-mediated; ties to retention/erasure (B-EP07.13/.16).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -2155,6 +2227,8 @@ paths:
     patch:
       tags: [Compliance]
       operationId: updateDataSubjectRequest
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Update a data-subject request's status / assignee / resolution.
       requestBody:
         required: true
@@ -2189,6 +2263,8 @@ paths:
     post:
       tags: [Compliance]
       operationId: createConsentPurpose
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Define a consent purpose. 🟢 admin write.
       requestBody:
         required: true
@@ -2229,6 +2305,8 @@ paths:
     post:
       tags: [Compliance]
       operationId: recordConsent
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Grant or withdraw consent for one purpose — writes an append-only proof row.
       description: |
         Sets the person's consent for one `purpose_id` to `granted` or `withdrawn`, appending a
@@ -2333,6 +2411,7 @@ paths:
         matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
       parameters:
         - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
       x-mcp-tool: { verb: share_record, record_type: record_grant, tier: yellow }
       responses:
         '204': { description: Revoked. }
@@ -2486,13 +2565,16 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
       description: |
-        Bearer JWT. Claims carry the workspace (tenant) and the principal — either a human
-        (`human:<user-uuid>`) or an agent acting under an Agent Seat Passport
-        (`agent:<id>` + passport id + on-behalf-of human). The principal's effective RBAC
-        (own/team/all + field masks) is enforced server-side; an agent can never exceed its
-        granting human's permissions.
+        Bearer token — the token IS the Agent Seat Passport (ADR-0013: one governed surface, no
+        privileged backdoors), minted via `POST /passports` (the local/A1 issuance path; the hosted
+        A2 surface replaces issuance with the spec's OAuth2 + PKCE + DCR Authorization Server —
+        decisions/0012). The token binds the workspace (tenant) and the principal — an agent acting
+        under a passport (`agent:<id>` + passport id + on-behalf-of `human:<user-uuid>`). The
+        principal's effective RBAC (own/team/all + field masks) is enforced server-side; an agent can
+        never exceed its granting human's permissions. Mutations by this scheme ride the autonomy
+        gate + approval staging (ADR-0055). Human interactive sessions use `cookieAuth`, not this
+        scheme.
     cookieAuth:
       type: apiKey
       in: cookie
@@ -2581,13 +2663,13 @@ components:
   # --------------------------- shared responses -----------------------------
   responses:
     Unauthorized:
-      description: Missing or invalid bearer token.
+      description: No valid credential — a missing/invalid/expired `crm_session` cookie (human path) or a missing/invalid/expired bearer token (agent path).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
           examples:
             unauth:
-              value: { type: 'https://errors.gradion.com/unauthorized', title: Unauthorized, status: 401, code: unauthorized, detail: Missing or invalid bearer token. }
+              value: { type: 'https://errors.gradion.com/unauthorized', title: Unauthorized, status: 401, code: unauthorized, detail: No valid session cookie or bearer token. }
     Forbidden:
       description: Authenticated but not permitted (RBAC row/field scope, or 🟡 approval missing).
       content:
@@ -2596,6 +2678,46 @@ components:
           examples:
             rbac:
               value: { type: 'https://errors.gradion.com/forbidden', title: Forbidden, status: 403, code: forbidden, detail: Your role does not permit this action. }
+    PermissionDenied:
+      description: 'RBAC object/action denial — the authenticated principal''s role lacks the grant for this object+action (`code: permission_denied`, ErrPermissionDenied). Distinct from `scope_exceeds_grantor`/`seat_tier_insufficient` (agent-passport limits) and `approval_required` (🟡 gate).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            denied:
+              value: { type: 'https://errors.gradion.com/permission_denied', title: Permission denied, status: 403, code: permission_denied, detail: Your role does not grant permission for this action on this object. }
+    ScopeExceeded:
+      description: 'Agent-Passport ceiling — the Passport requested/attempted more than its granting human''s effective RBAC allows (`code: scope_exceeds_grantor`, ErrScopeExceeded; agent ≤ human, ADR-0013/ADR-0026). Distinct from `permission_denied` (plain RBAC) and `seat_tier_insufficient` (seat ceiling).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            scope:
+              value: { type: 'https://errors.gradion.com/scope_exceeds_grantor', title: Passport scope exceeds grantor, status: 403, code: scope_exceeds_grantor, detail: The agent Passport may not exceed the granting human's permissions. }
+    SeatTierInsufficient:
+      description: 'Seat ceiling — a `read` seat (or an agent acting for one) attempted a mutate/send/approve or a write `record_grant`/over-ceiling Passport bind (`code: seat_tier_insufficient`, ErrSeatTierInsufficient; A62/ADR-0047).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            seat:
+              value: { type: 'https://errors.gradion.com/seat_tier_insufficient', title: Seat tier insufficient, status: 403, code: seat_tier_insufficient, detail: A read seat cannot perform this write/send/approve action. }
+    FxRateUnavailable:
+      description: 'A multi-currency roll-up could not obtain an FX rate to the base currency (`code: fx_rate_unavailable`; formulas-and-rules §6.1). The report/list is not silently computed on a missing rate.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            fx:
+              value: { type: 'https://errors.gradion.com/fx_rate_unavailable', title: FX rate unavailable, status: 422, code: fx_rate_unavailable, detail: No FX rate to the base currency was available for this period. }
+    EntityTypeMismatch:
+      description: 'A list member''s entity type does not match the list''s declared `entity_type` (`code: entity_type_mismatch`; data-model §10.1).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            mismatch:
+              value: { type: 'https://errors.gradion.com/entity_type_mismatch', title: Entity type mismatch, status: 422, code: entity_type_mismatch, detail: The member's entity type does not match the list's entity_type. }
     NotFound:
       description: No such resource in this workspace (or out of RBAC scope).
       content:
@@ -2683,7 +2805,8 @@ components:
           description: 'What produced the row: email:<id> | calendar:<id> | connector:<n>:<id> | api | import:<batch> | ui | coldstart.'
         captured_by:
           type: string
-          description: 'Who produced it: human:<uuid> | agent:<id> | connector:<name>.'
+          readOnly: true
+          description: 'Who produced it: human:<uuid> | agent:<id> | connector:<name>. Server-stamped from the authenticated principal; never client-supplied.'
         raw:
           type: [object, 'null']
           additionalProperties: true
@@ -2736,7 +2859,7 @@ components:
         is_primary: { type: boolean, default: false, description: At most one primary per type (DB-enforced). }
         position: { type: integer, default: 0, description: Explicit ordering. }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -2752,7 +2875,7 @@ components:
         is_primary: { type: boolean, default: false }
         position: { type: integer, default: 0 }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -2792,7 +2915,7 @@ components:
         merged_into_id: { type: [string, 'null'], format: uuid, description: Set when this row was merged away. }
         converted_from_lead_id: { type: [string, 'null'], format: uuid, description: Canonical origin pointer if promoted from a lead. }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
@@ -2806,7 +2929,7 @@ components:
 
     CreatePersonRequest:
       type: object
-      required: [full_name, source, captured_by]
+      required: [full_name, source]
       properties:
         full_name: { type: string }
         first_name: { type: [string, 'null'] }
@@ -2836,7 +2959,6 @@ components:
               is_primary: { type: boolean, default: false }
               position: { type: integer, default: 0 }
         source: { type: string }
-        captured_by: { type: string }
       additionalProperties: true
       x-extension: true
 
@@ -2876,7 +2998,7 @@ components:
         domain: { type: string, description: Lowercased, no scheme, no www. }
         is_primary: { type: boolean, default: false }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -2901,9 +3023,9 @@ components:
         domains:
           type: array
           items: { $ref: '#/components/schemas/OrganizationDomain' }
-        classification: { type: [string, 'null'], enum: [null, customer, prospect, partner, vendor, other], description: "An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032)." }
+        classification: { type: [string, 'null'], enum: [null, prospect, customer, agency, reseller, tech_vendor, platform, partner, competitor, other], description: "An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK." }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         partner: { $ref: '#/components/schemas/Partner' }
         version: { $ref: '#/components/schemas/RowVersion' }
@@ -2915,7 +3037,7 @@ components:
 
     CreateOrganizationRequest:
       type: object
-      required: [display_name, source, captured_by]
+      required: [display_name, source]
       properties:
         display_name: { type: string }
         legal_name: { type: [string, 'null'] }
@@ -2933,7 +3055,6 @@ components:
               domain: { type: string }
               is_primary: { type: boolean, default: false }
         source: { type: string }
-        captured_by: { type: string }
       additionalProperties: true
       x-extension: true
 
@@ -2981,7 +3102,7 @@ components:
         started_at: { type: [string, 'null'], format: date }
         ended_at: { type: [string, 'null'], format: date, description: Null = current/ongoing. }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -2989,7 +3110,7 @@ components:
 
     CreateRelationshipRequest:
       type: object
-      required: [kind, source, captured_by]
+      required: [kind, source]
       properties:
         kind: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
         person_id: { type: [string, 'null'], format: uuid }
@@ -3001,7 +3122,6 @@ components:
         started_at: { type: [string, 'null'], format: date }
         ended_at: { type: [string, 'null'], format: date }
         source: { type: string }
-        captured_by: { type: string }
 
     UpdateRelationshipRequest:
       type: object
@@ -3045,7 +3165,7 @@ components:
         last_activity_at: { type: [string, 'null'], format: date-time, description: Drives the deterministic stalled flag. }
         stalled: { type: boolean, readOnly: true, description: Derived — no activity past the threshold (absolute duration). }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
@@ -3056,7 +3176,7 @@ components:
 
     CreateDealRequest:
       type: object
-      required: [name, pipeline_id, stage_id, source, captured_by]
+      required: [name, pipeline_id, stage_id, source]
       properties:
         name: { type: string }
         amount_minor: { type: [integer, 'null'], format: int64 }
@@ -3067,7 +3187,6 @@ components:
         owner_id: { type: [string, 'null'], format: uuid }
         expected_close_date: { type: [string, 'null'], format: date }
         source: { type: string }
-        captured_by: { type: string }
       additionalProperties: true
       x-extension: true
 
@@ -3232,7 +3351,7 @@ components:
           description: One activity may link to >1 entity (person + deal).
           items: { $ref: '#/components/schemas/ActivityLink' }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
@@ -3241,7 +3360,7 @@ components:
 
     CreateActivityRequest:
       type: object
-      required: [kind, source, captured_by]
+      required: [kind, source]
       properties:
         kind: { type: string, enum: [email, call, meeting, note, task, whatsapp, telegram] }
         subject: { type: [string, 'null'] }
@@ -3263,7 +3382,6 @@ components:
               entity_type: { type: string, enum: [person, organization, deal] }
               entity_id: { type: string, format: uuid }
         source: { type: string }
-        captured_by: { type: string }
         raw: { type: [object, 'null'], additionalProperties: true }
 
     UpdateActivityRequest:
@@ -3329,7 +3447,7 @@ components:
         promoted_person_id: { type: [string, 'null'], format: uuid, description: Set on promotion (convenience mirror). }
         promoted_at: { type: [string, 'null'], format: date-time }
         source: { type: string }
-        captured_by: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
@@ -3338,7 +3456,7 @@ components:
 
     CreateLeadRequest:
       type: object
-      required: [source, captured_by]
+      required: [source]
       properties:
         full_name: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email }
@@ -3350,7 +3468,6 @@ components:
         source_system: { type: [string, 'null'] }
         source_id: { type: [string, 'null'] }
         source: { type: string }
-        captured_by: { type: string }
 
     UpdateLeadRequest:
       type: object
@@ -3576,36 +3693,6 @@ components:
         password: { type: string, minLength: 1, maxLength: 256 }
         mfa_code: { type: [string, 'null'], description: TOTP code; supply when the workspace requires MFA (else first call returns 403 mfa_required). }
 
-    IssuePassportRequest:
-      type: object
-      additionalProperties: false
-      required: [scopes]
-      properties:
-        label:  { type: [string, 'null'], maxLength: 120, description: 'Which agent this binds, e.g. "Claude Desktop".' }
-        scopes:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items: { type: string, enum: [read, draft, write, send, enrich] }
-          description: Verb classes the passport may exercise; effective authority is always ∩ the granting human's RBAC.
-        ttl_hours:
-          type: [integer, 'null']
-          minimum: 1
-          maximum: 2160
-          description: Lifetime in hours (default 720 = 30 days, max 90 days). Revocable at any time.
-
-    IssuePassportResponse:
-      type: object
-      required: [passport_id, token, scopes, on_behalf_of, expires_at]
-      properties:
-        passport_id: { type: string, format: uuid }
-        token:       { type: string, description: The bearer token — shown ONCE, stored only as a hash. }
-        scopes:
-          type: array
-          items: { type: string }
-        on_behalf_of: { type: string, format: uuid, description: The human whose RBAC bounds every call this passport makes. }
-        expires_at:   { type: string, format: date-time }
-
     MeResponse:
       type: object
       required: [user, roles, teams]
@@ -3824,7 +3911,7 @@ components:
       readOnly: true
       minimum: 1
       description: |
-        Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+        Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
         Echoed back as the `version` field on every mutable entity. To make a write conditional,
         send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
         (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -3858,12 +3945,12 @@ components:
       description: |
         First-class partner state as a 1:1 extension of an organization (an org IS a partner iff it
         has a `partner` row + classification='partner'). Company identity is never duplicated.
-      required: [organization_id, partner_role, cert_status, created_at, updated_at]
+      required: [organization_id, cert_status, created_at, updated_at]   # partner_role is nullable (data-model §4.3)
       properties:
         organization_id: { type: string, format: uuid, description: The org this partner record extends (PK = FK). }
         partner_role: { type: string, enum: [hosting, consulting, strategic], description: Functional role (A44/ADR-0034); implementation + dev are Gradion's turf. }
-        cert_status: { type: string, enum: [prospect, in_certification, certified, suspended, churned] }
-        margin_tier: { type: [string, 'null'], description: Scenario-C margin tier (business/14-partner-program.md). }
+        cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
+        margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25], description: Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK). }
         gate_metrics: { type: [object, 'null'], additionalProperties: true, description: Program gate metrics (certified seats, CSAT, ...). }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
@@ -3875,8 +3962,8 @@ components:
       required: [partner_role]
       properties:
         partner_role: { type: string, enum: [hosting, consulting, strategic] }
-        cert_status: { type: string, enum: [prospect, in_certification, certified, suspended, churned] }
-        margin_tier: { type: [string, 'null'] }
+        cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
+        margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25] }
         gate_metrics: { type: [object, 'null'], additionalProperties: true }
 
     # ---- Per-purpose consent (A22/ADR-0011) ----
@@ -3889,7 +3976,6 @@ components:
         key: { type: string, description: 'Stable machine key (e.g. transactional, marketing_email, profiling). Referenced by send_email.consent_purpose.' }
         label: { type: string }
         requires_double_opt_in: { type: boolean, default: false, description: 'When true, a grant is only effective after a confirmed DOI event (German email norm).' }
-        legal_basis: { type: [string, 'null'], enum: [null, consent, contract, legitimate_interest], description: GDPR Art. 6 basis. }
         created_at: { type: string, format: date-time }
 
     CreateConsentPurposeRequest:
@@ -3899,7 +3985,6 @@ components:
         key: { type: string }
         label: { type: string }
         requires_double_opt_in: { type: boolean, default: false }
-        legal_basis: { type: [string, 'null'], enum: [null, consent, contract, legitimate_interest] }
 
     PersonConsentState:
       type: object
@@ -3909,7 +3994,7 @@ components:
         purpose_id: { type: string, format: uuid }
         purpose_key: { type: [string, 'null'] }
         state: { type: string, enum: [unknown, granted, withdrawn] }
-        basis: { type: [string, 'null'] }
+        lawful_basis: { type: [string, 'null'] }
         double_opt_in_confirmed_at: { type: [string, 'null'], format: date-time }
         updated_at: { type: [string, 'null'], format: date-time }
 
@@ -3921,7 +4006,7 @@ components:
         id: { type: string, format: uuid }
         purpose_id: { type: string, format: uuid }
         new_state: { type: string, enum: [granted, withdrawn], description: Proof rows record only transitions to granted/withdrawn (never to unknown). }
-        basis: { type: [string, 'null'] }
+        lawful_basis: { type: [string, 'null'] }
         source: { type: [string, 'null'], description: 'How consent was captured (e.g. webform, import, double_opt_in).' }
         actor_type: { type: string, enum: [human, agent, system, connector] }
         actor_id: { type: [string, 'null'] }
@@ -3933,7 +4018,7 @@ components:
       properties:
         purpose_id: { type: string, format: uuid }
         new_state: { type: string, enum: [granted, withdrawn] }
-        basis: { type: [string, 'null'] }
+        lawful_basis: { type: [string, 'null'] }
         source: { type: [string, 'null'] }
         double_opt_in_token: { type: [string, 'null'], description: Required to make a grant effective when the purpose has requires_double_opt_in=true. }
 
@@ -3979,7 +4064,8 @@ components:
         assignee_id: { type: [string, 'null'], format: uuid }
         resolution: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
-        version: { type: integer, format: int64 }
+        # no `version`/If-Match: data_subject_request has no version column (data-model §12.5) and is a
+        # single-assignee human-only workflow record (x-agent-access: human-only) — not optimistically concurrent.
 
     CreateDataSubjectRequest:
       type: object
@@ -3996,3 +4082,34 @@ components:
         status: { type: string, enum: [open, in_progress, fulfilled, rejected] }
         assignee_id: { type: [string, 'null'], format: uuid }
         resolution: { type: [string, 'null'] }
+
+    # ---- Agent Seat Passport issuance (ADR-0013; the local/A1 path) ----
+    IssuePassportRequest:
+      type: object
+      additionalProperties: false
+      required: [scopes]
+      properties:
+        label:  { type: [string, 'null'], maxLength: 120, description: 'Which agent this binds, e.g. "Claude Desktop".' }
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, enum: [read, draft, write, send, enrich] }
+          description: Verb classes the passport may exercise; effective authority is always ∩ the granting human's RBAC.
+        ttl_hours:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 2160
+          description: Lifetime in hours (default 720 = 30 days, max 90 days). Revocable at any time.
+
+    IssuePassportResponse:
+      type: object
+      required: [passport_id, token, scopes, on_behalf_of, expires_at]
+      properties:
+        passport_id: { type: string, format: uuid }
+        token:       { type: string, description: The bearer token — shown ONCE, stored only as a hash. }
+        scopes:
+          type: array
+          items: { type: string }
+        on_behalf_of: { type: string, format: uuid, description: The human whose RBAC bounds every call this passport makes. }
+        expires_at:   { type: string, format: date-time }

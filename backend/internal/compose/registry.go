@@ -12,13 +12,22 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // NewRegistry wires the full 🟢/🟡 tool set over the composite provider.
+// The admission gate re-derives authority through the shared/ports/authz
+// seam, which identity implements — injected here so platform/auth never
+// imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool) *agents.Registry {
+	return newRegistry(pool, auth.NewGate(identity.NewService(pool)))
+}
+
+func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	provider := NewProvider(pool)
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)})
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider)
 	return registry
 }

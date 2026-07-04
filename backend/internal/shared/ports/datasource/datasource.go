@@ -35,6 +35,14 @@ type EntityRef struct {
 // tool verbs; writes are split (Create/Update/AdvanceDeal) so AdvanceDeal
 // can emit the first-class deal.stage_changed event and apply the
 // won/lost 🟡 gate without a verb-sniffing generic write.
+//
+// THE V1 METHOD SET IS FROZEN (interfaces.md §3, ADR-0017 §1): a fork may
+// ship its own implementation (a bespoke incumbent adapter), so growing
+// this interface in place is a breaking change to every such adapter. A
+// post-v1 verb is added as a NEW SystemOfRecordProviderV2 interface plus
+// a runtime capability probe (`if v2, ok := p.(...V2)`), never here; an
+// adapter that cannot serve a v2 verb returns ErrUnsupportedBySoR. The
+// freeze is pinned by TestSystemOfRecordProviderV1MethodSetIsFrozen.
 type SystemOfRecordProvider interface {
 	// Reads are mirror-served in overlay mode to meet P4 read budgets.
 	Read(ctx context.Context, ref EntityRef) (Record, error)
@@ -42,6 +50,12 @@ type SystemOfRecordProvider interface {
 	ListObjects(ctx context.Context) ([]ObjectDef, error)
 	ListFields(ctx context.Context, objectType EntityType) ([]FieldDef, error)
 	RunReport(ctx context.Context, plan ReportPlan) (ReportResult, error)
+
+	// StageSemantic resolves a stage id to its canonical semantic
+	// (open|won|lost) plus owning pipeline — the lookup the advance_deal
+	// tier resolver trusts instead of labels or request args; in overlay
+	// mode it resolves through the incumbent→canonical stage mapping.
+	StageSemantic(ctx context.Context, stageID ids.UUID) (semantic string, pipelineID ids.UUID, err error)
 
 	// Writes are canonical in SoR-mode and write BACK to the incumbent in
 	// overlay mode. Every write carries provenance and the acting
@@ -56,8 +70,15 @@ type SystemOfRecordProvider interface {
 	// Merge folds source into target (person/organization only), non-lossy,
 	// and returns the survivor's ref (features/01 §1.3). 🟡 on the tool
 	// surface: collapsing two records into one is destructive and hard to
-	// reverse, so an agent stages it for human confirmation.
+	// reverse, so an agent stages it for human confirmation. It is a
+	// cross-module orchestration owned by the composition root's
+	// composite, never one module writing a sibling's tables (ADR-0054 §9).
 	Merge(ctx context.Context, in MergeInput) (EntityRef, error)
+	// PromoteLead graduates a lead into a person (dedupe-aware: merged
+	// reports true when an existing person absorbed the lead). 🟡 — a
+	// lifecycle transition that materializes records; cross-module
+	// orchestration like Merge.
+	PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (ref EntityRef, merged bool, err error)
 
 	// Freshness lets a 🟡 high-value action force a synchronous live
 	// read-through to the incumbent before acting (03e §2.3), bypassing

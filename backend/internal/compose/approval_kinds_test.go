@@ -29,7 +29,7 @@ func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.UUID, 
 func (stubApprovals) Redeem(_ context.Context, _ ids.UUID, _, _ string) error { return nil }
 
 func TestEveryYellowToolHasADecisionGrantMapping(t *testing.T) {
-	registry := agents.NewRegistry(stubApprovals{})
+	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil)
 
 	for _, spec := range registry.Specs() {

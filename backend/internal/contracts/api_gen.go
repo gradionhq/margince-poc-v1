@@ -345,30 +345,6 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
-// Defines values for ConsentPurposeLegalBasis.
-const (
-	ConsentPurposeLegalBasisConsent            ConsentPurposeLegalBasis = "consent"
-	ConsentPurposeLegalBasisContract           ConsentPurposeLegalBasis = "contract"
-	ConsentPurposeLegalBasisLegitimateInterest ConsentPurposeLegalBasis = "legitimate_interest"
-	ConsentPurposeLegalBasisLessThannil        ConsentPurposeLegalBasis = "<nil>"
-)
-
-// Valid indicates whether the value is a known member of the ConsentPurposeLegalBasis enum.
-func (e ConsentPurposeLegalBasis) Valid() bool {
-	switch e {
-	case ConsentPurposeLegalBasisConsent:
-		return true
-	case ConsentPurposeLegalBasisContract:
-		return true
-	case ConsentPurposeLegalBasisLegitimateInterest:
-		return true
-	case ConsentPurposeLegalBasisLessThannil:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CreateActivityRequestDirection.
 const (
 	CreateActivityRequestDirectionInbound     CreateActivityRequestDirection = "inbound"
@@ -465,30 +441,6 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	case CreateActivityRequestMeetingStatusLessThannil:
 		return true
 	case CreateActivityRequestMeetingStatusNoShow:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CreateConsentPurposeRequestLegalBasis.
-const (
-	CreateConsentPurposeRequestLegalBasisConsent            CreateConsentPurposeRequestLegalBasis = "consent"
-	CreateConsentPurposeRequestLegalBasisContract           CreateConsentPurposeRequestLegalBasis = "contract"
-	CreateConsentPurposeRequestLegalBasisLegitimateInterest CreateConsentPurposeRequestLegalBasis = "legitimate_interest"
-	CreateConsentPurposeRequestLegalBasisLessThannil        CreateConsentPurposeRequestLegalBasis = "<nil>"
-)
-
-// Valid indicates whether the value is a known member of the CreateConsentPurposeRequestLegalBasis enum.
-func (e CreateConsentPurposeRequestLegalBasis) Valid() bool {
-	switch e {
-	case CreateConsentPurposeRequestLegalBasisConsent:
-		return true
-	case CreateConsentPurposeRequestLegalBasisContract:
-		return true
-	case CreateConsentPurposeRequestLegalBasisLegitimateInterest:
-		return true
-	case CreateConsentPurposeRequestLegalBasisLessThannil:
 		return true
 	default:
 		return false
@@ -1007,17 +959,25 @@ func (e MeResponsePassportScopes) Valid() bool {
 
 // Defines values for OrganizationClassification.
 const (
+	OrganizationClassificationAgency      OrganizationClassification = "agency"
+	OrganizationClassificationCompetitor  OrganizationClassification = "competitor"
 	OrganizationClassificationCustomer    OrganizationClassification = "customer"
 	OrganizationClassificationLessThannil OrganizationClassification = "<nil>"
 	OrganizationClassificationOther       OrganizationClassification = "other"
 	OrganizationClassificationPartner     OrganizationClassification = "partner"
+	OrganizationClassificationPlatform    OrganizationClassification = "platform"
 	OrganizationClassificationProspect    OrganizationClassification = "prospect"
-	OrganizationClassificationVendor      OrganizationClassification = "vendor"
+	OrganizationClassificationReseller    OrganizationClassification = "reseller"
+	OrganizationClassificationTechVendor  OrganizationClassification = "tech_vendor"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationClassification enum.
 func (e OrganizationClassification) Valid() bool {
 	switch e {
+	case OrganizationClassificationAgency:
+		return true
+	case OrganizationClassificationCompetitor:
+		return true
 	case OrganizationClassificationCustomer:
 		return true
 	case OrganizationClassificationLessThannil:
@@ -1026,9 +986,13 @@ func (e OrganizationClassification) Valid() bool {
 		return true
 	case OrganizationClassificationPartner:
 		return true
+	case OrganizationClassificationPlatform:
+		return true
 	case OrganizationClassificationProspect:
 		return true
-	case OrganizationClassificationVendor:
+	case OrganizationClassificationReseller:
+		return true
+	case OrganizationClassificationTechVendor:
 		return true
 	default:
 		return false
@@ -1073,25 +1037,43 @@ func (e OrganizationSizeBand) Valid() bool {
 
 // Defines values for PartnerCertStatus.
 const (
-	PartnerCertStatusCertified       PartnerCertStatus = "certified"
-	PartnerCertStatusChurned         PartnerCertStatus = "churned"
-	PartnerCertStatusInCertification PartnerCertStatus = "in_certification"
-	PartnerCertStatusProspect        PartnerCertStatus = "prospect"
-	PartnerCertStatusSuspended       PartnerCertStatus = "suspended"
+	PartnerCertStatusApplied   PartnerCertStatus = "applied"
+	PartnerCertStatusCertified PartnerCertStatus = "certified"
+	PartnerCertStatusSuspended PartnerCertStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the PartnerCertStatus enum.
 func (e PartnerCertStatus) Valid() bool {
 	switch e {
+	case PartnerCertStatusApplied:
+		return true
 	case PartnerCertStatusCertified:
 		return true
-	case PartnerCertStatusChurned:
-		return true
-	case PartnerCertStatusInCertification:
-		return true
-	case PartnerCertStatusProspect:
-		return true
 	case PartnerCertStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PartnerMarginTier.
+const (
+	PartnerMarginTierLessThannil PartnerMarginTier = "<nil>"
+	PartnerMarginTierTier115     PartnerMarginTier = "tier1_15"
+	PartnerMarginTierTier220     PartnerMarginTier = "tier2_20"
+	PartnerMarginTierTier325     PartnerMarginTier = "tier3_25"
+)
+
+// Valid indicates whether the value is a known member of the PartnerMarginTier enum.
+func (e PartnerMarginTier) Valid() bool {
+	switch e {
+	case PartnerMarginTierLessThannil:
+		return true
+	case PartnerMarginTierTier115:
+		return true
+	case PartnerMarginTierTier220:
+		return true
+	case PartnerMarginTierTier325:
 		return true
 	default:
 		return false
@@ -1565,25 +1547,43 @@ func (e UpdateStageRequestSemantic) Valid() bool {
 
 // Defines values for UpsertPartnerRequestCertStatus.
 const (
-	UpsertPartnerRequestCertStatusCertified       UpsertPartnerRequestCertStatus = "certified"
-	UpsertPartnerRequestCertStatusChurned         UpsertPartnerRequestCertStatus = "churned"
-	UpsertPartnerRequestCertStatusInCertification UpsertPartnerRequestCertStatus = "in_certification"
-	UpsertPartnerRequestCertStatusProspect        UpsertPartnerRequestCertStatus = "prospect"
-	UpsertPartnerRequestCertStatusSuspended       UpsertPartnerRequestCertStatus = "suspended"
+	UpsertPartnerRequestCertStatusApplied   UpsertPartnerRequestCertStatus = "applied"
+	UpsertPartnerRequestCertStatusCertified UpsertPartnerRequestCertStatus = "certified"
+	UpsertPartnerRequestCertStatusSuspended UpsertPartnerRequestCertStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the UpsertPartnerRequestCertStatus enum.
 func (e UpsertPartnerRequestCertStatus) Valid() bool {
 	switch e {
+	case UpsertPartnerRequestCertStatusApplied:
+		return true
 	case UpsertPartnerRequestCertStatusCertified:
 		return true
-	case UpsertPartnerRequestCertStatusChurned:
-		return true
-	case UpsertPartnerRequestCertStatusInCertification:
-		return true
-	case UpsertPartnerRequestCertStatusProspect:
-		return true
 	case UpsertPartnerRequestCertStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpsertPartnerRequestMarginTier.
+const (
+	UpsertPartnerRequestMarginTierLessThannil UpsertPartnerRequestMarginTier = "<nil>"
+	UpsertPartnerRequestMarginTierTier115     UpsertPartnerRequestMarginTier = "tier1_15"
+	UpsertPartnerRequestMarginTierTier220     UpsertPartnerRequestMarginTier = "tier2_20"
+	UpsertPartnerRequestMarginTierTier325     UpsertPartnerRequestMarginTier = "tier3_25"
+)
+
+// Valid indicates whether the value is a known member of the UpsertPartnerRequestMarginTier enum.
+func (e UpsertPartnerRequestMarginTier) Valid() bool {
+	switch e {
+	case UpsertPartnerRequestMarginTierLessThannil:
+		return true
+	case UpsertPartnerRequestMarginTierTier115:
+		return true
+	case UpsertPartnerRequestMarginTierTier220:
+		return true
+	case UpsertPartnerRequestMarginTierTier325:
 		return true
 	default:
 		return false
@@ -1871,23 +1871,17 @@ func (e ListPartnersParamsPartnerRole) Valid() bool {
 
 // Defines values for ListPartnersParamsCertStatus.
 const (
-	ListPartnersParamsCertStatusCertified       ListPartnersParamsCertStatus = "certified"
-	ListPartnersParamsCertStatusChurned         ListPartnersParamsCertStatus = "churned"
-	ListPartnersParamsCertStatusInCertification ListPartnersParamsCertStatus = "in_certification"
-	ListPartnersParamsCertStatusProspect        ListPartnersParamsCertStatus = "prospect"
-	ListPartnersParamsCertStatusSuspended       ListPartnersParamsCertStatus = "suspended"
+	ListPartnersParamsCertStatusApplied   ListPartnersParamsCertStatus = "applied"
+	ListPartnersParamsCertStatusCertified ListPartnersParamsCertStatus = "certified"
+	ListPartnersParamsCertStatusSuspended ListPartnersParamsCertStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the ListPartnersParamsCertStatus enum.
 func (e ListPartnersParamsCertStatus) Valid() bool {
 	switch e {
+	case ListPartnersParamsCertStatusApplied:
+		return true
 	case ListPartnersParamsCertStatusCertified:
-		return true
-	case ListPartnersParamsCertStatusChurned:
-		return true
-	case ListPartnersParamsCertStatusInCertification:
-		return true
-	case ListPartnersParamsCertStatusProspect:
 		return true
 	case ListPartnersParamsCertStatusSuspended:
 		return true
@@ -2005,8 +1999,10 @@ type Activity struct {
 	// AssigneeId Task only.
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
 	Body       *string             `json:"body,omitempty"`
-	CapturedBy string              `json:"captured_by"`
-	CreatedAt  time.Time           `json:"created_at"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string   `json:"captured_by,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 
 	// Direction inbound/outbound for email/call; null for note/task.
 	Direction *ActivityDirection `json:"direction,omitempty"`
@@ -2040,7 +2036,7 @@ type Activity struct {
 	Subject      *string   `json:"subject,omitempty"`
 	UpdatedAt    time.Time `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -2244,10 +2240,10 @@ type ColdStartRequest struct {
 
 // ConsentEvent An append-only proof row (Art. 7 demonstrability). Never updated or deleted.
 type ConsentEvent struct {
-	ActorId   *string                `json:"actor_id,omitempty"`
-	ActorType *ConsentEventActorType `json:"actor_type,omitempty"`
-	Basis     *string                `json:"basis,omitempty"`
-	Id        openapi_types.UUID     `json:"id"`
+	ActorId     *string                `json:"actor_id,omitempty"`
+	ActorType   *ConsentEventActorType `json:"actor_type,omitempty"`
+	Id          openapi_types.UUID     `json:"id"`
+	LawfulBasis *string                `json:"lawful_basis,omitempty"`
 
 	// NewState Proof rows record only transitions to granted/withdrawn (never to unknown).
 	NewState   ConsentEventNewState `json:"new_state"`
@@ -2273,22 +2269,15 @@ type ConsentPurpose struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 
-	// LegalBasis GDPR Art. 6 basis.
-	LegalBasis *ConsentPurposeLegalBasis `json:"legal_basis,omitempty"`
-
 	// RequiresDoubleOptIn When true, a grant is only effective after a confirmed DOI event (German email norm).
 	RequiresDoubleOptIn *bool              `json:"requires_double_opt_in,omitempty"`
 	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
 }
 
-// ConsentPurposeLegalBasis GDPR Art. 6 basis.
-type ConsentPurposeLegalBasis string
-
 // CreateActivityRequest defines model for CreateActivityRequest.
 type CreateActivityRequest struct {
 	AssigneeId      *openapi_types.UUID             `json:"assignee_id,omitempty"`
 	Body            *string                         `json:"body,omitempty"`
-	CapturedBy      string                          `json:"captured_by"`
 	Direction       *CreateActivityRequestDirection `json:"direction,omitempty"`
 	DueAt           *time.Time                      `json:"due_at,omitempty"`
 	DurationSeconds *int                            `json:"duration_seconds,omitempty"`
@@ -2320,14 +2309,10 @@ type CreateActivityRequestMeetingStatus string
 
 // CreateConsentPurposeRequest defines model for CreateConsentPurposeRequest.
 type CreateConsentPurposeRequest struct {
-	Key                 string                                 `json:"key"`
-	Label               string                                 `json:"label"`
-	LegalBasis          *CreateConsentPurposeRequestLegalBasis `json:"legal_basis,omitempty"`
-	RequiresDoubleOptIn *bool                                  `json:"requires_double_opt_in,omitempty"`
+	Key                 string `json:"key"`
+	Label               string `json:"label"`
+	RequiresDoubleOptIn *bool  `json:"requires_double_opt_in,omitempty"`
 }
-
-// CreateConsentPurposeRequestLegalBasis defines model for CreateConsentPurposeRequest.LegalBasis.
-type CreateConsentPurposeRequestLegalBasis string
 
 // CreateDataSubjectRequest defines model for CreateDataSubjectRequest.
 type CreateDataSubjectRequest struct {
@@ -2343,7 +2328,6 @@ type CreateDataSubjectRequestKind string
 // CreateDealRequest defines model for CreateDealRequest.
 type CreateDealRequest struct {
 	AmountMinor          *int64                 `json:"amount_minor,omitempty"`
-	CapturedBy           string                 `json:"captured_by"`
 	Currency             *string                `json:"currency,omitempty"`
 	ExpectedCloseDate    *openapi_types.Date    `json:"expected_close_date,omitempty"`
 	Name                 string                 `json:"name"`
@@ -2358,7 +2342,6 @@ type CreateDealRequest struct {
 // CreateLeadRequest defines model for CreateLeadRequest.
 type CreateLeadRequest struct {
 	CandidateOrgKey *string                  `json:"candidate_org_key,omitempty"`
-	CapturedBy      string                   `json:"captured_by"`
 	CompanyName     *string                  `json:"company_name,omitempty"`
 	Email           *openapi_types.Email     `json:"email,omitempty"`
 	FullName        *string                  `json:"full_name,omitempty"`
@@ -2393,7 +2376,6 @@ type CreateListRequestListType string
 type CreateOrganizationRequest struct {
 	// Address Structured postal address.
 	Address     *Address `json:"address,omitempty"`
-	CapturedBy  string   `json:"captured_by"`
 	DisplayName string   `json:"display_name"`
 	Domains     *[]struct {
 		Domain    string `json:"domain"`
@@ -2414,9 +2396,8 @@ type CreateOrganizationRequestSizeBand string
 // CreatePersonRequest defines model for CreatePersonRequest.
 type CreatePersonRequest struct {
 	// Address Structured postal address.
-	Address    *Address `json:"address,omitempty"`
-	CapturedBy string   `json:"captured_by"`
-	Emails     *[]struct {
+	Address *Address `json:"address,omitempty"`
+	Emails  *[]struct {
 		Email     openapi_types.Email                 `json:"email"`
 		EmailType *CreatePersonRequestEmailsEmailType `json:"email_type,omitempty"`
 		IsPrimary *bool                               `json:"is_primary,omitempty"`
@@ -2476,7 +2457,6 @@ type CreateRecordGrantRequestSubjectType string
 
 // CreateRelationshipRequest defines model for CreateRelationshipRequest.
 type CreateRelationshipRequest struct {
-	CapturedBy        string                        `json:"captured_by"`
 	CounterpartyOrgId *openapi_types.UUID           `json:"counterparty_org_id,omitempty"`
 	DealId            *openapi_types.UUID           `json:"deal_id,omitempty"`
 	EndedAt           *openapi_types.Date           `json:"ended_at,omitempty"`
@@ -2524,7 +2504,6 @@ type DataSubjectRequest struct {
 
 	// SubjectRef The data subject — a person id or external identifier.
 	SubjectRef string `json:"subject_ref"`
-	Version    *int64 `json:"version,omitempty"`
 }
 
 // DataSubjectRequestKind defines model for DataSubjectRequest.Kind.
@@ -2535,9 +2514,11 @@ type DataSubjectRequestStatus string
 
 // Deal A deal. Mirrors the `deal` table.
 type Deal struct {
-	AmountMinor       *int64                `json:"amount_minor,omitempty"`
-	ArchivedAt        *time.Time            `json:"archived_at,omitempty"`
-	CapturedBy        string                `json:"captured_by"`
+	AmountMinor *int64     `json:"amount_minor,omitempty"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy        *string               `json:"captured_by,omitempty"`
 	ClosedAt          *time.Time            `json:"closed_at,omitempty"`
 	CreatedAt         time.Time             `json:"created_at"`
 	Currency          *string               `json:"currency,omitempty"`
@@ -2574,7 +2555,7 @@ type Deal struct {
 	Status    DealStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -2641,7 +2622,9 @@ type Lead struct {
 
 	// CandidateOrgKey Loose key for ABM routing without creating an org.
 	CandidateOrgKey *string `json:"candidate_org_key,omitempty"`
-	CapturedBy      string  `json:"captured_by"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string `json:"captured_by,omitempty"`
 
 	// CompanyName FREE TEXT — NOT an organization FK.
 	CompanyName *string   `json:"company_name,omitempty"`
@@ -2667,7 +2650,7 @@ type Lead struct {
 	Title        *string    `json:"title,omitempty"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -2767,9 +2750,11 @@ type Organization struct {
 	// Address Structured postal address.
 	Address    *Address   `json:"address,omitempty"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	CapturedBy string     `json:"captured_by"`
 
-	// Classification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032).
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string `json:"captured_by,omitempty"`
+
+	// Classification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
 	Classification *OrganizationClassification `json:"classification,omitempty"`
 	CreatedAt      time.Time                   `json:"created_at"`
 	DisplayName    string                      `json:"display_name"`
@@ -2791,7 +2776,7 @@ type Organization struct {
 	Source    string                  `json:"source"`
 	UpdatedAt time.Time               `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -2801,7 +2786,7 @@ type Organization struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// OrganizationClassification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032).
+// OrganizationClassification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
 type OrganizationClassification string
 
 // OrganizationSizeBand defines model for Organization.SizeBand.
@@ -2810,7 +2795,9 @@ type OrganizationSizeBand string
 // OrganizationDomain defines model for OrganizationDomain.
 type OrganizationDomain struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	CapturedBy string     `json:"captured_by"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string    `json:"captured_by,omitempty"`
 	CreatedAt  *time.Time `json:"created_at,omitempty"`
 
 	// Domain Lowercased
@@ -2846,17 +2833,17 @@ type Partner struct {
 	// GateMetrics Program gate metrics (certified seats
 	GateMetrics *map[string]interface{} `json:"gate_metrics,omitempty"`
 
-	// MarginTier Scenario-C margin tier (business/14-partner-program.md).
-	MarginTier *string `json:"margin_tier,omitempty"`
+	// MarginTier Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK).
+	MarginTier *PartnerMarginTier `json:"margin_tier,omitempty"`
 
 	// OrganizationId The org this partner record extends (PK = FK).
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 
 	// PartnerRole Functional role (A44/ADR-0034); implementation + dev are Gradion's turf.
-	PartnerRole PartnerPartnerRole `json:"partner_role"`
-	UpdatedAt   time.Time          `json:"updated_at"`
+	PartnerRole *PartnerPartnerRole `json:"partner_role,omitempty"`
+	UpdatedAt   time.Time           `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -2867,6 +2854,9 @@ type Partner struct {
 // PartnerCertStatus defines model for Partner.CertStatus.
 type PartnerCertStatus string
 
+// PartnerMarginTier Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK).
+type PartnerMarginTier string
+
 // PartnerPartnerRole Functional role (A44/ADR-0034); implementation + dev are Gradion's turf.
 type PartnerPartnerRole string
 
@@ -2875,7 +2865,9 @@ type Person struct {
 	// Address Structured postal address.
 	Address    *Address   `json:"address,omitempty"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	CapturedBy string     `json:"captured_by"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string `json:"captured_by,omitempty"`
 
 	// Consent Per-purpose consent summary (A22/ADR-0011). Read-only derived view of the `person_consent`
 	// rows; one entry per purpose the workspace tracks. The single flat `consent_state` flag was
@@ -2908,7 +2900,7 @@ type Person struct {
 	Title     *string   `json:"title,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -2920,8 +2912,8 @@ type Person struct {
 
 // PersonConsentState A person's current consent for one purpose.
 type PersonConsentState struct {
-	Basis                  *string                 `json:"basis,omitempty"`
 	DoubleOptInConfirmedAt *time.Time              `json:"double_opt_in_confirmed_at,omitempty"`
+	LawfulBasis            *string                 `json:"lawful_basis,omitempty"`
 	PurposeId              openapi_types.UUID      `json:"purpose_id"`
 	PurposeKey             *string                 `json:"purpose_key,omitempty"`
 	State                  PersonConsentStateState `json:"state"`
@@ -2934,7 +2926,9 @@ type PersonConsentStateState string
 // PersonEmail defines model for PersonEmail.
 type PersonEmail struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	CapturedBy string     `json:"captured_by"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string    `json:"captured_by,omitempty"`
 	CreatedAt  *time.Time `json:"created_at,omitempty"`
 
 	// Email Stored lowercased.
@@ -2963,8 +2957,10 @@ type PersonListResponse struct {
 
 // PersonPhone defines model for PersonPhone.
 type PersonPhone struct {
-	ArchivedAt *time.Time          `json:"archived_at,omitempty"`
-	CapturedBy string              `json:"captured_by"`
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string             `json:"captured_by,omitempty"`
 	CreatedAt  *time.Time          `json:"created_at,omitempty"`
 	Id         openapi_types.UUID  `json:"id"`
 	IsPrimary  bool                `json:"is_primary"`
@@ -3057,10 +3053,9 @@ type PromoteLeadResponse struct {
 
 // RecordConsentRequest defines model for RecordConsentRequest.
 type RecordConsentRequest struct {
-	Basis *string `json:"basis,omitempty"`
-
 	// DoubleOptInToken Required to make a grant effective when the purpose has requires_double_opt_in=true.
 	DoubleOptInToken *string                      `json:"double_opt_in_token,omitempty"`
+	LawfulBasis      *string                      `json:"lawful_basis,omitempty"`
 	NewState         RecordConsentRequestNewState `json:"new_state"`
 	PurposeId        openapi_types.UUID           `json:"purpose_id"`
 	Source           *string                      `json:"source,omitempty"`
@@ -3106,7 +3101,9 @@ type RecordGrantSubjectType string
 // org), `referred_by` (org referred by a partner org), `co_sell_with` (org co-sold with a partner org).
 type Relationship struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	CapturedBy string     `json:"captured_by"`
+
+	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
+	CapturedBy *string `json:"captured_by,omitempty"`
 
 	// CounterpartyOrgId The other org on a partner edge (partner_of/referred_by/co_sell_with). Null for employment/deal_stakeholder.
 	CounterpartyOrgId *openapi_types.UUID `json:"counterparty_org_id,omitempty"`
@@ -3129,7 +3126,7 @@ type Relationship struct {
 	StartedAt *openapi_types.Date `json:"started_at,omitempty"`
 	UpdatedAt time.Time           `json:"updated_at"`
 
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -3162,7 +3159,7 @@ type ReportResult struct {
 	TotalRows *int                     `json:"total_rows,omitempty"`
 }
 
-// RowVersion Monotonic row version, incremented by the server on every mutation (data-model §1.7).
+// RowVersion Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 // Echoed back as the `version` field on every mutable entity. To make a write conditional,
 // send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 // (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
@@ -3417,12 +3414,15 @@ type UpdateStageRequestSemantic string
 type UpsertPartnerRequest struct {
 	CertStatus  *UpsertPartnerRequestCertStatus `json:"cert_status,omitempty"`
 	GateMetrics *map[string]interface{}         `json:"gate_metrics,omitempty"`
-	MarginTier  *string                         `json:"margin_tier,omitempty"`
+	MarginTier  *UpsertPartnerRequestMarginTier `json:"margin_tier,omitempty"`
 	PartnerRole UpsertPartnerRequestPartnerRole `json:"partner_role"`
 }
 
 // UpsertPartnerRequestCertStatus defines model for UpsertPartnerRequest.CertStatus.
 type UpsertPartnerRequestCertStatus string
+
+// UpsertPartnerRequestMarginTier defines model for UpsertPartnerRequest.MarginTier.
+type UpsertPartnerRequestMarginTier string
 
 // UpsertPartnerRequestPartnerRole defines model for UpsertPartnerRequest.PartnerRole.
 type UpsertPartnerRequestPartnerRole string
@@ -3459,6 +3459,9 @@ type Id = openapi_types.UUID
 
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
+
+// IfMatch defines model for IfMatch.
+type IfMatch = string
 
 // IncludeArchived defines model for IncludeArchived.
 type IncludeArchived = bool
@@ -3551,6 +3554,13 @@ type UpdateActivityParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // DraftEmailJSONBody defines parameters for DraftEmail.
@@ -3794,6 +3804,13 @@ type UpdateDealParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // AdvanceDealParams defines parameters for AdvanceDeal.
@@ -3815,6 +3832,13 @@ type AdvanceDealParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListLeadsParams defines parameters for ListLeads.
@@ -3872,6 +3896,13 @@ type UpdateLeadParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // PromoteLeadParams defines parameters for PromoteLead.
@@ -3971,6 +4002,13 @@ type UpdateOrganizationParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // MergeOrganizationJSONBody defines parameters for MergeOrganization.
@@ -3998,6 +4036,23 @@ type MergeOrganizationParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpsertPartnerParams defines parameters for UpsertPartner.
+type UpsertPartnerParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListPartnersParams defines parameters for ListPartners.
@@ -4084,6 +4139,13 @@ type UpdatePersonParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // RecordConsentParams defines parameters for RecordConsent.
@@ -4114,6 +4176,13 @@ type MergePersonParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListPipelinesParams defines parameters for ListPipelines.
@@ -4202,6 +4271,13 @@ type RevokeRecordGrantParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListRelationshipsParams defines parameters for ListRelationships.
@@ -4227,6 +4303,16 @@ type ListRelationshipsParams struct {
 
 // ListRelationshipsParamsKind defines parameters for ListRelationships.
 type ListRelationshipsParamsKind string
+
+// UpdateRelationshipParams defines parameters for UpdateRelationship.
+type UpdateRelationshipParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
 
 // SearchParams defines parameters for Search.
 type SearchParams struct {
@@ -4588,14 +4674,6 @@ func (a *CreateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "amount_minor")
 	}
 
-	if raw, found := object["captured_by"]; found {
-		err = json.Unmarshal(raw, &a.CapturedBy)
-		if err != nil {
-			return fmt.Errorf("error reading 'captured_by': %w", err)
-		}
-		delete(object, "captured_by")
-	}
-
 	if raw, found := object["currency"]; found {
 		err = json.Unmarshal(raw, &a.Currency)
 		if err != nil {
@@ -4684,11 +4762,6 @@ func (a CreateDealRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'amount_minor': %w", err)
 		}
-	}
-
-	object["captured_by"], err = json.Marshal(a.CapturedBy)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
 	}
 
 	if a.Currency != nil {
@@ -4781,14 +4854,6 @@ func (a *CreateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "address")
 	}
 
-	if raw, found := object["captured_by"]; found {
-		err = json.Unmarshal(raw, &a.CapturedBy)
-		if err != nil {
-			return fmt.Errorf("error reading 'captured_by': %w", err)
-		}
-		delete(object, "captured_by")
-	}
-
 	if raw, found := object["display_name"]; found {
 		err = json.Unmarshal(raw, &a.DisplayName)
 		if err != nil {
@@ -4877,11 +4942,6 @@ func (a CreateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'address': %w", err)
 		}
-	}
-
-	object["captured_by"], err = json.Marshal(a.CapturedBy)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
 	}
 
 	object["display_name"], err = json.Marshal(a.DisplayName)
@@ -4976,14 +5036,6 @@ func (a *CreatePersonRequest) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'address': %w", err)
 		}
 		delete(object, "address")
-	}
-
-	if raw, found := object["captured_by"]; found {
-		err = json.Unmarshal(raw, &a.CapturedBy)
-		if err != nil {
-			return fmt.Errorf("error reading 'captured_by': %w", err)
-		}
-		delete(object, "captured_by")
 	}
 
 	if raw, found := object["emails"]; found {
@@ -5082,11 +5134,6 @@ func (a CreatePersonRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'address': %w", err)
 		}
-	}
-
-	object["captured_by"], err = json.Marshal(a.CapturedBy)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
 	}
 
 	if a.Emails != nil {
@@ -7003,7 +7050,7 @@ type ServerInterface interface {
 	GetPartner(w http.ResponseWriter, r *http.Request, id Id)
 	// Create/update the partner extension on an org (sets classification='partner').
 	// (PUT /organizations/{id}/partner)
-	UpsertPartner(w http.ResponseWriter, r *http.Request, id Id)
+	UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams)
 	// List partner organizations (orgs with a partner row), filterable by role/cert status.
 	// (GET /partners)
 	ListPartners(w http.ResponseWriter, r *http.Request, params ListPartnersParams)
@@ -7069,7 +7116,7 @@ type ServerInterface interface {
 	ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id)
 	// Update a relationship (role, primary flag, dates).
 	// (PATCH /relationships/{id})
-	UpdateRelationship(w http.ResponseWriter, r *http.Request, id Id)
+	UpdateRelationship(w http.ResponseWriter, r *http.Request, id Id, params UpdateRelationshipParams)
 	// Run a report (the `run_report` MCP verb) and return aggregate rows.
 	// (POST /reports/{report})
 	RunReport(w http.ResponseWriter, r *http.Request, report string)
@@ -7405,7 +7452,7 @@ func (_ Unimplemented) GetPartner(w http.ResponseWriter, r *http.Request, id Id)
 
 // Create/update the partner extension on an org (sets classification='partner').
 // (PUT /organizations/{id}/partner)
-func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7537,7 +7584,7 @@ func (_ Unimplemented) ArchiveRelationship(w http.ResponseWriter, r *http.Reques
 
 // Update a relationship (role, primary flag, dates).
 // (PATCH /relationships/{id})
-func (_ Unimplemented) UpdateRelationship(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) UpdateRelationship(w http.ResponseWriter, r *http.Request, id Id, params UpdateRelationshipParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7925,6 +7972,25 @@ func (siw *ServerInterfaceWrapper) UpdateActivity(w http.ResponseWriter, r *http
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateActivity(w, r, id, params)
 	}))
@@ -8236,8 +8302,6 @@ func (siw *ServerInterfaceWrapper) ApproveApproval(w http.ResponseWriter, r *htt
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -8294,8 +8358,6 @@ func (siw *ServerInterfaceWrapper) RejectApproval(w http.ResponseWriter, r *http
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -8329,8 +8391,6 @@ func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request)
 func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -8576,8 +8636,6 @@ func (siw *ServerInterfaceWrapper) CreateConsentPurpose(w http.ResponseWriter, r
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -8668,8 +8726,6 @@ func (siw *ServerInterfaceWrapper) CreateDataSubjectRequest(w http.ResponseWrite
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -8725,8 +8781,6 @@ func (siw *ServerInterfaceWrapper) UpdateDataSubjectRequest(w http.ResponseWrite
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -9065,6 +9119,25 @@ func (siw *ServerInterfaceWrapper) UpdateDeal(w http.ResponseWriter, r *http.Req
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateDeal(w, r, id, params)
 	}))
@@ -9139,6 +9212,25 @@ func (siw *ServerInterfaceWrapper) AdvanceDeal(w http.ResponseWriter, r *http.Re
 		}
 
 		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
 
 	}
 
@@ -9480,6 +9572,25 @@ func (siw *ServerInterfaceWrapper) UpdateLead(w http.ResponseWriter, r *http.Req
 		}
 
 		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
 
 	}
 
@@ -10117,6 +10228,25 @@ func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateOrganization(w, r, id, params)
 	}))
@@ -10194,6 +10324,25 @@ func (siw *ServerInterfaceWrapper) MergeOrganization(w http.ResponseWriter, r *h
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MergeOrganization(w, r, id, params)
 	}))
@@ -10262,8 +10411,32 @@ func (siw *ServerInterfaceWrapper) UpsertPartner(w http.ResponseWriter, r *http.
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpsertPartnerParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpsertPartner(w, r, id)
+		siw.Handler.UpsertPartner(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10371,8 +10544,6 @@ func (siw *ServerInterfaceWrapper) IssuePassport(w http.ResponseWriter, r *http.
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -10404,8 +10575,6 @@ func (siw *ServerInterfaceWrapper) RevokePassport(w http.ResponseWriter, r *http
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -10705,6 +10874,25 @@ func (siw *ServerInterfaceWrapper) UpdatePerson(w http.ResponseWriter, r *http.R
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdatePerson(w, r, id, params)
 	}))
@@ -10766,8 +10954,6 @@ func (siw *ServerInterfaceWrapper) RecordConsent(w http.ResponseWriter, r *http.
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -10855,6 +11041,25 @@ func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Re
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MergePerson(w, r, id, params)
 	}))
@@ -10914,8 +11119,6 @@ func (siw *ServerInterfaceWrapper) CreatePipeline(w http.ResponseWriter, r *http
 	_ = err
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -11006,8 +11209,6 @@ func (siw *ServerInterfaceWrapper) UpdatePipeline(w http.ResponseWriter, r *http
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -11269,6 +11470,25 @@ func (siw *ServerInterfaceWrapper) RevokeRecordGrant(w http.ResponseWriter, r *h
 
 	}
 
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeRecordGrant(w, r, id, params)
 	}))
@@ -11478,8 +11698,32 @@ func (siw *ServerInterfaceWrapper) UpdateRelationship(w http.ResponseWriter, r *
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateRelationshipParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateRelationship(w, r, id)
+		siw.Handler.UpdateRelationship(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11665,8 +11909,6 @@ func (siw *ServerInterfaceWrapper) CreateStage(w http.ResponseWriter, r *http.Re
 
 	ctx := r.Context()
 
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
@@ -11756,8 +11998,6 @@ func (siw *ServerInterfaceWrapper) UpdateStage(w http.ResponseWriter, r *http.Re
 	}
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 

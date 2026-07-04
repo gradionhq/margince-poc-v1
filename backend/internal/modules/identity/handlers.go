@@ -253,14 +253,13 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Agents present a passport bearer token. The REST surface is
-		// READ-ONLY for passports: agent mutations must flow through the
-		// governed MCP tool surface (platform/auth Admit), so there is exactly one
-		// agent-mutation choke point across transports (ADR-0013 one-gate
-		// invariant; the "same REST surface" prose is reconciled in
-		// ../fable feedback/18 and ../decisions/0009). A mutating REST call
-		// is refused whatever the passport's scope, and a read-scoped
-		// passport is still refused by scope first.
+		// Agents present a passport bearer token. Agent authority is
+		// governed identically on every transport (ADR-0055): reads need
+		// the read scope here; a MUTATING call is not refused at the
+		// transport — it proceeds into the contract router, where the
+		// agent gate resolves the operation's 🟢/🟡 tier against the
+		// tool's declared scope and either admits, stages an approval,
+		// or default-denies an un-tiered operation.
 		if bearer := bearerToken(r); bearer != "" {
 			agent, err := h.svc.AuthenticateAgent(ctx, bearer)
 			if err != nil {
@@ -271,12 +270,8 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 				httperr.Write(w, r, err)
 				return
 			}
-			if sc := restScope(r.Method); !agent.Scopes.Has(sc) {
+			if !isMutating(r.Method) && !agent.Scopes.Has(principal.ScopeRead) {
 				httperr.Write(w, r, apperrors.ErrScopeExceeded)
-				return
-			}
-			if isMutating(r.Method) {
-				httperr.Write(w, r, apperrors.ErrAgentSurfaceRestricted)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(principal.WithActor(ctx, agent.Principal())))
