@@ -131,4 +131,44 @@ export const de = {
   "deals.advanced": "Nach {stage} verschoben",
   "deal.pendingApprovals": "Wartet auf deine Bestätigung",
   "deal.stakeholders": "Beteiligte",
+
+  "inbox.sub":
+    "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",
+  "inbox.expires": "läuft ab {at}",
+  "inbox.approveEdited": "Bearbeitet übernehmen",
+  "inbox.reject": "Ablehnen",
+
+  "home.brief": "Morgenbriefing",
+  "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
+  "home.quiet": "Alles ruhig. Nichts vorgemerkt, nichts steht still.",
+  "home.staged": "Wartet auf dich",
+  "home.stalled": "Stillstehende Deals",
+
+  "tasks.overdue": "Überfällig",
+  "tasks.today": "Heute",
+  "tasks.upcoming": "Demnächst",
+  "tasks.undated": "Ohne Termin",
+  "tasks.complete": "Erledigt",
+  "tasks.snooze": "1 Tag später",
+
+  "reports.sub": "Deals je Phase — ungewichtet neben gewichtet",
+  "reports.count": "Deals",
+  "reports.unweighted": "Ungewichtet",
+  "reports.weighted": "Gewichtet",
+  "reports.planNote":
+    "der ausgeführte Plan und die Zeilen, auf die sich die Zahl zurückrechnet",
+
+  "ai.sub": "bring deinen eigenen Agenten mit — geregelt durch die zwei Stufen",
+  "ai.fromPalette": "Aus der Palette",
+  "ai.tiers": "Was ein Agent darf",
+  "ai.tierGreen": "Lesen & Entwerfen läuft sofort.",
+  "ai.tierGreenDetail":
+    "Nachschlagen, Zusammenfassen, Entwürfe — sichtbar, umkehrbar, protokolliert.",
+  "ai.tierYellow": "Schreiben & Senden wartet auf dich.",
+  "ai.tierYellowDetail":
+    "Externe Sendungen und Datenänderungen landen zuerst im Eingang.",
+  "ai.connect": "Agent verbinden",
+  "ai.connectDetail":
+    "Erstelle in den Einstellungen einen Passport und verbinde einen MCP-fähigen Agenten mit deinem Workspace. Er liest nur, was du sehen kannst.",
+  "ai.paletteHint": "Frag von überall mit",
 } as const satisfies Record<MessageKey, string>;

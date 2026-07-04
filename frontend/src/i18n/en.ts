@@ -128,6 +128,46 @@ export const en = {
   "deals.advanced": "Moved to {stage}",
   "deal.pendingApprovals": "Awaiting your confirmation",
   "deal.stakeholders": "Stakeholders",
+
+  "inbox.sub":
+    "everything staged, waiting on your call — nothing runs without it",
+  "inbox.expires": "expires {at}",
+  "inbox.approveEdited": "Approve edited",
+  "inbox.reject": "Reject",
+
+  "home.brief": "Morning brief",
+  "home.sub": "ranked from live signals — staged actions first",
+  "home.quiet": "All quiet. Nothing staged, nothing stalled.",
+  "home.staged": "Waiting on you",
+  "home.stalled": "Stalled deals",
+
+  "tasks.overdue": "Overdue",
+  "tasks.today": "Today",
+  "tasks.upcoming": "Upcoming",
+  "tasks.undated": "No due date",
+  "tasks.complete": "Done",
+  "tasks.snooze": "Snooze 1d",
+
+  "reports.sub": "deals by stage — unweighted next to weighted",
+  "reports.count": "Deals",
+  "reports.unweighted": "Unweighted",
+  "reports.weighted": "Weighted",
+  "reports.planNote":
+    "the executed plan and the rows this number reconciles to",
+
+  "ai.sub": "bring your own agent — governed by the two-tier contract",
+  "ai.fromPalette": "From the palette",
+  "ai.tiers": "What an agent may do",
+  "ai.tierGreen": "Read & draft run instantly.",
+  "ai.tierGreenDetail":
+    "Lookups, summaries, drafts — visible, reversible, logged.",
+  "ai.tierYellow": "Write & send wait for you.",
+  "ai.tierYellowDetail":
+    "External sends and record changes stage into the inbox first.",
+  "ai.connect": "Connect an agent",
+  "ai.connectDetail":
+    "Mint a passport in Settings and point any MCP-capable agent at your workspace. It reads only what you can see.",
+  "ai.paletteHint": "Ask from anywhere with",
 } as const;
 
 export type MessageKey = keyof typeof en;

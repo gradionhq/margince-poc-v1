@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,10 +17,15 @@ afterEach(() => {
 
 describe("locale switch", () => {
   it("mounts in German (A24) and flips the chrome to English on switch", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     render(
-      <LocaleProvider>
-        <App />
-      </LocaleProvider>,
+      <QueryClientProvider client={client}>
+        <LocaleProvider>
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
     );
     // German default: the rail carries German labels
     expect(screen.getByRole("link", { name: "Kontakte" })).toBeTruthy();
