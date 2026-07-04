@@ -5,67 +5,103 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-05 (overnight build, in progress).** Roughly **18 %** of the
-701-leaf-ticket V1 backlog
-(`../margince/specs/spec/product/build-backlog/`) is
-implemented and gate-verified.
+**Last updated: 2026-07-05 (overnight build, closed out).** Roughly **30 %**
+of the 687-leaf-ticket V1 backlog
+(`../margince/specs/spec/product/build-backlog/`) is implemented and
+gate-verified; every `crm.yaml` operation is implemented.
 
-## ACTIVE overnight build session (2026-07-04/05) — read this first
+## Last session: the overnight autonomous build (2026-07-04 → 05) — read this first
 
-An autonomous overnight session is COMMITTING TO MAIN continuously
-(every slice gate-green, pushed immediately). Landed so far: modules/ai
-(providers, router, budget, metering), the Surface-B runner + scheduler
-(agent_run/runner_job, suspend/resume), modules/search (FTS + pgvector
-+ RRF + context graph + Retriever), the report engine + schema
-introspection, modules/capture (connector seam substrate),
-modules/consent (default-deny suppression + DOI), the A2 OAuth
-authorization server + hosted MCP transport + ADR-0036 JWS,
-modules/collections (lists/tags), and the fixes for ALL findings in
-review_codex_20260704_194430.md. Migrations are at 0025. db-up now uses
-pgvector/pgvector:pg16 — recreate the dev container once
-(docker rm -f fable-pg16 && make db-up && make migrate).
+One agent session built and merged, slice by slice (each gate-green, pushed
+immediately). **Every contract operation in `crm.yaml` is now implemented** —
+the compose stub fallback is gone; a regenerated contract adding an operation
+nothing implements fails the build. Landed, in order:
 
-This section is replaced by the full close-out at session end; until
-then treat the sections below as the previous sessions' record.
+1. **The five planned blocks**: `modules/ai` (Anthropic BYOK + Ollama +
+   offline fake, tiered router, seat-budget guardrail, metering),
+   the Surface-B runner + scheduler (suspend→approve→resume),
+   `modules/search` (FTS + pgvector + RRF + context graph + Retriever),
+   `modules/capture` (connector seam), `modules/consent` (default-deny +
+   DOI), the A2 OAuth AS + hosted MCP + ADR-0036 JWS tokens.
+2. **Stub closures**: lists/tags, relationships/partners, activity
+   lifecycle, pipeline/stage config, record grants, DSRs, deal
+   stakeholders, workflow engine + starter library (route_lead,
+   stage_change_create_task).
+3. **Scheduling** (0030 `activity.host_user_id`; availability is
+   row-scoped, cross-host booking is admin-gated — decisions/0013).
+4. **Cold-start read-back** — the LAST stub: SSRF-guarded fetch → routed
+   extraction → server-side no-guess gate → staged `coldstart` approval
+   (the staged row IS the proposal). api role needs `--ai-routing` or
+   `--ai-fake`, else explicit 501.
+5. **GDPR arm**: retention evaluator (worker-ticked nightly, §3.4 seeded
+   defaults at bootstrap), legal hold (never auto-acted, transitive for
+   activities), Art. 17 erasure (normalized+raw+vector purge, PII-free
+   tombstone, `erasure_suppression` (0031) so re-capture skips — DSR
+   fulfillment EXECUTES the erasure), Art. 15 SAR assembly (admin-only).
+6. **Runner grounding** (T2 seed retrieval under the agent's own
+   principal), intent tools (`catch_me_up_on`, `prep_for_meeting`), MCP
+   comms verbs (`draft_email`/`check_availability` 🟢,
+   `send_email`/`book_meeting` 🟡) — the send path is spelled once for
+   both transports.
+7. **Formulas** (`IsStalled` stamps deal reads + backs the `stalled`
+   filter; `ScoreLead` reproduces the spec's worked example), seat-derived
+   AI budget, capture dedupe → 🟡 merge staging, the §5.2
+   structured-output retry/escalation pipeline, the DE jurisdiction pack
+   (GoBD floors under the retention engine), and an SPA sweep (search,
+   reports, privacy inbox, booking).
 
-## Current session: Codex red-team review filed
+Three background security reviews plus a closing adversarial self-review
+ran during the night; every confirmed finding was fixed and pushed
+(scheduling row-scope/authz, coldstart SSRF hardening + a Unicode
+panic in the tag stripper, erasure LIKE-injection + the missed lead
+table + SAR admin gate, a DB-level double-booking exclusion constraint
+(0032), idempotent dedupe staging, DSR fail-closed fulfillment).
 
-A broad current-state red-team pass was written to
-[`review_codex_20260704_194430.md`](review_codex_20260704_194430.md).
-The tree was actively changing during review; at session close the
-working tree still contained other-agent changes around the new
-`collections` module and related lint/arch/policy wiring.
+**Operational notes:** migrations are at **0032**; db-up uses
+`pgvector/pgvector:pg16` — recreate a stale dev container once
+(`docker rm -f fable-pg16 && make db-up && make migrate`). The worker now
+also ticks retention (`--retention-interval`) and the api role takes
+`--ai-routing`/`--ai-fake`. Spec path note: the sibling spec lives at
+`/Users/lars/develop/margince/specs/spec/` and the backlog counts 687
+leaves per the validator (older notes said 701).
 
-Verification during the pass:
+Session records: decisions/0013 (all build decisions of the night),
+feedback/07–09 (spec defects found), README review-loop rules unchanged.
 
-- `make check` passed after allowing Go to use the normal build cache.
-- A later `make check` against the live dirty tree passed after
-  concurrent fixes and a mechanical `gofmt` on two search files.
-- `make test-integration` passed early in the review, but the final run
-  after live capture/search/OAuth/pipeline remediations is **red**.
-  First concrete failure: `cmd/mcp TestMCPSurfaceEndToEnd` reports
-  `store: no correlation id bound to context`; many later integration
-  failures appear to cascade through schema reset/migration state
-  (`uuidv7()` missing, missing relations). Treat the integration lane as
-  not green until rerun clean after the correlation-id path is fixed.
-- `go test -count=1 ./...` initially exposed write-shape violations in
-  new collection mutations, then passed after concurrent work widened the
-  audit-only allow-list.
+## Pick up here: next blocks
 
-Top review findings to pick up:
+No half-finished slice is in flight. Highest-value next, in order:
 
-- **Write-shape exception drift** — the stale `createPipelineTx` waiver
-  was fixed live by adding `pipeline.created`, but list/tag mutations
-  remain audit-only. A local `feedback/07...` exists, but `feedback/` is
-  ignored by `.gitignore`; make sure any waiver filing is force-added or
-  moved to a tracked decision file.
-- **Fitness-test cache hole** — confirmed when cached `make check`
-  missed new module violations; concurrently patched by adding
-  `go test -count=1 .` to the Makefile.
-- **Capture replay evidence, HTTP body limits, search limits, OAuth code
-  consumption** — all were found and patched live, but the final
-  integration lane is red and must be rerun clean after the MCP
-  correlation-id failure is fixed.
+- **Lead-score behavioral recompute** — wire `ScoreLead` signals when the
+  engagement substrate (activity→lead linkage / engagement_event) lands;
+  fit-only today.
+- **Coldstart ACCEPT executor** — approving a coldstart proposal marks it
+  accepted + emits the event; actually WRITING the accepted fields onto an
+  organization is the follow-on effect path.
+- **EP06.23a golden datasets** (`evals/<task>/`, ≥100 cases) + the CI hard
+  gates over them; the §5.2 pipeline (EP06.25) is in.
+- **EP05 scrape/enrichment** (`scrapeCompany` evidence-or-omit) — reuse the
+  coldstart fetcher + stripper.
+- **S12b vLLM adapter**; **PERF-7 harness**.
+
+Housekeeping (no dependency, do when a session is otherwise idle):
+
+- **Per-file SPDX headers** — the root `LICENSE` (BUSL-1.1) is in place and
+  GitHub detects it, but source files carry no license marker. **Locked header
+  format** (the modern SPDX / REUSE form), the two lines above the `package`
+  clause, in this order:
+
+  ```go
+  // SPDX-License-Identifier: BUSL-1.1
+  // SPDX-FileCopyrightText: 2026 Gradion
+  ```
+
+  Applies to every hand-written `*.go`. Skip generated files (`*_gen.go` — the
+  drift gate owns them) and vendored code. Land it as one mechanical sweep + a
+  fitness test asserting the header is present on non-generated files, so it
+  can't rot (matches the "prefer fitness functions" rule). Only the sweep timing
+  is open — the format is decided. Ties to 12-license.md §5 "honest labeling" /
+  §8 "don't strip notices".
 
 ## Previous session: the spec's red-team fixes landed in code (ADR-0055)
 
@@ -141,7 +177,7 @@ finding is fixed with a regression or fitness test:
   obligation is now derived from the live registry
   (`TestEveryYellowToolHasADecisionGrantMapping`).
 
-## Last session: the triad restructure (ADR-0054/A69)
+## Previous session: the triad restructure (ADR-0054/A69)
 
 The whole tree was reworked to the spec's `backend/internal/{modules,
 platform,shared}` triad in seven gate-green phases (each its own commit,
@@ -211,50 +247,6 @@ finished. Recorded in decisions/0009
 
 All gates green at session close: `make check`, and the integration lane
 (`make db-up` then `make test-integration`).
-
-## Pick up here: next big blocks
-
-No half-finished slice is in flight. One small spec-driven follow-up first:
-
-- **Emit `pipeline.*`/`stage.*` events** — feedback/01–03 were resolved in the
-  spec on 2026-07-04 (files retired to git history); feedback/03 went
-  option (a): the spec's `events.md §5.3b` now defines
-  `pipeline.created/updated/archived` + `stage.created/updated/archived`,
-  so pipeline/stage mutations must emit, and `createPipelineTx` comes off
-  the `TestEveryAuditedMutationEmitsAnEvent` allow-list.
-
-The next backlog blocks, roughly in priority order:
-
-- **EP05 capture connectors** — inbound capture → lead/activity, the
-  `connector` principal path (audit CHECK already carries it, fable feedback/13).
-- **EP06 Surface-B half** — the model client + the governed proactive
-  reasoning loop (the Overnight Agent), on top of the existing tool surface.
-- **Search / context graph** — the `run_report`/schema-introspection SoR
-  verbs, pgvector retrieval.
-- **Consent/GDPR enforcement** — the suppression path that turns the
-  now-relinking consent state into actual outbound gating.
-- **Hosted A2 MCP server** — OAuth2 + PKCE + DCR + the JWS approval-token
-  serialization (the single-binary redemption path becomes a signed token
-  when issuer and verifier separate).
-
-Housekeeping (no dependency, do when a session is otherwise idle):
-
-- **Per-file SPDX headers** — the root `LICENSE` (BUSL-1.1) is in place and
-  GitHub detects it, but source files carry no license marker. **Locked header
-  format** (the modern SPDX / REUSE form), the two lines above the `package`
-  clause, in this order:
-
-  ```go
-  // SPDX-License-Identifier: BUSL-1.1
-  // SPDX-FileCopyrightText: 2026 Gradion
-  ```
-
-  Applies to every hand-written `*.go`. Skip generated files (`*_gen.go` — the
-  drift gate owns them) and vendored code. Land it as one mechanical sweep + a
-  fitness test asserting the header is present on non-generated files, so it
-  can't rot (matches the "prefer fitness functions" rule). Only the sweep timing
-  is open — the format is decided. Ties to 12-license.md §5 "honest labeling" /
-  §8 "don't strip notices".
 
 ## Milestones completed (in build order)
 
