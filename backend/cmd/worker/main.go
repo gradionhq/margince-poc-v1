@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -67,7 +68,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	logger := slog.New(slog.NewTextHandler(stdout, nil))
 
-	brain, err := selectBrain(*routingPath, *fakeBrain, pool)
+	brain, embedder, err := selectModelPath(*routingPath, *fakeBrain, pool)
 	if err != nil {
 		return err
 	}
@@ -77,6 +78,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		go runScheduler(ctx, svc, *runnerInterval, logger)
 		go runResumeSubscriber(ctx, rdb, svc, logger)
 	}
+	if embedder != nil {
+		gen := search.NewEmbedGen(search.NewStore(pool), embedder)
+		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
+		go runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger)
+	}
 
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", *redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
@@ -85,22 +91,23 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-// selectBrain resolves the runner's model path: a routing config for
-// real deployments, the offline fake behind an explicit dev flag, or
-// nil — the runner simply doesn't start without a declared brain; it
-// never silently picks one.
-func selectBrain(routingPath string, fake bool, pool *pgxpool.Pool) (runner.Brain, error) {
+// selectModelPath resolves the model path: a routing config for real
+// deployments, the offline fake behind an explicit dev flag, or nils —
+// the runner and the embed lane simply don't start without a declared
+// model; nothing is picked silently.
+func selectModelPath(routingPath string, fake bool, pool *pgxpool.Pool) (runner.Brain, search.Embedder, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return compose.NewRouterBrain(cfg, pool)
+		return compose.NewModelPath(cfg, pool)
 	case fake:
-		return ai.NewFakeClient(), nil
+		client := ai.NewFakeClient()
+		return client, client, nil
 	default:
-		return nil, nil
+		return nil, nil, nil
 	}
 }
 
@@ -120,18 +127,23 @@ func runScheduler(ctx context.Context, svc *compose.RunnerService, interval time
 }
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions
-// wake parked runs. Dedupe wraps the handler because the bus is
-// at-least-once (events.md §3).
+// wake parked runs.
 func runResumeSubscriber(ctx context.Context, rdb *redis.Client, svc *compose.RunnerService, log *slog.Logger) {
+	runSubscriber(ctx, rdb, "cg:overnight-agent", svc.HandleEvent, log)
+}
+
+// runSubscriber consumes one events.md consumer group, Dedupe-wrapped
+// because the bus is at-least-once (events.md §3).
+func runSubscriber(ctx context.Context, rdb *redis.Client, groupName string, handler events.Handler, log *slog.Logger) {
 	var group kevents.Group
 	for _, g := range kevents.Groups() {
-		if g.Name == "cg:overnight-agent" {
+		if g.Name == groupName {
 			group = g
 		}
 	}
-	sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, svc.HandleEvent), log)
+	sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, handler), log)
 	if err := sub.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Error("runner resume subscriber", "err", err)
+		log.Error("subscriber "+groupName, "err", err)
 	}
 }
 
