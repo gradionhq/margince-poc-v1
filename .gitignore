@@ -4,3 +4,7 @@ coverage.out
 .env
 .build/
 .DS_Store
+
+# Session working notes — local only, not part of the published repo
+/decisions/
+/feedback/

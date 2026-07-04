@@ -7,8 +7,8 @@ and the spec disagree, the spec wins).
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
 session-pickup point; update it at the end of every working session.
 Route findings as you work: implementation decisions →
-[decisions/](decisions/); spec/ticket defects → a numbered file in
-[`feedback/`](feedback/) + a row in its [README table](feedback/README.md).
+decisions/; spec/ticket defects → a numbered file in
+`feedback/` + a row in its README table.
 
 ## Build / test / seed
 

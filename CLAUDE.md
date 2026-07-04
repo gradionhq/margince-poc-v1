@@ -25,7 +25,7 @@ The normative spec is the sibling repo, at **`../margince/specs/`**
 - **`../margince/specs/spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
   **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
   cmd shape + §9 single-tx exception; full record in
-  [decisions/0011](decisions/0011-triad-restructure.md)).
+  decisions/0011).
 
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.
@@ -34,8 +34,8 @@ The spec is under active cleanup by another session: some docs still show the ol
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the session-pickup
 point; update it at the end of every working session. Route findings as you work:
-implementation decisions → [decisions/](decisions/); spec/ticket defects → a numbered
-file in [`feedback/`](feedback/) + a row in its [README table](feedback/README.md).
+implementation decisions → decisions/; spec/ticket defects → a numbered
+file in `feedback/` + a row in its README table.
 
 ## Build / test / seed
 

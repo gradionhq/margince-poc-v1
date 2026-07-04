@@ -16,7 +16,7 @@ The spec repo fixed the 2026-07-04 design-review findings (fail-open
 gate, self-approval bypass, DAG-illegal RBAC read, overloaded SoR seam,
 contract mismatches) in commits `b322372` + `47da93d`; this session
 implements them here — full record in
-[decisions/0012](decisions/0012-adr0055-transport-agnostic-gate.md):
+decisions/0012:
 
 - **Agents keep REST writes, governed** — the C1 read-only stopgap
   (`ErrAgentSurfaceRestricted`) is withdrawn per ADR-0055. A generated
@@ -41,8 +41,8 @@ implements them here — full record in
   `approval_required` wire code, scope/seat 403 responses), keeping the
   A1 `/passports` surface in place of the not-yet-built OAuth2 AS
   (deliberate, recorded in decisions/0012). Spec defects found while
-  syncing: [feedback/04](feedback/04-crmyaml-login-duplicate-security-key.md),
-  [feedback/05](feedback/05-archive-disqualify-xmcptool-verb-mismatch.md).
+  syncing: feedback/04,
+  feedback/05.
 
 All gates green at session close: `make check`, `make test-integration`
 (cold cache), incl. the new e2e loop: agent 🟢 create lands
@@ -106,7 +106,7 @@ platform,shared}` triad in seven gate-green phases (each its own commit,
   as feedback/01; the §9 cross-entity-tx question was feedback/02. Both
   are resolved in the spec (ADR-0054 amended 2026-07-04) and the
   feedback files retired to git history.
-  Full record: [decisions/0011](decisions/0011-triad-restructure.md).
+  Full record: decisions/0011.
 - Enforcement rewritten to the triad DAG (depguard per-module sibling
   denies, go-arch-lint components, and `backend/arch_test.go` fitness
   tests that derive package lists from the tree).
@@ -122,8 +122,8 @@ The 2026-07-04 red-team
 (the craftsmanship/architecture red-team, now fully addressed — the review file lives in git history)
 found the top defects were authorization/data-integrity, not style. All of
 them are now fixed, with regression tests, and the in-flight merge is
-finished. Recorded in [decisions/0009](decisions/0009-two-record-merge-survivorship.md)
-(merge survivorship) and [decisions/0010](decisions/0010-red-team-authorization-hardening.md)
+finished. Recorded in decisions/0009
+(merge survivorship) and decisions/0010
 (C1–C5):
 
 - **C1** — passport bearer tokens are read-only on REST; agent mutations go

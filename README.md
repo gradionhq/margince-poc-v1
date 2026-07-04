@@ -107,7 +107,7 @@ per-client throttling at the proxy.
   is composite `(workspace_id, col)`, so a cross-workspace reference is
   rejected by the database, not merely hidden. Both invariants are
   fitness functions derived from the live schema, not maintained lists.
-- **Layout** (spec ADR-0054/A69, [decisions/0011](decisions/0011-triad-restructure.md)):
+- **Layout** (spec ADR-0054/A69, decisions/0011):
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
@@ -243,12 +243,12 @@ routed, not lost:
 
 - **Implementation decisions** — anything the spec left open that this
   code had to decide — get a numbered record in
-  [decisions/](decisions/), so a reviewer can separate "the spec says"
+  decisions/, so a reviewer can separate "the spec says"
   from "we chose".
 - **Spec/ticket defects** — a contradiction, an omission, a vocabulary
   gap, an unimplementable acceptance criterion found while building —
-  get a numbered markdown file in [`feedback/`](feedback/) **plus a row
-  in its [README table](feedback/README.md)**, each naming the spec
+  get a numbered markdown file in `feedback/` **plus a row
+  in its README table**, each naming the spec
   section and a suggested fix. These are the input for improving the
   tickets/spec upstream; when a defect forces a local workaround, the
   feedback file records what was applied here so the two can be
