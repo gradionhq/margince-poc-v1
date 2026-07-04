@@ -136,6 +136,22 @@ func TestConsentDefaultDenySuppressesSends(t *testing.T) {
 	}
 }
 
+// The consent gate must never be an oracle: a caller who cannot see
+// the anchor gets the anchor's own refusal (404), not a consent answer.
+func TestConsentGateIsNotAnOracleForUnauthorizedCallers(t *testing.T) {
+	c := setupConsent(t)
+	var problem struct {
+		Code string `json:"code"`
+	}
+	status := c.call(t, "POST", "/v1/activities/00000000-0000-7000-8000-000000000001/send-email", anyMap{
+		"subject": "probe", "body": "probe",
+		"to": []string{"subject@consent.test"}, "consent_purpose": "transactional",
+	}, nil, &problem)
+	if status != http.StatusNotFound {
+		t.Fatalf("send against an invisible anchor → %d %q, want 404 before any consent signal", status, problem.Code)
+	}
+}
+
 func TestConsentDoubleOptInNorm(t *testing.T) {
 	c := setupConsent(t)
 

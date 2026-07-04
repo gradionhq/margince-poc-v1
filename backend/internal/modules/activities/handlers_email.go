@@ -9,9 +9,11 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ConsentGate is the outbound suppression seam (B-EP07.12): the
@@ -91,15 +93,20 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 			recipients = append(recipients, string(addr))
 		}
 	}
-	if err := h.consent.RequireGrantedForEmails(r.Context(), recipients, req.ConsentPurpose); err != nil {
+	// Authorization FIRST, consent second: the anchor's visibility and
+	// the write grant must refuse before the consent gate answers, or
+	// the 409-vs-403 difference becomes a consent oracle for callers
+	// with no rights at all.
+	anchor, err := h.store.GetActivity(r.Context(), ids.UUID(id), false)
+	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-
-	// The in-reply-to activity anchors the send: it must exist and be
-	// visible, and the sent mail lands on the same timeline entities.
-	anchor, err := h.store.GetActivity(r.Context(), ids.UUID(id), false)
-	if err != nil {
+	if err := auth.Require(r.Context(), "activity", principal.ActionCreate); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	if err := h.consent.RequireGrantedForEmails(r.Context(), recipients, req.ConsentPurpose); err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
