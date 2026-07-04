@@ -70,7 +70,17 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 		writeErr(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, wire(a))
+	out := wire(a)
+	// The approve response carries the ADR-0036 compact JWS so a remote
+	// redeemer can present a signed, effect-bound proof; the row remains
+	// the single-use authority either way.
+	token, err := h.svc.MintApprovalToken(r.Context(), ids.UUID(id))
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	out.ApprovalToken = &token
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h Handlers) RejectApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {

@@ -1,14 +1,20 @@
-// Command mcp is the A1 local MCP process role (ADR-0054, amended §2):
-// MCP over stdio, authenticated by an Agent Seat Passport token from the
-// environment (never a flag — argv is world-readable in `ps`). The agent
-// client config points here:
+// Command mcp is the MCP process role (ADR-0054, amended §2), serving
+// the ONE governed tool surface over two transports:
+//
+// A1 (default): MCP over stdio, authenticated by an Agent Seat
+// Passport token from the environment (never a flag — argv is
+// world-readable in `ps`). The agent client config points here:
 //
 //	{"command": "mcp", "args": ["--workspace", "acme"],
 //	 "env": {"MARGINCE_PASSPORT_TOKEN": "mgp_…", "MARGINCE_DSN": "…"}}
 //
-// Every tools/call re-authenticates the token and re-loads the granting
-// human's RBAC, so revocation and demotion bind mid-session. Protocol
-// traffic owns stdout; diagnostics go to stderr.
+// A2 (--listen): the hosted streamable-HTTP server. Tokens arrive as
+// Bearer credentials minted by the /oauth flow (they ARE passport
+// tokens), one JSON-RPC exchange per POST /mcp.
+//
+// Every call on either transport re-authenticates and re-loads the
+// granting human's RBAC, so revocation and demotion bind mid-session.
+// Protocol traffic owns stdout; diagnostics go to stderr.
 package main
 
 import (
@@ -17,9 +23,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -43,18 +52,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	workspace := fs.String("workspace", os.Getenv("MARGINCE_WORKSPACE"), "workspace slug the passport belongs to")
+	listen := fs.String("listen", "", "serve the hosted A2 transport on this address instead of stdio")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *dsn == "" {
 		return errors.New("mcp: --dsn or MARGINCE_DSN required")
-	}
-	if *workspace == "" {
-		return errors.New("mcp: --workspace or MARGINCE_WORKSPACE required")
-	}
-	token := os.Getenv("MARGINCE_PASSPORT_TOKEN")
-	if token == "" {
-		return errors.New("mcp: MARGINCE_PASSPORT_TOKEN is not set (mint one via POST /passports)")
 	}
 
 	pool, err := database.NewPool(ctx, *dsn)
@@ -65,6 +68,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	auth := identity.NewService(pool)
 	registry := compose.NewRegistry(pool)
+
+	if *listen != "" {
+		return serveHosted(ctx, *listen, auth, registry, *workspace)
+	}
+
+	if *workspace == "" {
+		return errors.New("mcp: --workspace or MARGINCE_WORKSPACE required")
+	}
+	token := os.Getenv("MARGINCE_PASSPORT_TOKEN")
+	if token == "" {
+		return errors.New("mcp: MARGINCE_PASSPORT_TOKEN is not set (mint one via POST /passports)")
+	}
 
 	bind := func(ctx context.Context) (context.Context, error) {
 		wsID, err := auth.ResolveWorkspace(ctx, *workspace)
@@ -90,4 +105,56 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		len(registry.Specs()), *workspace)
 	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
 		Serve(ctx, os.Stdin, stdout)
+}
+
+// serveHosted is the A2 transport: POST /mcp with a Bearer passport
+// token (minted by the /oauth flow or POST /passports). The workspace
+// resolves from the X-Workspace-Slug header in dev, the --workspace
+// default otherwise — production fronts this with per-tenant hosts.
+func serveHosted(ctx context.Context, addr string, auth *identity.Service, registry *agents.Registry, defaultWorkspace string) error {
+	authenticate := func(r *http.Request) (context.Context, error) {
+		slug := r.Header.Get("X-Workspace-Slug")
+		if slug == "" {
+			slug = defaultWorkspace
+		}
+		if slug == "" {
+			return nil, errors.New("no workspace: send X-Workspace-Slug or start with --workspace")
+		}
+		reqCtx := r.Context()
+		wsID, err := auth.ResolveWorkspace(reqCtx, slug)
+		if err != nil {
+			return nil, err
+		}
+		reqCtx = principal.WithWorkspaceID(reqCtx, wsID)
+		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if bearer == "" || bearer == r.Header.Get("Authorization") {
+			return nil, errors.New("missing bearer token")
+		}
+		agent, err := auth.AuthenticateAgent(reqCtx, bearer)
+		if err != nil {
+			return nil, err
+		}
+		reqCtx = principal.WithActor(reqCtx, agent.Principal())
+		return principal.WithCorrelationID(reqCtx, ids.NewV7()), nil
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("/mcp", agents.NewHTTPHandler(registry, authenticate, "margince-crm", "0.1.0"))
+
+	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.ListenAndServe() }()
+	fmt.Fprintf(os.Stderr, "mcp: hosted A2 transport on %s (%d tools)\n", addr, len(registry.Specs()))
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	case err := <-errCh:
+		return err
+	}
 }

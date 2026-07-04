@@ -110,6 +110,12 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
 	mux.Handle("/v1/", httpserver.Correlate(authH.Middleware(api)))
+	// The A2 authorization server (ADR-0013): AS endpoints live outside
+	// the generated resource surface but behind the same workspace and
+	// session middleware; the discovery documents are static.
+	mux.Handle("/oauth/", httpserver.Correlate(authH.Middleware(authH.OAuthRouter())))
+	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
 	mux.Handle("/", web.Handler())
 
 	return httpserver.RecoverPanics(log, httpserver.SecureHeaders(mux))

@@ -223,6 +223,11 @@ var publicPaths = map[string]bool{
 	"/v1/workspaces":  true,
 	"/v1/auth/login":  true,
 	"/v1/auth/logout": true,
+	// The OAuth AS endpoints authenticate by their own means: DCR is
+	// open (public clients + PKCE), token exchange proves possession via
+	// the code + verifier. authorize is NOT here — it demands a session.
+	"/oauth/register": true,
+	"/oauth/token":    true,
 }
 
 // Middleware chains workspace resolution and session authentication:
