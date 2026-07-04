@@ -142,6 +142,26 @@ honest hard cases (empty page, version skew, cross-tenant, GUC-unset).
 Tests read as specs and the integration lane fails loudly without a
 database — a skipped security gate looks exactly like a passing one.
 
+## License headers (every new hand-written Go file)
+
+Every hand-written `*.go` file starts with the BUSL-1.1 SPDX header — the
+two lines at the very top, above the `package` clause, followed by a blank
+line:
+
+```go
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+```
+
+Exempt: generated files (`*_gen.go`) and the drift-frozen
+`internal/contracts/` package — do NOT stamp those. The rule is enforced by
+`TestEveryHandWrittenGoFileCarriesTheLicenseHeader` in
+`backend/license_test.go` (part of `make check`), which derives the file
+list from the tree, so a new file that skips the header fails the gate.
+Keep the copyright line as-is (`2026 Gradion`); it names the release year,
+not the current year. This is the license model's "honest labeling / don't
+strip notices" obligation (spec `business/12-license.md` §5, §8).
+
 ## Rules learned from the review loop (binding)
 
 Full rationale in [README.md](README.md#engineering-rules-learned-from-the-review-loop);
