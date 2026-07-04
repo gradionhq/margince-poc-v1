@@ -30,6 +30,7 @@ func (h Handlers) ListDeals(w http.ResponseWriter, r *http.Request, params crmco
 		v := ids.UUID(*params.OrganizationId)
 		in.OrganizationID = &v
 	}
+	in.Stalled = params.Stalled
 	if params.Status != nil {
 		s := string(*params.Status)
 		in.Status = &s

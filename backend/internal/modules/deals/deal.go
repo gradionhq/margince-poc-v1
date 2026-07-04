@@ -134,6 +134,7 @@ type ListDealsInput struct {
 	OwnerID         *ids.UUID
 	OrganizationID  *ids.UUID
 	Status          *string
+	Stalled         *bool
 	IncludeArchived bool
 }
 
@@ -175,6 +176,13 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	}
 	if in.Status != nil {
 		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
+	}
+	if in.Stalled != nil {
+		if *in.Stalled {
+			where = append(where, stalledSQL)
+		} else {
+			where = append(where, "NOT "+stalledSQL)
+		}
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)
@@ -649,5 +657,7 @@ func scanDeal(row pgx.Row) (crmcontracts.Deal, error) {
 		d.WaitUntil = &openapi_types.Date{Time: *waitUntil}
 	}
 	d.Version = &version
+	stalled := IsStalled(status, d.CreatedAt, d.LastActivityAt, waitUntil, time.Now().UTC())
+	d.Stalled = &stalled
 	return d, nil
 }

@@ -23,11 +23,33 @@ import (
 // Sink is the one connector.Sink implementation — the chokepoint every
 // captured record passes on its way into the domain.
 type Sink struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	stager MergeStager
+}
+
+// MergeStager is the dedupe seam: a captured lead colliding with an
+// existing record NEVER auto-merges — it stages a 🟡 merge_records
+// proposal for the inbox. Compose injects the approvals engine.
+type MergeStager interface {
+	StageMerge(ctx context.Context, in MergeProposal) (ids.UUID, error)
+}
+
+// MergeProposal names the collision: the surviving record and the
+// captured fields that would fold into it.
+type MergeProposal struct {
+	TargetType     string
+	TargetID       ids.UUID
+	ProposedChange json.RawMessage
+	Summary        string
 }
 
 func NewSink(pool *pgxpool.Pool) *Sink {
 	return &Sink{pool: pool}
+}
+
+// WithStager returns a copy wired to the merge-staging path.
+func (s *Sink) WithStager(stager MergeStager) *Sink {
+	return &Sink{pool: s.pool, stager: stager}
 }
 
 var _ connector.Sink = (*Sink)(nil)
@@ -51,6 +73,8 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	}
 
 	var ref datasource.EntityRef
+	var dedupeHit *ids.UUID
+	var dedupeFields json.RawMessage
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw
@@ -97,6 +121,10 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 				"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
 			})
 		case LeadFields:
+			// Provider payloads carry whitespace; every downstream email
+			// comparison (suppression, dedupe, the DB lower()) assumes a
+			// trimmed address.
+			fields.Email = strings.TrimSpace(fields.Email)
 			// The A13 resurrection guard: an erased subject's address
 			// refuses re-capture — deletion sticks. The natural key, not
 			// the address, names the skip (the log must not re-store PII).
@@ -108,6 +136,28 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 				if suppressed {
 					return fmt.Errorf("capture: %s/%s matches the erasure suppression list: %w",
 						rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, connector.ErrSkip)
+				}
+				// Dedupe: an email already on a LIVE lead from a DIFFERENT
+				// source is a collision, not a second row — remember it and
+				// stage the merge after this transaction commits (a replay
+				// of the same natural key is the idempotent path below).
+				var existing ids.UUID
+				err = tx.QueryRow(ctx, `
+					SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
+					  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
+					fields.Email, rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&existing)
+				if err == nil {
+					captured, err := json.Marshal(fields)
+					if err != nil {
+						return err
+					}
+					dedupeHit = &existing
+					dedupeFields = captured
+					ref = datasource.EntityRef{Type: datasource.EntityLead, ID: existing}
+					return nil
+				}
+				if !errors.Is(err, pgx.ErrNoRows) {
+					return err
 				}
 			}
 			id, created, err := s.upsertLead(ctx, tx, rec, fields)
@@ -131,6 +181,19 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	})
 	if err != nil {
 		return datasource.EntityRef{}, err
+	}
+	if dedupeHit != nil && s.stager != nil {
+		// Staged OUTSIDE the capture transaction on purpose: the capture
+		// itself wrote nothing (the collision blocked it), and the
+		// proposal must survive independently for the inbox.
+		if _, err := s.stager.StageMerge(ctx, MergeProposal{
+			TargetType:     "lead",
+			TargetID:       *dedupeHit,
+			ProposedChange: dedupeFields,
+			Summary:        fmt.Sprintf("Captured %s/%s duplicates an existing lead", rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID),
+		}); err != nil {
+			return datasource.EntityRef{}, fmt.Errorf("capture: staging the dedupe merge: %w", err)
+		}
 	}
 	return ref, nil
 }

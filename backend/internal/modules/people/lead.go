@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -108,12 +109,15 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		}
 
 		id := ids.NewV7()
+		// The initial score is the §3 fit component — a fresh lead has no
+		// behavioral history yet; signal recompute moves it later.
+		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
 		_, err := tx.Exec(ctx,
 			`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-			                   status, owner_id, source_system, source_id, source, captured_by)
-			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			                   status, score, owner_id, source_system, source_id, source, captured_by)
+			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			id, wsID, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
-			in.Status, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by)
+			in.Status, fitScore, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by)
 		if err != nil {
 			// Race behind the pre-checks: the constraint name tells an
 			// email dedupe hit from a concurrent same-source import — the

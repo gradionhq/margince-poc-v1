@@ -19,9 +19,8 @@ import (
 
 // ModelPath is the wired model surface one process role hands around:
 // each lane is the same router under a task label, so ai-routing.yaml
-// decides the tier per workload. The seat-count-derived budget lands
-// here when compose wires it; until then the single-seat default
-// applies.
+// decides the tier per workload, and every lane draws on the
+// seat-derived monthly budget.
 type ModelPath struct {
 	Agent     runner.Brain    // the Surface-B reason-act loop
 	ColdStart runner.Brain    // the website read-back extraction
@@ -31,7 +30,7 @@ type ModelPath struct {
 // NewModelPath builds the production model path from a validated
 // routing config.
 func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool) (ModelPath, error) {
-	router, err := ai.NewRouter(cfg, ai.NewMeter(pool), ai.DefaultMonthlyTokens)
+	router, err := ai.NewRouter(cfg, ai.NewMeter(pool), NewSeatBudget(pool))
 	if err != nil {
 		return ModelPath{}, err
 	}
