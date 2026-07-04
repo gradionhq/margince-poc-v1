@@ -240,12 +240,49 @@ func NewWebFetcher() PageFetcher {
 			return conn, nil
 		},
 	}
-	return webFetcher{client: &http.Client{Timeout: fetchTimeout, Transport: transport}}
+	return webFetcher{client: &http.Client{
+		Timeout:   fetchTimeout,
+		Transport: transport,
+		// Every redirect hop re-enters the guarded dialer; the cap just
+		// bounds how long a redirect chain can hold the request.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("coldstart: too many redirects")
+			}
+			return nil
+		},
+	}}
 }
 
+// reservedNets are the non-public ranges the stdlib predicates miss:
+// CGNAT, benchmark, documentation, protocol-assignment and broadcast.
+var reservedNets = func() []*net.IPNet {
+	cidrs := []string{
+		"100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15",
+		"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32",
+	}
+	nets := make([]*net.IPNet, len(cidrs))
+	for i, c := range cidrs {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			panic(err)
+		}
+		nets[i] = n
+	}
+	return nets
+}()
+
 func publicIP(ip net.IP) bool {
-	return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified()
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	for _, n := range reservedNets {
+		if n.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 func (f webFetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
