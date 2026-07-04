@@ -75,6 +75,13 @@ func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (mo
 	if !ok {
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: unknown task %q", task)
 	}
+	return r.complete(ctx, task, ladder, req)
+}
+
+// complete serves one call over an explicit ladder — Complete passes
+// the task default, the structured-output pipeline passes an escalated
+// suffix.
+func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: task %s outside workspace context", task)

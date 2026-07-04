@@ -63,6 +63,27 @@ func (e *unreadableError) Error() string {
 	return "could not read enough from this page — retry or paste text"
 }
 
+// validatedBrain is the optional structured-output capability of the
+// injected brain (routerBrain implements it; test fakes need not).
+type validatedBrain interface {
+	CompleteValidated(ctx context.Context, req model.Request, validate ai.Validator) (model.Response, error)
+}
+
+// extractionShapeValid is the schema-validity check the retry pipeline
+// enforces: parseable JSON in the demanded envelope.
+func extractionShapeValid(text string) error {
+	raw := strings.TrimSpace(text)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.Trim(raw, "` \n")
+	var parsed struct {
+		Fields []extractedField `json:"fields"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return fmt.Errorf("output must be {\"fields\":[...]}: %w", err)
+	}
+	return nil
+}
+
 // extractedField is the JSON shape the extraction prompt demands.
 type extractedField struct {
 	Field           string  `json:"field"`
@@ -91,7 +112,7 @@ func (e *coldStartEngine) Propose(ctx context.Context, rawURL string) (crmcontra
 		pageText = string(runes[:maxExtractionText])
 	}
 
-	resp, err := e.brain.Complete(ctx, model.Request{
+	req := model.Request{
 		System: extractionSystem,
 		Messages: []model.Message{{
 			Role:    "user",
@@ -99,7 +120,17 @@ func (e *coldStartEngine) Propose(ctx context.Context, rawURL string) (crmcontra
 		}},
 		MaxTokens:      2048,
 		SecretStripper: ai.NewSecretStripper(),
-	})
+	}
+	// Schema validity rides the §5.2 pipeline when the brain offers it
+	// (the routed production path does); the no-guess evidence gate
+	// stays below either way — a retry can fix malformed JSON, it
+	// cannot conjure evidence.
+	var resp model.Response
+	if structured, ok := e.brain.(validatedBrain); ok {
+		resp, err = structured.CompleteValidated(ctx, req, extractionShapeValid)
+	} else {
+		resp, err = e.brain.Complete(ctx, req)
+	}
 	if err != nil {
 		return crmcontracts.ColdStartProposal{}, err
 	}

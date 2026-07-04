@@ -56,3 +56,11 @@ func (b routerBrain) Complete(ctx context.Context, req model.Request) (model.Res
 	resp, _, err := b.router.Complete(ctx, b.task, req)
 	return resp, err
 }
+
+// CompleteValidated exposes the §5.2 structured-output pipeline
+// (validate → retry with feedback → escalate a tier) on the lane's own
+// task label.
+func (b routerBrain) CompleteValidated(ctx context.Context, req model.Request, validate ai.Validator) (model.Response, error) {
+	resp, _, err := b.router.CompleteStructured(ctx, b.task, req, validate)
+	return resp, err
+}
