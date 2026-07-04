@@ -7,7 +7,7 @@
 
 **Last updated: 2026-07-04 (red-team remediation).** Roughly **17–18 %** of the
 701-leaf-ticket V1 backlog
-(`../margince/margince specs/spec/product/build-backlog/`) is
+(`../margince/specs/spec/product/build-backlog/`) is
 implemented and gate-verified.
 
 ## Current session: post-restructure red-team, all findings fixed
@@ -31,9 +31,9 @@ finding is fixed with a regression or fitness test:
   a reject is a decision too). `TestApprovalAuthorityHonorsTargetRowScope`.
 - **M1** — the write shape is now a fitness function:
   `TestEveryAuditedMutationEmitsAnEvent` (AST scan) fails any module
-  mutation that audits without emitting; pipeline config is the one
-  ratified audit-only exception, spec question filed as
-  [feedback/03](feedback/03-pipeline-config-events-vs-write-shape.md).
+  mutation that audits without emitting; pipeline config was the one
+  ratified audit-only exception (filed as feedback/03, since resolved —
+  see the pickup item below).
 - **M2** — the approval inbox pages past the scan window until the
   display limit fills, so a burst of undecidable stagings can't starve
   older decidable rows (`TestApprovalListPagesPastUndecidableBurst`,
@@ -64,8 +64,9 @@ platform,shared}` triad in seven gate-green phases (each its own commit,
   deleted (modules are added when they own real code).
 - `cmd/crm` split into `cmd/{api,worker,migrate,mcp}` — a founder
   amendment to ADR-0054 §2 (separate role dirs over one binary), filed
-  for the spec-cleanup session as [feedback/01](feedback/01-adr0054-cmd-shape-separate-role-dirs.md);
-  the §9 cross-entity-tx question is [feedback/02](feedback/02-adr0054-s9-cross-entity-tx-vs-ports.md).
+  as feedback/01; the §9 cross-entity-tx question was feedback/02. Both
+  are resolved in the spec (ADR-0054 amended 2026-07-04) and the
+  feedback files retired to git history.
   Full record: [decisions/0011](decisions/0011-triad-restructure.md).
 - Enforcement rewritten to the triad DAG (depguard per-module sibling
   denies, go-arch-lint components, and `backend/arch_test.go` fitness
@@ -115,8 +116,16 @@ All gates green at session close: `make check`, and the integration lane
 
 ## Pick up here: next big blocks
 
-No half-finished slice is in flight. The next backlog blocks, roughly in
-priority order:
+No half-finished slice is in flight. One small spec-driven follow-up first:
+
+- **Emit `pipeline.*`/`stage.*` events** — feedback/01–03 were resolved in the
+  spec on 2026-07-04 (files retired to git history); feedback/03 went
+  option (a): the spec's `events.md §5.3b` now defines
+  `pipeline.created/updated/archived` + `stage.created/updated/archived`,
+  so pipeline/stage mutations must emit, and `createPipelineTx` comes off
+  the `TestEveryAuditedMutationEmitsAnEvent` allow-list.
+
+The next backlog blocks, roughly in priority order:
 
 - **EP05 capture connectors** — inbound capture → lead/activity, the
   `connector` principal path (audit CHECK already carries it, fable feedback/13).

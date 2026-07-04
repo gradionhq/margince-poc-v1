@@ -1,7 +1,7 @@
 # AGENTS.md — operating this repo
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built
-from the spec in `../margince/margince specs/` (contract-first, P3: when this code
+from the spec in `../margince/specs/` (contract-first, P3: when this code
 and the spec disagree, the spec wins).
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the

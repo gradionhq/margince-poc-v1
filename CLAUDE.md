@@ -9,22 +9,23 @@ repo (see below); this code is built **from** that spec, contract-first.
 
 ## Where the spec is (read before building)
 
-The normative spec is the sibling repo, at **`../margince/margince specs/`**
-(absolute: `/Users/lars/develop/margince/margince specs/`) — note the space in the
-directory name, so quote paths in shell commands.
+The normative spec is the sibling repo, at **`../margince/specs/`**
+(absolute: `/Users/lars/develop/margince/specs/`; renamed from
+`margince specs/` — no space — on 2026-07-04).
 
-- **`../margince/margince specs/spec/README.md`** — live status + reading order; the
+- **`../margince/specs/spec/README.md`** — live status + reading order; the
   "Continue here" block is the canonical spec-side pickup point.
-- **`../margince/margince specs/spec/contract/`** — implementation source-of-truth:
+- **`../margince/specs/spec/contract/`** — implementation source-of-truth:
   `crm.yaml` (OpenAPI 3.1), `data-model.md`, `events.md`, `interfaces.md` (incl. the
   §0 error-sentinel registry), `ai-operational-spec.md`, `formulas-and-rules.md`.
-- **`../margince/margince specs/spec/architecture/`** — the build blueprint (`00`–`13`);
+- **`../margince/specs/spec/architecture/`** — the build blueprint (`00`–`13`);
   `11-conventions.md` is the style guide.
-- **`../margince/margince specs/spec/product/build-backlog/`** — the 701-leaf V1 ticket
+- **`../margince/specs/spec/product/build-backlog/`** — the 701-leaf V1 ticket
   breakdown this repo is working through.
-- **`../margince/margince specs/spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
-  **ADR-0054/A69** mandates this repo's layout (amended per
-  [decisions/0011](decisions/0011-triad-restructure.md) + [feedback/01](feedback/01-adr0054-cmd-shape-separate-role-dirs.md)).
+- **`../margince/specs/spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
+  **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
+  cmd shape + §9 single-tx exception; full record in
+  [decisions/0011](decisions/0011-triad-restructure.md)).
 
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.

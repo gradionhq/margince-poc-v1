@@ -21,11 +21,10 @@ import (
 
 // auditOnlyWrites are the ratified audit-without-event functions.
 var auditOnlyWrites = map[string]string{
-	// Pipeline/stage config has no §5 catalog event in V1 — consumers
-	// react to deal.* on the pipeline's deals instead. Spec question
-	// filed as feedback/03 (add pipeline.* events or bless audit-only
-	// config writes).
-	"createPipelineTx": "pipeline config is audit-only in V1 (feedback/03)",
+	// TEMPORARY: the spec now defines pipeline.*/stage.* events
+	// (events.md §5.3b) — pipeline/stage mutations must emit them and
+	// this entry must be removed with that change (STATUS.md pickup item).
+	"createPipelineTx": "pipeline config emission pending (events.md §5.3b)",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
