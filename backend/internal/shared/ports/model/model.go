@@ -6,7 +6,17 @@
 // capability for the sovereign zero-egress profile (P7).
 package model
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrEmbeddingsUnsupported reports a chat provider with no embedding
+// lane (embeddings are a separate lane, ai-operational-spec §1.1); the
+// routing layer binds Embed to a dedicated embedder instead. Port-level
+// so consumers in other modules can errors.Is against it without
+// importing a provider package.
+var ErrEmbeddingsUnsupported = errors.New("model: provider has no embedding lane")
 
 // Client is the swappable model interface; selection is config.
 type Client interface {

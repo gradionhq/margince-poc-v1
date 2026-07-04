@@ -48,6 +48,8 @@ linters:
               desc: identity imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
               desc: identity imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: identity imports no sibling module
         module-people:
           files:
             - "**/internal/modules/people/**"
@@ -62,6 +64,8 @@ linters:
               desc: agents sits above the domain; the reverse edge is forbidden
             - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
               desc: people never reaches the approval engine; the composition layer wires them
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: people imports no sibling module
         module-deals:
           files:
             - "**/internal/modules/deals/**"
@@ -76,6 +80,8 @@ linters:
               desc: agents sits above the domain; the reverse edge is forbidden
             - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
               desc: deals never reaches the approval engine; the composition layer wires them
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: deals imports no sibling module
         module-activities:
           files:
             - "**/internal/modules/activities/**"
@@ -90,6 +96,8 @@ linters:
               desc: agents sits above the domain; the reverse edge is forbidden
             - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
               desc: activities never reaches the approval engine; the composition layer wires them
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: activities imports no sibling module
         module-approvals:
           files:
             - "**/internal/modules/approvals/**"
@@ -103,6 +111,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/activities
               desc: approvals imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: approvals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
               desc: approvals imports no sibling module
         module-agents:
           files:
@@ -118,6 +128,24 @@ linters:
               desc: the agent surface reaches records only through the datasource seam
             - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
               desc: agents stages approvals through the injected adapter, never directly
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: agents speaks to the model through the injected model.Client, never a provider package
+        module-ai:
+          files:
+            - "**/internal/modules/ai/**"
+          deny:
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/identity
+              desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/people
+              desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/deals
+              desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/activities
+              desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
+              desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: ai imports no sibling module
         modules-common:
           files:
             - "**/internal/modules/**"
