@@ -196,3 +196,35 @@
   font-size: 12px;
   color: var(--textTertiary);
 }
+
+/* Lead segregation (§3.5): the lead surface is visibly apart from the
+ * contact graph — accent-tinted ground, its own detail card. */
+.lead-surface .table tbody td {
+  background: var(--accentLight);
+}
+.lead-detail {
+  background: var(--accentLight);
+  border: 1px solid var(--accentMed);
+}
+
+.firmo {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.firmo div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.firmo dt {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--textTertiary);
+}
+.firmo dd {
+  font-size: 13.5px;
+  color: var(--textContent);
+}

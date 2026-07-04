@@ -13,16 +13,21 @@ import type { paths } from "./schema";
 const WORKSPACE_KEY = "margince.workspaceSlug";
 
 export function workspaceSlug(): string | null {
-  return localStorage.getItem(WORKSPACE_KEY);
+  return globalThis.localStorage?.getItem(WORKSPACE_KEY) ?? null;
 }
 
 export function setWorkspaceSlug(slug: string): void {
-  localStorage.setItem(WORKSPACE_KEY, slug);
+  globalThis.localStorage?.setItem(WORKSPACE_KEY, slug);
 }
 
 export const api = createClient<paths>({
-  baseUrl: "/",
+  // same-origin absolute base: the dev server proxies /v1, the embedded
+  // build serves from the api origin itself
+  baseUrl:
+    typeof window === "undefined" ? "http://localhost" : window.location.origin,
   credentials: "include",
+  // resolve the CURRENT global fetch per call (test stubs, SW interception)
+  fetch: (request) => globalThis.fetch(request),
 });
 
 api.use({

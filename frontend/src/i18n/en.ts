@@ -90,6 +90,29 @@ export const en = {
   "deal.singleThreaded": "single-threaded",
   "deal.staged": "staged",
   "record.timeline": "Timeline",
+
+  "common.error": "Couldn't load this view.",
+  "common.retry": "Retry",
+  "common.empty": "Nothing here yet.",
+
+  "people.name": "Name",
+  "people.email": "Email",
+  "people.capturedBy": "Captured by",
+  "person.consent": "Consent by purpose",
+
+  "org.name": "Company",
+  "org.industry": "Industry",
+  "org.size": "Size",
+  "org.classification": "Type",
+  "org.firmographics": "Firmographics",
+  "org.evidenceOrOmit": "evidence-backed fields only — absent means unknown",
+  "org.domains": "Domains",
+
+  "lead.score": "Score",
+  "lead.status": "Status",
+  "lead.segregated": "leads live apart from the contact graph until promoted",
+  "lead.promote": "Promote to contact",
+  "lead.promoteIneligible": "needs an email and an open status",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -9,6 +9,9 @@ import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { DesignScreen } from "./screens/design";
+import { LeadScreen, LeadsScreen } from "./screens/leads";
+import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
+import { ContactsScreen, PersonScreen } from "./screens/people";
 
 // Route → screen. Surfaces land here ticket by ticket; anything not yet
 // built renders the honest pending state, never a blank page.
@@ -22,10 +25,16 @@ function PendingScreen() {
   );
 }
 
-function ScreenView({ screen }: { screen: string }) {
+function ScreenView({ screen, id }: { screen: string; id?: string }) {
   switch (screen) {
     case "design":
       return <DesignScreen />;
+    case "contacts":
+      return id ? <PersonScreen id={id} /> : <ContactsScreen />;
+    case "companies":
+      return id ? <CompanyScreen id={id} /> : <CompaniesScreen />;
+    case "leads":
+      return id ? <LeadScreen id={id} /> : <LeadsScreen />;
     default:
       return <PendingScreen />;
   }
@@ -40,7 +49,7 @@ export function App() {
   return (
     <>
       <Shell onOpenSearch={() => setPaletteOpen(true)}>
-        <ScreenView screen={route.screen} />
+        <ScreenView screen={route.screen} id={route.id} />
       </Shell>
       <CommandPalette
         open={paletteOpen}

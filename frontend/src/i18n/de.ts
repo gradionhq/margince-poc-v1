@@ -92,4 +92,28 @@ export const de = {
   "deal.singleThreaded": "nur ein Kontakt",
   "deal.staged": "vorgemerkt",
   "record.timeline": "Verlauf",
+
+  "common.error": "Diese Ansicht konnte nicht geladen werden.",
+  "common.retry": "Erneut versuchen",
+  "common.empty": "Hier ist noch nichts.",
+
+  "people.name": "Name",
+  "people.email": "E-Mail",
+  "people.capturedBy": "Erfasst von",
+  "person.consent": "Einwilligung je Zweck",
+
+  "org.name": "Firma",
+  "org.industry": "Branche",
+  "org.size": "Größe",
+  "org.classification": "Typ",
+  "org.firmographics": "Firmendaten",
+  "org.evidenceOrOmit": "nur belegte Felder — fehlend heißt unbekannt",
+  "org.domains": "Domains",
+
+  "lead.score": "Score",
+  "lead.status": "Status",
+  "lead.segregated":
+    "Leads bleiben bis zur Übernahme vom Kontaktgraphen getrennt",
+  "lead.promote": "Zum Kontakt machen",
+  "lead.promoteIneligible": "braucht eine E-Mail und einen offenen Status",
 } as const satisfies Record<MessageKey, string>;
