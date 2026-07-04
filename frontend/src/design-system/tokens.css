@@ -1,0 +1,98 @@
+/*
+ * Margince "Ledger Green" design tokens (ADR-0040, design/00-design-language.md §2).
+ * The canonical values live in the spec's design/mockups/app.css :root — this file
+ * mirrors them exactly and tokens.test.ts pins every value, so a drift from the
+ * design source of truth fails the build.
+ *
+ * Semantic split (§2, UX review 2026-06-29): the brand accent (deep emerald) means
+ * PRIMARY ACTION and brand only; AI/agent-authored surfaces carry their own indigo
+ * hue; status (success/warn/danger) is a third family. One meaning per colour —
+ * success stays a brighter grass-green than the brand emerald on purpose.
+ */
+:root {
+  --bgPage: #fbfcfb;
+  --bgElevated: #ffffff;
+  --bgCard: #eef1f0;
+  --bgHover: #f3f6f4;
+
+  --accent: #0b7a53;
+  --accentLight: rgba(11, 122, 83, 0.09);
+  --accentMed: rgba(11, 122, 83, 0.17);
+
+  --textPrimary: #15201b;
+  --textContent: #36433d;
+  --textSecondary: #68756e;
+  --textTertiary: #9aa6a0;
+  --textMuted: #cbd2cd;
+  --textOnAccent: #fff;
+
+  --borderSubtle: #e5e9e7;
+  --borderStrong: #d2d8d4;
+
+  --online: #22c55e;
+  --teal: #0e7490;
+  --away: #fbbf24;
+  --dnd: #ef4444;
+  --bgRail: #13231d;
+
+  --ai: #5b61d6;
+  --aiLight: rgba(91, 97, 214, 0.08);
+  --aiMed: rgba(91, 97, 214, 0.3);
+  --aiText: #3f45b0;
+
+  --success: #15803d;
+  --successBg: rgba(34, 197, 94, 0.12);
+  --warn: #92400e;
+  --warnBg: rgba(251, 191, 36, 0.16);
+  --warnBorder: rgba(251, 191, 36, 0.45);
+  --danger: #b91c1c;
+  --dangerBg: rgba(239, 68, 68, 0.1);
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-full: 9999px;
+
+  --f-display: "Outfit", system-ui, sans-serif;
+  --f-body: "DM Sans", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --shadow-card:
+    0 1px 2px rgba(41, 37, 36, 0.04), 0 4px 16px rgba(41, 37, 36, 0.05);
+  --shadow-pop: 0 8px 30px rgba(41, 37, 36, 0.14);
+}
+
+/*
+ * Dark palette (§2: "structure for it; accent lightens toward #16A34A. Build
+ * light-first."). The accent value is the ADR-0040 mandate; the surface and text
+ * values are the structured dark counterparts pending a spec-side dark pass —
+ * every component reads through the same custom properties, so re-tuning the
+ * palette later touches only this block. The rail is unchanged: it is already
+ * the dark ink-green field in both themes (§2b — white-alpha on --bgRail,
+ * deliberately not theme tokens).
+ */
+[data-theme="dark"] {
+  --bgPage: #0e1b16;
+  --bgElevated: #142420;
+  --bgCard: #1a2c26;
+  --bgHover: #1f332c;
+
+  --accent: #16a34a;
+  --accentLight: rgba(22, 163, 74, 0.14);
+  --accentMed: rgba(22, 163, 74, 0.26);
+
+  --textPrimary: #e8eeeb;
+  --textContent: #c3cec8;
+  --textSecondary: #8fa099;
+  --textTertiary: #66776f;
+  --textMuted: #43524b;
+
+  --borderSubtle: #22352e;
+  --borderStrong: #31463d;
+
+  --aiText: #9ba0f0;
+
+  --success: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+}

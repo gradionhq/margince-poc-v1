@@ -76,9 +76,28 @@ discovery's `requestIssuer` trusts the raw `Host` header (fine only
 behind a Host-sanitizing proxy; revisit before any direct-exposure
 deploy).
 
-## Pick up here: next blocks
+## In flight: EP09 (frontend) has started
 
-No half-finished slice is in flight. Highest-value next, in order:
+**B-EP09.1 is done (2026-07-05):** top-level `frontend/` per ADR-0054/ADR-0016
+(pnpm + Vite + React 19 + TS + Tailwind 4 + Biome + Vitest), the Ledger-Green
+token layer pinned to the mockup canon by `src/design-system/tokens.test.ts`,
+the three-font and no-hardcoded-colour gates in `conformance.test.ts`, dark
+theme via `data-theme` (accent → #16A34A per ADR-0040). Verified rendering in
+both themes via headless browser. `make frontend-check` is the frontend lane
+(separate from `make check` — needs node+pnpm); full record in decisions/0014.
+
+Next EP09 steps, in ticket order:
+- **B-EP09.2 (blocked):** the `gw-ui` port needs the Gradion Workspace repo,
+  which is not on this machine — Lars to provide, or we build atoms lazily.
+- **B-EP09.3a (unblocked):** Margince-owned trust primitives (`EvidenceChip`,
+  `ConfidenceMeter`, `StagingCard`, `ApprovalGate`, `ProvenanceTag`).
+- Packaging call (decisions/0014): at prototype parity, `frontend/dist` is
+  copied under `backend/web/` for the existing `go:embed`; until then the
+  handwritten prototype keeps serving `/`.
+
+## Pick up here: next blocks (backend)
+
+No half-finished backend slice is in flight. Highest-value next, in order:
 
 - **Lead-score behavioral recompute** — wire `ScoreLead` signals when the
   engagement substrate (activity→lead linkage / engagement_event) lands;
