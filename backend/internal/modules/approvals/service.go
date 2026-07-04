@@ -53,6 +53,16 @@ type StageInput struct {
 	TargetID       ids.UUID
 	TargetVersion  *int64
 	Summary        string
+	// Announce is an optional kind-specific domain event (e.g.
+	// coldstart.read_back_proposed) emitted in the SAME transaction as
+	// approval.requested, linked to the same audit row.
+	Announce []AnnouncedEvent
+}
+
+// AnnouncedEvent is one extra catalog event a staging carries.
+type AnnouncedEvent struct {
+	Type    string
+	Payload map[string]any
 }
 
 // Stage records a pending approval for the context's agent principal and
@@ -83,13 +93,21 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
 		if err != nil {
 			return err
 		}
-		return s.emit(ctx, tx, p, auditID, "approval.requested", id, map[string]any{
+		if err := s.emit(ctx, tx, p, auditID, "approval.requested", id, map[string]any{
 			"kind":               in.Kind,
 			"summary":            in.Summary,
 			"target_entity_type": in.TargetType,
 			"target_entity_id":   nullUUID(in.TargetID),
 			"expires_at":         time.Now().UTC().Add(stagingTTL),
-		})
+		}); err != nil {
+			return err
+		}
+		for _, announce := range in.Announce {
+			if err := s.emit(ctx, tx, p, auditID, announce.Type, id, announce.Payload); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return id, err
 }
@@ -337,6 +355,17 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		}); err != nil {
 			return err
 		}
+		if echo, ok := kindDecidedEvents[a.Kind]; ok {
+			eventType := echo.rejected
+			if approve {
+				eventType = echo.approved
+			}
+			if err := s.emit(ctx, tx, p, auditID, eventType, id, map[string]any{
+				"approval_id": id, "decided_by": p.UserID,
+			}); err != nil {
+				return err
+			}
+		}
 		a, err = get(ctx, tx, id)
 		return err
 	})
@@ -432,6 +461,17 @@ var decisionGrants = map[string][]struct {
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
 	"send_email": {{"activity", principal.ActionCreate}},
+	// Accepting a cold-start read-back writes enrichment fields onto an
+	// organization; "enrich" is the same effect staged through the
+	// transport gate by an agent caller.
+	"coldstart": {{"organization", principal.ActionUpdate}},
+	"enrich":    {{"organization", principal.ActionUpdate}},
+}
+
+// kindDecidedEvents names the domain event a decision echoes for kinds
+// whose lifecycle the event catalog tracks beyond approval.decided.
+var kindDecidedEvents = map[string]struct{ approved, rejected string }{
+	"coldstart": {approved: "coldstart.accepted", rejected: "coldstart.rejected"},
 }
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
@@ -453,8 +493,8 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 // decide — a staged change against another team's deal. The probe uses
 // the same platform/auth clauses the owning store's reads use, so the
 // approval surface can never disclose more than the record itself would.
-// A staged row without a target (none exist today) is scoped by grants
-// alone; a target the probe errors on stays invisible.
+// A staged row without a target (e.g. a cold-start proposal) is scoped
+// by grants alone; a target the probe errors on stays invisible.
 func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 	if a.TargetType == nil || a.TargetID == nil {
 		return true, nil

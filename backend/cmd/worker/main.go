@@ -22,7 +22,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -68,18 +67,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	logger := slog.New(slog.NewTextHandler(stdout, nil))
 
-	brain, embedder, err := selectModelPath(*routingPath, *fakeBrain, pool)
+	modelPath, err := selectModelPath(*routingPath, *fakeBrain, pool)
 	if err != nil {
 		return err
 	}
-	if brain != nil {
-		svc := compose.NewRunnerService(pool, brain, logger)
+	if modelPath.Agent != nil {
+		svc := compose.NewRunnerService(pool, modelPath.Agent, logger)
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", *runnerInterval)
 		go runScheduler(ctx, svc, *runnerInterval, logger)
 		go runResumeSubscriber(ctx, rdb, svc, logger)
 	}
-	if embedder != nil {
-		gen := search.NewEmbedGen(search.NewStore(pool), embedder)
+	if modelPath.Embedder != nil {
+		gen := search.NewEmbedGen(search.NewStore(pool), modelPath.Embedder)
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
 		go runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger)
 	}
@@ -96,22 +95,21 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 // selectModelPath resolves the model path: a routing config for real
-// deployments, the offline fake behind an explicit dev flag, or nils —
-// the runner and the embed lane simply don't start without a declared
-// model; nothing is picked silently.
-func selectModelPath(routingPath string, fake bool, pool *pgxpool.Pool) (runner.Brain, search.Embedder, error) {
+// deployments, the offline fake behind an explicit dev flag, or the
+// zero path — the runner and the embed lane simply don't start without
+// a declared model; nothing is picked silently.
+func selectModelPath(routingPath string, fake bool, pool *pgxpool.Pool) (compose.ModelPath, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, nil, err
+			return compose.ModelPath{}, err
 		}
 		return compose.NewModelPath(cfg, pool)
 	case fake:
-		client := ai.NewFakeClient()
-		return client, client, nil
+		return compose.FakeModelPath(ai.NewFakeClient()), nil
 	default:
-		return nil, nil, nil
+		return compose.ModelPath{}, nil
 	}
 }
 

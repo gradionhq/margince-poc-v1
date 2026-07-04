@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 )
@@ -43,6 +44,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	addr := fs.String("addr", ":8080", "listen address")
 	redisAddr := fs.String("redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	inlineRelay := fs.Bool("inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
+	routingPath := fs.String("ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the cold-start read-back")
+	fakeBrain := fs.Bool("ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -76,9 +79,28 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		})
 	}
 
+	// The cold-start read-back needs a declared model path; without one
+	// the operation stays an explicit 501 (same posture as the worker's
+	// runner lane).
+	var opts []compose.Option
+	switch {
+	case *routingPath != "":
+		cfg, err := ai.LoadRoutingFile(*routingPath)
+		if err != nil {
+			return err
+		}
+		modelPath, err := compose.NewModelPath(cfg, pool)
+		if err != nil {
+			return err
+		}
+		opts = append(opts, compose.WithColdStart(compose.NewWebFetcher(), modelPath.ColdStart))
+	case *fakeBrain:
+		opts = append(opts, compose.WithColdStart(compose.NewWebFetcher(), ai.NewFakeClient()))
+	}
+
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           compose.New(pool, logger),
+		Handler:           compose.New(pool, logger, opts...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

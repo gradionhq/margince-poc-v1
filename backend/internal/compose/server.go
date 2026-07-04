@@ -17,6 +17,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -28,11 +29,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/web"
 )
-
-// fallback pushes the stubs one embedding level deeper than the module
-// handlers, so a module method always wins promotion and the stub only
-// answers operations nothing implements.
-type fallback struct{ stubs }
 
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
@@ -47,8 +43,11 @@ type (
 	collectionsHandlers = collections.Handlers
 )
 
-// Server satisfies crmcontracts.ServerInterface by embedding: the module
-// transport handlers at depth one shadow the depth-two stubs.
+// Server satisfies crmcontracts.ServerInterface by embedding the module
+// transport handler sets. Every contract operation is implemented; the
+// generated stubs (stubs_gen.go) stay as the drift gate's inventory and
+// would resurface as a compile error here if a regenerated contract
+// added an operation nothing implements.
 type Server struct {
 	authHandlers
 	peopleHandlers
@@ -59,14 +58,31 @@ type Server struct {
 	consentHandlers
 	collectionsHandlers
 	reportHandlers
-	fallback
+	coldstartHandlers
 }
 
 var _ crmcontracts.ServerInterface = Server{}
 
+// Option customizes the wiring for one process role; everything not
+// optioned keeps its safe default.
+type Option func(*Server, *pgxpool.Pool)
+
+// WithColdStart enables the cold-start read-back over the given fetch
+// and model seams. Without it the operation stays an explicit 501 —
+// the api role must DECLARE its model path, never pick one silently.
+func WithColdStart(fetch PageFetcher, brain runner.Brain) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.coldstartHandlers = coldstartHandlers{engine: &coldStartEngine{
+			fetch:     fetch,
+			brain:     brain,
+			approvals: approvals.NewService(pool),
+		}}
+	}
+}
+
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
-func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
+func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	dealsH := deals.NewHandlers(pool)
 	// On workspace bootstrap, deals seeds its per-workspace defaults
 	// (the default pipeline) — composed here so neither module imports
@@ -93,6 +109,9 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 		consentHandlers:     consent.NewHandlers(pool),
 		collectionsHandlers: collections.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
+	}
+	for _, opt := range opts {
+		opt(&srv, pool)
 	}
 
 	// The ADR-0055 admission layer rides INSIDE the router (it needs the

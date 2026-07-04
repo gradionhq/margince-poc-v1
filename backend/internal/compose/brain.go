@@ -1,9 +1,10 @@
 package compose
 
-// The runner's brain, assembled over the ai module's tiered router so a
-// Surface-B run rides routing policy, the budget guardrail, metering
-// and secret-stripping like every other model consumer. agents/runner
-// only ever sees the narrow Brain seam.
+// The model path, assembled over the ai module's tiered router so every
+// model consumer — the Surface-B runner, the retrieval embed lane, the
+// cold-start read-back — rides routing policy, the budget guardrail,
+// metering and secret-stripping through ONE router. Consumers only ever
+// see the narrow Brain seam.
 
 import (
 	"context"
@@ -16,22 +17,43 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// NewModelPath builds the production model path from a validated
-// routing config: the runner's brain and the retrieval embed lane, both
-// through the same router (budget, metering, stripping). The
-// seat-count-derived budget lands here when compose wires it; until
-// then the single-seat default applies.
-func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool) (runner.Brain, search.Embedder, error) {
-	router, err := ai.NewRouter(cfg, ai.NewMeter(pool), ai.DefaultMonthlyTokens)
-	if err != nil {
-		return nil, nil, err
-	}
-	return routerBrain{router: router}, router, nil
+// ModelPath is the wired model surface one process role hands around:
+// each lane is the same router under a task label, so ai-routing.yaml
+// decides the tier per workload. The seat-count-derived budget lands
+// here when compose wires it; until then the single-seat default
+// applies.
+type ModelPath struct {
+	Agent     runner.Brain    // the Surface-B reason-act loop
+	ColdStart runner.Brain    // the website read-back extraction
+	Embedder  search.Embedder // the retrieval embed lane
 }
 
-type routerBrain struct{ router *ai.Router }
+// NewModelPath builds the production model path from a validated
+// routing config.
+func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool) (ModelPath, error) {
+	router, err := ai.NewRouter(cfg, ai.NewMeter(pool), ai.DefaultMonthlyTokens)
+	if err != nil {
+		return ModelPath{}, err
+	}
+	return ModelPath{
+		Agent:     routerBrain{router: router, task: ai.TaskAgentLoop},
+		ColdStart: routerBrain{router: router, task: ai.TaskColdStart},
+		Embedder:  router,
+	}, nil
+}
+
+// FakeModelPath drives every lane with one offline fake — the dev/test
+// path behind an explicit flag, never a silent default.
+func FakeModelPath(client *ai.FakeClient) ModelPath {
+	return ModelPath{Agent: client, ColdStart: client, Embedder: client}
+}
+
+type routerBrain struct {
+	router *ai.Router
+	task   ai.Task
+}
 
 func (b routerBrain) Complete(ctx context.Context, req model.Request) (model.Response, error) {
-	resp, _, err := b.router.Complete(ctx, ai.TaskAgentLoop, req)
+	resp, _, err := b.router.Complete(ctx, b.task, req)
 	return resp, err
 }
