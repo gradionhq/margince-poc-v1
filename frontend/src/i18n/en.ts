@@ -78,6 +78,10 @@ export const en = {
   "fab.inputAria": "Your question",
   "fab.placeholder": "Ask about what you're looking at…",
   "fab.send": "Ask",
+
+  "explain.open": "Explain this number",
+  "explain.title": "How this number is built",
+  "explain.rate": "rate {rate} on {date}",
 } as const;
 
 export type MessageKey = keyof typeof en;

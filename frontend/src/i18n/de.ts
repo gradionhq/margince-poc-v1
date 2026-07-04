@@ -80,4 +80,8 @@ export const de = {
   "fab.inputAria": "Deine Frage",
   "fab.placeholder": "Frag zu dem, was du gerade siehst…",
   "fab.send": "Fragen",
+
+  "explain.open": "Diese Zahl erklären",
+  "explain.title": "So setzt sich die Zahl zusammen",
+  "explain.rate": "Kurs {rate} am {date}",
 } as const satisfies Record<MessageKey, string>;
