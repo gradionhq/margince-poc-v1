@@ -183,13 +183,21 @@ The next backlog blocks, roughly in priority order:
 Housekeeping (no dependency, do when a session is otherwise idle):
 
 - **Per-file SPDX headers** — the root `LICENSE` (BUSL-1.1) is in place and
-  GitHub detects it, but source files carry no license marker. Add a two-line
-  header to every hand-written `*.go` (before the `package` clause):
-  `// SPDX-License-Identifier: BUSL-1.1` + `// SPDX-FileCopyrightText: 2026 Gradion`.
-  Skip generated files (`*_gen.go` — the drift gate owns them) and vendored code.
-  Best done as one mechanical sweep + a fitness test asserting the header is
-  present, so it can't rot (matches the "prefer fitness functions" rule). Ties to
-  12-license.md §5 "honest labeling" / §8 "don't strip notices".
+  GitHub detects it, but source files carry no license marker. **Locked header
+  format** (the modern SPDX / REUSE form), the two lines above the `package`
+  clause, in this order:
+
+  ```go
+  // SPDX-License-Identifier: BUSL-1.1
+  // SPDX-FileCopyrightText: 2026 Gradion
+  ```
+
+  Applies to every hand-written `*.go`. Skip generated files (`*_gen.go` — the
+  drift gate owns them) and vendored code. Land it as one mechanical sweep + a
+  fitness test asserting the header is present on non-generated files, so it
+  can't rot (matches the "prefer fitness functions" rule). Only the sweep timing
+  is open — the format is decided. Ties to 12-license.md §5 "honest labeling" /
+  §8 "don't strip notices".
 
 ## Milestones completed (in build order)
 
