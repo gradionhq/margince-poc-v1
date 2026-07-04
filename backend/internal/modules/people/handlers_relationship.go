@@ -8,6 +8,35 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// ListDealStakeholders serves the deal-scoped stakeholder view over
+// the relationship table this module owns; the deal itself must be
+// visible (the endpoint-scope rule then re-applies per edge).
+func (h Handlers) ListDealStakeholders(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	dealID := ids.UUID(id)
+	kind := "deal_stakeholder"
+	rels, page, err := h.store.ListRelationships(r.Context(), ListRelationshipsInput{
+		Kind:   &kind,
+		DealID: &dealID,
+	})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	if len(rels) == 0 {
+		// Distinguish "no stakeholders" from "no such deal" without
+		// leaking: the deal read carries its own row scope.
+		if err := h.store.EnsureDealVisible(r.Context(), dealID); err != nil {
+			writeStoreErr(w, r, err)
+			return
+		}
+	}
+	data := make([]crmcontracts.Relationship, 0, len(rels))
+	for _, rel := range rels {
+		data = append(data, wireRelationship(rel))
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.RelationshipListResponse{Data: data, Page: pageInfo(page)})
+}
+
 func (h Handlers) ListRelationships(w http.ResponseWriter, r *http.Request, params crmcontracts.ListRelationshipsParams) {
 	in := ListRelationshipsInput{
 		Limit:           params.Limit,
