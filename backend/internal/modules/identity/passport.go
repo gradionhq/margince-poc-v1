@@ -185,6 +185,46 @@ func (a AgentIdentity) Principal() principal.Principal {
 	}
 }
 
+// AuthenticateAgentByID resolves a passport ROW to its AgentIdentity —
+// the trusted-process path the Surface-B scheduler uses: the worker
+// holds no bearer secret, only the passport id a job row names. The
+// liveness rules are identical to the token path (revocation, expiry,
+// and the granting human's status all bind at resolution time), so a
+// parked overnight job wakes up with exactly the authority the passport
+// still has, not the authority it had when enqueued.
+func (s *Service) AuthenticateAgentByID(ctx context.Context, passportID ids.UUID) (AgentIdentity, error) {
+	var a AgentIdentity
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var scopes []string
+		err := tx.QueryRow(ctx,
+			`SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
+			 FROM passport p
+			 JOIN app_user u ON u.id = p.on_behalf_of
+			 WHERE p.id = $1
+			   AND p.revoked_at IS NULL
+			   AND now() < p.expires_at
+			   AND u.status = 'active' AND u.archived_at IS NULL`,
+			passportID).Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		a.Scopes = principal.NewScopeSet()
+		for _, sc := range scopes {
+			a.Scopes[principal.Scope(sc)] = struct{}{}
+		}
+		var loadErr error
+		a.Roles, a.Teams, a.Permissions, loadErr = loadGrants(ctx, tx, a.OnBehalfOf)
+		return loadErr
+	})
+	if err != nil {
+		return AgentIdentity{}, err
+	}
+	return a, nil
+}
+
 // AuthenticateAgent resolves a bearer token to its AgentIdentity. The
 // human's RBAC is loaded LIVE at every call — demoting or deactivating
 // the human instantly narrows every passport they granted ("agent ≤
