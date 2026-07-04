@@ -84,4 +84,12 @@ export const de = {
   "explain.open": "Diese Zahl erklären",
   "explain.title": "So setzt sich die Zahl zusammen",
   "explain.rate": "Kurs {rate} am {date}",
+
+  "brief.nothingSent": "Noch nichts versendet",
+  "board.count": "{count} Deals",
+  "board.weighted": "gewichtet {value}",
+  "deal.stalled": "steht still",
+  "deal.singleThreaded": "nur ein Kontakt",
+  "deal.staged": "vorgemerkt",
+  "record.timeline": "Verlauf",
 } as const satisfies Record<MessageKey, string>;

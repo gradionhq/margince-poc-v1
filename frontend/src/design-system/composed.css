@@ -1,0 +1,198 @@
+/* Composed surfaces (B-EP09.3b) — consume the trust primitives; staged vs
+ * real vs human-typed carries through unchanged (§5c). */
+
+.brief-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.brief-item .brief-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brief-item .brief-rank {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--textTertiary);
+  flex: none;
+}
+.brief-item .brief-title {
+  font-weight: 600;
+  color: var(--textPrimary);
+  flex: 1;
+}
+.brief-nothing-sent {
+  color: var(--warn);
+  background: var(--warnBg);
+  border-radius: var(--r-sm);
+  padding: 3px 8px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+}
+
+.board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.board-col {
+  background: var(--bgCard);
+  border-radius: var(--r-md);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+}
+.board-col.droptarget {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+.board-col-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 4px;
+}
+.board-col-head .stage {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--textPrimary);
+  flex: 1;
+}
+.board-col-head .prob {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--textTertiary);
+}
+.board-col-sub {
+  display: flex;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--textSecondary);
+  padding: 0 4px 4px;
+}
+
+.deal-card {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: var(--f-body);
+}
+.deal-card.stalled {
+  border-left: 3px solid var(--away);
+}
+.deal-card.staged {
+  background: var(--aiLight);
+  border: 1.5px dashed var(--aiMed);
+}
+.deal-card .deal-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.deal-card .deal-org {
+  font-size: 12px;
+  color: var(--textSecondary);
+}
+.deal-card .deal-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--textSecondary);
+}
+.deal-card .deal-value {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  color: var(--textPrimary);
+}
+
+.record-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.record-head .record-id {
+  flex: 1;
+}
+.record-head h1 {
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.record-head .record-sub {
+  font-size: 13px;
+  color: var(--textSecondary);
+}
+.record-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.timeline {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 8px;
+}
+.timeline li {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.timeline li:last-child {
+  border-bottom: 0;
+}
+.timeline .tl-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+  display: grid;
+  place-items: center;
+  color: var(--textSecondary);
+  flex: none;
+}
+.timeline .tl-icon svg {
+  width: 13px;
+  height: 13px;
+}
+.timeline .tl-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.timeline .tl-title {
+  font-size: 13.5px;
+  color: var(--textContent);
+}
+.timeline .tl-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--textTertiary);
+}

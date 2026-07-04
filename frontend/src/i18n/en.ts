@@ -82,6 +82,14 @@ export const en = {
   "explain.open": "Explain this number",
   "explain.title": "How this number is built",
   "explain.rate": "rate {rate} on {date}",
+
+  "brief.nothingSent": "Nothing sent yet",
+  "board.count": "{count} deals",
+  "board.weighted": "weighted {value}",
+  "deal.stalled": "stalled",
+  "deal.singleThreaded": "single-threaded",
+  "deal.staged": "staged",
+  "record.timeline": "Timeline",
 } as const;
 
 export type MessageKey = keyof typeof en;
