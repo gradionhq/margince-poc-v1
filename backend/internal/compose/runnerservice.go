@@ -19,6 +19,7 @@ import (
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
 // runWallClock is the §4 wall-clock guarantee (RATIFY default 15 min):
@@ -32,24 +33,26 @@ const claimBatch = 4
 // entry point: Tick seeds + executes due jobs, HandleEvent resumes
 // suspended runs when their approval is decided.
 type RunnerService struct {
-	pool     *pgxpool.Pool
-	store    *runner.Store
-	runner   *runner.Runner
-	identity *identity.Service
-	log      *slog.Logger
+	pool      *pgxpool.Pool
+	store     *runner.Store
+	runner    *runner.Runner
+	identity  *identity.Service
+	retriever retrieval.Retriever
+	log       *slog.Logger
 }
 
 // NewRunnerService assembles the runner over the SAME governed registry
 // every other agent surface dispatches through — the two-directions
 // invariant is a property of this constructor: there is no other
 // registry to hand it.
-func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, log *slog.Logger) *RunnerService {
+func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, retriever retrieval.Retriever, log *slog.Logger) *RunnerService {
 	return &RunnerService{
-		pool:     pool,
-		store:    runner.NewStore(pool),
-		runner:   runner.New(NewRegistry(pool), brain),
-		identity: identity.NewService(pool),
-		log:      log,
+		pool:      pool,
+		store:     runner.NewStore(pool),
+		runner:    runner.New(NewRegistry(pool), brain),
+		identity:  identity.NewService(pool),
+		retriever: retriever,
+		log:       log,
 	}
 }
 
@@ -124,6 +127,7 @@ func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) 
 		Goal:       spec.Goal,
 		TriggerRef: job.TriggerRef,
 		Budget:     spec.Budget,
+		Grounding:  s.seedGrounding(runCtx, spec.Goal),
 	})
 	s.landOutcome(runCtx, runID, res, err)
 	s.finishJob(wsCtx, job.ID, &runID, "")
@@ -203,6 +207,32 @@ func (s *RunnerService) finishJob(ctx context.Context, jobID ids.UUID, runID *id
 	if err := s.store.FinishJob(ctx, jobID, runID, failReason); err != nil {
 		s.log.Error("runner: finishing job", "job", jobID, "err", err)
 	}
+}
+
+// seedGrounding retrieves T2 seed context for the run's goal under the
+// AGENT's own principal — the run grounds on exactly what its passport
+// may see, and a retrieval failure degrades to an ungrounded run
+// rather than blocking the brief.
+func (s *RunnerService) seedGrounding(ctx context.Context, goal string) []runner.Grounding {
+	if s.retriever == nil {
+		return nil
+	}
+	hits, err := s.retriever.Search(ctx, retrieval.Query{Text: goal, Limit: 5})
+	if err != nil {
+		s.log.Warn("runner: seed retrieval failed — running ungrounded", "err", err)
+		return nil
+	}
+	grounding := make([]runner.Grounding, 0, len(hits))
+	for _, hit := range hits {
+		for _, ev := range hit.Evidence {
+			grounding = append(grounding, runner.Grounding{
+				SourceID:  ev.Source,
+				TrustTier: "T2",
+				Content:   ev.Snippet,
+			})
+		}
+	}
+	return grounding
 }
 
 // liveWorkspaces lists tenants to schedule for. The workspace table is

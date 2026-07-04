@@ -9,11 +9,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ConsentGate is the outbound suppression seam (B-EP07.12): the
@@ -78,12 +75,6 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	if h.consent == nil {
-		// Fail closed: a send surface without its suppression gate is a
-		// wiring defect, not an implicit allow.
-		httperr.Write(w, r, fmt.Errorf("send path has no consent authority wired: %w", apperrors.ErrConsentNotGranted))
-		return
-	}
 	recipients := make([]string, 0, len(req.To))
 	for _, addr := range req.To {
 		recipients = append(recipients, string(addr))
@@ -93,46 +84,16 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 			recipients = append(recipients, string(addr))
 		}
 	}
-	// Authorization FIRST, consent second: the anchor's visibility and
-	// the write grant must refuse before the consent gate answers, or
-	// the 409-vs-403 difference becomes a consent oracle for callers
-	// with no rights at all.
-	anchor, err := h.store.GetActivity(r.Context(), ids.UUID(id), false)
+	sent, err := h.store.SendEmail(r.Context(), ids.UUID(id), SendEmailInput{
+		Recipients:     recipients,
+		Subject:        req.Subject,
+		Body:           req.Body,
+		ConsentPurpose: req.ConsentPurpose,
+	}, h.consent)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	if err := auth.Require(r.Context(), "activity", principal.ActionCreate); err != nil {
-		writeStoreErr(w, r, err)
-		return
-	}
-	if err := h.consent.RequireGrantedForEmails(r.Context(), recipients, req.ConsentPurpose); err != nil {
-		writeStoreErr(w, r, err)
-		return
-	}
-	var links []ActivityLinkInput
-	if anchor.Links != nil {
-		links = make([]ActivityLinkInput, 0, len(*anchor.Links))
-		for _, l := range *anchor.Links {
-			links = append(links, ActivityLinkInput{EntityType: string(l.EntityType), EntityID: ids.UUID(l.EntityId)})
-		}
-	}
-
-	direction := "outbound"
-	sent, _, err := h.store.LogActivity(r.Context(), LogActivityInput{
-		Kind:      "email",
-		Subject:   &req.Subject,
-		Body:      &req.Body,
-		Direction: &direction,
-		Links:     links,
-		Source:    "manual",
-	})
-	if err != nil {
-		writeStoreErr(w, r, err)
-		return
-	}
-	// The transport hand-off is the deployment's SMTP/provider seam;
-	// V1 logs the governed, consent-checked send. 202: accepted for
-	// delivery, the activity is the durable fact.
+	// 202: accepted for delivery, the activity is the durable fact.
 	httperr.WriteJSON(w, http.StatusAccepted, sent)
 }

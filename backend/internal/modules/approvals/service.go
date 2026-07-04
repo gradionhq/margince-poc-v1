@@ -460,7 +460,8 @@ var decisionGrants = map[string][]struct {
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
-	"send_email": {{"activity", principal.ActionCreate}},
+	"send_email":   {{"activity", principal.ActionCreate}},
+	"book_meeting": {{"activity", principal.ActionCreate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.

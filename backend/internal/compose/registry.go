@@ -11,9 +11,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -31,6 +34,13 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider)
 	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
+	// The intent tools ground on the graph walk (no embed lane needed);
+	// the comms tools ride the same store paths as the HTTP transport.
+	agents.RegisterIntentTools(registry, search.NewRetriever(search.NewStore(pool), nil))
+	agents.RegisterCommsTools(registry, commsAdapter{
+		store: activities.NewStore(pool),
+		gate:  consent.NewGate(consent.NewStore(pool)),
+	})
 	return registry
 }
 

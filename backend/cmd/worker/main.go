@@ -73,7 +73,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	if modelPath.Agent != nil {
-		svc := compose.NewRunnerService(pool, modelPath.Agent, logger)
+		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
+		svc := compose.NewRunnerService(pool, modelPath.Agent, grounding, logger)
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", *runnerInterval)
 		go runScheduler(ctx, svc, *runnerInterval, logger)
 		go runResumeSubscriber(ctx, rdb, svc, logger)

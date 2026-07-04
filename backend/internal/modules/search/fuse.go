@@ -27,6 +27,15 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	if err != nil {
 		return nil, err
 	}
+	if embedder == nil {
+		// A deployment with no declared embed lane still searches — the
+		// lexical lane alone, honestly degraded, never a nil-pointer.
+		hits := lexical.Hits
+		if len(hits) > limit {
+			hits = hits[:limit]
+		}
+		return hits, nil
+	}
 
 	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}})
 	if err != nil {
