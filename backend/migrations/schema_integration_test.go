@@ -456,14 +456,12 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"organization.merged_into_id":   "server-derived: stamped by MergeOrganization",
 		"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
 		"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
-		// No client-facing write path exists yet; the builder of one must
-		// re-classify the column here (relationship/partner rows today are
-		// written only by merge's server-side relink).
-		"relationship.person_id":           "no client write path yet: merge relink only",
-		"relationship.counterparty_org_id": "no client write path yet: merge relink only",
-		"relationship.organization_id":     "no client write path yet: merge relink only",
-		"relationship.deal_id":             "no client write path yet: merge relink only",
-		"partner.organization_id":          "no client write path yet: merge relink only",
+		// Client-supplied edge endpoints — every one probed at the store:
+		"relationship.person_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"relationship.counterparty_org_id": "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"relationship.organization_id":     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"relationship.deal_id":             "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"partner.organization_id":          "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
 	}
 
 	ownerDSN, _ := dsns(t)

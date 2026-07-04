@@ -1,0 +1,410 @@
+package people
+
+// Relationship edges (data-model §5): employment (person↔org), deal
+// stakeholders (deal↔person), and org↔org partner edges. An edge's
+// visibility derives from its ENDPOINTS — every non-null endpoint must
+// be visible to the caller, on read exactly as on write, so an edge can
+// never leak a record its ends would hide. Mutations emit the anchor
+// entity's .updated event (the catalog has no relationship.* family;
+// an employment change IS a person-profile change).
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// relationshipAnchor names the endpoint whose lifecycle a kind
+// annotates — the entity whose .updated event a mutation emits and
+// whose RBAC object gates it.
+func relationshipAnchor(kind string) (object, column string) {
+	switch kind {
+	case "employment":
+		return "person", "person_id"
+	case "deal_stakeholder":
+		return "deal", "deal_id"
+	default: // partner_of, referred_by, co_sell_with
+		return "organization", "organization_id"
+	}
+}
+
+var relationshipKinds = map[string]bool{
+	"employment": true, "deal_stakeholder": true,
+	"partner_of": true, "referred_by": true, "co_sell_with": true,
+}
+
+const relationshipColumns = `id, workspace_id, kind, person_id, organization_id, counterparty_org_id, deal_id,
+	role, is_current_primary, started_at, ended_at, source, captured_by, version, created_at, updated_at, archived_at`
+
+type relationshipRow struct {
+	ID                ids.UUID
+	WorkspaceID       ids.UUID
+	Kind              string
+	PersonID          *ids.UUID
+	OrganizationID    *ids.UUID
+	CounterpartyOrgID *ids.UUID
+	DealID            *ids.UUID
+	Role              *string
+	IsCurrentPrimary  bool
+	StartedAt         *time.Time
+	EndedAt           *time.Time
+	Source            string
+	CapturedBy        string
+	Version           int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	ArchivedAt        *time.Time
+}
+
+func scanRelationship(r pgx.Row) (relationshipRow, error) {
+	var out relationshipRow
+	err := r.Scan(&out.ID, &out.WorkspaceID, &out.Kind, &out.PersonID, &out.OrganizationID, &out.CounterpartyOrgID,
+		&out.DealID, &out.Role, &out.IsCurrentPrimary, &out.StartedAt, &out.EndedAt,
+		&out.Source, &out.CapturedBy, &out.Version, &out.CreatedAt, &out.UpdatedAt, &out.ArchivedAt)
+	return out, err
+}
+
+// relationshipEndpointScope renders "every non-null endpoint is
+// visible": one EXISTS per endpoint table under the caller's own/team
+// predicate. Unbounded actors carry no clause.
+func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return "", errors.New("crmpeople: no actor bound to context")
+	}
+	if auth.Unbounded(actor) {
+		return "", nil
+	}
+	predicate := auth.OwnerPredicate(actor, arg)
+	var clauses []string
+	for _, endpoint := range []struct{ column, table string }{
+		{"person_id", "person"},
+		{"organization_id", "organization"},
+		{"counterparty_org_id", "organization"},
+		{"deal_id", "deal"},
+	} {
+		clauses = append(clauses, fmt.Sprintf(
+			`(%[1]s.%[2]s IS NULL OR EXISTS (
+			   SELECT 1 FROM %[3]s ep WHERE ep.id = %[1]s.%[2]s AND ep.archived_at IS NULL AND %[4]s))`,
+			alias, endpoint.column, endpoint.table, predicate("ep")))
+	}
+	return "(" + strings.Join(clauses, " AND ") + ")", nil
+}
+
+type ListRelationshipsInput struct {
+	Kind            *string
+	PersonID        *ids.UUID
+	OrganizationID  *ids.UUID
+	DealID          *ids.UUID
+	IncludeArchived bool
+	Limit           *int
+	Cursor          string
+}
+
+func (s *Store) ListRelationships(ctx context.Context, in ListRelationshipsInput) ([]relationshipRow, storekit.Page, error) {
+	if err := auth.Require(ctx, "relationship", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	limit := storekit.ClampLimit(in.Limit)
+	var out []relationshipRow
+	var page storekit.Page
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var args []any
+		arg := func(v any) int { args = append(args, v); return len(args) }
+		where := []string{"true"}
+		if in.Kind != nil {
+			where = append(where, storekit.SQLf("r.kind = $%d", arg(*in.Kind)))
+		}
+		if in.PersonID != nil {
+			where = append(where, storekit.SQLf("r.person_id = $%d", arg(*in.PersonID)))
+		}
+		if in.OrganizationID != nil {
+			where = append(where, storekit.SQLf("(r.organization_id = $%d OR r.counterparty_org_id = $%d)", arg(*in.OrganizationID), len(args)))
+		}
+		if in.DealID != nil {
+			where = append(where, storekit.SQLf("r.deal_id = $%d", arg(*in.DealID)))
+		}
+		if !in.IncludeArchived {
+			where = append(where, "r.archived_at IS NULL")
+		}
+		if in.Cursor != "" {
+			after, err := ids.Parse(in.Cursor)
+			if err != nil {
+				return &RequiredFieldError{Field: "cursor"}
+			}
+			where = append(where, storekit.SQLf("r.id > $%d", arg(after)))
+		}
+		scope, err := relationshipEndpointScope(ctx, "r", arg)
+		if err != nil {
+			return err
+		}
+		if scope != "" {
+			where = append(where, scope)
+		}
+		rows, err := tx.Query(ctx, storekit.SQLf(
+			`SELECT %s FROM relationship r WHERE %s ORDER BY r.id LIMIT $%d`,
+			aliased(relationshipColumns, "r"), strings.Join(where, " AND "), arg(limit+1)), args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			rel, err := scanRelationship(rows)
+			if err != nil {
+				return err
+			}
+			out = append(out, rel)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(out) > limit {
+			out = out[:limit]
+			page = storekit.Page{HasMore: true, NextCursor: out[limit-1].ID.String()}
+		}
+		return nil
+	})
+	return out, page, err
+}
+
+type CreateRelationshipInput struct {
+	Kind              string
+	PersonID          *ids.UUID
+	OrganizationID    *ids.UUID
+	CounterpartyOrgID *ids.UUID
+	DealID            *ids.UUID
+	Role              *string
+	IsCurrentPrimary  bool
+	StartedAt         *time.Time
+	EndedAt           *time.Time
+	Source            string
+}
+
+func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInput) (relationshipRow, error) {
+	if !relationshipKinds[in.Kind] {
+		return relationshipRow{}, &RequiredFieldError{Field: "kind"}
+	}
+	anchorObject, _ := relationshipAnchor(in.Kind)
+	if err := auth.Require(ctx, "relationship", principal.ActionCreate); err != nil {
+		return relationshipRow{}, err
+	}
+	if err := auth.Require(ctx, anchorObject, principal.ActionUpdate); err != nil {
+		// The edge annotates its anchor: without the anchor's write
+		// grant, an edge would be an RBAC side door onto it.
+		return relationshipRow{}, err
+	}
+	capturedBy, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return relationshipRow{}, err
+	}
+
+	var out relationshipRow
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// Every supplied endpoint is a client-supplied FK argument (H1).
+		for _, ref := range []struct {
+			table string
+			id    *ids.UUID
+		}{
+			{"person", in.PersonID}, {"organization", in.OrganizationID},
+			{"organization", in.CounterpartyOrgID}, {"deal", in.DealID},
+		} {
+			if ref.id == nil {
+				continue
+			}
+			if err := auth.EnsureLinkTarget(ctx, tx, ref.table, *ref.id); err != nil {
+				return err
+			}
+		}
+		// One current primary employer per person: demote the incumbent
+		// inside the same transaction rather than failing the write.
+		if in.Kind == "employment" && in.IsCurrentPrimary && in.PersonID != nil {
+			if _, err := tx.Exec(ctx, `
+				UPDATE relationship SET is_current_primary = false
+				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL`,
+				*in.PersonID); err != nil {
+				return err
+			}
+		}
+		row := tx.QueryRow(ctx, `
+			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, counterparty_org_id,
+			                          deal_id, role, is_current_primary, started_at, ended_at, source, captured_by)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			RETURNING `+relationshipColumns,
+			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID,
+			in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt, in.Source, capturedBy)
+		if out, err = scanRelationship(row); err != nil {
+			if strings.Contains(err.Error(), "rel_") {
+				return &RequiredFieldError{Field: "kind: " + in.Kind + " endpoint shape"}
+			}
+			return err
+		}
+		return emitRelationshipChange(ctx, tx, "create", out)
+	})
+	return out, err
+}
+
+type UpdateRelationshipInput struct {
+	Role             *string
+	IsCurrentPrimary *bool
+	StartedAt        *time.Time
+	EndedAt          *time.Time
+	IfVersion        *int64
+}
+
+func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRelationshipInput) (relationshipRow, error) {
+	if err := auth.Require(ctx, "relationship", principal.ActionUpdate); err != nil {
+		return relationshipRow{}, err
+	}
+	var out relationshipRow
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := s.visibleRelationship(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if in.IfVersion != nil && *in.IfVersion != current.Version {
+			return apperrors.ErrVersionSkew
+		}
+		if in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
+			current.Kind == "employment" && current.PersonID != nil {
+			if _, err := tx.Exec(ctx, `
+				UPDATE relationship SET is_current_primary = false
+				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL AND id <> $2`,
+				*current.PersonID, id); err != nil {
+				return err
+			}
+		}
+		row := tx.QueryRow(ctx, `
+			UPDATE relationship SET
+			  role = coalesce($2, role),
+			  is_current_primary = coalesce($3, is_current_primary),
+			  started_at = coalesce($4, started_at),
+			  ended_at = coalesce($5, ended_at)
+			WHERE id = $1
+			RETURNING `+relationshipColumns,
+			id, in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt)
+		if out, err = scanRelationship(row); err != nil {
+			return err
+		}
+		return emitRelationshipChange(ctx, tx, "update", out)
+	})
+	return out, err
+}
+
+func (s *Store) ArchiveRelationship(ctx context.Context, id ids.UUID) (relationshipRow, error) {
+	if err := auth.Require(ctx, "relationship", principal.ActionDelete); err != nil {
+		return relationshipRow{}, err
+	}
+	var out relationshipRow
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := s.visibleRelationship(ctx, tx, id); err != nil {
+			return err
+		}
+		row := tx.QueryRow(ctx,
+			`UPDATE relationship SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING `+relationshipColumns, id)
+		var err error
+		if out, err = scanRelationship(row); errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		return emitRelationshipChange(ctx, tx, "archive", out)
+	})
+	return out, err
+}
+
+// visibleRelationship loads one edge under the endpoint-visibility rule
+// — absence and out-of-scope read identically (existence-hiding).
+func (s *Store) visibleRelationship(ctx context.Context, tx pgx.Tx, id ids.UUID) (relationshipRow, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+	scope, err := relationshipEndpointScope(ctx, "r", arg)
+	if err != nil {
+		return relationshipRow{}, err
+	}
+	sql := storekit.SQLf(`SELECT %s FROM relationship r WHERE r.id = $%d`, aliased(relationshipColumns, "r"), idPos)
+	if scope != "" {
+		sql += " AND " + scope
+	}
+	out, err := scanRelationship(tx.QueryRow(ctx, sql, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return relationshipRow{}, apperrors.ErrNotFound
+	}
+	return out, err
+}
+
+// emitRelationshipChange lands the write shape on the edge's anchor:
+// audit on the relationship row, event on the anchor entity (an
+// employment change IS a person change to every consumer).
+func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel relationshipRow) error {
+	anchorObject, _ := relationshipAnchor(rel.Kind)
+	var anchorID ids.UUID
+	switch anchorObject {
+	case "person":
+		anchorID = *rel.PersonID
+	case "deal":
+		anchorID = *rel.DealID
+	default:
+		anchorID = *rel.OrganizationID
+	}
+	auditID, err := storekit.Audit(ctx, tx, action, "relationship", rel.ID, nil, map[string]any{
+		"kind": rel.Kind, "role": rel.Role,
+	})
+	if err != nil {
+		return err
+	}
+	return storekit.Emit(ctx, tx, auditID, anchorObject+".updated", anchorObject, anchorID, map[string]any{
+		"delta": map[string]any{"relationship": map[string]any{"id": rel.ID, "kind": rel.Kind, "action": action}},
+	})
+}
+
+// aliased qualifies a comma-separated column list with a table alias.
+func aliased(columns, alias string) string {
+	parts := strings.Split(columns, ",")
+	for i, part := range parts {
+		parts[i] = alias + "." + strings.TrimSpace(part)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
+	out := crmcontracts.Relationship{
+		Id:          openapi_types.UUID(rel.ID),
+		WorkspaceId: openapi_types.UUID(rel.WorkspaceID),
+		Kind:        crmcontracts.RelationshipKind(rel.Kind),
+		Source:      rel.Source,
+		CapturedBy:  &rel.CapturedBy,
+		CreatedAt:   rel.CreatedAt,
+		UpdatedAt:   rel.UpdatedAt,
+		ArchivedAt:  rel.ArchivedAt,
+		Role:        rel.Role,
+	}
+	version := crmcontracts.RowVersion(rel.Version)
+	out.Version = &version
+	out.IsCurrentPrimary = &rel.IsCurrentPrimary
+	out.PersonId = uuidPtr(rel.PersonID)
+	out.OrganizationId = uuidPtr(rel.OrganizationID)
+	out.CounterpartyOrgId = uuidPtr(rel.CounterpartyOrgID)
+	out.DealId = uuidPtr(rel.DealID)
+	if rel.StartedAt != nil {
+		out.StartedAt = &openapi_types.Date{Time: *rel.StartedAt}
+	}
+	if rel.EndedAt != nil {
+		out.EndedAt = &openapi_types.Date{Time: *rel.EndedAt}
+	}
+	return out
+}

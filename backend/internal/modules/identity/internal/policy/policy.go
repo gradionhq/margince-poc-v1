@@ -18,7 +18,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -50,11 +50,11 @@ var (
 // team-scoped with delete; pipeline config is admin/ops-owned).
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -70,26 +70,28 @@ var defaults = map[string]Document{
 			grant{Create: true, Read: true, Update: true},
 			readOnly,
 			grant{Create: true, Read: true, Update: true},
-			grant{Create: true, Read: true, Update: true}),
+			grant{Create: true, Read: true, Update: true},
+			grant{Create: true, Read: true, Update: true},
+			readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
-// per role instead of eight repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag grant) map[string]grant {
+// per role instead of ten repeated map literals.
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
-		"list": list, "tag": tag,
+		"list": list, "tag": tag, "relationship": relationship, "partner": partner,
 	}
 }
 
