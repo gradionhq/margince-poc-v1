@@ -1,4 +1,4 @@
-// Package crmctx carries the per-request identity every trust-boundary
+// Package principal carries the per-request identity every trust-boundary
 // call needs: the workspace (tenant key for RLS), the acting Principal,
 // and — for agent calls — the Passport. Business code reads these only
 // through the typed accessors here; loose context keys are forbidden

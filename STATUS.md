@@ -5,11 +5,43 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-04.** Roughly **17–18 %** of the 701-leaf-ticket
-V1 backlog (`../margince/margince specs/spec/product/build-backlog/`) is
+**Last updated: 2026-07-04 (evening).** Roughly **17–18 %** of the
+701-leaf-ticket V1 backlog
+(`../margince/margince specs/spec/product/build-backlog/`) is
 implemented and gate-verified.
 
-## Last session: red-team remediation + merge finished
+## Last session: the triad restructure (ADR-0054/A69)
+
+The whole tree was reworked to the spec's `backend/internal/{modules,
+platform,shared}` triad in seven gate-green phases (each its own commit,
+`make check` + `make test-integration` after each — no behavior change):
+
+- Module path is `github.com/gradionhq/margince/backend`; everything Go
+  moved under `backend/`; the contract is `backend/api/crm.yaml`.
+- `crm-core` is dissolved: `modules/{people,deals,activities}` own the
+  domain; store mechanics went to `platform/database/storekit`, the
+  RBAC/row-scope clauses (incl. the activity link-walk) to
+  `platform/auth` (joining `Admit`); `internal/compose` owns all wiring
+  (HTTP surface, composite datasource provider, MCP registry) and the
+  cross-module integration suites.
+- `crm-auth`→`modules/identity`, `crm-approvals`→`modules/approvals`,
+  `crm-agents`→`modules/agents`; the ai/search/capture doc-stubs are
+  deleted (modules are added when they own real code).
+- `cmd/crm` split into `cmd/{api,worker,migrate,mcp}` — a founder
+  amendment to ADR-0054 §2 (separate role dirs over one binary), filed
+  for the spec-cleanup session as [feedback/01](feedback/01-adr0054-cmd-shape-separate-role-dirs.md);
+  the §9 cross-entity-tx question is [feedback/02](feedback/02-adr0054-s9-cross-entity-tx-vs-ports.md).
+  Full record: [decisions/0011](decisions/0011-triad-restructure.md).
+- Enforcement rewritten to the triad DAG (depguard per-module sibling
+  denies, go-arch-lint components, and `backend/arch_test.go` fitness
+  tests that derive package lists from the tree).
+
+All gates green at session close: `make check`, `make test-integration`
+(13 suites — RLS, composite-FK, authz matrix, merge, promote, approval
+loop, MCP e2e, passport lifecycle, bus lane, HTTP e2e), plus binary
+smoke (api healthz + 401, migrate idempotent, mcp/worker fail loudly).
+
+## Previous session: red-team remediation + merge finished
 
 The 2026-07-04 red-team
 ([REVIEW-craftsmanship-architecture-redteam-2026-07-04.md](REVIEW-craftsmanship-architecture-redteam-2026-07-04.md))

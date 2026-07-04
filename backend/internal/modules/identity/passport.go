@@ -168,7 +168,7 @@ type AgentIdentity struct {
 	Permissions principal.Permissions
 }
 
-// Principal renders the crmctx shape every store entry point enforces. The
+// Principal renders the principal shape every store entry point enforces. The
 // seat is the granting human's ("agent ≤ human", A62/ADR-0047): an agent
 // acting for a read seat inherits that read-only ceiling at the auth.
 func (a AgentIdentity) Principal() principal.Principal {

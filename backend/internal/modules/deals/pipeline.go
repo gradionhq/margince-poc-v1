@@ -206,8 +206,8 @@ var defaultStages = []StageInput{
 }
 
 // SeedDefaults provisions a fresh workspace's default pipeline. Called by
-// the bootstrap composition at the edge — crm-core owns pipeline data,
-// crm-auth owns identity; neither reaches into the other.
+// the bootstrap composition at the edge — deals owns pipeline data,
+// identity owns users and sessions; neither reaches into the other.
 func (s *Store) SeedDefaults(ctx context.Context) error {
 	_, err := s.CreatePipeline(ctx, CreatePipelineInput{
 		Name: "Sales", IsDefault: true, Position: 0, Stages: defaultStages,

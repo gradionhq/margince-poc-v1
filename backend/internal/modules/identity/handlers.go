@@ -23,12 +23,12 @@ import (
 
 const sessionCookie = "crm_session"
 
-// Handlers is crm-auth's transport surface: the identity operations of
+// Handlers is the identity module's transport surface: the identity operations of
 // the contract plus the middleware that authenticates everything else.
 type Handlers struct {
 	svc *Service
 	// seedDefaults lets other modules lay down their per-workspace defaults
-	// INSIDE the bootstrap transaction, composed at the edge — crm-auth
+	// INSIDE the bootstrap transaction, composed at the root — identity
 	// never imports them. Running in-transaction makes tenant creation
 	// atomic: a seed failure rolls the whole workspace back (C5).
 	seedDefaults func(ctx context.Context, tx pgx.Tx) error
@@ -255,7 +255,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 
 		// Agents present a passport bearer token. The REST surface is
 		// READ-ONLY for passports: agent mutations must flow through the
-		// governed MCP tool surface (internal/gate), so there is exactly one
+		// governed MCP tool surface (platform/auth Admit), so there is exactly one
 		// agent-mutation choke point across transports (ADR-0013 one-gate
 		// invariant; the "same REST surface" prose is reconciled in
 		// ../fable feedback/18 and ../decisions/0009). A mutating REST call

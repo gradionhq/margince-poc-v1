@@ -2,7 +2,7 @@
 // §1): the uniform interface every integration implements — Gmail,
 // calendar, telephony, the scrape/enrichment connector, and the deepest
 // one, an incumbent SoR adapter. A connector normalizes provider records
-// and hands them to the Sink; crm-core (never the connector) writes the
+// and hands them to the Sink; the capture module (never the connector) writes the
 // row, the audit entry, and the domain event, so RBAC/RLS/audit stay in
 // one place.
 package connector
@@ -62,7 +62,7 @@ type AuthRequest struct {
 	Payload             []byte
 }
 
-// Sink is how a connector hands normalized records to crm-core for
+// Sink is how a connector hands normalized records to the CRM for
 // upsert + provenance + event emit.
 type Sink interface {
 	// Upsert writes one record idempotently by its NaturalKey, stamps

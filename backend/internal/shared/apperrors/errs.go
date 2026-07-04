@@ -58,7 +58,7 @@ var (
 
 	// ErrAgentSurfaceRestricted: an agent passport attempted a MUTATING REST
 	// call. Agent mutations must flow through the governed MCP tool surface,
-	// where scope ∧ tier ∧ the 🟡 approval gate apply (internal/gate); the
+	// where scope ∧ tier ∧ the 🟡 approval gate apply (platform/auth); the
 	// REST surface is read-only for passports so there is exactly one agent
 	// mutation choke point (403 agent_surface_restricted). ADR-0013's
 	// "same REST surface as everyone else" language predates the gate and

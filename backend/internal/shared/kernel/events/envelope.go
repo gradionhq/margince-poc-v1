@@ -1,8 +1,8 @@
 // Package events is the wire contract of the gw:events bus: the standard
 // envelope (events.md §2), the <entity>.<verb> catalog (§1/§5), and the
 // per-entity-type stream layout (§4.1). It is part of the dependency-free
-// kernel so both the publishing side (crm-core's outbox writes) and the
-// consuming side (the relay and subscriber in internal/bus) share one
+// kernel so both the publishing side (the module stores' outbox writes) and the
+// consuming side (the relay and subscriber in platform/events) share one
 // shape without either importing the other.
 package events
 

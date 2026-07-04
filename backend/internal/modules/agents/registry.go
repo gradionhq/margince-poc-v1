@@ -2,7 +2,7 @@
 // interfaces.md §2): the ONE artifact every agent surface consumes — the
 // local stdio server (A1) today, the hosted HTTPS server (A2) and the
 // first-party Surface-B runner later. All of them dispatch through this
-// registry, and the registry admits every call through internal/gate
+// registry, and the registry admits every call through platform/auth
 // before a handler runs: no back door, no privileged registry (ADR-0013).
 package agents
 

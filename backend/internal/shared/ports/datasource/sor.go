@@ -1,7 +1,7 @@
 // Package sor defines the System-of-Record Provider seam (interfaces.md
 // §3, 03e §2.1): the one interface that binds the AI layers, the MCP tool
-// surface, and the UI to either crm-core (SoR-mode) or an incumbent
-// adapter (Overlay-mode). Nothing above this seam imports crm-core or an
+// surface, and the UI to either the SoR-mode modules or an incumbent
+// adapter (Overlay-mode). Nothing above this seam imports the modules or an
 // incumbent SDK directly (AC-OV-1); identical signatures in both modes
 // (AC-OV-2).
 package datasource

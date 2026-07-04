@@ -6,7 +6,7 @@ package compose
 // object × action × ownership against the real migrated Postgres,
 // exercised at the store layer — the one enforcement path HTTP and the
 // future MCP surface both ride. Principals are constructed directly (the
-// JSONB→Permissions loading path is covered by crm-auth's policy tests).
+// JSONB→Permissions loading path is covered by identity's policy tests).
 
 import (
 	"context"
@@ -110,7 +110,7 @@ func setupAuthz(t *testing.T) *authzEnv {
 }
 
 // permissions fixtures mirror the decisions/0006 matrix rows the test
-// exercises; the seeded JSONB↔these shapes is crm-auth's policy tests.
+// exercises; the seeded JSONB↔these shapes is identity's policy tests.
 var (
 	repPerms = principal.Permissions{
 		RoleKeys: []string{"rep"},

@@ -1,4 +1,4 @@
-# Margince CRM — fable-poc
+# Margince CRM — poc-v1
 
 A from-scratch implementation of the [Margince spec](../margince%20specs/)
 — WP0 repo foundation plus the WP1 core spine, built contract-first
@@ -11,7 +11,7 @@ live in **[STATUS.md](STATUS.md)** — read it first when resuming work.
 make db-up && make migrate && make dev
 ```
 
-Toolchain: Go ≥ 1.22, Docker (Postgres 16 + Redis 7 test containers),
+Toolchain: Go ≥ 1.26, Docker (Postgres 16 + Redis 7 test containers),
 `golangci-lint`, and **python3** — `make gen` / `make drift` run the stub
 generator (`tools/gen-stubs`) through it. Deployment note: the login and
 bootstrap rate limiters key on the direct peer address (they refuse
@@ -21,8 +21,18 @@ proxy.
 
 Then open http://localhost:8080 — the embedded web UI (bootstrap a
 workspace, people, the deal board, the timeline). It is a hash-routed,
-dependency-free SPA served from the binary (`web/`), and a plain client
+dependency-free SPA served from the binary (`backend/web/`), and a plain client
 of the same `/v1` contract as everything else (ADR-0013: no backdoors).
+
+**Layout** (spec ADR-0054/A69, [decisions/0011](decisions/0011-triad-restructure.md)):
+one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
+laid out as the `internal/{modules,platform,shared}` triad —
+`shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
+(plumbing, owns no domain), `modules/{identity,people,deals,activities,
+approvals,agents}` (no sibling imports), `internal/compose` (the one
+composition seam), and four process-role binaries
+`cmd/{api,worker,migrate,mcp}`. The contract lives at `backend/api/crm.yaml`.
+The full ownership map is in [AGENTS.md](AGENTS.md).
 
 ## What works today
 
@@ -69,7 +79,7 @@ of the same `/v1` contract as everything else (ADR-0013: no backdoors).
   both-have-partner), are in decisions/0009.
 - **Event bus (EP04)**: the full events.md §2 envelope (actor incl.
   passport/on-behalf-of, per-request `correlation_id`, `causation_id`,
-  `audit_log_id` linking event↔audit row) as the Tier-0 `kernel/events`
+  `audit_log_id` linking event↔audit row) as the Tier-0 `shared/kernel/events`
   contract with the §5 catalog + §4.1 stream routing; the outbox relay
   (in-process worker, decisions/0005 — River deferred) shipping committed
   rows to Redis Streams with `FOR UPDATE SKIP LOCKED` + MAXLEN trimming;
@@ -81,24 +91,24 @@ of the same `/v1` contract as everything else (ADR-0013: no backdoors).
   own/team/all row-scope predicates over `owner_id` (out-of-scope rows
   answer 404, like cross-tenant), the five system roles seeded with real
   permission-policy documents (validator + merge in
-  `crm-auth/internal/policy`, semantics in decisions/0006), and the
+  `identity/internal/policy`, semantics in decisions/0006), and the
   governing rule recorded in `audit_log.authorization_rule`.
 - **MCP/agent surface (EP06 WP4, Surface A1)**: Agent Seat Passports
   (`POST /passports` mints a scoped, expiring, revocable `mgp_` bearer
   token bound to its issuer — "agent ≤ human" structurally, and live: the
-  granting human's RBAC is reloaded per call), the `internal/gate`
+  granting human's RBAC is reloaded per call), the `platform/auth`
   admission gate (scope ∧ tier BEFORE any handler; its own package so
-  nothing mints an admitted capability elsewhere), the `crm-agents`
+  nothing mints an admitted capability elsewhere), the `agents` module
   registry + the 🟢 CRUD tool set (`search_records`, `read_record`,
   `create_record`, `update_record`, `log_activity`) plus the 🟡
   `advance_deal` (its `TierDynamic` resolver: 🟢 open→open, 🟡 to won/lost —
   the always-🟡 floor, resolved from the stage's semantic), `archive_record`,
   `promote_lead`, and `merge_records`, all composed over the
-  `sor.SystemOfRecordProvider` seam (crm-core's SoR-mode provider → the same
+  `datasource.SystemOfRecordProvider` seam (the module providers composed in `internal/compose` → the same
   store entry points as HTTP: same RBAC, row scope, audit, events). The gate
   also enforces the **read/full seat ceiling** (a read seat, or an agent
   acting for one, may run only read tools — A62/ADR-0047) before tier. Served
-  over stdio (`crm mcp --workspace <slug>` + `MARGINCE_PASSPORT_TOKEN`)
+  over stdio (`mcp --workspace <slug>` + `MARGINCE_PASSPORT_TOKEN`)
   speaking MCP JSON-RPC. The passport token also rides the REST surface, but
   **read-only**: agent mutations must flow through the governed MCP tools, so
   there is exactly one agent-mutation choke point across transports (C1,
@@ -148,8 +158,7 @@ tools (their underlying verbs first), the hosted A2 MCP server
 capture connectors, search/context graph, the RLS row-scope backstop
 (B-EP03.3b), field-level masking (B-EP03.4), record grants (A52),
 consent enforcement, the Idempotency-Key replay
-store (unspecified upstream — see `../fable feedback/06`), person/org
-merge (promotion is in; the general merge flow is not), event
+store (unspecified upstream; harvested into the spec via A71), event
 versioning/replay/dead-letter (B-EP04.12/.14/.15), and the
 River job runner (deferred, decisions/0005). The contract routes for all
 of these exist and answer 501.
