@@ -8,6 +8,7 @@ import {
 import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
+import { DealScreen, DealsScreen } from "./screens/deals";
 import { DesignScreen } from "./screens/design";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
@@ -35,6 +36,8 @@ function ScreenView({ screen, id }: { screen: string; id?: string }) {
       return id ? <CompanyScreen id={id} /> : <CompaniesScreen />;
     case "leads":
       return id ? <LeadScreen id={id} /> : <LeadsScreen />;
+    case "deals":
+      return id && id !== "new" ? <DealScreen id={id} /> : <DealsScreen />;
     default:
       return <PendingScreen />;
   }

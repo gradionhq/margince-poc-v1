@@ -113,6 +113,21 @@ export const en = {
   "lead.segregated": "leads live apart from the contact graph until promoted",
   "lead.promote": "Promote to contact",
   "lead.promoteIneligible": "needs an email and an open status",
+
+  "deals.viewBoard": "Board",
+  "deals.viewTable": "Table",
+  "deals.amount": "Value",
+  "deals.stage": "Stage",
+  "deals.close": "Expected close",
+  "deals.confirmAdvance": "Move to {stage}?",
+  "deals.confirmTerminal":
+    "This closes the deal as {status}. Confirm first — nothing happens until you do.",
+  "deals.lostReason": "Lost reason",
+  "deals.confirm": "Confirm",
+  "deals.cancel": "Cancel",
+  "deals.advanced": "Moved to {stage}",
+  "deal.pendingApprovals": "Awaiting your confirmation",
+  "deal.stakeholders": "Stakeholders",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -116,4 +116,19 @@ export const de = {
     "Leads bleiben bis zur Übernahme vom Kontaktgraphen getrennt",
   "lead.promote": "Zum Kontakt machen",
   "lead.promoteIneligible": "braucht eine E-Mail und einen offenen Status",
+
+  "deals.viewBoard": "Board",
+  "deals.viewTable": "Tabelle",
+  "deals.amount": "Wert",
+  "deals.stage": "Phase",
+  "deals.close": "Erwarteter Abschluss",
+  "deals.confirmAdvance": "Nach {stage} verschieben?",
+  "deals.confirmTerminal":
+    "Damit wird der Deal als {status} geschlossen. Erst bestätigen — bis dahin passiert nichts.",
+  "deals.lostReason": "Verlustgrund",
+  "deals.confirm": "Bestätigen",
+  "deals.cancel": "Abbrechen",
+  "deals.advanced": "Nach {stage} verschoben",
+  "deal.pendingApprovals": "Wartet auf deine Bestätigung",
+  "deal.stakeholders": "Beteiligte",
 } as const satisfies Record<MessageKey, string>;
