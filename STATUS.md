@@ -86,11 +86,19 @@ theme via `data-theme` (accent → #16A34A per ADR-0040). Verified rendering in
 both themes via headless browser. `make frontend-check` is the frontend lane
 (separate from `make check` — needs node+pnpm); full record in decisions/0014.
 
+**gw-ui reuse is withdrawn** (founder decision 2026-07-05, feedback/10):
+Margince has its own design system; no Dispact component reuse. Its v0 is
+committed spec-side at `specs/design/design-system/` (tokens + base
+components + trust primitives, light default, dark behind `data-theme`) —
+foundation only, not shipped. The mockups are placeholders and will be redone
+on top of it.
+
 Next EP09 steps, in ticket order:
-- **B-EP09.2 (blocked):** the `gw-ui` port needs the Gradion Workspace repo,
-  which is not on this machine — Lars to provide, or we build atoms lazily.
-- **B-EP09.3a (unblocked):** Margince-owned trust primitives (`EvidenceChip`,
-  `ConfidenceMeter`, `StagingCard`, `ApprovalGate`, `ProvenanceTag`).
+- **B-EP09.2 (re-scoped):** build the Margince atom library lazily as screens
+  need components — port nothing from Dispact.
+- **B-EP09.3a (unblocked):** Margince-owned trust primitives in React
+  (`EvidenceChip`, `ConfidenceMeter`, `StagingCard`, `ApprovalGate`,
+  `ProvenanceTag`) — the foundation v0 shows the target rendering.
 - Packaging call (decisions/0014): at prototype parity, `frontend/dist` is
   copied under `backend/web/` for the existing `go:embed`; until then the
   handwritten prototype keeps serving `/`.
