@@ -362,7 +362,7 @@ func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {
 
 	// An unimplemented contract operation answers an explicit 501.
 	var problem anyMap
-	if status := e.call(t, "GET", "/v1/data-subject-requests", nil, nil, &problem); status != http.StatusNotImplemented {
+	if status := e.call(t, "POST", "/v1/coldstart", anyMap{"url": "https://example.com"}, nil, &problem); status != http.StatusNotImplemented {
 		t.Fatalf("unimplemented op = %d %v, want 501", status, problem)
 	}
 

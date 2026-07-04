@@ -31,6 +31,8 @@ var auditOnlyWrites = map[string]string{
 	"CreateTag":   "feedback/07-list-tag-events-missing-from-catalog.md",
 	"ArchiveTag":  "feedback/07-list-tag-events-missing-from-catalog.md",
 	"ApplyTag":    "feedback/07-list-tag-events-missing-from-catalog.md",
+	"CreateDSR":   "feedback/07-list-tag-events-missing-from-catalog.md",
+	"UpdateDSR":   "feedback/07-list-tag-events-missing-from-catalog.md",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
