@@ -127,9 +127,11 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/cmd
               desc: modules never see the process roles
     revive:
+      # package-comments stays ON: package docs are onboarding
+      # infrastructure (architecture/15) — a missing one fails the gate
+      # instead of rotting silently.
       rules:
         - name: package-comments
-          disabled: true
 
 formatters:
   enable:

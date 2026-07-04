@@ -1,4 +1,4 @@
-// Package prov carries write provenance (data-model §1.6). Provenance is
+// Package provenance carries write provenance (data-model §1.6). Provenance is
 // not optional: every write path takes or stamps it, and the store APIs
 // accept no overload without it — a missing provenance is a compile
 // failure, not a runtime surprise.

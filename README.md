@@ -187,7 +187,7 @@ routed, not lost:
 
 Two external red-team passes ran against this code (2026-07-03 and
 2026-07-04; see
-[REVIEW-craftsmanship-architecture-redteam-2026-07-04.md](REVIEW-craftsmanship-architecture-redteam-2026-07-04.md)). The
+the craftsmanship/architecture red-team, fully addressed and retired to git history). The
 rules below exist because each was violated once here;
 they are binding for all future work in this repo (mirrored in
 [AGENTS.md](AGENTS.md)):
