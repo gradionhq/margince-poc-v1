@@ -18,7 +18,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -50,41 +50,46 @@ var (
 // team-scoped with delete; pipeline config is admin/ops-owned).
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
 		// Reps create and work records but never delete them — except
 		// leads, where disqualify IS the delete and is routine rep work.
+		// Lists and tags are everyday organizational surfaces: reps
+		// create and use them; archiving stays manager/admin.
 		Objects: objects(
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
 			crud,
 			grant{Create: true, Read: true, Update: true},
-			readOnly),
+			readOnly,
+			grant{Create: true, Read: true, Update: true},
+			grant{Create: true, Read: true, Update: true}),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
-// per role instead of six repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline grant) map[string]grant {
+// per role instead of eight repeated map literals.
+func objects(person, organization, deal, lead, activity, pipeline, list, tag grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
+		"list": list, "tag": tag,
 	}
 }
 

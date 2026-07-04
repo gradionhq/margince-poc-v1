@@ -18,6 +18,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -36,13 +37,14 @@ type fallback struct{ stubs }
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
 type (
-	authHandlers       = identity.Handlers
-	peopleHandlers     = people.Handlers
-	dealsHandlers      = deals.Handlers
-	activitiesHandlers = activities.Handlers
-	approvalsHandlers  = approvals.Handlers
-	searchHandlers     = search.Handlers
-	consentHandlers    = consent.Handlers
+	authHandlers        = identity.Handlers
+	peopleHandlers      = people.Handlers
+	dealsHandlers       = deals.Handlers
+	activitiesHandlers  = activities.Handlers
+	approvalsHandlers   = approvals.Handlers
+	searchHandlers      = search.Handlers
+	consentHandlers     = consent.Handlers
+	collectionsHandlers = collections.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: the module
@@ -55,6 +57,7 @@ type Server struct {
 	approvalsHandlers
 	searchHandlers
 	consentHandlers
+	collectionsHandlers
 	reportHandlers
 	fallback
 }
@@ -81,14 +84,15 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	authH := identity.NewHandlers(identitySvc, seedDefaults)
 
 	srv := Server{
-		authHandlers:       authH,
-		peopleHandlers:     people.NewHandlers(pool),
-		dealsHandlers:      dealsH,
-		activitiesHandlers: activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
-		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
-		searchHandlers:     search.NewHandlers(pool),
-		consentHandlers:    consent.NewHandlers(pool),
-		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
+		authHandlers:        authH,
+		peopleHandlers:      people.NewHandlers(pool),
+		dealsHandlers:       dealsH,
+		activitiesHandlers:  activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
+		approvalsHandlers:   approvals.NewHandlers(approvals.NewService(pool)),
+		searchHandlers:      search.NewHandlers(pool),
+		consentHandlers:     consent.NewHandlers(pool),
+		collectionsHandlers: collections.NewHandlers(pool),
+		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
 	}
 
 	// The ADR-0055 admission layer rides INSIDE the router (it needs the

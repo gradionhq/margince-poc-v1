@@ -32,6 +32,7 @@ components:
   search:      { in: internal/modules/search }
   capture:     { in: internal/modules/capture }
   consent:     { in: internal/modules/consent }
+  collections: { in: internal/modules/collections }
   people:      { in: internal/modules/people }
   deals:       { in: internal/modules/deals }
   activities:  { in: internal/modules/activities }
@@ -71,6 +72,9 @@ deps:
   consent:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
+  collections:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   people:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
@@ -87,11 +91,11 @@ deps:
     mayDependOn: [agents, contracts, platform]
     canUse: [pgx]
   compose:
-    mayDependOn: [compose, identity, people, deals, activities, approvals, agents, ai, search, capture, consent, contracts, platform, web, migrations]
+    mayDependOn: [compose, identity, people, deals, activities, approvals, agents, ai, search, capture, consent, collections, contracts, platform, web, migrations]
     canUse: [pgx, chi, oapi]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]
   cmd:
-    mayDependOn: [compose, identity, people, deals, activities, approvals, agents, ai, search, capture, consent, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, deals, activities, approvals, agents, ai, search, capture, consent, collections, contracts, platform, migrations]
     canUse: [pgx, redis]

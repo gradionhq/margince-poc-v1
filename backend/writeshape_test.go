@@ -25,6 +25,15 @@ var auditOnlyWrites = map[string]string{
 	// (events.md §5.3b) — pipeline/stage mutations must emit them and
 	// this entry must be removed with that change (STATUS.md pickup item).
 	"createPipelineTx": "pipeline config emission pending (events.md §5.3b)",
+	// The events.md closed catalog defines no list.*/tag.* types (filed
+	// in feedback/) — organizational metadata rides the audit-only lane
+	// until the spec adds them.
+	"CreateList":  "no list.* event types in the events.md closed catalog",
+	"ArchiveList": "no list.* event types in the events.md closed catalog",
+	"AddMember":   "no list.* event types in the events.md closed catalog",
+	"CreateTag":   "no tag.* event types in the events.md closed catalog",
+	"ArchiveTag":  "no tag.* event types in the events.md closed catalog",
+	"ApplyTag":    "no tag.* event types in the events.md closed catalog",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {

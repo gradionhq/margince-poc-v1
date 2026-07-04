@@ -56,6 +56,8 @@ linters:
               desc: identity imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
               desc: identity imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
+              desc: identity imports no sibling module
         module-people:
           files:
             - "**/internal/modules/people/**"
@@ -77,6 +79,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: people imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
+              desc: people imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
               desc: people imports no sibling module
         module-deals:
           files:
@@ -100,6 +104,8 @@ linters:
               desc: deals imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
               desc: deals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
+              desc: deals imports no sibling module
         module-activities:
           files:
             - "**/internal/modules/activities/**"
@@ -122,6 +128,8 @@ linters:
               desc: activities imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
               desc: activities imports no sibling module (the consent gate is injected by compose)
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
+              desc: activities imports no sibling module
         module-approvals:
           files:
             - "**/internal/modules/approvals/**"
@@ -143,6 +151,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: approvals imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
+              desc: approvals imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
               desc: approvals imports no sibling module
         module-agents:
           files:
@@ -166,6 +176,8 @@ linters:
               desc: agents imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
               desc: agents imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
+              desc: agents imports no sibling module
         module-ai:
           files:
             - "**/internal/modules/ai/**"
@@ -187,6 +199,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: ai imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
+              desc: ai imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
               desc: ai imports no sibling module
         module-search:
           files:
@@ -210,6 +224,8 @@ linters:
               desc: search imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
               desc: search imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
+              desc: search imports no sibling module
         module-capture:
           files:
             - "**/internal/modules/capture/**"
@@ -231,6 +247,8 @@ linters:
             - pkg: github.com/gradionhq/margince/backend/internal/modules/search
               desc: capture imports no sibling module (domain writes go through owned SQL on the natural-key tables)
             - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
+              desc: capture imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
               desc: capture imports no sibling module
         module-consent:
           files:
@@ -254,6 +272,32 @@ linters:
               desc: consent imports no sibling module
             - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
               desc: consent imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/collections
+              desc: consent imports no sibling module
+        module-collections:
+          files:
+            - "**/internal/modules/collections/**"
+          deny:
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/identity
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/people
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/deals
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/activities
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/approvals
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/agents
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/ai
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/search
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/capture
+              desc: collections imports no sibling module
+            - pkg: github.com/gradionhq/margince/backend/internal/modules/consent
+              desc: collections imports no sibling module
         modules-common:
           files:
             - "**/internal/modules/**"
