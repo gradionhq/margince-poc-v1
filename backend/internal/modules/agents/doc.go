@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package agents owns the governed agent surface (Layer 1): the MCP
 // tool registry, the admission gate (scope ∧ tier ∧ the read/full seat
 // ceiling; per-agent quota is specified but not yet enforced), the

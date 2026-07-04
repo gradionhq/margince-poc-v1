@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package retrieval is the seam between the AI layers and crm-search
 // (architecture/01 §open-items, promoted per B-EP01.2): crm-ai reaches
 // search only through this interface, never by importing crm-search

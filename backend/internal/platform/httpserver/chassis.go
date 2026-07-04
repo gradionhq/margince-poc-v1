@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package httpserver is the HTTP chassis (ADR-0054 §5): the middleware
 // every process role's HTTP surface rides — correlation scope, security
 // headers, panic recovery, the health probe. Platform owns no domain:

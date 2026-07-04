@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package apperrors is the fixed error-sentinel registry from
 // contract/interfaces.md §0. Callers branch with errors.Is; the HTTP and
 // MCP choke-points own the mapping to wire shapes (RFC 7807 / tool errors)

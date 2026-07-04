@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package de is the German jurisdiction pack (architecture/14,
 // ADR-0042): self-contained, registered in init(), composed into an
 // edge binary by a blank import — core code never contains a

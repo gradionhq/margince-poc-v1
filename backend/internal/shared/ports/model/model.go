@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package model defines the provider-agnostic LLM client seam
 // (interfaces.md §4, 03b Layer 3). Model choice is config, not
 // architecture: one implementation per provider (Anthropic / OpenAI /

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package agents
 
 // The canonical V1 CRUD tool set (interfaces.md §2.1), composed over the

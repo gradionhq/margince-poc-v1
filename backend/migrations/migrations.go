@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package migrations embeds the SQL migration namespaces (ADR-0017):
 // core/ is upstream-owned and sequentially numbered; custom/ is fork-owned
 // and timestamp-ordered; jurisdiction packs bring their own third

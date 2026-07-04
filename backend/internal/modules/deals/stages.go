@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package deals
 
 // Pipeline/stage configuration beyond create (B-EP02): bounded config

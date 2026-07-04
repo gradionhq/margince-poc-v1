@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package events
 
 // Contract fitness tests (B-EP04.1/.2): the stream set matches events.md

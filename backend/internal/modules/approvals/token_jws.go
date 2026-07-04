@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package approvals
 
 // The ADR-0036 §1 approval-token serialization: when issuer and

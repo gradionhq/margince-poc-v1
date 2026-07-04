@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package ids provides the UUIDv7 identifier every entity row uses
 // (data-model §1.1). It is part of the dependency-free kernel: seam
 // packages reference ids.UUID so no Tier-0 signature drags in a

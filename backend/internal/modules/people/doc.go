@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package people owns the person, organization and lead aggregates —
 // creation, dedupe, keyset listing, optimistic updates, archive, the
 // two-record merge (features/01 §1.3) and lead promotion (§6.4) — as

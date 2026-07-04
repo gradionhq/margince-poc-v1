@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Command contract-overlay downgrades the authoritative OpenAPI 3.1
 // contract to 3.0.3 at generate time so oapi-codegen (kin-openapi, 3.0)
 // can consume it (B-EP01.9a). The 3.1 crm.yaml stays the single source of

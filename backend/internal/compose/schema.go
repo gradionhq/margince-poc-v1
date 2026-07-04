@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package compose
 
 // SoR-mode schema introspection (interfaces.md §3): the descriptor set

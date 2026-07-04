@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package dbmigrate applies the repo's SQL migrations. It exists instead
 // of golang-migrate because the schema has THREE ownership namespaces
 // (ADR-0017: sequential core/, timestamp custom/, per-jurisdiction packs),

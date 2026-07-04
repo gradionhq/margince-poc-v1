@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package policy owns the role permission-policy documents (B-EP03.1,
 // data-model §2.4): the JSONB shape stored in role.permissions, the five
 // seeded system-role defaults (decisions/0006), the validator that keeps

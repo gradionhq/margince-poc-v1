@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package activities owns the activity timeline — logging (with
 // source-system idempotency), reading and listing activities and their
 // polymorphic links to person/organization/deal records — as store +

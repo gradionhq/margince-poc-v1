@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package deals
 
 // Contract request → store input mappings, in ONE place: the HTTP

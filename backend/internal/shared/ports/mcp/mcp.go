@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package mcp defines the governed tool contract (interfaces.md §2,
 // 03b Layer 1). A tool registers a name, the Passport scope it requires,
 // its autonomy tier, and JSON-schema in/out bound to a crm.yaml operation.

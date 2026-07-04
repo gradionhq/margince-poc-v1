@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package capture owns inbound capture (interfaces.md §1): the ONE
 // connector.Sink implementation — a connector normalizes provider
 // records, capture writes them. One transaction per record: raw

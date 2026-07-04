@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package auth is the ONE admission point for governed agent actions
 // (interfaces.md §2, ADR-0055): scope ∧ seat ∧ tier, resolved against the
 // calling Principal, BEFORE any handler runs — whether the action arrives

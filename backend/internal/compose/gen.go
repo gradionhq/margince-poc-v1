@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package compose
 
 //go:generate python3 ../../tools/gen-stubs/gen.py

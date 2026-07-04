@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package approvals is the 🟡 confirm-first engine (ADR-0036,
 // features/07 §8): agents STAGE an action they may not perform, humans
 // DECIDE it in the inbox, and the agent REDEEMS the decision by

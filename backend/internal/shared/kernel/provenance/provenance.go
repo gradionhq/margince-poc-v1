@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package provenance carries write provenance (data-model §1.6). Provenance is
 // not optional: every write path takes or stamps it, and the store APIs
 // accept no overload without it — a missing provenance is a compile

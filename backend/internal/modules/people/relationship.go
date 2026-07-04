@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package people
 
 // Relationship edges (data-model §5): employment (person↔org), deal

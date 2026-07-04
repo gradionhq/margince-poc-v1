@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package ai
 
 // Task names one V1 AI workload. Routing is over capability tiers per

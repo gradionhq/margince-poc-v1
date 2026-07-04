@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package principal carries the per-request identity every trust-boundary
 // call needs: the workspace (tenant key for RLS), the acting Principal,
 // and — for agent calls — the Passport. Business code reads these only

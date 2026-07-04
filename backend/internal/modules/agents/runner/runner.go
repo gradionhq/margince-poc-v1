@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package runner is the Surface-B reason-act-observe loop
 // (architecture/07): the model PROPOSES, the governed tool surface
 // DECIDES. The runner reaches every action through the same

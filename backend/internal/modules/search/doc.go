@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package search owns cross-object retrieval (B-EP05.15+): ranked
 // full-text search over the generated search_tsv columns today, the
 // pgvector/RRF hybrid and the context graph as they land. Every branch

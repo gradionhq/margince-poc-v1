@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package people
 
 // The partner extension (A41/ADR-0032): an organization promoted to a

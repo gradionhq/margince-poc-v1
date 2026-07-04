@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package consent
 
 // Data-subject requests (Art. 15/16/17, B-E11.30): the compliance

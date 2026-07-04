@@ -92,24 +92,14 @@ No half-finished slice is in flight. Highest-value next, in order:
   coldstart fetcher + stripper.
 - **S12b vLLM adapter**; **PERF-7 harness**.
 
-Housekeeping (no dependency, do when a session is otherwise idle):
+Done this session:
 
-- **Per-file SPDX headers** — the root `LICENSE` (BUSL-1.1) is in place and
-  GitHub detects it, but source files carry no license marker. **Locked header
-  format** (the modern SPDX / REUSE form), the two lines above the `package`
-  clause, in this order:
-
-  ```go
-  // SPDX-License-Identifier: BUSL-1.1
-  // SPDX-FileCopyrightText: 2026 Gradion
-  ```
-
-  Applies to every hand-written `*.go`. Skip generated files (`*_gen.go` — the
-  drift gate owns them) and vendored code. Land it as one mechanical sweep + a
-  fitness test asserting the header is present on non-generated files, so it
-  can't rot (matches the "prefer fitness functions" rule). Only the sweep timing
-  is open — the format is decided. Ties to 12-license.md §5 "honest labeling" /
-  §8 "don't strip notices".
+- **Per-file SPDX headers** — every hand-written `*.go` now carries the locked
+  BUSL-1.1 SPDX header (`// SPDX-License-Identifier: BUSL-1.1` +
+  `// SPDX-FileCopyrightText: 2026 Gradion`), enforced by
+  `TestEveryHandWrittenGoFileCarriesTheLicenseHeader` in `backend/license_test.go`
+  (walks the tree; a new file is enrolled the moment it exists). Generated
+  `*_gen.go` and the drift-frozen `internal/contracts/` package are exempt.
 
 ## Previous session: the spec's red-team fixes landed in code (ADR-0055)
 

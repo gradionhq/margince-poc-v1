@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package collections owns the organizational surfaces over the four
 // core record types: lists (static sets and dynamic segments) and tags.
 // Membership and tag application name row-scoped records, so every

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Command gen-agentpolicy derives the ADR-0055 REST admission table from
 // the contract: for every MUTATING crm.yaml operation it emits one entry
 // mapping the chi route (method + path pattern) to the operation's agent

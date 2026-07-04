@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package activities
 
 // The one send path (B-EP07.12): both transports — the HTTP handler

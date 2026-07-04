@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package deals owns the deal aggregate and its pipeline scaffolding —
 // creation (born open, never onto a terminal stage), keyset listing,
 // optimistic updates, stage advancement with the won/lost semantics and

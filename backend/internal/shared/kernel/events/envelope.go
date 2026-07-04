@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package events is the wire contract of the gw:events bus: the standard
 // envelope (events.md §2), the <entity>.<verb> catalog (§1/§5), and the
 // per-entity-type stream layout (§4.1). It is part of the dependency-free

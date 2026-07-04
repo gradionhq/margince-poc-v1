@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package activities
 
 // Meeting scheduling (features/07 §5c): availability is a 🟢 read that

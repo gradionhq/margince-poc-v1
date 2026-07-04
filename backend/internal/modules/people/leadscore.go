@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package people
 
 // Lead scoring (formulas-and-rules §3): a transparent weighted-signal

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package authz is the RBAC/seat resolver seam (interfaces.md §2). The
 // admission gate lives in platform/auth, but the authoritative role /
 // role_assignment / app_user.seat_type rows are owned by modules/identity

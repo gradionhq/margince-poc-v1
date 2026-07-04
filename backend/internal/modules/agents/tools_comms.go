@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package agents
 
 // The communication verbs on the MCP surface (crm.yaml x-mcp-tool):

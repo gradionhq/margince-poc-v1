@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package compose
 
 // The retention engine (data-model §3.4, ADR-0011): a nightly pass

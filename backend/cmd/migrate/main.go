@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Command migrate is the schema-migration process role (ADR-0054,
 // amended §2): applies the embedded core + custom namespaces (ADR-0017)
 // with the owner-role DSN. Thin main, a testable run().

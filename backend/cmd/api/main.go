@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Command api is the HTTP process role (ADR-0054, amended §2): thin
 // main, a testable run(), wiring through internal/compose. By default it
 // also runs the outbox relay inline (decisions/0005 — one process for

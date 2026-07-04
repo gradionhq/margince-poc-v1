@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package storekit is the shared store mechanics under every module's
 // persistence layer (ADR-0054 §6): the one non-negotiable write shape
 // (data-model §11, events.md §4.2 — domain row + audit_log row +

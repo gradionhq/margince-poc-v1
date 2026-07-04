@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package consent owns per-purpose consent (A22/ADR-0011, data-model
 // §3.4): the purpose catalog, each person's current state, the
 // append-only proof log — and the default-deny suppression gate that

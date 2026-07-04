@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package identity
 
 // Agent Seat Passports (data-model §2.7, ADR-0043): a human binds their

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package storekit
 
 // The erasure-suppression probe (A13): erased subjects live on as

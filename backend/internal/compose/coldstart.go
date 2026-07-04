@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package compose
 
 // The website cold-start read-back (features/07 §1): fetch a company

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package database is the shared Postgres platform layer: the configured
 // connection pool and the tenant-scoped transaction helper every store
 // uses. It is the ONE place the RLS GUC contract (data-model §1.3) is

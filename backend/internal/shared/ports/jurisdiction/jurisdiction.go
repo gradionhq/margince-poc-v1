@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package jurisdiction is the Tier-0 seam behind country packs
 // (architecture/14, ADR-0042): country-specific behavior lives in a
 // self-contained pack module (crm-de, …) composed in at compile time by

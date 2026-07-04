@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package connector defines the capture/integration seam (interfaces.md
 // §1): the uniform interface every integration implements — Gmail,
 // calendar, telephony, the scrape/enrichment connector, and the deepest

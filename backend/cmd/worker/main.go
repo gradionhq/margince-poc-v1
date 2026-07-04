@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Command worker is the background process role (ADR-0054, amended §2):
 // the standalone outbox relay for split deployments — cmd/api runs the
 // same relay inline by default (--inline-relay), so small installs never

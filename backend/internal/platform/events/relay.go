@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package events is the Redis Streams side of the event backbone (events.md
 // §3/§4): the outbox relay that ships committed writes onto the bus, the
 // consumer-group subscriber, and the event_id dedupe wrapper that makes

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package identity
 
 // The A2 authorization server (B-EP06.18b, B-EP03.14/.15, ADR-0013):

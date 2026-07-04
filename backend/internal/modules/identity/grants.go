@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package identity
 
 // Manual per-record sharing (A52/ADR-0039): identity owns the grant

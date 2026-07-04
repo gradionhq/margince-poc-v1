@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package agents is the governed MCP tool surface (03b Layer 1,
 // interfaces.md §2): the ONE artifact every agent surface consumes — the
 // local stdio server (A1) today, the hosted HTTPS server (A2) and the

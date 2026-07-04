@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package deals
 
 // §8 fixed-clock table: the stalled boolean over status, idle duration

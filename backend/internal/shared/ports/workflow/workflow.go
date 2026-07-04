@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package workflow defines the automation seam (interfaces.md §5,
 // features/03 §5): workflows are typed handlers in a registry — code,
 // agent-authored, test-guarded — not a visual builder. Each declares a

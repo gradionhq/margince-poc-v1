@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package agents
 
 // The 🟡 loop from the tool surface's side. A refused confirm-first call

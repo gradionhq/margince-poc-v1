@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package password hashes and verifies user passwords with Argon2id
 // (ADR-0043: Argon2id, never plaintext), serialized in PHC string format
 // so parameters can be raised later without invalidating existing hashes.

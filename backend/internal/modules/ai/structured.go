@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package ai
 
 // Structured-output enforcement (B-EP06.25, ai-operational-spec §5.1/2):

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package compose
 
 // The seat-derived AI budget (ai-operational-spec §1.3 / 09 §2.4): a

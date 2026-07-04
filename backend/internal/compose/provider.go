@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package compose is the composition layer the process roles share
 // (ADR-0054, amended §2): it assembles the module providers into the one
 // datasource.SystemOfRecordProvider seam the MCP surface binds, and (via

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Command mcp is the MCP process role (ADR-0054, amended §2), serving
 // the ONE governed tool surface over two transports:
 //

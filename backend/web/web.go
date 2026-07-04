@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package web serves the built-in UI: a dependency-free, hash-routed SPA
 // embedded in the binary (no node toolchain — the PoC's UI budget goes to
 // the design language, not a build pipeline). It talks to the same /v1

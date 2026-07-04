@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package ratelimit is a small in-process fixed-window limiter for the
 // unauthenticated auth endpoints: login brute-force is expensive to serve
 // (Argon2id ≈ 19 MiB per attempt) and bootstrap mints whole tenants, so

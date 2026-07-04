@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 // Package httperr is the single sentinel→HTTP choke point
 // (architecture/11 §1): handlers return errs sentinels and this mapper
 // produces the RFC 7807 problem+json body with the contract's stable

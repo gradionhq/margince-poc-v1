@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 package auth
 
 // Object-level RBAC + row-level scoping (B-EP03.2/.3a, features/04 §1),
