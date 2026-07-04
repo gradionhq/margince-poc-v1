@@ -1,0 +1,50 @@
+/* Base controls (foundation v0 vocabulary) — grows as tickets need atoms. */
+
+.btn {
+  font-family: var(--f-body);
+  font-weight: 600;
+  font-size: 13.5px;
+  border: 0;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  padding: 9px 14px;
+  transition: 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--textOnAccent);
+  box-shadow: 0 2px 8px var(--accentMed);
+}
+.btn-primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--textSecondary);
+  border: 1px solid var(--borderSubtle);
+}
+.btn-ghost:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.btn-sm {
+  padding: 6px 11px;
+  font-size: 12.5px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+}
+
+.t-small {
+  font-size: 12px;
+  color: var(--textTertiary);
+}

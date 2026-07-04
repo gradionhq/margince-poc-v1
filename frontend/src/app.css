@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./design-system/tokens.css";
+@import "./design-system/base.css";
 
 body {
   font-family: var(--f-body);

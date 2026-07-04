@@ -1,4 +1,11 @@
 import { useEffect, useState } from "react";
+import {
+  AutonomyDot,
+  ConfidenceMeter,
+  EvidenceChip,
+  ProvenanceTag,
+  StagedProposal,
+} from "./design-system/trust";
 
 // Token showcase — the B-EP09.1 verification surface, not a product screen.
 // Every colour reads through a custom property; the conformance tests reject
@@ -121,7 +128,66 @@ export function App() {
           Mono — JetBrains Mono, evidence snippets and IDs.
         </p>
       </section>
+      <TrustShowcase />
     </main>
+  );
+}
+
+function TrustShowcase() {
+  return (
+    <section style={{ marginTop: 28 }}>
+      <h2
+        style={{
+          fontFamily: "var(--f-body)",
+          fontSize: 15,
+          fontWeight: 600,
+          color: "var(--textPrimary)",
+        }}
+      >
+        Trust primitives (B-EP09.3a)
+      </h2>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 12,
+          marginTop: 10,
+        }}
+      >
+        <EvidenceChip
+          evidence={{
+            snippet: "…budget approved in Q3…",
+            source: "email 12 Jun",
+          }}
+        />
+        <ConfidenceMeter level="high" />
+        <ConfidenceMeter level="med" />
+        <ConfidenceMeter level="low" />
+        <ProvenanceTag provenance={{ kind: "agent", agent: "capture" }} />
+        <ProvenanceTag provenance={{ kind: "human" }} />
+        <span style={{ fontSize: 13, color: "var(--textSecondary)" }}>
+          <AutonomyDot tier="auto" /> auto-execute
+        </span>
+        <span style={{ fontSize: 13, color: "var(--textSecondary)" }}>
+          <AutonomyDot tier="confirm" /> confirm-first
+        </span>
+      </div>
+      <div style={{ marginTop: 14, maxWidth: 460 }}>
+        <StagedProposal
+          proposal={{
+            description: "Set Brandt Automotive's deal value",
+            value: "€48.000",
+            agent: "capture",
+            confidence: "med",
+            evidence: {
+              snippet: "…offer of 48k as discussed…",
+              source: "email 12 Jun",
+            },
+          }}
+        />
+      </div>
+    </section>
   );
 }
 

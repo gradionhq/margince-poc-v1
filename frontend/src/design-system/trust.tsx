@@ -1,0 +1,219 @@
+import { type ReactNode, useState } from "react";
+import "./trust.css";
+
+// The Margince trust primitives (B-EP09.3a, design-language §4): the
+// vocabulary that makes AI-authored state legible — where a value came from,
+// how sure the system is, and whether it is real yet. The universal triad is
+// Accept / Edit / Dismiss; an Edit flips the value to human-typed while
+// retaining the original evidence (§4.4).
+
+export type ConfidenceLevel = "high" | "med" | "low";
+
+export type Evidence = {
+  snippet: string;
+  source: string;
+};
+
+export function AutonomyDot({ tier }: { tier: "auto" | "confirm" }) {
+  return (
+    <span
+      className={`dot dot-${tier}`}
+      role="img"
+      aria-label={tier === "auto" ? "auto-execute" : "confirm-first"}
+    />
+  );
+}
+
+export function EvidenceChip({
+  evidence,
+  onOpen,
+}: {
+  evidence: Evidence;
+  onOpen?: () => void;
+}) {
+  const text = (
+    <>
+      "{evidence.snippet}" · {evidence.source}
+    </>
+  );
+  if (onOpen) {
+    return (
+      <button type="button" className="evidence-chip" onClick={onOpen}>
+        {text}
+      </button>
+    );
+  }
+  return <span className="evidence-chip">{text}</span>;
+}
+
+const confidenceLabel: Record<ConfidenceLevel, string> = {
+  high: "high",
+  med: "medium",
+  low: "low",
+};
+
+// Low confidence is shown as low, never hidden (§4.2) — there is no prop to
+// suppress the glyph.
+export function ConfidenceMeter({ level }: { level: ConfidenceLevel }) {
+  return (
+    <span className={`confidence confidence-${level}`}>
+      <span className="dot" />
+      {confidenceLabel[level]}
+    </span>
+  );
+}
+
+// Provenance is either an agent (`agent:capture`) or the human user.
+export type Provenance = { kind: "agent"; agent: string } | { kind: "human" };
+
+export function ProvenanceTag({ provenance }: { provenance: Provenance }) {
+  if (provenance.kind === "agent") {
+    return (
+      <span className="provenance provenance-agent">
+        agent: {provenance.agent}
+      </span>
+    );
+  }
+  return <span className="provenance provenance-human">typed by you</span>;
+}
+
+export function ApprovalGate({
+  onAccept,
+  onEdit,
+  onDismiss,
+}: {
+  onAccept: () => void;
+  onEdit: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="approval-gate">
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        onClick={onAccept}
+      >
+        Accept
+      </button>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
+        Edit
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={onDismiss}
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+export function StagingCard({ children }: { children: ReactNode }) {
+  return (
+    <section className="staging-card" aria-label="staged proposal">
+      {children}
+    </section>
+  );
+}
+
+export type Proposal = {
+  description: string;
+  value: string;
+  agent: string;
+  confidence: ConfidenceLevel;
+  evidence?: Evidence;
+};
+
+export type Resolution =
+  | { outcome: "accepted"; value: string }
+  | { outcome: "edited"; value: string }
+  | { outcome: "dismissed" };
+
+type ProposalState =
+  | { phase: "staged" }
+  | { phase: "editing"; draft: string }
+  | { phase: "resolved"; resolution: Resolution };
+
+// StagedProposal drives one proposal through the triad. It owns only the
+// presentation state machine — persisting the outcome is the caller's job via
+// onResolve (the approvals API, once the screens wire in).
+export function StagedProposal({
+  proposal,
+  onResolve,
+}: {
+  proposal: Proposal;
+  onResolve?: (resolution: Resolution) => void;
+}) {
+  const [state, setState] = useState<ProposalState>({ phase: "staged" });
+
+  const resolve = (resolution: Resolution) => {
+    setState({ phase: "resolved", resolution });
+    onResolve?.(resolution);
+  };
+
+  if (state.phase === "resolved") {
+    const { resolution } = state;
+    if (resolution.outcome === "dismissed") {
+      return <p className="t-small">Suggestion dismissed.</p>;
+    }
+    // Accepted keeps agent provenance; an edit makes the value human-typed.
+    // Either way the original evidence stays attached (§4.4).
+    const provenance: Provenance =
+      resolution.outcome === "edited"
+        ? { kind: "human" }
+        : { kind: "agent", agent: proposal.agent };
+    return (
+      <section className="real-card" aria-label="resolved value">
+        <ProvenanceTag provenance={provenance} />
+        <p style={{ marginTop: 8 }}>
+          {proposal.description}: <strong>{resolution.value}</strong>
+        </p>
+        {proposal.evidence && <EvidenceChip evidence={proposal.evidence} />}
+      </section>
+    );
+  }
+
+  return (
+    <StagingCard>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <ProvenanceTag provenance={{ kind: "agent", agent: proposal.agent }} />
+        <ConfidenceMeter level={proposal.confidence} />
+      </div>
+      <p style={{ marginTop: 8 }}>
+        {proposal.description}:{" "}
+        <span className="staged-value">{proposal.value}</span>
+      </p>
+      {proposal.evidence && <EvidenceChip evidence={proposal.evidence} />}
+      {state.phase === "editing" ? (
+        <form
+          className="approval-gate"
+          onSubmit={(event) => {
+            event.preventDefault();
+            resolve({ outcome: "edited", value: state.draft });
+          }}
+        >
+          <input
+            className="staged-edit"
+            aria-label={`Edit ${proposal.description}`}
+            value={state.draft}
+            onChange={(event) =>
+              setState({ phase: "editing", draft: event.target.value })
+            }
+          />
+          <button type="submit" className="btn btn-primary btn-sm">
+            Save
+          </button>
+        </form>
+      ) : (
+        <ApprovalGate
+          onAccept={() =>
+            resolve({ outcome: "accepted", value: proposal.value })
+          }
+          onEdit={() => setState({ phase: "editing", draft: proposal.value })}
+          onDismiss={() => resolve({ outcome: "dismissed" })}
+        />
+      )}
+    </StagingCard>
+  );
+}

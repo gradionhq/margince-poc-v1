@@ -1,0 +1,112 @@
+/*
+ * Trust primitives — the Margince-specific vocabulary (design-language §4,
+ * foundation v0: specs/design/design-system/margince.css).
+ * Staged / real / human-typed are three DISTINGUISHABLE styles (§5c);
+ * confidence is a first-class glyph, low shown as low, never hidden (§4.2).
+ * Colours read from tokens only — the conformance gate enforces it.
+ */
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-full);
+}
+.dot-auto {
+  background: var(--online);
+}
+.dot-confirm {
+  background: var(--away);
+}
+
+.evidence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--textSecondary);
+  background: var(--bgCard);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 3px 8px;
+}
+button.evidence-chip {
+  cursor: pointer;
+}
+button.evidence-chip:hover {
+  border-color: var(--borderStrong);
+  color: var(--textPrimary);
+}
+
+.confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--textSecondary);
+}
+.confidence-high .dot {
+  background: var(--online);
+}
+.confidence-med .dot {
+  background: var(--away);
+}
+.confidence-low .dot {
+  background: var(--dnd);
+}
+
+.provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+}
+.provenance-agent {
+  background: var(--aiLight);
+  color: var(--aiText);
+}
+.provenance-human {
+  background: var(--bgCard);
+  color: var(--teal);
+}
+
+/* A staged proposal is visibly NOT yet real: AI-tinted ground, dashed border. */
+.staging-card {
+  background: var(--aiLight);
+  border: 1.5px dashed var(--aiMed);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+}
+.staging-card .staged-value {
+  color: var(--aiText);
+  font-weight: 600;
+}
+
+/* The persisted counterpart a resolved proposal settles into. */
+.real-card {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
+
+.approval-gate {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.staged-edit {
+  font-family: var(--f-body);
+  font-size: 14px;
+  color: var(--textPrimary);
+  background: var(--bgElevated);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+}
