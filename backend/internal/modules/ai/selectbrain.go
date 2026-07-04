@@ -11,10 +11,10 @@ import (
 // ProviderConfig is one tier→provider binding from ai-routing.yaml —
 // the only place vendor names appear.
 type ProviderConfig struct {
-	Provider string // "fake" | "anthropic" | "ollama"
-	Model    string // provider-native model id, resolved from the logical tier
-	BaseURL  string // endpoint override; empty means the provider default
-	APIKey   string // BYOK credential for cloud providers (ADR-0020)
+	Provider string `yaml:"provider"` // "fake" | "anthropic" | "ollama"
+	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
+	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
+	APIKey   string `yaml:"api_key"`  // BYOK credential for cloud providers (ADR-0020)
 }
 
 // Provider defaults. The Anthropic URL is the vendor's public API; a
