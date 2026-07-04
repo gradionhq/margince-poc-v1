@@ -1,6 +1,7 @@
-// Reserved for the CRM↔Dispact↔@gradion/contracts seam (ADR-0014 §1).
-// The seven crm-* modules are fenced by internal/ + depguard + go-arch-lint,
-// never by workspace membership.
+// Reserved for the CRM↔Dispact↔@gradion/contracts seam (ADR-0014 §1) and
+// future jurisdictions/<cc> packs (ADR-0042). The backend is ONE Go module;
+// its modules are fenced by internal/ + depguard + go-arch-lint, never by
+// workspace membership.
 go 1.26.0
 
-use .
+use ./backend
