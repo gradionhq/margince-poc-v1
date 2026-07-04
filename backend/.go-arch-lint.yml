@@ -34,7 +34,6 @@ components:
   approvals:   { in: internal/modules/approvals }
   agents:      { in: internal/modules/agents }
   compose:     { in: internal/compose }
-  httpapi:     { in: internal/httpapi }
   migrations:  { in: migrations }
   web:         { in: web }
   cmd:         { in: cmd/** }
@@ -71,14 +70,11 @@ deps:
   agents:
     mayDependOn: [contracts, platform]
   compose:
-    mayDependOn: [identity, people, deals, activities, approvals, agents, contracts, platform, migrations]
-    canUse: [pgx, oapi]
-  httpapi:
-    mayDependOn: [httpapi, identity, people, deals, activities, approvals, contracts, platform, web, migrations]
+    mayDependOn: [compose, identity, people, deals, activities, approvals, agents, contracts, platform, web, migrations]
     canUse: [pgx, chi, oapi]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]
   cmd:
-    mayDependOn: [compose, httpapi, identity, people, deals, activities, approvals, agents, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, deals, activities, approvals, agents, contracts, platform, migrations]
     canUse: [pgx, redis]

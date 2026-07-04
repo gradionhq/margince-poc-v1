@@ -1,7 +1,7 @@
 // Code generated from internal/contracts/api_gen.go ServerInterface; DO NOT EDIT.
 // Regenerate: make gen (tools/gen-stubs).
 
-package httpapi
+package compose
 
 import (
 	nethttp "net/http"

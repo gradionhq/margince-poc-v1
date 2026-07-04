@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpapi_test
+package compose_test
 
 // End-to-end lane: the real handler stack (session auth, RLS transaction
 // helper, stores, RFC 7807 mapper) over the real migrated Postgres —
@@ -21,7 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/httpapi"
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/migrations"
@@ -70,7 +70,7 @@ func setup(t *testing.T) *env {
 	}
 	t.Cleanup(pool.Close)
 
-	ts := httptest.NewTLSServer(httpapi.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil))))
 	t.Cleanup(ts.Close)
 
 	jar, err := cookiejar.New(nil)

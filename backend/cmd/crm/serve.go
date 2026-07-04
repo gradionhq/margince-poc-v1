@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/httpapi"
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 )
@@ -56,7 +56,7 @@ func runServe(ctx context.Context, args []string, stdout io.Writer) error {
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           httpapi.New(pool, logger),
+		Handler:           compose.New(pool, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

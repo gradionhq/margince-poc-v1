@@ -31,8 +31,6 @@ linters:
               desc: platform owns no domain module
             - pkg: github.com/gradionhq/margince/backend/internal/compose
               desc: platform never sees the composition layer
-            - pkg: github.com/gradionhq/margince/backend/internal/httpapi
-              desc: platform never sees the composition layer
         # One rule per module: a module imports shared + platform +
         # contracts, NEVER a sibling — every cross-module edge is
         # injected by the composition layer (ADR-0054 §9).
@@ -125,8 +123,6 @@ linters:
             - "**/internal/modules/**"
           deny:
             - pkg: github.com/gradionhq/margince/backend/internal/compose
-              desc: modules never see the composition layer
-            - pkg: github.com/gradionhq/margince/backend/internal/httpapi
               desc: modules never see the composition layer
             - pkg: github.com/gradionhq/margince/backend/cmd
               desc: modules never see the process roles

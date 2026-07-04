@@ -77,7 +77,6 @@ func TestPlatformOwnsNoDomain(t *testing.T) {
 		modulePath + "/crm-",
 		modulePath + "/internal/modules/",
 		modulePath + "/internal/compose",
-		modulePath + "/internal/httpapi",
 		modulePath + "/cmd/",
 	}
 	for _, dir := range packagesUnder(t, "internal/platform") {

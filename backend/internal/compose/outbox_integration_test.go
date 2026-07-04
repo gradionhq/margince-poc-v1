@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpapi_test
+package compose_test
 
 // The write-shape invariant on the wire (B-EP04.5): an authenticated HTTP
 // write stages exactly one outbox envelope, complete per events.md §2 —

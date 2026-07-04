@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerates internal/httpapi/stubs_gen.go from the ServerInterface in
+"""Regenerates internal/compose/stubs_gen.go from the ServerInterface in
 internal/contracts/api_gen.go: one explicit 501 stub per contract operation.
 Run from the repo root (make gen does)."""
 import os
@@ -15,7 +15,7 @@ methods = re.findall(r'^\t([A-Z]\w+)\((.*)\)$', block, re.M)
 out = ['// Code generated from internal/contracts/api_gen.go ServerInterface; DO NOT EDIT.',
        '// Regenerate: make gen (tools/gen-stubs).',
        '',
-       'package httpapi',
+       'package compose',
        '',
        'import (',
        '\tnethttp "net/http"',
@@ -46,5 +46,5 @@ for name, params in methods:
             f'\thttperr.NotImplemented(w, r, "{name}")',
             '}',
             '']
-open('internal/httpapi/stubs_gen.go', 'w').write('\n'.join(out))
+open('internal/compose/stubs_gen.go', 'w').write('\n'.join(out))
 print(f'{len(methods)} stubs generated')
