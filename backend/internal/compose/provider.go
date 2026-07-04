@@ -27,6 +27,7 @@ type Provider struct {
 	people     *people.Provider
 	deals      *deals.Provider
 	activities *activities.Provider
+	reports    *reportEngine
 }
 
 func NewProvider(pool *pgxpool.Pool) *Provider {
@@ -34,6 +35,7 @@ func NewProvider(pool *pgxpool.Pool) *Provider {
 		people:     people.NewProvider(pool),
 		deals:      deals.NewProvider(pool),
 		activities: activities.NewProvider(pool),
+		reports:    newReportEngine(pool),
 	}
 }
 
@@ -176,16 +178,23 @@ func (p *Provider) Freshness(_ context.Context, _ datasource.EntityRef) (datasou
 	return datasource.FreshnessInfo{LastSyncedAt: time.Now().UTC(), Authoritative: true}, nil
 }
 
-// Schema introspection and the report engine are not built yet; the seam
-// answers loudly rather than with an empty success.
+// ListObjects/ListFields expose the SoR-mode schema descriptors
+// (interfaces.md §3): static, versioned with the code (P11).
 func (p *Provider) ListObjects(context.Context) ([]datasource.ObjectDef, error) {
-	return nil, errors.New("compose: ListObjects is not implemented yet")
+	return schemaObjects, nil
 }
 
-func (p *Provider) ListFields(context.Context, datasource.EntityType) ([]datasource.FieldDef, error) {
-	return nil, errors.New("compose: ListFields is not implemented yet")
+func (p *Provider) ListFields(_ context.Context, entity datasource.EntityType) ([]datasource.FieldDef, error) {
+	fields, ok := schemaFields(entity)
+	if !ok {
+		return nil, &datasource.UnsupportedEntityError{Type: string(entity)}
+	}
+	return fields, nil
 }
 
-func (p *Provider) RunReport(context.Context, datasource.ReportPlan) (datasource.ReportResult, error) {
-	return datasource.ReportResult{}, errors.New("compose: RunReport is not implemented yet (the compiled report engine is a later work package)")
+// RunReport executes a seam-level plan against the descriptor
+// vocabulary — the same engine the HTTP surface and the run_report
+// tool ride.
+func (p *Provider) RunReport(ctx context.Context, plan datasource.ReportPlan) (datasource.ReportResult, error) {
+	return p.reports.runAdHocPlan(ctx, plan)
 }

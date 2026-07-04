@@ -55,13 +55,15 @@ const defaultLimit = 20
 // row-scope rides the owner predicate or the activity link walk. A new
 // searchable entity is one row here — the query builder derives the
 // rest.
-var searchBranches = []struct {
+type searchBranch struct {
 	entity       string
 	table        string
 	title        string
 	snippet      string
 	activityWalk bool
-}{
+}
+
+var searchBranches = []searchBranch{
 	{entity: "person", table: "person", title: "full_name", snippet: "NULL"},
 	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL"},
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},

@@ -7,6 +7,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -29,7 +30,33 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	provider := NewProvider(pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider)
+	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
 	return registry
+}
+
+// reportToolRunner adapts the engine to the tool seam: decode the
+// plan arguments, run, re-encode the contract-shaped result.
+func reportToolRunner(engine *reportEngine) agents.ReportRunner {
+	return func(ctx context.Context, report string, planArgs json.RawMessage) (json.RawMessage, error) {
+		var req reportRequest
+		if len(planArgs) > 0 {
+			if err := json.Unmarshal(planArgs, &req); err != nil {
+				return nil, err
+			}
+		}
+		outcome, err := engine.Run(ctx, report, req)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{
+			"report":       outcome.Report,
+			"plan":         outcome.Plan,
+			"columns":      outcome.Columns,
+			"rows":         outcome.Rows,
+			"total_rows":   len(outcome.Rows),
+			"generated_at": outcome.GeneratedAt,
+		})
+	}
 }
 
 // approvalsAdapter maps the tool surface's staging/redemption dependency

@@ -50,6 +50,7 @@ type Server struct {
 	activitiesHandlers
 	approvalsHandlers
 	searchHandlers
+	reportHandlers
 	fallback
 }
 
@@ -72,6 +73,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 		activitiesHandlers: activities.NewHandlers(pool),
 		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
 		searchHandlers:     search.NewHandlers(pool),
+		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 	}
 
 	// The ADR-0055 admission layer rides INSIDE the router (it needs the
