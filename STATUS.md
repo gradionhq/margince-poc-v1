@@ -5,6 +5,32 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## Session close (2026-07-06 early AM) — where to pick up
+
+The overnight autonomous run below shipped **28 leaf tickets across 4
+batches**, all pushed to `origin/main` (`e398354..a257056`), each
+gate-green and craft+security reviewed. The session ended on the Fable-5
+token limit mid-batch-4.
+
+- **Batch 4 landed:** B-E15.10a/b — the canonical typed AND/OR predicate
+  engine (`storekit/predicate.go`): closed per-resource field vocabulary,
+  bind-param-only values, LIKE-escaped `contains`, bounded depth/leaves,
+  and a scope-neutral compile whose bundled executor forces
+  `auth.ScopeClauseFor` composition. This is the ONE filter engine
+  E15.11/12/13 (smart lists, saved views, filtered export) and NL→filter
+  will adopt.
+- **Not started (next session, top of queue):** B-E08.1→4 the warm-room
+  spine (signal + signal_resolution schema, resolver, warm/cold join,
+  intro-path proposal) — the second batch-4 agent died in its research
+  phase before writing any file, so the tree carries nothing partial.
+
+**Pick up at:** `scratchpad/night-queue.md` holds the ranked batch-5
+queue (signals warm-room, lead routing B-E13.7b, preference center
+B-E11.32, export bundle B-E11.10a, the E05 brief HTTP surface + L2
+ranker, overnight reconciliation B-E06.2a). Migrations are at **0045**
+(0046+ free). Coverage math + the three start-of-night epic audits are in
+`scratchpad/audit-E01-E10.md`, `audit-E11-E20.md`, `audit-EP01-EP11.md`.
+
 ## Last session: the overnight backlog sweep, batches 2–3 (2026-07-05 night → 06)
 
 The autonomous run continued past batch 1 (below), same discipline — every
