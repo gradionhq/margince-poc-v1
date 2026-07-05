@@ -5,10 +5,13 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-05 (craftsmanship hardening, closed out).** Roughly
-**30 %** of the 687-leaf-ticket V1 backlog
+**Last updated: 2026-07-05 (EP09 frontend session closed).** Roughly a
+**third** of the 687-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is implemented and
-gate-verified; every `crm.yaml` operation is implemented.
+gate-verified; every `crm.yaml` operation is implemented, and the EP09
+frontend epic is done except the contract-blocked automations editor
+(see the EP09 section below). Frontend docs: `frontend/README.md` +
+`docs/how-to/run-the-frontend.md`.
 
 ## Last session: the craftsmanship red-team + full remediation (2026-07-05)
 
