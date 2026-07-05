@@ -132,6 +132,114 @@ export const approval = {
   created_at: "2026-07-05T05:00:00Z",
 };
 
+// The closed automation starter library (B-EP09.15): two types, one integer
+// parameter each — the editor derives its form from params_schema alone.
+export const automationCatalog = [
+  {
+    key: "stalled_deal_nudge",
+    name: "Stillstands-Erinnerung",
+    description: "Staged a follow-up when a deal stalls.",
+    trigger: "deal.stalled",
+    action: "send_email",
+    tier: "yellow",
+    params_schema: {
+      type: "object",
+      properties: {
+        due_in_days: { type: "integer", minimum: 1, maximum: 30, default: 3 },
+      },
+      required: ["due_in_days"],
+    },
+  },
+  {
+    key: "task_on_stage_entry",
+    name: "Aufgabe bei Phasenwechsel",
+    description: "Creates a task when a deal enters a stage.",
+    trigger: "deal.stage_changed",
+    action: "create_task",
+    tier: "green",
+    params_schema: {
+      type: "object",
+      properties: {
+        due_in_days: { type: "integer", minimum: 1, maximum: 30, default: 7 },
+      },
+      required: ["due_in_days"],
+    },
+  },
+];
+
+// Pre-seeded instance — the wire carries no origin, so this stands in for
+// the agent-authored case and must render like any other row.
+export const seededAutomation = {
+  id: "au-1",
+  key: "task_on_stage_entry",
+  name: "Aufgabe nach Phasenwechsel",
+  status: "enabled",
+  params: { due_in_days: 7 },
+  version: 3,
+  created_at: "2026-06-20T08:00:00Z",
+};
+
+export const passports = [
+  {
+    id: "pp-1",
+    label: "Marcus' Claude",
+    scopes: ["read", "draft"],
+    created_at: "2026-06-01T08:00:00Z",
+    expires_at: "2026-08-01T08:00:00Z",
+    last_used_at: "2026-07-04T18:00:00Z",
+    revoked_at: null,
+  },
+  {
+    id: "pp-2",
+    label: "Alter Runner",
+    scopes: ["read"],
+    created_at: "2026-05-01T08:00:00Z",
+    expires_at: "2026-06-01T08:00:00Z",
+    last_used_at: null,
+    revoked_at: "2026-05-20T08:00:00Z",
+  },
+];
+
+export const auditEntries = [
+  {
+    id: "al-1",
+    workspace_id: "w",
+    actor_type: "human",
+    actor_id: "u1",
+    action: "update",
+    entity_type: "deal",
+    entity_id: "d-fleet",
+    occurred_at: "2026-07-05T07:00:00Z",
+  },
+  {
+    id: "al-2",
+    workspace_id: "w",
+    actor_type: "agent",
+    actor_id: "runner",
+    passport_id: "pp-1",
+    on_behalf_of: "u1",
+    action: "send_email",
+    entity_type: "activity",
+    entity_id: null,
+    occurred_at: "2026-07-05T06:00:00Z",
+  },
+  {
+    id: "al-3",
+    workspace_id: "w",
+    actor_type: "connector",
+    actor_id: "gmail",
+    action: "create",
+    entity_type: "person",
+    entity_id: "p-anna",
+    occurred_at: "2026-07-05T05:00:00Z",
+  },
+];
+
+export const publicSlots = [
+  { start: "2026-07-06T09:00:00Z", end: "2026-07-06T09:30:00Z" },
+  { start: "2026-07-06T10:00:00Z", end: "2026-07-06T10:30:00Z" },
+];
+
 function page(data: unknown[]) {
   return { data, page: { next_cursor: null } };
 }
@@ -145,6 +253,9 @@ export async function mockApi(target: Page): Promise<void> {
     route.abort(),
   );
   await target.route("https://fonts.gstatic.com/**", (route) => route.abort());
+
+  // per-page automation state so the create→paused→enable flow is coherent
+  let automations = [{ ...seededAutomation }];
 
   await target.route(/\/v1\//, async (route) => {
     const url = new URL(route.request().url());
@@ -230,6 +341,114 @@ export async function mockApi(target: Page): Promise<void> {
     }
     if (path === "/data-subject-requests") {
       return json(page([]));
+    }
+    if (path === "/passports" && method === "GET") {
+      return json({ data: passports });
+    }
+    if (path === "/audit-log") {
+      const actor = url.searchParams.get("actor");
+      const entityType = url.searchParams.get("entity_type");
+      const action = url.searchParams.get("action");
+      const cursor = url.searchParams.get("cursor");
+      const rows = auditEntries.filter(
+        (entry) =>
+          (!actor || `${entry.actor_type}:${entry.actor_id}` === actor) &&
+          (!entityType || entry.entity_type === entityType) &&
+          (!action || entry.action === action),
+      );
+      if (!cursor && rows.length > 2) {
+        return json({ data: rows.slice(0, 2), page: { next_cursor: "c1" } });
+      }
+      return json({
+        data: cursor ? rows.slice(2) : rows,
+        page: { next_cursor: null },
+      });
+    }
+    if (path === "/automations/catalog") {
+      return json({ data: automationCatalog });
+    }
+    if (path === "/automations" && method === "GET") {
+      return json(page(automations));
+    }
+    if (path === "/automations" && method === "POST") {
+      const body = route.request().postDataJSON();
+      const created = {
+        id: `au-${automations.length + 1}`,
+        key: String(body.key),
+        name: String(body.name),
+        params: body.params,
+        status: "paused",
+        version: 1,
+        created_at: "2026-07-05T08:00:00Z",
+      };
+      automations = [...automations, created];
+      return json(created, 201);
+    }
+    if (path.startsWith("/automations/")) {
+      const id = path.slice("/automations/".length);
+      const existing = automations.find((entry) => entry.id === id);
+      if (!existing) {
+        return json({ title: "Not Found" }, 404);
+      }
+      if (method === "PATCH") {
+        // the contract's optimistic lock: a PATCH without the row's
+        // version is a version-skew conflict, so a UI that forgets
+        // If-Match fails this harness loudly
+        const ifMatch = route.request().headers()["if-match"];
+        if (ifMatch !== String(existing.version)) {
+          return json(
+            {
+              title: "Conflict",
+              detail: "version skew — reload and retry",
+              code: "version_skew",
+            },
+            409,
+          );
+        }
+        const body = route.request().postDataJSON();
+        if (typeof body.name === "string") {
+          existing.name = body.name;
+        }
+        if (body.params) {
+          existing.params = body.params;
+        }
+        if (body.status === "enabled" || body.status === "paused") {
+          existing.status = body.status;
+        }
+        existing.version += 1;
+        return json(existing);
+      }
+      if (method === "DELETE") {
+        automations = automations.filter((entry) => entry.id !== id);
+        return route.fulfill({ status: 204 });
+      }
+      return json(existing);
+    }
+    if (path === "/public/booking/host-1/availability") {
+      return json({ slots: publicSlots });
+    }
+    if (path === "/public/booking/host-1" && method === "POST") {
+      const body = route.request().postDataJSON();
+      if (!body?.consent?.purpose_id || !body?.consent?.policy_version) {
+        return json(
+          {
+            title: "Unprocessable",
+            detail: "consent is mandatory on the public capture surface",
+          },
+          422,
+        );
+      }
+      if (body.start === publicSlots[1].start) {
+        return json(
+          {
+            title: "Conflict",
+            detail: "slot no longer available",
+            code: "slot_taken",
+          },
+          409,
+        );
+      }
+      return json({ start: body.start, end: body.end }, 201);
     }
     if (path === "/availability") {
       return json({

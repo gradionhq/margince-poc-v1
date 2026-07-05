@@ -20,6 +20,7 @@ const CORE_SCREENS = [
   "inbox",
   "reports",
   "settings",
+  "automations",
 ];
 
 test("AC-shell-1: the rail renders the canonical 9 items in order", async ({
@@ -142,6 +143,122 @@ test("AC-book: the booking page renders rail-less with live slots", async ({
   await expect(
     page.getByRole("button", { name: /06\.07\.2026/ }).first(),
   ).toBeVisible();
+});
+
+test("AC-automations-1 (B-EP09.15): create from the catalog arrives paused; enable is the deliberate second step", async ({
+  page,
+}) => {
+  await page.goto("/#/automations");
+  await expect(page.getByText("Stillstands-Erinnerung")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Vorlage verwenden" })
+    .first()
+    .click();
+  // the schema default arrives in the one parameter field
+  await expect(page.getByRole("spinbutton", { name: "due_in_days" })).toHaveValue(
+    "3",
+  );
+  await page.getByRole("button", { name: "Anlegen" }).click();
+  await expect(
+    page.getByText("Pausiert angelegt — es läuft nichts, bis du aktivierst."),
+  ).toBeVisible();
+  const row = page.locator('[data-automation="au-2"]');
+  await expect(row.getByText("pausiert")).toBeVisible();
+  await row.getByRole("button", { name: "Aktivieren" }).click();
+  await expect(row.getByText("aktiv", { exact: true })).toBeVisible();
+});
+
+test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, no user-defined trigger", async ({
+  page,
+}) => {
+  await page.goto("/#/automations");
+  await expect(page.getByText("Stillstands-Erinnerung")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Vorlage verwenden" })
+    .first()
+    .click();
+  await expect(page.locator("textarea")).toHaveCount(0);
+  // exactly the instance name plus the schema-derived parameter
+  await expect(page.getByRole("textbox")).toHaveCount(1);
+  await expect(page.getByRole("spinbutton")).toHaveCount(1);
+});
+
+test("AC-settings-16: the audit log renders attributed entries, filters live, and loads more", async ({
+  page,
+}) => {
+  await page.goto("/#/settings");
+  await expect(page.getByText("human:u1")).toBeVisible();
+  await expect(page.getByText("agent:runner")).toBeVisible();
+  await page.getByRole("button", { name: "Mehr laden" }).click();
+  await expect(page.getByText("connector:gmail")).toBeVisible();
+  await page.getByRole("textbox", { name: "Akteur" }).fill("agent:runner");
+  await expect(page.getByText("agent:runner")).toBeVisible();
+  await expect(page.getByText("human:u1")).toHaveCount(0);
+});
+
+test("AC-settings: the passport list is metadata-only and strikes revoked rows", async ({
+  page,
+}) => {
+  await page.goto("/#/settings");
+  await expect(page.getByText("Marcus' Claude")).toBeVisible();
+  const revoked = page.locator('[data-passport="pp-2"]');
+  await expect(revoked.getByText("widerrufen")).toBeVisible();
+  await expect(revoked).toHaveCSS("text-decoration-line", "line-through");
+  // no token is ever re-disclosed on this surface
+  await expect(page.getByText(/mgp_/)).toHaveCount(0);
+});
+
+test("AC-book-public (B-EP09.14): consent gates booking and the policy passes through verbatim", async ({
+  page,
+}) => {
+  await page.goto("/#/book/host-1");
+  await expect(page.locator("nav.rail")).toHaveCount(0);
+  const slot = page.getByRole("button", { name: /06\.07\.2026/ }).first();
+  await expect(slot).toBeDisabled();
+  await page.getByRole("textbox", { name: "Dein Name" }).fill("Jonas Beispiel");
+  await page
+    .getByRole("textbox", { name: "Deine E-Mail" })
+    .fill("jonas@beispiel.example");
+  await expect(slot).toBeDisabled();
+  await page.getByRole("checkbox").check();
+  await expect(slot).toBeEnabled();
+  const shownWording = await page
+    .locator("[data-consent-wording]")
+    .textContent();
+  const requestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request.url().includes("/public/booking/host-1"),
+  );
+  await slot.click();
+  const request = await requestPromise;
+  const body = request.postDataJSON();
+  // the wording the visitor SAW is byte-for-byte what was submitted
+  expect(body.consent.wording).toBe(shownWording);
+  expect(body.consent.purpose_id).toBeTruthy();
+  expect(body.consent.policy_version).toBeTruthy();
+  await expect(
+    page.getByText("Gebucht. Die Einladung ist unterwegs."),
+  ).toBeVisible();
+});
+
+test("AC-book-public-409: a taken slot degrades honestly — no fabricated confirmation", async ({
+  page,
+}) => {
+  await page.goto("/#/book/host-1");
+  await page.getByRole("textbox", { name: "Dein Name" }).fill("Jonas Beispiel");
+  await page
+    .getByRole("textbox", { name: "Deine E-Mail" })
+    .fill("jonas@beispiel.example");
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: /12:00/ }).click();
+  await expect(
+    page.getByText("Die Buchung ging nicht durch — es wurde nichts eingetragen."),
+  ).toBeVisible();
+  await expect(page.getByText("slot no longer available")).toBeVisible();
+  await expect(
+    page.getByText("Gebucht. Die Einladung ist unterwegs."),
+  ).toHaveCount(0);
 });
 
 test("AC-onboarding-1: the wizard is rail-less and connect is the LAST step", async ({

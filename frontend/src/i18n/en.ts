@@ -48,6 +48,7 @@ export const en = {
   "nav.ai": "Ask AI",
   "nav.settings": "Settings",
   "nav.design": "Design system",
+  "nav.automations": "Automations",
 
   "shell.railAria": "Primary navigation",
   "shell.logoAria": "Margince",
@@ -189,6 +190,19 @@ export const en = {
   "settings.tierAdvance": "Advance a deal stage — always confirm-first.",
   "settings.locked": "locked",
   "settings.purposes": "Consent purposes",
+  "settings.created": "created {date}",
+  "settings.expires": "expires {date}",
+  "settings.revoked": "revoked",
+  "settings.automations": "Automations",
+  "settings.automationsSub":
+    "the bounded starter catalog — enable, parameterize, pause",
+  "settings.openAutomations": "Open the automations editor",
+  "settings.audit": "Audit log",
+  "settings.auditSub": "every action, attributed — human, agent, or connector",
+  "settings.auditActor": "Actor",
+  "settings.auditEntity": "Entity type",
+  "settings.auditAction": "Action",
+  "settings.loadMore": "Load more",
   "settings.privacy": "Privacy inbox",
   "settings.privacySub": "data-subject requests with their statutory deadlines",
   "settings.due": "due {date}",
@@ -243,6 +257,25 @@ export const en = {
   "book.subject": "Meeting via Margince",
   "book.confirmed": "Booked. The invite is on its way.",
   "book.failed": "Booking didn't go through — nothing was scheduled.",
+  "book.publicSub": "pick a slot — no account needed",
+  "book.name": "Your name",
+  "book.email": "Your email",
+  "book.consentWording":
+    "I agree that my name and email are stored to arrange and follow up on this meeting.",
+
+  "auto.sub": "a closed catalog — pick a type, set its parameters, enable it",
+  "auto.catalog": "Starter library",
+  "auto.catalogSub": "the closed set of automation types",
+  "auto.instances": "Configured automations",
+  "auto.use": "Use template",
+  "auto.name": "Name",
+  "auto.create": "Create",
+  "auto.createdPaused": "Created paused — nothing runs until you enable it.",
+  "auto.enable": "Enable",
+  "auto.pause": "Pause",
+  "auto.delete": "Delete",
+  "auto.statusEnabled": "enabled",
+  "auto.statusPaused": "paused",
 } as const;
 
 export type MessageKey = keyof typeof en;

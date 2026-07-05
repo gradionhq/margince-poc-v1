@@ -95,7 +95,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List the caller's own Agent Seat Passports (metadata only — no token re-disclosure).
+         * @description Enumerates the Agent Seat Passports the caller has minted, so Settings can show them and offer
+         *     revoke (feedback/13). **Never re-discloses a token** — the plaintext is shown once at mint time
+         *     only. Pairs with the mint (`POST`) and revoke (`DELETE /passports/{id}`) below.
+         */
+        get: operations["listPassports"];
         put?: never;
         /**
          * Mint an Agent Seat Passport for the calling user's own agent.
@@ -678,6 +684,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/booking/{host_slug}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The host's unguessable public booking slug (not the user uuid). */
+                host_slug: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Free/busy slots for a public booking page (anonymous).
+         * @description The anonymous read behind the public `book.html` (feedback/14 — B-EP09.14). Resolves the host
+         *     by `host_slug` and returns candidate slots only — no session, no record data beyond free/busy.
+         */
+        get: operations["getPublicAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/booking/{host_slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_slug: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Book a meeting from the public page (anonymous) — captures the booker + mandatory consent.
+         * @description The anonymous booking behind `book.html` (feedback/14). Captures/matches the booker as a person
+         *     (idempotent on email), books the slot on the host's calendar, logs the meeting activity.
+         *     **Consent is mandatory** — a public capture surface must pass the purpose + policy wording/version
+         *     through (EP07 capture contract, `features/07`); a booking without `consent` is `422`. Rate-limited;
+         *     no approval token (the host pre-authorized the public page).
+         */
+        post: operations["bookPublicMeeting"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/automations/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The closed starter library of automation types the workspace can instantiate.
+         * @description Lists the available automation *types* (the closed starter library, E15/ADR-0035) — the left
+         *     rail of the EP09.15 editor. Each entry names its trigger, action, tier, and a JSON-schema for
+         *     its parameters. Closed set: the build does not invent types the catalog omits.
+         */
+        get: operations["listAutomationCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/automations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the workspace's configured automation instances. */
+        get: operations["listAutomations"];
+        put?: never;
+        /**
+         * Configure an automation instance from a catalog type (created paused).
+         * @description Instantiates a catalog `key` with parameters. Created **paused** — enabling is a deliberate
+         *     second step (`PATCH … status=enabled`). Configuring is 🟢; an instance whose actions are 🟡
+         *     (outbound/irreversible) stages each run to `/approvals` at run time (ADR-0035).
+         */
+        post: operations["createAutomation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/automations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Read one automation instance. */
+        get: operations["getAutomation"];
+        put?: never;
+        post?: never;
+        /** Delete an automation instance. */
+        delete: operations["deleteAutomation"];
+        options?: never;
+        head?: never;
+        /**
+         * Update params or flip status (enable / pause).
+         * @description Re-parameterize, rename, or flip `status` between `enabled` and `paused` — how the editor's toggle maps to the contract (no separate enable/pause verbs).
+         */
+        patch: operations["updateAutomation"];
+        trace?: never;
+    };
     "/leads": {
         parameters: {
             query?: never;
@@ -1112,6 +1238,29 @@ export interface paths {
         patch: operations["updateDataSubjectRequest"];
         trace?: never;
     };
+    "/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the human+agent-attributable audit log (Settings governance view).
+         * @description Cursor-paginated read over `audit_log` (feedback/13, un-defers the fast-follow stub). Powers
+         *     AC-settings-16 (B-EP09.13b) — the live-filterable audit view. Every entry attributes the actor
+         *     (`human:*` / `agent:*` + `passport_id`), the action, and the target. Admin/compliance scope;
+         *     read-only.
+         */
+        get: operations["listAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/consent-purposes": {
         parameters: {
             query?: never;
@@ -1156,6 +1305,36 @@ export interface paths {
          *     `consent.changed`.
          */
         post: operations["recordConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/people/{id}/consent/double-opt-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
+         * @description Issues the token that `recordConsent` later redeems (feedback/11 — the contract previously
+         *     defined only redemption). Mints a **single-use, 72h-TTL** double-opt-in token for `purpose_id`
+         *     and, when `deliver=true`, queues the confirmation message through the outbound surface for
+         *     delivery to the data subject. Only the token's **SHA-256 hash is stored** (`consent_doi_token`,
+         *     data-model §3.4); the plaintext is returned **once** here (and in the delivered message) and
+         *     never again. A new issuance **supersedes** any unredeemed prior token for the same
+         *     `(person, purpose)`. Requires the purpose to have `requires_double_opt_in=true` (else `422`).
+         *     🟢 — an internal issuance; the confirmation send rides the outbound/consent gate like any message.
+         */
+        post: operations["issueDoubleOptIn"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2815,6 +2994,75 @@ export interface components {
             assignee_id?: string | null;
             resolution?: string | null;
         };
+        /**
+         * @description The consent passthrough every capture surface (booking, public forms, imports) must carry
+         *     (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
+         *     wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
+         */
+        CaptureConsent: {
+            /** Format: uuid */
+            purpose_id: string;
+            /** @description Version id of the consent wording shown to the subject. */
+            policy_version: string;
+            /** @description The exact wording shown */
+            wording?: string | null;
+            /** @description Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false). */
+            double_opt_in_token?: string | null;
+        };
+        /** @description An automation *type* in the closed starter library (E15/ADR-0035, feedback/14). */
+        AutomationCatalogEntry: {
+            /** @description Stable type key, e.g. stalled_deal_nudge. */
+            key: string;
+            name: string;
+            description?: string;
+            /** @description What fires it (e.g. deal.stage_changed or schedule). */
+            trigger: string;
+            /** @description What it does (e.g. create_task or send_email). */
+            action: string;
+            /**
+             * @description yellow actions stage to /approvals at run time.
+             * @enum {string}
+             */
+            tier?: "green" | "yellow";
+            /** @description JSON-schema for this type's parameters (drives the editor form). */
+            params_schema: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description A configured automation instance (feedback/14). */
+        Automation: {
+            /** Format: uuid */
+            id: string;
+            /** @description The catalog type this instance is built from. */
+            key: string;
+            name: string;
+            /** @enum {string} */
+            status: "enabled" | "paused";
+            params: {
+                [key: string]: unknown;
+            };
+            version?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        CreateAutomationRequest: {
+            key: string;
+            name: string;
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Any subset; omit a field to leave it unchanged. `status` flips enable/pause. */
+        UpdateAutomationRequest: {
+            name?: string | null;
+            params?: {
+                [key: string]: unknown;
+            } | null;
+            /** @enum {string|null} */
+            status?: "enabled" | "paused" | null;
+        };
         IssuePassportRequest: {
             /** @description Which agent this binds, e.g. "Claude Desktop". */
             label?: string | null;
@@ -2836,6 +3084,25 @@ export interface components {
             on_behalf_of: string;
             /** Format: date-time */
             expires_at: string;
+        };
+        /** @description Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token. */
+        PassportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @description Human-given name for the passport (e.g. "Marcus's Claude"). */
+            label: string;
+            /** @description The granted MCP scopes (intersected with the minting human's role at bind time). */
+            scopes: string[];
+            /** @description The agent this passport is bound to */
+            agent_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
         };
     };
     responses: {
@@ -3117,6 +3384,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listPassports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's passports (metadata). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PassportSummary"][];
+                    };
+                };
             };
             401: components["responses"]["Unauthorized"];
         };
@@ -4793,6 +5083,271 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    getPublicAvailability: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                duration_minutes?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The host's unguessable public booking slug (not the user uuid). */
+                host_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Candidate free slots. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        slots: {
+                            /** Format: date-time */
+                            start: string;
+                            /** Format: date-time */
+                            end: string;
+                        }[];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    bookPublicMeeting: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                host_slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date-time */
+                    start: string;
+                    /** Format: date-time */
+                    end: string;
+                    subject?: string;
+                    booker: {
+                        name: string;
+                        /** Format: email */
+                        email: string;
+                    };
+                    consent: components["schemas"]["CaptureConsent"];
+                };
+            };
+        };
+        responses: {
+            /** @description Booked; a minimal confirmation (no CRM record data disclosed). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: date-time */
+                        start: string;
+                        /** Format: date-time */
+                        end: string;
+                    };
+                };
+            };
+            /** @description Slot no longer available (`code: slot_taken`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAutomationCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalog entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AutomationCatalogEntry"][];
+                    };
+                };
+            };
+        };
+    };
+    listAutomations: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Automation instances. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Automation"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+        };
+    };
+    createAutomation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAutomationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created (paused). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Automation"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getAutomation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The automation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Automation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteAutomation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateAutomation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAutomationRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Automation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listLeads: {
         parameters: {
             query?: {
@@ -5814,6 +6369,51 @@ export interface operations {
             };
         };
     };
+    listAuditLog: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Typed principal filter, e.g. human:<uuid> or agent:sdr. */
+                actor?: string;
+                entity_type?: string;
+                entity_id?: string;
+                /** @description One of the AuditLogEntry.action values. */
+                action?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of audit entries, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AuditLogEntry"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     listConsentPurposes: {
         parameters: {
             query?: {
@@ -5935,6 +6535,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonConsentState"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    issueDoubleOptIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    purpose_id: string;
+                    /**
+                     * @description When true, queues the confirmation message; false mints only (for a capture surface that delivers its own — feedback/14 booking/forms).
+                     * @default true
+                     */
+                    deliver?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Token issued (plaintext shown once); confirmation queued when deliver=true. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The single-use DOI token — shown once; redeem via recordConsent.double_opt_in_token. */
+                        token: string;
+                        /** Format: date-time */
+                        expires_at: string;
+                    };
                 };
             };
             404: components["responses"]["NotFound"];

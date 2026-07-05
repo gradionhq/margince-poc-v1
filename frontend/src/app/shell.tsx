@@ -108,7 +108,9 @@ export function TopBar({
       ? t("nav.settings")
       : route.screen === "design"
         ? t("nav.design")
-        : route.screen;
+        : route.screen === "automations"
+          ? t("nav.automations")
+          : route.screen;
 
   return (
     <header className="topbar">

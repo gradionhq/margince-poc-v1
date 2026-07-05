@@ -34,6 +34,12 @@ export const api = createClient<paths>({
 
 api.use({
   onRequest({ request }) {
+    // /v1/public/* is the anonymous surface (security: [] in the contract):
+    // the host_slug in the path is the whole address — no session, no
+    // workspace header. Everything else carries the dev-side slug.
+    if (new URL(request.url).pathname.startsWith("/v1/public/")) {
+      return request;
+    }
     const slug = workspaceSlug();
     if (slug) {
       request.headers.set("X-Workspace-Slug", slug);

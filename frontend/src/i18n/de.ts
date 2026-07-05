@@ -50,6 +50,7 @@ export const de = {
   "nav.ai": "KI fragen",
   "nav.settings": "Einstellungen",
   "nav.design": "Designsystem",
+  "nav.automations": "Automatisierungen",
 
   "shell.railAria": "Hauptnavigation",
   "shell.logoAria": "Margince",
@@ -194,6 +195,19 @@ export const de = {
   "settings.tierAdvance": "Deal-Phase vorziehen — immer erst bestätigen.",
   "settings.locked": "fest",
   "settings.purposes": "Einwilligungszwecke",
+  "settings.created": "erstellt {date}",
+  "settings.expires": "läuft ab {date}",
+  "settings.revoked": "widerrufen",
+  "settings.automations": "Automatisierungen",
+  "settings.automationsSub":
+    "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
+  "settings.openAutomations": "Automatisierungs-Editor öffnen",
+  "settings.audit": "Audit-Log",
+  "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
+  "settings.auditActor": "Akteur",
+  "settings.auditEntity": "Entitätstyp",
+  "settings.auditAction": "Aktion",
+  "settings.loadMore": "Mehr laden",
   "settings.privacy": "Datenschutz-Eingang",
   "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
   "settings.due": "fällig {date}",
@@ -249,4 +263,25 @@ export const de = {
   "book.subject": "Termin über Margince",
   "book.confirmed": "Gebucht. Die Einladung ist unterwegs.",
   "book.failed": "Die Buchung ging nicht durch — es wurde nichts eingetragen.",
+  "book.publicSub": "Slot auswählen — ganz ohne Konto",
+  "book.name": "Dein Name",
+  "book.email": "Deine E-Mail",
+  "book.consentWording":
+    "Ich bin einverstanden, dass mein Name und meine E-Mail gespeichert werden, um diesen Termin zu vereinbaren und nachzufassen.",
+
+  "auto.sub":
+    "ein geschlossener Katalog — Typ wählen, Parameter setzen, aktivieren",
+  "auto.catalog": "Starter-Bibliothek",
+  "auto.catalogSub": "die geschlossene Menge an Automatisierungstypen",
+  "auto.instances": "Eingerichtete Automatisierungen",
+  "auto.use": "Vorlage verwenden",
+  "auto.name": "Name",
+  "auto.create": "Anlegen",
+  "auto.createdPaused":
+    "Pausiert angelegt — es läuft nichts, bis du aktivierst.",
+  "auto.enable": "Aktivieren",
+  "auto.pause": "Pausieren",
+  "auto.delete": "Löschen",
+  "auto.statusEnabled": "aktiv",
+  "auto.statusPaused": "pausiert",
 } as const satisfies Record<MessageKey, string>;

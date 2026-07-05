@@ -9,6 +9,7 @@ import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { AskAiScreen } from "./screens/ai";
+import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
 import { ClientSurfaceScreen } from "./screens/client";
 import { DealScreen, DealsScreen } from "./screens/deals";
@@ -59,12 +60,16 @@ function ScreenView({ screen, id }: { screen: string; id?: string }) {
       return <AskAiScreen />;
     case "settings":
       return <SettingsScreen />;
+    // reached from Settings, not the rail — the 9-item rail is canonical
+    case "automations":
+      return <AutomationsScreen />;
     case "onboarding":
       return <OnboardingScreen />;
     case "client":
       return <ClientSurfaceScreen />;
     case "book":
-      return <BookingScreen />;
+      // #/book/<host_slug> is the anonymous public variant
+      return <BookingScreen hostSlug={id} />;
     default:
       return <PendingScreen />;
   }
