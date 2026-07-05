@@ -192,6 +192,57 @@ export const en = {
   "settings.privacy": "Privacy inbox",
   "settings.privacySub": "data-subject requests with their statutory deadlines",
   "settings.due": "due {date}",
+
+  "ob.title": "Welcome to Margince",
+  "ob.sub": "value first — connecting your mailbox comes last, not first",
+  "ob.read": "Read",
+  "ob.confirm": "Confirm",
+  "ob.voice": "Voice",
+  "ob.results": "Results",
+  "ob.connect": "Connect",
+  "ob.readSub": "point Margince at your company website — it reads, you decide",
+  "ob.url": "Website",
+  "ob.readGo": "Read it",
+  "ob.readFailed": "Couldn't read enough from this page.",
+  "ob.manualInstead": "Enter it manually instead",
+  "ob.confirmSub":
+    "every field carries its evidence and confidence — or it isn't shown",
+  "ob.nothingRead":
+    "Nothing was read yet — go back, or enter details manually.",
+  "ob.acceptInInbox":
+    "Accepting happens in your approval inbox — nothing is written until you do.",
+  "ob.voiceSub": "how you write — used for drafts, never for sending",
+  "ob.voiceLabel": "Describe your tone in a sentence or two",
+  "ob.resultsSub": "your workspace fills as you confirm — watch the inbox",
+  "ob.connectSub": "the last step, on purpose",
+  "ob.connectDetail":
+    "Mailbox and calendar connectors arrive with the capture surface — nothing is read without this explicit step.",
+  "ob.next": "Continue",
+  "ob.finish": "Into the workspace",
+
+  "client.back": "Back to Margince",
+  "client.title": "Margince alongside your inbox",
+  "client.sub": "the extension surface — shell-free, record-aware",
+  "client.sender": "Sender",
+  "client.lookup": "Look up",
+  "client.open360": "Open the 360",
+  "client.unknown": "Not in your workspace yet.",
+  "client.unknownDetail":
+    "This sender matches no contact you can see. Nothing was fetched from anywhere else.",
+  "client.createLead": "Capture as lead",
+  "client.isolation": "talks only to YOUR workspace",
+  "client.attribution": "Every capture is attributed and auditable.",
+
+  "book.title": "Book a meeting",
+  "book.sub": "live availability from the connected calendar",
+  "book.min15": "15 min",
+  "book.min30": "30 min",
+  "book.min60": "60 min",
+  "book.attendee": "Attendee email",
+  "book.welcomeBack": "Recognized: {name}",
+  "book.subject": "Meeting via Margince",
+  "book.confirmed": "Booked. The invite is on its way.",
+  "book.failed": "Booking didn't go through — nothing was scheduled.",
 } as const;
 
 export type MessageKey = keyof typeof en;

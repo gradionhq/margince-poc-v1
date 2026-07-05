@@ -323,3 +323,32 @@
   border-radius: var(--r-sm);
   padding: 6px 9px;
 }
+
+/* ===== client-surface chrome (rail-less extension frame) ===== */
+.client-chrome {
+  min-height: 100vh;
+  background: var(--bgPage);
+}
+.client-bar {
+  background: var(--bgRail);
+  padding: 10px 16px;
+  position: sticky;
+  top: 0;
+}
+.client-back {
+  color: var(--railIconActive);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.client-footer {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: 12px;
+}

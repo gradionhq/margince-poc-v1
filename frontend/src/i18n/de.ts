@@ -197,4 +197,56 @@ export const de = {
   "settings.privacy": "Datenschutz-Eingang",
   "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
   "settings.due": "fällig {date}",
+
+  "ob.title": "Willkommen bei Margince",
+  "ob.sub":
+    "erst der Nutzen — dein Postfach verbindest du zuletzt, nicht zuerst",
+  "ob.read": "Einlesen",
+  "ob.confirm": "Bestätigen",
+  "ob.voice": "Tonfall",
+  "ob.results": "Ergebnisse",
+  "ob.connect": "Verbinden",
+  "ob.readSub": "zeig Margince deine Firmenwebsite — es liest, du entscheidest",
+  "ob.url": "Website",
+  "ob.readGo": "Einlesen",
+  "ob.readFailed": "Von dieser Seite ließ sich nicht genug lesen.",
+  "ob.manualInstead": "Stattdessen manuell eingeben",
+  "ob.confirmSub":
+    "jedes Feld trägt Beleg und Konfidenz — oder es erscheint nicht",
+  "ob.nothingRead": "Noch nichts eingelesen — zurück, oder manuell eingeben.",
+  "ob.acceptInInbox":
+    "Übernommen wird im Freigabe-Eingang — bis dahin wird nichts geschrieben.",
+  "ob.voiceSub": "wie du schreibst — für Entwürfe, nie zum Senden",
+  "ob.voiceLabel": "Beschreib deinen Ton in ein, zwei Sätzen",
+  "ob.resultsSub":
+    "dein Workspace füllt sich, während du bestätigst — sieh in den Eingang",
+  "ob.connectSub": "bewusst der letzte Schritt",
+  "ob.connectDetail":
+    "Postfach- und Kalender-Anbindung kommen mit der Capture-Oberfläche — ohne diesen ausdrücklichen Schritt wird nichts gelesen.",
+  "ob.next": "Weiter",
+  "ob.finish": "In den Workspace",
+
+  "client.back": "Zurück zu Margince",
+  "client.title": "Margince neben deinem Postfach",
+  "client.sub": "die Extension-Oberfläche — ohne Shell, datensatzbewusst",
+  "client.sender": "Absender",
+  "client.lookup": "Nachschlagen",
+  "client.open360": "360 öffnen",
+  "client.unknown": "Noch nicht in deinem Workspace.",
+  "client.unknownDetail":
+    "Dieser Absender passt zu keinem Kontakt, den du sehen kannst. Von woanders wurde nichts geholt.",
+  "client.createLead": "Als Lead erfassen",
+  "client.isolation": "spricht nur mit DEINEM Workspace",
+  "client.attribution": "Jede Erfassung ist zugeordnet und prüfbar.",
+
+  "book.title": "Termin buchen",
+  "book.sub": "echte Verfügbarkeit aus dem verbundenen Kalender",
+  "book.min15": "15 Min.",
+  "book.min30": "30 Min.",
+  "book.min60": "60 Min.",
+  "book.attendee": "Teilnehmer-E-Mail",
+  "book.welcomeBack": "Erkannt: {name}",
+  "book.subject": "Termin über Margince",
+  "book.confirmed": "Gebucht. Die Einladung ist unterwegs.",
+  "book.failed": "Die Buchung ging nicht durch — es wurde nichts eingetragen.",
 } as const satisfies Record<MessageKey, string>;

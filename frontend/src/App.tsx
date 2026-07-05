@@ -9,11 +9,14 @@ import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { AskAiScreen } from "./screens/ai";
+import { BookingScreen } from "./screens/book";
+import { ClientSurfaceScreen } from "./screens/client";
 import { DealScreen, DealsScreen } from "./screens/deals";
 import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
+import { OnboardingScreen } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { ContactsScreen, PersonScreen } from "./screens/people";
 import { ReportsScreen } from "./screens/reports";
@@ -56,6 +59,12 @@ function ScreenView({ screen, id }: { screen: string; id?: string }) {
       return <AskAiScreen />;
     case "settings":
       return <SettingsScreen />;
+    case "onboarding":
+      return <OnboardingScreen />;
+    case "client":
+      return <ClientSurfaceScreen />;
+    case "book":
+      return <BookingScreen />;
     default:
       return <PendingScreen />;
   }
