@@ -59,11 +59,16 @@ are spec/impl discrepancies worth a `feedback/` note.
 
 Gates at session close: full `make test-integration` green (incl. the two
 repaired retention tests + the new scrape suite), `make build vet lint
-arch-lint test` green, `make frontend-check` green. `make gen` was run;
-the regenerated contract files are UNCOMMITTED (the only reason `drift`
-is red) — commit `crm.yaml` + `internal/contracts/`, `stubs_gen.go`,
-`agentpolicy_gen.go` together. Frontend `pnpm gen:api` NOT yet run (no
-scrape UI built yet); run it before wiring an enrich button.
+arch-lint test` green, `make frontend-check` green, `craft static` clean,
+and the craft + security review agents clean over three rounds.
+**Committed + pushed to origin/main as `b75c6d7`** (contract + generated +
+code together, so `drift` is green). The pre-push craft gate passed;
+its two MAJOR `long-func` warnings (`server.New`,
+`TestColdStartAcceptWritesProfileOntoOrganization`) are advisory-only and
+pre-existing (both functions I only added a few lines to). Follow-ups:
+frontend `pnpm gen:api` NOT yet run (no scrape UI built yet — run it before
+wiring an enrich button); the `MARGINCE_ENV=dev` + Secure-cookie/HTTPS-origin
+dev gaps deserve a `feedback/` note.
 
 ## Prior status
 
