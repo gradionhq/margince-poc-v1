@@ -5,13 +5,74 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-05 (EP09 frontend session closed).** Roughly a
-**third** of the 687-leaf-ticket V1 backlog
+**Last updated: 2026-07-05 (contract-sync batch closed).** Roughly a
+**third-plus** of the 687-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is implemented and
-gate-verified; every `crm.yaml` operation is implemented, and the EP09
-frontend epic is done except the contract-blocked automations editor
-(see the EP09 section below). Frontend docs: `frontend/README.md` +
-`docs/how-to/run-the-frontend.md`.
+gate-verified; every `crm.yaml` operation is implemented — including the
+eleven the spec's feedback-04–15 resolution defined — and **EP09 is fully
+closed** (the automations editor included). Frontend docs:
+`frontend/README.md` + `docs/how-to/run-the-frontend.md`.
+
+## Last session: the feedback-04–15 contract-sync batch (2026-07-05)
+
+One session consumed the spec's feedback resolution end to end
+(decisions/0016 records every judgement call; migrations now at **0038**):
+
+- **Contract synced slice-by-slice** (each slice gate-green + committed):
+  `GET /passports` (metadata list, token never re-disclosed) ·
+  `GET /audit-log` (privacy module's first transport surface; unbounded
+  HUMAN only — the agent gate fronts mutating routes, so the human check
+  binds at the store) · `issueDoubleOptIn` (supersede-by-expiry, plaintext
+  once, audit-only) · `/automations*` (0035: closed in-code catalog,
+  instance CRUD with If-Match, created-paused, soft archive, the engine
+  fires one run per ENABLED instance with instance params — bootstrap
+  seeds the two starters enabled; `automation` RBAC object mirrors
+  pipeline) · `/public/booking/{host_slug}` (0036: `booking_page` is the
+  ratified second non-RLS resolver table; anonymous edge = slug→tenant +
+  per-IP/per-slug throttles + `system:public_booking` principal; consent
+  passthrough verbatim into `consent_event`; idempotent booker on email;
+  409 slot_taken; `platform/ratelimit` extracted from identity). OAuth AS
+  paths deliberately stay OUT of the generated contract (decisions/0016
+  §1). gen-agentpolicy now emits gofmt-clean output.
+- **Commit security review remediated same-day**: the anonymous consent
+  hijack (a booking naming a known email could re-grant a WITHDRAWN
+  purpose — closed with `RecordInput.NeverOverrideExisting`, enforced
+  in-tx, silent so the page is no consent-state oracle) and booking
+  provenance (`source=public_booking`, never `manual`). Both pinned in
+  the public-booking integration test.
+- **EP09 closed (frontend lane, parallel agent)**: B-EP09.15 automations
+  editor at `#/automations` (anti-DSL guard pinned; params form generated
+  only from `params_schema`; If-Match enable flip), Settings audit-log +
+  passport-list cards, public booking at `#/book/<slug>` with the
+  consent-wording byte-equality e2e pin. 81 unit / 35 e2e green.
+- **Coldstart ACCEPT executor** (0037): approvals gained compose-injected
+  per-kind effects (redeem-then-execute = exactly-once); accepting a
+  proposal writes the org (resolve-by-domain or create), fills EMPTY
+  columns only, lands an evidence row per field in
+  `organization_profile_field` as `agent:coldstart` — the seven
+  non-column fields have no data-model home → feedback/16.
+- **Lead-score behavioral recompute** (0038): `activity_link` gained the
+  lead arm (feedback/17 files the data-model omission), the workflow
+  engine gained always-on SYSTEM handlers (invariants are not pausable
+  automations), and the §3 formula now recomputes from lead-linked
+  replies/meetings on every activity event, exactly-once under
+  redelivery, emitting `lead.updated {delta:{score}}`.
+- **cold_start golden dataset** (B-EP06.23a): `evals/cold_start/` — 106
+  recorded-fixture cases (50/30/26 happy/long-tail/adversarial) emitted
+  by the deterministic `tools/gen-evals`; the runner drives the REAL
+  shape + no-guess gates in the plain test lane, so `make check` is the
+  hard gate; `make eval` runs it verbosely.
+
+Also on disk, untracked: `review_opus_security-redteam_2026-07-05.md` — a
+separate whole-repo red-team (headline: Art. 17 erasure misses the
+activity timeline + attachments, C1/H1/H2; RLS fitness gates not in the
+non-integration merge gate). NOT addressed by this batch (pre-existing
+findings, separate remediation) — that file is the next session's
+highest-value pickup.
+
+All gates green at session close: `make check` (incl. the new eval
+gate), `make test-integration` (full serialized lane),
+`make frontend-check`, `make frontend-e2e`.
 
 ## Last session: the craftsmanship red-team + full remediation (2026-07-05)
 
@@ -174,16 +235,11 @@ colours, Lucide-only glyphs, SW discipline) · 09.21 axe WCAG 2.2 AA ·
 09.22 e2e harness (AC-named tests, 390px sweep, PERF-1 <300ms) — 27/27
 e2e green, 76 unit tests green.
 
-**Open (updated 2026-07-05 after the spec resolved feedback 04–15,
-spec commit 667c355):**
-- The spec now DEFINES everything that was missing: `/automations*`
-  CRUD, `/public/booking/{host_slug}` + `CaptureConsent`, `GET
-  /audit-log`, `GET /passports`, `issueDoubleOptIn`. The build repo's
-  `backend/api/crm.yaml` has NOT been synced yet (a sync forces the
-  handler implementations — the 501/drift gate). Once backend lands
-  the sync: `pnpm gen:api`, then build B-EP09.15 (automations editor),
-  the Settings audit-log + passport-list cards, and the public booking
-  consent passthrough.
+**Open (updated 2026-07-05, contract-sync batch): NONE — the epic is
+closed.** The sync landed, `pnpm gen:api` ran, and B-EP09.15
+(automations editor), the Settings audit-log + passport-list cards, and
+the public booking consent passthrough are built and gate-green (see
+the session block above).
 - Follow-ups from the resolution are DONE build-side: writeshape
   waivers re-pointed to events.md §5.3c / the §5 closed-verb law (no
   more feedback-file citations); textMeta is canon (ADR-0040
@@ -203,17 +259,17 @@ handwritten prototype still serves `/` until then.
 
 No half-finished backend slice is in flight. Highest-value next, in order:
 
-- **Lead-score behavioral recompute** — wire `ScoreLead` signals when the
-  engagement substrate (activity→lead linkage / engagement_event) lands;
-  fit-only today.
-- **Coldstart ACCEPT executor** — approving a coldstart proposal marks it
-  accepted + emits the event; actually WRITING the accepted fields onto an
-  organization is the follow-on effect path.
-- **EP06.23a golden datasets** (`evals/<task>/`, ≥100 cases) + the CI hard
-  gates over them; the §5.2 pipeline (EP06.25) is in.
+- **The 2026-07-05 security red-team file**
+  (`review_opus_security-redteam_2026-07-05.md`, untracked at repo root) —
+  above all C1/H1/H2: Art. 17 erasure must reach the activity timeline
+  (subject/body + FTS) and attachments, via a PII-table registry fitness
+  test, and the RLS/schema fitness lanes should gate merges (M1/M2 = CI).
 - **EP05 scrape/enrichment** (`scrapeCompany` evidence-or-omit) — reuse the
   coldstart fetcher + stripper.
 - **S12b vLLM adapter**; **PERF-7 harness**.
+- Spec-blocked, waiting on upstream: feedback/16 (coldstart profile-field
+  home), feedback/17 (activity_link lead arm ratification + the lead-score
+  override surface).
 
 Done this session:
 
