@@ -47,7 +47,7 @@ func TestRLS_coversEveryTenantTable(t *testing.T) {
 		               WHERE p.schemaname = 'public' AND p.tablename = c.relname)
 		FROM pg_class c
 		WHERE c.relnamespace = 'public'::regnamespace
-		  AND c.relkind = 'r'
+		  AND c.relkind IN ('r','p')
 		  AND EXISTS (SELECT 1 FROM pg_attribute a
 		              WHERE a.attrelid = c.oid AND a.attname = 'workspace_id' AND NOT a.attisdropped)
 		ORDER BY c.relname`)
@@ -123,7 +123,7 @@ func TestFK_tenantLocalReferencesAreComposite(t *testing.T) {
 		WITH tenant_tables AS (
 			SELECT c.oid, c.relname
 			FROM pg_class c
-			WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+			WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p')
 			  AND EXISTS (SELECT 1 FROM pg_attribute a
 			              WHERE a.attrelid = c.oid AND a.attname = 'workspace_id' AND NOT a.attisdropped)
 		)

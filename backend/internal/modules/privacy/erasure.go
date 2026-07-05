@@ -79,6 +79,10 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := anonymizeSubjectRows(ctx, tx, personID, emails); err != nil {
 			return err
 		}
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, personID)
+		if err != nil {
+			return err
+		}
 		rawPurged, err := purgeDerivedTraces(ctx, tx, personID, emails)
 		if err != nil {
 			return err
@@ -88,6 +92,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// PII. The paired event tells consumers the subject is gone.
 		auditID, err := storekit.Audit(ctx, tx, "erase", "person", personID, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
+			"activities_redacted": activitiesRedacted,
 		})
 		if err != nil {
 			return err
@@ -131,6 +136,49 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.UUID, ema
 	_, err := tx.Exec(ctx,
 		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID)
 	return err
+}
+
+// subjectOnlyActivities selects timeline rows linked to the erased
+// person and to no OTHER person — the emails, call notes and meeting
+// bodies whose free text is about the subject alone. Rows shared with
+// another person on the thread are excluded on purpose: redacting them
+// would erase a different subject's record.
+const subjectOnlyActivities = `
+	SELECT l.activity_id FROM activity_link l
+	WHERE l.person_id = $1
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link o
+	    WHERE o.activity_id = l.activity_id
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
+
+// redactSubjectTimeline erases the subject's free text from the activity
+// timeline: subject/body of every subject-only activity are wiped (the
+// GENERATED search_tsv refreshes from the now-empty text, so the erased
+// name is no longer full-text searchable), and every attachment hung off
+// the subject or one of those activities is deleted. Mirrors the
+// retention engine's activity/erase redaction — the on-demand Art. 17
+// path must reach the timeline the nightly evaluator already reaches.
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.UUID) (int64, error) {
+	tag, err := tx.Exec(ctx, `
+		UPDATE activity SET subject = $2, body = NULL,
+		  archived_at = coalesce(archived_at, now())
+		WHERE id IN (`+subjectOnlyActivities+`)`, personID, erasedName)
+	if err != nil {
+		return 0, err
+	}
+	// Files live in object storage; the DB row is the only reference the
+	// system holds, so deleting it detaches the file. No upload path
+	// stores objects in the PoC — when one lands, the storage object must
+	// be purged here too (the erasure/SAR PII-reach fitness test keeps this
+	// row honest).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM attachment
+		WHERE (entity_type = 'person' AND entity_id = $1)
+		   OR (entity_type = 'activity' AND entity_id IN (`+subjectOnlyActivities+`))`,
+		personID); err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // purgeDerivedTraces removes what the system DERIVED from the subject

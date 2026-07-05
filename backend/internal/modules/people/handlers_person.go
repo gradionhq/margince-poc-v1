@@ -16,8 +16,9 @@ import (
 // MergePerson: POST /people/{id}/merge — merge this person (A, the path id)
 // into target_id (B, the survivor). Returns the survivor. The store owns
 // the collision-aware relinking and the restrictive consent rule; this
-// handler is wire-only. 🟡 for agents rides the merge_records tool, not
-// this REST path (agents are read-only on REST — C1).
+// handler is wire-only. Agent 🟡 governance is applied by the ADR-0055
+// admission gate that wraps this route (same staging as the merge_records
+// tool), not by this handler.
 func (h Handlers) MergePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.MergePersonParams) {
 	var req crmcontracts.MergePersonJSONBody
 	if !httperr.Decode(w, r, &req) {

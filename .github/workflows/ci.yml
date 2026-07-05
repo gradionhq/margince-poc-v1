@@ -1,0 +1,81 @@
+# The merge gate as CI (security review M1/M2): `make check` alone runs
+# only the no-database lane, so the tenant-isolation and GDPR-erasure
+# fitness tests — which are `//go:build integration` and need a real
+# Postgres — never blocked a PR. This pipeline runs BOTH lanes plus the
+# pinned vulnerability scan as required checks, so a migration that forgets
+# FORCE RLS, an erasure that misses a PII table, or a vulnerable dependency
+# fails the merge instead of shipping.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  check:
+    name: check (build vet lint arch-lint unit drift)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          working-directory: backend
+      - run: make check
+
+  integration:
+    name: integration (RLS + erasure + HTTP e2e)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: margince_owner
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: margince
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U margince_owner"
+          --health-interval 2s --health-timeout 5s --health-retries 15
+      redis:
+        image: redis:7
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 5s --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Create the non-owner app role
+        run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f ../scripts/db-init.sql
+      - name: Apply migrations
+        run: go run ./cmd/migrate up --dsn "postgres://margince_owner:dev@localhost:55432/margince"
+      - name: Integration lane
+        run: make test-integration
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: make vuln

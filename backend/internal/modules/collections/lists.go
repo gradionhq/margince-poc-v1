@@ -227,18 +227,36 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.UUID, limit int, cur
 		if err := ensureListVisible(ctx, tx, listID); err != nil {
 			return err
 		}
+		// A list holds one entity_type (AddMember enforces it); every member
+		// is a row of that table. The parent-list gate above does not cover
+		// the members: without a per-member row-scope filter a shared list
+		// would leak the existence of records outside the caller's scope. So
+		// each member is disclosed only if its target passes that table's
+		// visibility predicate (unbounded actors get no filter).
+		var listEntityType string
+		if err := tx.QueryRow(ctx, `SELECT entity_type FROM list WHERE id = $1`, listID).Scan(&listEntityType); err != nil {
+			return err
+		}
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
-		sql := fmt.Sprintf(`SELECT id, list_id, entity_type, entity_id, added_by, created_at
-			FROM list_member WHERE list_id = $%d`, arg(listID))
+		sql := fmt.Sprintf(`SELECT lm.id, lm.list_id, lm.entity_type, lm.entity_id, lm.added_by, lm.created_at
+			FROM list_member lm WHERE lm.list_id = $%d`, arg(listID))
+		scope, err := auth.ScopeClauseFor(ctx, listEntityType, "e", arg)
+		if err != nil {
+			return err
+		}
+		if scope != "" {
+			sql += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM %s e WHERE e.id = lm.entity_id AND %s)",
+				listEntityType, scope)
+		}
 		if cursor != "" {
 			after, err := ids.Parse(cursor)
 			if err != nil {
 				return &BadInputError{Field: "cursor", Reason: "malformed"}
 			}
-			sql += fmt.Sprintf(" AND id > $%d", arg(after))
+			sql += fmt.Sprintf(" AND lm.id > $%d", arg(after))
 		}
-		sql += fmt.Sprintf(" ORDER BY id LIMIT $%d", arg(limit+1))
+		sql += fmt.Sprintf(" ORDER BY lm.id LIMIT $%d", arg(limit+1))
 		rows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return err

@@ -67,7 +67,7 @@ type draftEmailTool struct{ comms Comms }
 func (t draftEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "draft_email", Version: "1.0.0",
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierGreen,
+		RequiredScope: principal.ScopeDraft, Tier: mcp.TierGreen,
 		OpenAPIOp: "draftEmail",
 		InputSchema: schema(`{"type":"object","required":["activity_id"],"properties":{
 			"activity_id":{"type":"string","format":"uuid","description":"The thread being replied to"},
@@ -101,7 +101,7 @@ type sendEmailTool struct{ comms Comms }
 func (t sendEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "send_email", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow, Egress: true,
+		RequiredScope: principal.ScopeSend, Tier: mcp.TierYellow, Egress: true,
 		OpenAPIOp: "sendEmail",
 		InputSchema: schema(`{"type":"object","required":["activity_id","to","subject","body","consent_purpose"],"properties":{
 			"activity_id":{"type":"string","format":"uuid"},
@@ -165,7 +165,7 @@ type bookMeetingTool struct{ comms Comms }
 func (t bookMeetingTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "book_meeting", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierYellow, Egress: true,
+		RequiredScope: principal.ScopeSend, Tier: mcp.TierYellow, Egress: true,
 		OpenAPIOp: "bookMeeting",
 		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{
 			"host_user_id":{"type":"string","format":"uuid"},

@@ -13,7 +13,33 @@ eleven the spec's feedback-04–15 resolution defined — and **EP09 is fully
 closed** (the automations editor included). Frontend docs:
 `frontend/README.md` + `docs/how-to/run-the-frontend.md`.
 
-## Last session: the feedback-04–15 contract-sync batch (2026-07-05)
+## Last session: security red-team remediation (2026-07-05)
+
+Closed `review_opus_security-redteam_2026-07-05.md` (decisions/0017 records
+every call). The isolation/authz core held up under review; the work is on the
+compliance surface and on making the existing guards a gate that runs:
+
+- **C1/H1/H2 (GDPR erasure completeness) as one invariant.** Art. 17 erasure
+  now redacts subject-only activity `subject`/`body` (tsvector refreshes) and
+  deletes their attachments; SAR gained an attachments section; a new
+  `backend/piicoverage_test.go` fitness test asserts erasure WRITES and SAR
+  READS every registered PII table — a new PII table that skips either fails.
+- **M3–M7:** HSTS header · RFC-7807 `ErrorHandlerFunc` for param-parse errors
+  (no more `text/plain` leak) · GoBD correspondence floor decoupled from
+  `kind='email'` (all non-task kinds) · egress tools gated on `ScopeSend`
+  (not `write`), draft on `ScopeDraft`, with an `agents/scope_fitness_test.go`
+  guard · the false "read-only on REST (C1)" claim retracted per ADR-0055.
+- **L1/L2/L5/L8/L10:** list members SQL-row-scoped · DSR queue admin-only
+  (`Unbounded`) · unbound approval stagings unredeemable · `govulncheck`
+  pinned · RLS coverage includes partitioned tables.
+- **M1/M2:** `.github/workflows/ci.yml` runs `make check` + `make
+  test-integration` (Postgres/Redis) + `make vuln` as required checks, so the
+  RLS-coverage and erasure-reach fitness tests finally block a bad merge.
+- **Deferred (ADR-scoped, in 0017):** M8 redeem→execute TOCTOU needs a
+  `datasource`-seam `IfVersion` guard on Archive/Merge/PromoteLead; the GoBD
+  8y/10y classes await their (not-yet-existing) accounting/books record types.
+
+## Prior session: the feedback-04–15 contract-sync batch (2026-07-05)
 
 One session consumed the spec's feedback resolution end to end
 (decisions/0016 records every judgement call; migrations now at **0038**):

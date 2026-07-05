@@ -66,7 +66,7 @@ func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
 		  ON cl.relname = c.table_name AND cl.relnamespace = 'public'::regnamespace
 		WHERE c.table_schema = 'public'
 		  AND c.column_name = 'workspace_id'
-		  AND cl.relkind = 'r'
+		  AND cl.relkind IN ('r','p') -- 'p': a future partitioned tenant table must not escape coverage
 		ORDER BY c.table_name`)
 	if err != nil {
 		t.Fatalf("enumerating workspace-scoped tables: %v", err)

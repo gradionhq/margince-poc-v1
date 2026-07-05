@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/web"
@@ -181,6 +182,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 			agentGate(registry, staging, provider, gate),
 			idempotency(pool),
 		},
+		// Keep query/path/header parse failures on the problem+json path:
+		// the generated default writes err.Error() as text/plain, an
+		// off-contract shape that also leaks the parser's internal text.
+		ErrorHandlerFunc: paramParseError,
 	})
 
 	// Only /v1 rides the session middleware; the embedded SPA and the
@@ -210,4 +215,28 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux.Handle("/", web.Handler())
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
+}
+
+// paramParseError maps a generated request-parameter parse failure onto
+// the same 422 validation_error shape every other bad query input uses
+// (mirrors httperr's malformed-cursor path). It names only the offending
+// parameter — never the wrapped parser text, which can carry internal
+// detail — so a bad cursor/limit/sort/UUID answers problem+json, not a
+// text/plain leak.
+func paramParseError(w http.ResponseWriter, r *http.Request, err error) {
+	param := "request"
+	switch e := err.(type) {
+	case *crmcontracts.RequiredParamError:
+		param = e.ParamName
+	case *crmcontracts.InvalidParamFormatError:
+		param = e.ParamName
+	case *crmcontracts.TooManyValuesForParamError:
+		param = e.ParamName
+	case *crmcontracts.UnmarshalingParamError:
+		param = e.ParamName
+	case *crmcontracts.UnescapedCookieParamError:
+		param = e.ParamName
+	}
+	httperr.Write(w, r, httperr.Validation(param, "invalid_parameter",
+		"parameter is missing or malformed"))
 }

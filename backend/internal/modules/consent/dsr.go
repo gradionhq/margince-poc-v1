@@ -55,8 +55,24 @@ var dsrTransitions = map[string]map[string]bool{
 	"in_progress": {"fulfilled": true, "rejected": true},
 }
 
+// requireDSRAdmin gates the DSR case queue. A request row names a data
+// subject (subject_ref is their email/name), so beyond the person grant
+// the caller must be a human with an unbounded row scope — the same bar
+// ListAuditLog carries. A scoped rep must not enumerate or read the queue
+// of everyone else's data-subject requests.
+func requireDSRAdmin(ctx context.Context, action principal.Action) error {
+	if err := auth.Require(ctx, "person", action); err != nil {
+		return err
+	}
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.Type != principal.PrincipalHuman || !auth.Unbounded(actor) {
+		return apperrors.ErrPermissionDenied
+	}
+	return nil
+}
+
 func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string) ([]dsrRow, storekit.Page, error) {
-	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+	if err := requireDSRAdmin(ctx, principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
 	bounded := storekit.ClampLimit(limit)
@@ -134,7 +150,7 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 // GetDSR reads one request (staff surface — the person.update gate the
 // whole DSR surface carries).
 func (s *Store) GetDSR(ctx context.Context, id ids.UUID) (dsrRow, error) {
-	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+	if err := requireDSRAdmin(ctx, principal.ActionUpdate); err != nil {
 		return dsrRow{}, err
 	}
 	var out dsrRow
@@ -157,7 +173,7 @@ type UpdateDSRInput struct {
 }
 
 func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (dsrRow, error) {
-	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+	if err := requireDSRAdmin(ctx, principal.ActionUpdate); err != nil {
 		return dsrRow{}, err
 	}
 	var out dsrRow

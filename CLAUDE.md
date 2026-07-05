@@ -59,7 +59,10 @@ Four process-role binaries (decisions/0011), all wired through
 MCP (Surface A1): mint a passport (`POST /v1/passports`, session-authed),
 then `MARGINCE_PASSPORT_TOKEN=mgp_… mcp --workspace <slug> --dsn …`
 serves the tool surface over stdio. The same token is a REST Bearer
-credential (read-only on REST — C1). Every call re-authenticates:
+credential; a passport on REST is governed exactly like MCP (ADR-0055,
+superseding the old "read-only on REST" C1 rule) — 🟢 mutations
+auto-execute, 🟡 ones stage for confirm-first approval, all still capped
+by the granting human's live seat/RBAC. Every call re-authenticates:
 revocation binds mid-session.
 
 Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen

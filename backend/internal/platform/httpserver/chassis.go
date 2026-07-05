@@ -51,6 +51,11 @@ func SecureHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
+		// HSTS: the app is only ever reached through a TLS-terminating
+		// front end (cookies are Secure), so pin the browser to HTTPS for
+		// two years and forbid a downgrade on the next visit. A browser
+		// ignores it on the plain-HTTP hop, so it is safe to set always.
+		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		next.ServeHTTP(w, r)
 	})
 }

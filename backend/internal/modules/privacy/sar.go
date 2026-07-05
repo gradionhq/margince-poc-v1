@@ -35,6 +35,7 @@ type SARPackage struct {
 	Deals         []map[string]any `json:"deals"`
 	Leads         []map[string]any `json:"leads"`
 	Activities    []map[string]any `json:"activities"`
+	Attachments   []map[string]any `json:"attachments"`
 	Consent       []map[string]any `json:"consent"`
 	ConsentEvents []map[string]any `json:"consent_events"`
 	RawCapture    []map[string]any `json:"raw_capture"`
@@ -79,6 +80,12 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 			{&pkg.Activities, `SELECT a.id, a.kind, a.subject, a.body, a.occurred_at, a.source_system
 			   FROM activity a JOIN activity_link l ON l.activity_id = a.id
 			   WHERE l.person_id = $1`},
+			{&pkg.Attachments, `SELECT at.id, at.entity_type, at.entity_id, at.filename,
+			      at.content_type, at.byte_size, at.created_at
+			   FROM attachment at
+			   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
+			      OR (at.entity_type = 'activity' AND at.entity_id IN (
+			            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
 			{&pkg.Consent, `SELECT cp.key AS purpose, pc.state, pc.lawful_basis, pc.captured_at
 			   FROM person_consent pc JOIN consent_purpose cp ON cp.id = pc.purpose_id
 			   WHERE pc.person_id = $1`},

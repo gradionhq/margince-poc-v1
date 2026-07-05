@@ -60,10 +60,13 @@ gen: ## Regenerate everything derived from the contract
 drift: gen ## Fail when any generated file drifted from the contract
 	git diff --exit-code -- '*_gen.go' internal/contracts/
 
-# Not part of `make check` yet — CI wiring for the vulnerability scan
-# comes later.
+# The scan runs in CI (.github/workflows/ci.yml), not in the local
+# `make check`, so a missing network never blocks a local build. The
+# version is PINNED — `@latest` makes the scan non-reproducible (a tool
+# upgrade could change findings between two runs of the same commit).
+GOVULNCHECK_VERSION ?= v1.1.4
 vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 # `git rev-parse --git-path hooks` honors core.hooksPath, so this works
 # both on a plain clone (.git/hooks) and after the root `make hooks`

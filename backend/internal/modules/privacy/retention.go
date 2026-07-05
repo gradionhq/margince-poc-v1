@@ -47,9 +47,10 @@ func NewRetentionService(pool *pgxpool.Pool, log *slog.Logger) *RetentionService
 // does not understand is skipped LOUDLY (logged every pass), never
 // half-applied. Every query filters the hold column — and for
 // activities, the holds of every linked record plus the jurisdiction
-// packs' statutory floor ($3): a destructive action must not touch
-// commercial correspondence (email) younger than the floor; archive
-// passes floor 0 because archiving RETAINS.
+// packs' statutory floor ($3): a destructive action must not touch any
+// commercial correspondence — every non-task activity kind (email, call,
+// meeting, whatsapp, telegram, note), not email alone — younger than the
+// floor; archive passes floor 0 because archiving RETAINS.
 var retentionSelectors = map[string]string{
 	"lead/unconverted": `SELECT id FROM lead
 		WHERE status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
@@ -58,7 +59,7 @@ var retentionSelectors = map[string]string{
 	"activity/": `SELECT a.id FROM activity a
 		WHERE a.archived_at IS NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
-		  AND NOT (a.kind = 'email' AND a.occurred_at > now() - make_interval(days => $3))
+		  AND NOT (a.kind <> 'task' AND a.occurred_at > now() - make_interval(days => $3))
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
@@ -69,7 +70,7 @@ var retentionSelectors = map[string]string{
 	"activity/transcript": `SELECT a.id FROM activity a
 		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
-		  AND NOT (a.kind = 'email' AND a.occurred_at > now() - make_interval(days => $3))
+		  AND NOT (a.kind <> 'task' AND a.occurred_at > now() - make_interval(days => $3))
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
