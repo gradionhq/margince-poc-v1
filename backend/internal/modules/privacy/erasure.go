@@ -123,18 +123,33 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.UUID, ema
 	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
 		return err
 	}
+	// Anonymize the lead twins and drop their field-level provenance in
+	// one pass: the provenance rows describe WHO captured WHICH of the
+	// subject's fields from WHERE — subject-linked metadata that must not
+	// outlive the fields it annotates. The CTE runs the UPDATE first and
+	// feeds the touched lead ids to the DELETE, so the email match still
+	// sees the pre-anonymize addresses.
 	if _, err := tx.Exec(ctx, `
-		UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
-		  company_name = NULL, candidate_org_key = NULL, raw = NULL,
-		  archived_at = coalesce(archived_at, now())
-		WHERE promoted_person_id = $1
-		   OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
-		   OR (email IS NOT NULL AND lower(email) = ANY($2))`,
+		WITH wiped AS (
+		  UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
+		    company_name = NULL, candidate_org_key = NULL, raw = NULL,
+		    archived_at = coalesce(archived_at, now())
+		  WHERE promoted_person_id = $1
+		     OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
+		     OR (email IS NOT NULL AND lower(email) = ANY($2))
+		  RETURNING id
+		)
+		DELETE FROM field_provenance
+		WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)`,
 		personID, lowercased(emails)); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
+		return err
+	}
 	_, err := tx.Exec(ctx,
-		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID)
+		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID)
 	return err
 }
 

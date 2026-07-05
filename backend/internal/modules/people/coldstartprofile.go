@@ -103,7 +103,7 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 			return fmt.Errorf("resolve organization by domain: %w", err)
 		}
 
-		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, by, in.Fields)
+		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "coldstart", by, in.Fields)
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ var coldStartColumns = map[string]string{
 // identically; the caller supplies the executing principal (by) and owns the
 // audit source. A re-accept refreshes an agent-captured row and never touches
 // one a human has since claimed.
-func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, by string, fields []ColdStartFieldInput) (map[string]any, error) {
+func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, source, by string, fields []ColdStartFieldInput) (map[string]any, error) {
 	applied := map[string]any{}
 	for _, f := range fields {
 		if column, backed := columnBackedColdStartFields[f.Field]; backed {
@@ -158,6 +158,16 @@ func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, b
 			}
 			if filled {
 				applied[f.Field] = f.Value
+				// The shared field-provenance layer (B-E02.12) records the
+				// filled COLUMN's origin; the profile-field evidence row
+				// below keeps the full snippet either way.
+				confidence := f.Confidence
+				evidenceRef := f.SourceURL
+				if err := storekit.StampFields(ctx, tx, "organization", orgID, source, by, []storekit.FieldStamp{
+					{Field: column, Confidence: &confidence, EvidenceRef: &evidenceRef},
+				}); err != nil {
+					return nil, err
+				}
 			}
 		} else {
 			applied[f.Field] = f.Value

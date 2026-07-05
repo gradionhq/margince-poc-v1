@@ -51,6 +51,9 @@ var piiTables = map[string]piiHandling{
 	"attachment":   {erasureWrite: true, sarRead: true},
 	"raw_capture":  {erasureWrite: true, sarRead: true},
 	"embedding":    {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
+	// Field-level provenance names who captured which of the subject's
+	// fields from where — subject-linked metadata (B-E02.12).
+	"field_provenance": {erasureWrite: true, sarRead: true},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are

@@ -82,7 +82,7 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.UUID, in ApplyCol
 		if err := auth.EnsureVisible(ctx, tx, "organization", orgID); err != nil {
 			return err
 		}
-		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, by, in.Fields)
+		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "scrape", by, in.Fields)
 		if err != nil {
 			return err
 		}

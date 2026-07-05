@@ -105,9 +105,11 @@ var tableOwners = map[string]string{
 	"erasure_suppression": "internal/modules/privacy",
 	// compose (HTTP replay protection is transport plumbing, not domain)
 	"idempotency_key": "internal/compose",
-	// platform: the audit+outbox pair has ONE sanctioned writer
-	"audit_log":    storekitOwned,
-	"event_outbox": storekitOwned,
+	// platform: the audit+outbox pair has ONE sanctioned writer, and the
+	// shared field-provenance layer (B-E02.12) is spelled once next to it
+	"audit_log":        storekitOwned,
+	"event_outbox":     storekitOwned,
+	"field_provenance": storekitOwned,
 }
 
 // crossStoreWrites are the ratified writes outside the writer's own tables,
@@ -150,15 +152,16 @@ var crossStoreWrites = map[string]string{
 	// decisions/0011 single-transaction exception; routing each purge
 	// through the owning module's API would trade the atomicity that IS
 	// the guarantee for boundary hygiene.
-	"internal/modules/privacy:person":       "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17, decisions/0011 exception)",
-	"internal/modules/privacy:person_email": "erasure deletes the subject's email channel rows in the single erasure transaction",
-	"internal/modules/privacy:person_phone": "erasure deletes the subject's phone channel rows in the single erasure transaction",
-	"internal/modules/privacy:lead":         "erasure/retention anonymize the subject's segregated lead rows in the same transaction",
-	"internal/modules/privacy:activity":     "retention archives/erases over-age timeline rows, and Art. 17 erasure redacts subject-only activity subject/body, in the single erasure/per-record transaction",
-	"internal/modules/privacy:attachment":   "Art. 17 erasure deletes attachments hung off the subject or a subject-only activity in the single erasure transaction",
-	"internal/modules/privacy:deal":         "retention archives over-age lost deals per its audited per-record transaction",
-	"internal/modules/privacy:embedding":    "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
-	"internal/modules/privacy:raw_capture":  "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
+	"internal/modules/privacy:person":           "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17, decisions/0011 exception)",
+	"internal/modules/privacy:person_email":     "erasure deletes the subject's email channel rows in the single erasure transaction",
+	"internal/modules/privacy:person_phone":     "erasure deletes the subject's phone channel rows in the single erasure transaction",
+	"internal/modules/privacy:lead":             "erasure/retention anonymize the subject's segregated lead rows in the same transaction",
+	"internal/modules/privacy:activity":         "retention archives/erases over-age timeline rows, and Art. 17 erasure redacts subject-only activity subject/body, in the single erasure/per-record transaction",
+	"internal/modules/privacy:attachment":       "Art. 17 erasure deletes attachments hung off the subject or a subject-only activity in the single erasure transaction",
+	"internal/modules/privacy:deal":             "retention archives over-age lost deals per its audited per-record transaction",
+	"internal/modules/privacy:embedding":        "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
+	"internal/modules/privacy:raw_capture":      "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
+	"internal/modules/privacy:field_provenance": "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
 
 	// direct audit_log/event_outbox writers: storekit.Audit stamps
 	// captured_by from an authenticated principal, which these paths do

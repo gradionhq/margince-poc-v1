@@ -39,6 +39,7 @@ type SARPackage struct {
 	Consent       []map[string]any `json:"consent"`
 	ConsentEvents []map[string]any `json:"consent_events"`
 	RawCapture    []map[string]any `json:"raw_capture"`
+	FieldOrigins  []map[string]any `json:"field_origins"`
 }
 
 // AssembleSAR builds the package. It is a privileged read: the caller
@@ -97,6 +98,9 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 			   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
 			                 AND rc.payload::text ILIKE
 			                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')`},
+			{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
+			   FROM field_provenance fp
+			   WHERE fp.object_type = 'person' AND fp.object_id = $1`},
 		}
 
 		subject, err := rowMaps(ctx, tx, `
