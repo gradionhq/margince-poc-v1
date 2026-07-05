@@ -26,6 +26,7 @@ const canonical: Record<string, string> = {
   "--textSecondary": "#68756E",
   "--textTertiary": "#9AA6A0",
   "--textMuted": "#CBD2CD",
+  "--textMeta": "#5E6C65",
   "--textOnAccent": "#fff",
   "--borderSubtle": "#E5E9E7",
   "--borderStrong": "#D2D8D4",

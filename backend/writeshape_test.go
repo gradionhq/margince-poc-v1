@@ -31,17 +31,17 @@ import (
 // events.md gains the missing event types, wiring storekit.Emit into
 // these mutations removes the entries.
 var auditOnlyWrites = map[string]string{
-	"internal/modules/collections:CreateList":     "events.md defines no list.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/collections:ArchiveList":    "events.md defines no list.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/collections:AddMember":      "events.md defines no list.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/collections:CreateTag":      "events.md defines no tag.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/collections:ArchiveTag":     "events.md defines no tag.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/collections:ApplyTag":       "events.md defines no tag.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/consent:CreateDSR":          "events.md defines no dsr.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/consent:UpdateDSR":          "events.md defines no dsr.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/identity:CreateRecordGrant": "events.md defines no grant.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/identity:RevokeRecordGrant": "events.md defines no grant.* event types yet (spec question filed as feedback/07)",
-	"internal/modules/privacy:AssembleSAR":        "events.md defines no dsr.*/export event type for a subject-access export yet (same family as the CreateDSR gap, feedback/07); the export is a read whose only write IS the audit row",
+	"internal/modules/collections:CreateList":     "lists are ratified audit-only in V1 — events.md \u00a75.3c defines no list.* types and none is added",
+	"internal/modules/collections:ArchiveList":    "lists are ratified audit-only in V1 — events.md \u00a75.3c defines no list.* types and none is added",
+	"internal/modules/collections:AddMember":      "lists are ratified audit-only in V1 — events.md \u00a75.3c defines no list.* types and none is added",
+	"internal/modules/collections:CreateTag":      "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
+	"internal/modules/collections:ArchiveTag":     "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
+	"internal/modules/collections:ApplyTag":       "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
+	"internal/modules/consent:CreateDSR":          "the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side",
+	"internal/modules/consent:UpdateDSR":          "the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side",
+	"internal/modules/identity:CreateRecordGrant": "the closed catalog (events.md \u00a75) defines no grant.* type; the closed-verb law forbids inventing one build-side",
+	"internal/modules/identity:RevokeRecordGrant": "the closed catalog (events.md \u00a75) defines no grant.* type; the closed-verb law forbids inventing one build-side",
+	"internal/modules/privacy:AssembleSAR":        "the closed catalog (events.md \u00a75) defines no subject-access-export type; the export is a read whose only write IS the audit row",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
