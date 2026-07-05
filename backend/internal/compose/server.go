@@ -148,7 +148,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 			// idempotent-on-email person path, consent records the
 			// passthrough — both injected here, never sibling imports.
 			WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}),
-		approvalsHandlers: approvals.NewHandlers(approvals.NewService(pool)),
+		approvalsHandlers: approvalsHandlersWithEffects(pool),
 		searchHandlers:    search.NewHandlers(pool),
 		// DSR fulfillment executes privacy's erase path — injected here so
 		// consent never imports its sibling.

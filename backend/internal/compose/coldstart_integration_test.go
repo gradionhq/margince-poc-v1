@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -109,5 +110,114 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 	tiny := &coldStartEngine{fetch: fixturePage("hi"), brain: brain, approvals: approvals.NewService(e.pool)}
 	if _, err := tiny.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
 		t.Fatalf("tiny page → %v, want unreadable", err)
+	}
+}
+
+// The ACCEPT executor (features/07 §1): a human approval WRITES the
+// accepted fields — org resolved/created by the source domain, empty
+// columns filled, evidence rows landed, human-set values untouched,
+// exactly once even if the decision path re-fires.
+func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
+	e := setupAuthz(t)
+	extraction := `{"fields":[
+		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"Acme GmbH","confidence":0.95},
+		{"field":"industry","value":"SaaS tooling","evidence_snippet":"scaling SaaS companies","confidence":0.6},
+		{"field":"icp","value":"RevOps at SaaS scale-ups","evidence_snippet":"Built for RevOps leaders at scaling SaaS companies","confidence":0.7}]}`
+	brain := ai.NewFakeClient().Script(extraction, extraction)
+
+	// The org already exists with a HUMAN-set industry: acceptance may
+	// fill what is empty, never overwrite a human's value.
+	admin := e.admin()
+	orgID := ids.NewV7()
+	err := database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `
+			INSERT INTO organization (id, workspace_id, display_name, industry, source, captured_by)
+			VALUES ($1, $2, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID, e.ws); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+			VALUES ($1, $2, 'acme.example', true, 'manual', 'human:owner')`, e.ws, orgID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc := approvals.NewService(e.pool)
+	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.pool)))
+	engine := &coldStartEngine{fetch: acmePage, brain: brain, approvals: svc}
+
+	proposal, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms), "https://www.acme.example/about")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proposal.Fields) != 3 {
+		t.Fatalf("gate kept %d fields, want 3", len(proposal.Fields))
+	}
+
+	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	var legalName, industry, capturedBy string
+	var profileRows, orgs int
+	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(),
+			`SELECT coalesce(legal_name, ''), industry FROM organization WHERE id = $1`, orgID).Scan(&legalName, &industry); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM organization`).Scan(&orgs); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(), `
+			SELECT count(*), max(captured_by) FROM organization_profile_field WHERE organization_id = $1`,
+			orgID).Scan(&profileRows, &capturedBy)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orgs != 1 {
+		t.Fatalf("accept created a duplicate org (%d rows) instead of resolving acme.example", orgs)
+	}
+	if legalName != "Acme GmbH" {
+		t.Fatalf("empty legal_name not filled: %q", legalName)
+	}
+	if industry != "Handcrafted Industry" {
+		t.Fatalf("accept OVERWROTE a human-set industry: %q", industry)
+	}
+	if profileRows != 3 || capturedBy != "agent:coldstart" {
+		t.Fatalf("evidence rows = %d captured_by=%q, want 3 rows as agent:coldstart", profileRows, capturedBy)
+	}
+
+	// The approval is consumed; deciding again is refused and applies
+	// nothing twice.
+	var consumed bool
+	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId)).Scan(&consumed)
+	})
+	if err != nil || !consumed {
+		t.Fatalf("approval not redeemed by the effect (consumed=%v err=%v)", consumed, err)
+	}
+	var already *approvals.AlreadyDecidedError
+	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); !errors.As(err, &already) {
+		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
+	}
+
+	// A REJECTED proposal writes nothing: stage a second one and reject.
+	proposal2, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms), "https://other.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal2.ProposalId), false, nil); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM organization`).Scan(&orgs)
+	})
+	if err != nil || orgs != 1 {
+		t.Fatalf("reject still wrote an organization (%d rows, err=%v)", orgs, err)
 	}
 }

@@ -44,10 +44,25 @@ type Service struct {
 	// redemption TTL) are judged against it, so tests can prove the
 	// pending→expired and approved→dead transitions without sleeping.
 	now func() time.Time
+	// effects are the per-kind follow-on executors an approval releases
+	// (compose injects them — this module never imports the modules the
+	// effects write into). An effect runs AFTER the decision transaction
+	// commits, only on approve; exactly-once is the effect's own duty
+	// (the redeem-then-execute discipline every 🟡 executor follows).
+	effects map[string]ApprovedEffect
 }
 
+// ApprovedEffect executes what an approved staging of its kind proposed.
+type ApprovedEffect func(ctx context.Context, approvalID ids.UUID, proposedChange json.RawMessage, diffHash string) error
+
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, now: time.Now}
+	return &Service{pool: pool, now: time.Now, effects: map[string]ApprovedEffect{}}
+}
+
+// WithEffect registers the follow-on executor for one staging kind.
+func (s *Service) WithEffect(kind string, effect ApprovedEffect) *Service {
+	s.effects[kind] = effect
+	return s
 }
 
 // StageInput describes one refused 🟡 call to hold for decision.
@@ -215,6 +230,18 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		a, err = get(ctx, tx, id)
 		return err
 	})
+	if err != nil {
+		return a, err
+	}
+	// The kind's follow-on effect runs after the decision committed: the
+	// approval IS decided either way; an effect failure surfaces to the
+	// deciding human (the approved-unredeemed row and its audit trail
+	// say exactly how far it got) rather than un-deciding anything.
+	if effect, ok := s.effects[a.Kind]; ok && approve {
+		if err := effect(ctx, id, a.ProposedChange, a.DiffHash); err != nil {
+			return a, fmt.Errorf("approved, but executing the %s effect failed: %w", a.Kind, err)
+		}
+	}
 	return a, err
 }
 
