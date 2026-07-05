@@ -76,40 +76,45 @@ discovery's `requestIssuer` trusts the raw `Host` header (fine only
 behind a Host-sanitizing proxy; revisit before any direct-exposure
 deploy).
 
-## In flight: EP09 (frontend) has started
+## EP09 (frontend): 29 of 30 leaf tickets DONE (2026-07-05)
 
-**B-EP09.1 is done (2026-07-05):** top-level `frontend/` per ADR-0054/ADR-0016
-(pnpm + Vite + React 19 + TS + Tailwind 4 + Biome + Vitest), the Ledger-Green
-token layer pinned to the mockup canon by `src/design-system/tokens.test.ts`,
-the three-font and no-hardcoded-colour gates in `conformance.test.ts`, dark
-theme via `data-theme` (accent → #16A34A per ADR-0040). Verified rendering in
-both themes via headless browser. `make frontend-check` is the frontend lane
-(separate from `make check` — needs node+pnpm); full record in decisions/0014.
+One session built the entire epic in `frontend/` (pnpm + Vite + React 19 +
+TS strict + Tailwind 4 + Biome + Vitest + Playwright), gate-green commit
+per slice. Done: 09.1 tokens (canon-pinned, dark via data-theme) · 09.2
+re-scoped Margince atom library (founder decision: NO gw-ui/Dispact reuse
+— feedback/10; foundation v0 committed spec-side at
+specs/design/design-system/) · 09.3a trust primitives + 09.3b composed
+surfaces · 09.4 shell (canonical 9-item rail, contextual top bar,
+data-screen, rail-less exceptions) · 09.5 ⌘K palette · 09.6 Ask FAB ·
+09.7 responsive/390px bottom-nav · 09.8 PWA (SW never caches or fakes
+/v1) · 09.9 onboarding wizard (connect LAST, honest read-failure) ·
+09.10 people/companies/leads lists + 360s on live /v1 (lead segregation,
+promote gating) · 09.11 deal Kanban drag-to-advance (terminal = 🟡
+confirm) + table + deal 360 · 09.12 approval inbox (edit-then-send via
+edited_payload) + Morning Brief (live signals only) + Tasks + Reports
+(plan-based explain) + Ask AI (two-tier, no fake chat) · 09.13 client
+chrome + Settings governance · 09.14 booking shell · 09.16 i18n DE/EN
+(AST no-inline-copy gate) · 09.17/18/19 presentation-edge formatting
+(IANA-only zones, IR-verbatim FX) · 09.20 drift gates (tokens, fonts,
+colours, Lucide-only glyphs, SW discipline) · 09.21 axe WCAG 2.2 AA ·
+09.22 e2e harness (AC-named tests, 390px sweep, PERF-1 <300ms) — 27/27
+e2e green, 76 unit tests green.
 
-**gw-ui reuse is withdrawn** (founder decision 2026-07-05, feedback/10):
-Margince has its own design system; no Dispact component reuse. Its v0 is
-committed spec-side at `specs/design/design-system/` (tokens + base
-components + trust primitives, light default, dark behind `data-theme`) —
-foundation only, not shipped. The mockups are placeholders and will be redone
-on top of it.
+**Open:**
+- **B-EP09.15 automations editor — BLOCKED**: no automations CRUD in the
+  contract (feedback/14, with the public-booking consent gap).
+- Spec-side follow-ups filed: feedback/13 (audit read + passport list for
+  Settings), feedback/15 (Ledger-Green greys fail AA — a derived
+  --textMeta shade carries small text meanwhile; canon stays pinned).
+- Deviations recorded: no Storybook (the #/design screen + tests are the
+  showcase); e2e runs over a network-edge seed mock by default (BASE_URL
+  points the same suite at a live backend); auth/login screen not yet
+  built (dev flow: session cookie + Settings workspace slug).
 
-Next EP09 steps, in ticket order:
-- **B-EP09.2 (re-scoped):** build the Margince atom library lazily as screens
-  need components — port nothing from Dispact.
-- **B-EP09.3a — done (2026-07-05):** the trust primitives are in React
-  (`frontend/src/design-system/trust.tsx`): `EvidenceChip`,
-  `ConfidenceMeter`, `ProvenanceTag`, `AutonomyDot`, `StagingCard`,
-  `ApprovalGate`, plus `StagedProposal` (the Accept/Edit/Dismiss state
-  machine). Tests pin §4: edit→human-typed retains evidence, staged≠real,
-  low confidence unhideable. Verified in-browser (light+dark). Deviation
-  from the ticket: no Storybook yet — the App page is the showcase; add
-  Storybook when the atom library (B-EP09.2) starts.
-- **B-EP09.3b next:** composed surfaces (`MorningBrief` item,
-  `PipelineBoard`+`DealCard`, `RecordView`+timeline) consuming the 3a
-  primitives; then B-EP09.4 (the `WorkspaceRail` shell).
-- Packaging call (decisions/0014): at prototype parity, `frontend/dist` is
-  copied under `backend/web/` for the existing `go:embed`; until then the
-  handwritten prototype keeps serving `/`.
+Lanes: `make frontend-check` (lint+unit+build) and `make frontend-e2e`
+(harness). Packaging (decisions/0014): at prototype parity copy
+`frontend/dist` under `backend/web/` for the existing go:embed; the
+handwritten prototype still serves `/` until then.
 
 ## Pick up here: next blocks (backend)
 

@@ -26,6 +26,7 @@ spec change.
 | [12](12-lists-tags-catalogs-unpaginated.md) | `listLists`/`listTags` return a page envelope but define no `limit`/`cursor` | contract/crm.yaml | open |
 | [13](13-settings-needs-audit-read-and-passport-list.md) | Settings needs GET /audit-log + GET /passports; AuditLogEntry is defined but unreachable | contract/crm.yaml vs EP09.13b | open |
 | [14](14-automations-crud-and-public-booking-missing.md) | No automations CRUD ops (blocks EP09.15); booking lacks public access + consent passthrough | contract/crm.yaml vs EP09.14/15 | open |
+| [15](15-ledger-green-greys-fail-aa-on-tinted-grounds.md) | textTertiary/textSecondary fail WCAG AA at their §2 roles; caught by the EP09.21 axe gate | design §2 / ADR-0040 | open |
 
 Statuses: `open` (filed, awaiting spec change) · `accepted` (spec owner agreed)
 · `resolved` (spec updated) · `wontfix` (intentional, code adjusted).
