@@ -47,7 +47,8 @@ const approvalTokenHeader = "X-Approval-Token"
 // mutation; anything larger is not a plausible contract payload.
 const maxGatedBody = 1 << 20
 
-func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, gate *auth.Gate) func(http.Handler) http.Handler {
+func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
+	deps := tierDeps{stages: stages, ownership: ownership}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -90,7 +91,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
-			resolve, ok := tierInput(ctx, spec, pol, stages, body)
+			resolve, ok := tierInput(ctx, spec, pol, deps, r, body)
 			if !ok {
 				httperr.Write(w, r, fmt.Errorf(
 					"agent gate: %s: no REST tier resolver for dynamic tool %s: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
@@ -207,35 +208,66 @@ func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	return spec, true
 }
 
+// tierDeps carries the read-side dependencies the dynamic REST tier
+// resolvers consult.
+type tierDeps struct {
+	stages    agents.StageResolver
+	ownership agents.FieldOwnership
+}
+
 // dynamicTierInputs maps each dynamic tool onto the resolver that reads
 // its tier decision out of the tool's REST body shape. The invariant: a
 // dynamic tool without an entry here has no REST twin the gate knows how
 // to interpret — its tier question cannot be answered, so tierInput
 // reports a miss and the caller refuses the request (fail-closed).
-var dynamicTierInputs = map[string]func(ctx context.Context, stages agents.StageResolver, body []byte) (mcp.TierResolverInput, error){
-	"advance_deal": advanceDealTierInput,
+var dynamicTierInputs = map[string]func(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error){
+	"advance_deal":  advanceDealTierInput,
+	"update_record": updateRecordTierInput,
 }
 
 // advanceDealTierInput: 🟢/🟡 turns on whether the destination stage is a
 // closing stage, so the resolver needs the concrete stage's semantic.
-func advanceDealTierInput(ctx context.Context, stages agents.StageResolver, body []byte) (mcp.TierResolverInput, error) {
+func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *http.Request, body []byte) (mcp.TierResolverInput, error) {
 	var args struct {
 		ToStageID ids.UUID `json:"to_stage_id"`
 	}
 	if err := json.Unmarshal(body, &args); err != nil || args.ToStageID.IsZero() {
 		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "required", "to_stage_id must be a stage UUID")
 	}
-	semantic, pipelineID, err := stages.StageSemantic(ctx, args.ToStageID)
+	semantic, pipelineID, err := deps.stages.StageSemantic(ctx, args.ToStageID)
 	if err != nil {
 		return mcp.TierResolverInput{}, err
 	}
 	return mcp.TierResolverInput{Args: body, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
 }
 
+// updateRecordTierInput: the human-edit-precedence gate on the REST twin
+// (interfaces.md §2.1). The body IS the field patch; the route's
+// record_type annotation and {id} name the audited record. A patch that
+// would overwrite a human-written value resolves 🟡, same as the MCP
+// tool — transport never changes the tier answer.
+func updateRecordTierInput(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
+	raw := chi.URLParam(r, "id")
+	if raw == "" {
+		// Action-shaped twins (applyTag, addListMember) patch no audited
+		// field on the routed record; nothing human-typed is at stake.
+		return mcp.TierResolverInput{Args: body}, nil
+	}
+	targetID, err := ids.Parse(raw)
+	if err != nil {
+		return mcp.TierResolverInput{}, apperrors.ErrNotFound
+	}
+	conflicts, err := deps.ownership.HumanOwnedConflicts(ctx, pol.RecordType, targetID, body)
+	if err != nil {
+		return mcp.TierResolverInput{}, err
+	}
+	return mcp.TierResolverInput{Args: body, HumanOwnedConflicts: conflicts}, nil
+}
+
 // tierInput supplies the lazy TierResolverInput for the admitted spec:
 // static tiers pass the body through; dynamic tiers dispatch through
 // dynamicTierInputs and report a miss for the caller to refuse.
-func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, stages agents.StageResolver, body []byte) (func() (mcp.TierResolverInput, error), bool) {
+func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, deps tierDeps, r *http.Request, body []byte) (func() (mcp.TierResolverInput, error), bool) {
 	if spec.Tier != mcp.TierDynamic {
 		return func() (mcp.TierResolverInput, error) { return mcp.TierResolverInput{Args: body}, nil }, true
 	}
@@ -244,7 +276,7 @@ func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, stages a
 		return nil, false
 	}
 	return func() (mcp.TierResolverInput, error) {
-		return resolve(ctx, stages, body)
+		return resolve(ctx, deps, pol, r, body)
 	}, true
 }
 

@@ -78,6 +78,11 @@ type TierResolverInput struct {
 	// moves to: "open" | "won" | "lost".
 	TargetStageSemantic string
 	PipelineID          string
+	// HumanOwnedConflicts names the patch fields whose current value was
+	// last written by a HUMAN and whose proposed value differs — the
+	// human-edit-precedence input (interfaces.md §2.1): an agent's 🟢
+	// update over such a field resolves 🟡.
+	HumanOwnedConflicts []string
 }
 
 // Registry admits and dispatches tools. Registration is init()-time,

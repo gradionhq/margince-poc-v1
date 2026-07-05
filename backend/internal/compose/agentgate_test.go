@@ -18,7 +18,7 @@ import (
 // list.
 func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
-	agents.RegisterCoreTools(registry, nil, nil, nil)
+	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
 	for route, pol := range agentPolicies {
 		if pol.Access != "tool" {
@@ -77,7 +77,7 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 // tool fails closed.
 func TestOperationSpecTightenOnly(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
-	agents.RegisterCoreTools(registry, nil, nil, nil)
+	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
 	spec, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: "tool", Tool: "update_record", Tier: "yellow"}, registry)
 	if !ok || spec.Tier != mcp.TierYellow {

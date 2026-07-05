@@ -198,7 +198,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
 		BaseURL: "/v1",
 		Middlewares: []crmcontracts.MiddlewareFunc{
-			agentGate(registry, staging, provider, gate),
+			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
 			idempotency(pool),
 		},
 		// Keep query/path/header parse failures on the problem+json path:

@@ -30,6 +30,7 @@ var decisionGrants = map[string][]struct {
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below
 	"share_record":   {}, // resolved from the target's entity type below
+	"update_record":  {}, // resolved from the target's entity type below (human-edit-precedence stagings)
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
@@ -121,6 +122,18 @@ func requireDecisionGrants(p principal.Principal, a row) error {
 	if a.Kind == "merge_records" {
 		if a.TargetType == nil {
 			return errors.New("crmapprovals: merge_records staged without a target type")
+		}
+		grants = append(grants, struct {
+			Object string
+			Action principal.Action
+		}{*a.TargetType, principal.ActionUpdate})
+	}
+	// A human-edit-precedence staging (interfaces.md §2.1) releases a
+	// field patch — approving needs the update grant the patch itself
+	// would need on the target's entity type.
+	if a.Kind == "update_record" {
+		if a.TargetType == nil {
+			return errors.New("crmapprovals: update_record staged without a target type")
 		}
 		grants = append(grants, struct {
 			Object string

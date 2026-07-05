@@ -35,7 +35,7 @@ func NewRegistry(pool *pgxpool.Pool) *agents.Registry {
 func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	provider := NewProvider(pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
-	agents.RegisterCoreTools(registry, provider, provider, provider)
+	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.

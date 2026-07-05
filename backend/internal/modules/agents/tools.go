@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -39,16 +40,25 @@ type StageResolver interface {
 // `archive_record` and `promote_lead`. run_report joins when the compiled
 // report engine lands; merge/disqualify/enrich/send join with their
 // underlying verbs.
-func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter) {
+func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter, ownership FieldOwnership) {
 	r.Register(searchRecords{p: p})
 	r.Register(readRecord{p: p})
 	r.Register(createRecord{p: p})
-	r.Register(updateRecord{p: p})
+	r.Register(updateRecord{p: p, ownership: ownership})
 	r.Register(logActivity{p: p})
 	r.Register(advanceDeal{p: p, stages: stages})
 	r.Register(archiveRecord{p: p})
 	r.Register(promoteLead{p: p, promoter: promoter})
 	r.Register(mergeRecords{p: p})
+}
+
+// FieldOwnership answers the human-edit-precedence question
+// (interfaces.md §2.1): which of a patch's fields hold a value whose
+// most recent write was HUMAN, with a differing proposed value. The
+// audit trail is the source of truth; compose implements this over it —
+// this module never reads storage directly.
+type FieldOwnership interface {
+	HumanOwnedConflicts(ctx context.Context, entityType string, id ids.UUID, patch json.RawMessage) ([]string, error)
 }
 
 // decodeArgs is the surface's input validation: strict JSON (unknown
@@ -207,34 +217,87 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	return readBack(ctx, t.p, ref)
 }
 
-// --- update_record (🟢 write, reversible) ---
+// --- update_record (🟢 write — 🟡 when it would overwrite a human edit) ---
 
 type updateRecord struct {
-	p datasource.SystemOfRecordProvider
+	p         datasource.SystemOfRecordProvider
+	ownership FieldOwnership
+}
+
+type updateRecordArgs struct {
+	RecordType string          `json:"record_type"`
+	ID         ids.UUID        `json:"id"`
+	Fields     json.RawMessage `json:"fields"`
+	IfVersion  *int64          `json:"if_version"`
 }
 
 func (t updateRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "update_record", Version: "1.0.0",
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierGreen,
-		OpenAPIOp: "updatePerson/updateOrganization/updateDeal/updateLead",
+		RequiredScope: principal.ScopeWrite,
+		Tier:          mcp.TierDynamic,
+		TierResolver:  updateRecordTier,
+		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead",
 		InputSchema: schema(`{"type":"object","required":["record_type","id","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead"]},
 			"id":{"type":"string","format":"uuid"},
 			"fields":{"type":"object","description":"The crm.yaml update-request body; only sent fields change"},
-			"if_version":{"type":"integer","description":"Optimistic-concurrency guard: the last-seen record version"}},
+			"if_version":{"type":"integer","description":"Optimistic-concurrency guard: the last-seen record version"},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved overwriting their edit"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
 }
 
-func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		RecordType string          `json:"record_type"`
-		ID         ids.UUID        `json:"id"`
-		Fields     json.RawMessage `json:"fields"`
-		IfVersion  *int64          `json:"if_version"`
+// updateRecordTier is the human-edit-precedence gate (interfaces.md
+// §2.1, B-EP06.14): an update that keeps clear of human-typed values is
+// 🟢 reversible-and-logged; one that would overwrite a field a human
+// last wrote resolves 🟡 — a machine does not silently undo a person.
+func updateRecordTier(in mcp.TierResolverInput) mcp.RiskTier {
+	if len(in.HumanOwnedConflicts) > 0 {
+		return mcp.TierYellow
 	}
+	return mcp.TierGreen
+}
+
+// ResolverInput asks the audit trail which patch fields currently hold
+// a human-written value the patch would change.
+func (t updateRecord) ResolverInput(ctx context.Context, in json.RawMessage) (mcp.TierResolverInput, error) {
+	var args updateRecordArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return mcp.TierResolverInput{}, err
+	}
+	conflicts, err := t.ownership.HumanOwnedConflicts(ctx, args.RecordType, args.ID, args.Fields)
+	if err != nil {
+		return mcp.TierResolverInput{}, err
+	}
+	return mcp.TierResolverInput{Args: in, HumanOwnedConflicts: conflicts}, nil
+}
+
+// StageInfo pins the staged patch to the record's CURRENT version and
+// names the human-owned fields the approval would release.
+func (t updateRecord) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args updateRecordArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
+	}
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
+	if err != nil {
+		return StageInfo{}, err
+	}
+	conflicts, err := t.ownership.HumanOwnedConflicts(ctx, args.RecordType, args.ID, args.Fields)
+	if err != nil {
+		return StageInfo{}, err
+	}
+	return StageInfo{
+		TargetType: args.RecordType, TargetID: args.ID, TargetVersion: &rec.Version,
+		Summary: fmt.Sprintf("Update %s %s: overwrite human-edited %s",
+			args.RecordType, recordLabel(rec), strings.Join(conflicts, ", ")),
+	}, nil
+}
+
+func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args updateRecordArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}

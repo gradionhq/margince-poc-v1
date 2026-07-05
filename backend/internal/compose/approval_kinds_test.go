@@ -63,7 +63,7 @@ func (stubComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawM
 
 func TestEveryYellowToolHasADecisionGrantMapping(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
-	agents.RegisterCoreTools(registry, nil, nil, nil)
+	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 	agents.RegisterIntentTools(registry, stubRetriever{})
 	agents.RegisterCommsTools(registry, stubComms{})
 
