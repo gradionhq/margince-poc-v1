@@ -80,6 +80,30 @@ func (stubs) Logout(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "Logout")
 }
 
+func (stubs) ListAutomations(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAutomationsParams) {
+	httperr.NotImplemented(w, r, "ListAutomations")
+}
+
+func (stubs) CreateAutomation(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateAutomation")
+}
+
+func (stubs) ListAutomationCatalog(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListAutomationCatalog")
+}
+
+func (stubs) DeleteAutomation(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteAutomation")
+}
+
+func (stubs) GetAutomation(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetAutomation")
+}
+
+func (stubs) UpdateAutomation(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateAutomationParams) {
+	httperr.NotImplemented(w, r, "UpdateAutomation")
+}
+
 func (stubs) GetAvailability(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetAvailabilityParams) {
 	httperr.NotImplemented(w, r, "GetAvailability")
 }

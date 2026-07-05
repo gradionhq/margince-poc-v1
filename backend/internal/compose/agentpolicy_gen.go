@@ -18,6 +18,7 @@ type agentPolicy struct {
 // router registers it (BaseURL /v1 included).
 var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/activities/{id}":                 {Op: "archiveActivity", Access: "tool", Tool: "archive_record", RecordType: "activity", Tier: "yellow"},
+	"DELETE /v1/automations/{id}":                {Op: "deleteAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/deals/{id}":                      {Op: "archiveDeal", Access: "tool", Tool: "archive_record", RecordType: "deal", Tier: "yellow"},
 	"DELETE /v1/leads/{id}":                      {Op: "disqualifyLead", Access: "tool", Tool: "disqualify_lead", RecordType: "lead", Tier: "yellow"},
 	"DELETE /v1/lists/{id}":                      {Op: "archiveList", Access: "tool", Tool: "archive_record", RecordType: "list", Tier: "yellow"},
@@ -28,6 +29,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/relationships/{id}":              {Op: "archiveRelationship", Access: "tool", Tool: "archive_record", RecordType: "relationship", Tier: "yellow"},
 	"DELETE /v1/tags/{id}":                       {Op: "archiveTag", Access: "tool", Tool: "archive_record", RecordType: "tag", Tier: "yellow"},
 	"PATCH /v1/activities/{id}":                  {Op: "updateActivity", Access: "tool", Tool: "update_record", RecordType: "activity", Tier: "green"},
+	"PATCH /v1/automations/{id}":                 {Op: "updateAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/data-subject-requests/{id}":       {Op: "updateDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/deals/{id}":                       {Op: "updateDeal", Access: "tool", Tool: "update_record", RecordType: "deal", Tier: "green"},
 	"PATCH /v1/leads/{id}":                       {Op: "updateLead", Access: "tool", Tool: "update_record", RecordType: "lead", Tier: "green"},
@@ -44,6 +46,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/approvals/{id}/reject":             {Op: "rejectApproval", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/login":                        {Op: "login", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/logout":                       {Op: "logout", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/automations":                       {Op: "createAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/bookings":                          {Op: "bookMeeting", Access: "tool", Tool: "book_meeting", RecordType: "activity", Tier: "yellow"},
 	"POST /v1/coldstart":                         {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
 	"POST /v1/consent-purposes":                  {Op: "createConsentPurpose", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

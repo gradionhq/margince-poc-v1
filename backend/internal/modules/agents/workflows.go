@@ -68,9 +68,12 @@ func (e *WorkflowEngine) RegisterWorkflow(h workflow.Handler) {
 }
 
 // HandleEvent is the cg:workflows consumer: every registered handler
-// whose trigger names this event type gets its Match→Plan→Apply pass.
-// Handler failures are isolated — one broken automation never starves
-// its siblings — and land on the run row.
+// whose trigger names this event type runs once per ENABLED automation
+// instance of its type in the event's workspace (B-E15.4) — a paused,
+// archived, or never-configured instance means the handler does not
+// fire, and the instance's params ride the event into Plan. Handler
+// failures are isolated — one broken automation never starves its
+// siblings — and land on the run row.
 func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) error {
 	e.mu.RLock()
 	handlers := append([]workflow.Handler(nil), e.handlers...)
@@ -91,16 +94,67 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 	runCtx = principal.WithCorrelationID(runCtx, ids.NewV7())
 	runCtx = principal.WithCausationEvent(runCtx, env.EventID)
 
+	instances, err := e.liveInstances(runCtx)
+	if err != nil {
+		return fmt.Errorf("loading automation instances: %w", err)
+	}
+
 	var firstErr error
 	for _, h := range handlers {
 		if h.Spec().Trigger.EventType != env.Type {
 			continue
 		}
-		if err := e.runOne(runCtx, h, ev); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("workflow %s: %w", h.Spec().Name, err)
+		for _, inst := range instances[h.Spec().Name] {
+			iev := ev
+			iev.AutomationID = inst.id
+			iev.Params = inst.params
+			if err := e.runOne(runCtx, h, iev); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("workflow %s: %w", h.Spec().Name, err)
+			}
 		}
 	}
 	return firstErr
+}
+
+// automationInstance is the enabled-row slice dispatch needs.
+type automationInstance struct {
+	id     ids.UUID
+	params json.RawMessage
+}
+
+// liveInstances loads the workspace's enabled, unarchived automations,
+// keyed by catalog key (== handler name). Read fresh per event: pausing
+// binds on the very next dispatch, no cache to invalidate.
+func (e *WorkflowEngine) liveInstances(ctx context.Context) (map[string][]automationInstance, error) {
+	out := map[string][]automationInstance{}
+	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT id, key, params FROM automation WHERE enabled AND archived_at IS NULL ORDER BY created_at, id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var inst automationInstance
+			var key string
+			if err := rows.Scan(&inst.id, &key, &inst.params); err != nil {
+				return err
+			}
+			out[key] = append(out[key], inst)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// runKey scopes the idempotency claim to the automation instance: two
+// instances of one type each apply once per event, and a replay of
+// either finds its own claim.
+func runKey(h workflow.Handler, ev workflow.Event) string {
+	return h.IdempotencyKey(ev) + "@" + ev.AutomationID.String()
 }
 
 func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev workflow.Event) error {
@@ -128,7 +182,7 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 			INSERT INTO workflow_run (workspace_id, handler, idempotency_key, trigger_event, planned, status)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'applied')
 			ON CONFLICT (workspace_id, handler, idempotency_key) DO NOTHING`,
-			h.Spec().Name, h.IdempotencyKey(ev), ev.ID, plannedJSON)
+			h.Spec().Name, runKey(h, ev), ev.ID, plannedJSON)
 		if err != nil {
 			return err
 		}
@@ -148,12 +202,12 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 		case errors.Is(applyErr, apperrors.ErrRequiresApproval):
 			_, err = tx.Exec(ctx, `
 				UPDATE workflow_run SET status = 'requires_approval'
-				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, h.IdempotencyKey(ev))
+				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev))
 			return err
 		case applyErr != nil:
 			_, err = tx.Exec(ctx, `
 				UPDATE workflow_run SET status = 'failed', error = $3
-				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, h.IdempotencyKey(ev), applyErr.Error())
+				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev), applyErr.Error())
 			if err != nil {
 				return err
 			}
@@ -165,7 +219,7 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 			}
 			_, err = tx.Exec(ctx, `
 				UPDATE workflow_run SET applied = $3
-				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, h.IdempotencyKey(ev), appliedJSON)
+				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev), appliedJSON)
 			return err
 		}
 	})

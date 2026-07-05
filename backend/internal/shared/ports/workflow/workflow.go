@@ -56,7 +56,11 @@ type Trigger struct {
 	Filter    map[string]any // cheap envelope pre-filter before Match
 }
 
-// Event is the bus envelope slice a handler sees (events.md §2).
+// Event is the bus envelope slice a handler sees (events.md §2), plus
+// the automation instance driving this dispatch: the engine fires a
+// handler once per enabled instance of its type, carrying that
+// instance's validated params — the editor's parameterization reaches
+// the run here.
 type Event struct {
 	ID          ids.UUID
 	Type        string
@@ -64,6 +68,9 @@ type Event struct {
 	OccurredAt  time.Time
 	Entity      datasource.EntityRef
 	Payload     json.RawMessage
+
+	AutomationID ids.UUID
+	Params       json.RawMessage
 }
 
 // Effect is the typed, enumerable set of actions a run may take. No

@@ -20,6 +20,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
@@ -47,6 +48,7 @@ type (
 	consentHandlers     = consent.Handlers
 	collectionsHandlers = collections.Handlers
 	privacyHandlers     = privacy.Handlers
+	agentsHandlers      = agents.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding the module
@@ -64,6 +66,7 @@ type Server struct {
 	consentHandlers
 	collectionsHandlers
 	privacyHandlers
+	agentsHandlers
 	reportHandlers
 	coldstartHandlers
 
@@ -117,7 +120,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		if err := consent.SeedDefaultPurposesTx(ctx, tx); err != nil {
 			return err
 		}
-		return consent.SeedDefaultRetentionTx(ctx, tx)
+		if err := consent.SeedDefaultRetentionTx(ctx, tx); err != nil {
+			return err
+		}
+		return agents.SeedStarterAutomationsTx(ctx, tx)
 	}
 	authH := identity.NewHandlers(identitySvc, seedDefaults)
 
@@ -133,6 +139,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
 		collectionsHandlers: collections.NewHandlers(pool),
 		privacyHandlers:     privacy.NewHandlers(pool),
+		agentsHandlers:      agents.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
 	}
 	for _, opt := range opts {

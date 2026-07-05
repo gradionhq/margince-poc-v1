@@ -1475,6 +1475,120 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ---- Automations (feedback/14 — un-defers E15/ADR-0035 for the EP09.15 editor) ----
+  # Deviation from the spec source (recorded in this batch's decision file):
+  # the three mutating ops carry `security: cookieAuth` + `x-agent-access:
+  # human-only` — the spec leaves them un-annotated, which the ADR-0055
+  # fail-closed lint (gen-agentpolicy) rejects, and an agent configuring
+  # standing automations would be self-granted authority. Tighten-only.
+  /automations/catalog:
+    get:
+      tags: [Automations]
+      operationId: listAutomationCatalog
+      summary: The closed starter library of automation types the workspace can instantiate.
+      description: |
+        Lists the available automation *types* (the closed starter library, E15/ADR-0035) — the left
+        rail of the EP09.15 editor. Each entry names its trigger, action, tier, and a JSON-schema for
+        its parameters. Closed set: the build does not invent types the catalog omits.
+      responses:
+        '200':
+          description: Catalog entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AutomationCatalogEntry' } }
+
+  /automations:
+    get:
+      tags: [Automations]
+      operationId: listAutomations
+      summary: List the workspace's configured automation instances.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Automation instances.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Automation' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+    post:
+      tags: [Automations]
+      operationId: createAutomation
+      security: [ { cookieAuth: [] } ]   # human session only — see the deviation note above
+      x-agent-access: human-only
+      summary: Configure an automation instance from a catalog type (created paused).
+      description: |
+        Instantiates a catalog `key` with parameters. Created **paused** — enabling is a deliberate
+        second step (`PATCH … status=enabled`). Configuring is 🟢; an instance whose actions are 🟡
+        (outbound/irreversible) stages each run to `/approvals` at run time (ADR-0035).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAutomationRequest' }
+      responses:
+        '201':
+          description: Created (paused).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Automation' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /automations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Automations]
+      operationId: getAutomation
+      summary: Read one automation instance.
+      responses:
+        '200':
+          description: The automation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Automation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Automations]
+      operationId: updateAutomation
+      security: [ { cookieAuth: [] } ]   # human session only — see the deviation note above
+      x-agent-access: human-only
+      summary: Update params or flip status (enable / pause).
+      description: Re-parameterize, rename, or flip `status` between `enabled` and `paused` — how the editor's toggle maps to the contract (no separate enable/pause verbs).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAutomationRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Automation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Automations]
+      operationId: deleteAutomation
+      security: [ { cookieAuth: [] } ]   # human session only — see the deviation note above
+      x-agent-access: human-only
+      summary: Delete an automation instance.
+      responses:
+        '204': { description: Deleted. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ------------------------------ /leads ------------------------------------
   /leads:
     get:
@@ -2545,7 +2659,7 @@ paths:
   #   /voice-profiles     (E07; corpus sources via /voice-profiles/{id}/sources)
   #   /drafting-assets    (E07/E08; approval flips `approved` — admin/🟡)
   #   /agent-connections  (E10; revoke via POST /agent-connections/{id}/revoke; events read-only)
-  #   /automations        (E15/ADR-0035; runs via /automations/{id}/runs; 🟡 actions queue to /approvals)
+  #   /automations/{id}/runs   (run records; the CRUD + catalog surface is now SPECIFIED above, feedback/14; run records stay fast-follow — 🟡 actions still queue to /approvals)
   #   /saved-views        (E15; V1 enforces shared_scope=private)
   #   /quotas             (E09; owner XOR team)
   #   /webhook-subscriptions (E10/S-E10.6, A51; HTTPS-only target_url, event_types ⊆ the published
@@ -4184,6 +4298,50 @@ components:
         status: { type: string, enum: [open, in_progress, fulfilled, rejected] }
         assignee_id: { type: [string, 'null'], format: uuid }
         resolution: { type: [string, 'null'] }
+
+    # ---- Automations (E15/ADR-0035, feedback/14) ----
+    AutomationCatalogEntry:
+      type: object
+      description: An automation *type* in the closed starter library (E15/ADR-0035, feedback/14).
+      required: [key, name, trigger, action, params_schema]
+      properties:
+        key: { type: string, description: 'Stable type key, e.g. stalled_deal_nudge.' }
+        name: { type: string }
+        description: { type: string }
+        trigger: { type: string, description: 'What fires it (e.g. deal.stage_changed or schedule).' }
+        action: { type: string, description: 'What it does (e.g. create_task or send_email).' }
+        tier: { type: string, enum: [green, yellow], description: 'yellow actions stage to /approvals at run time.' }
+        params_schema: { type: object, additionalProperties: true, description: JSON-schema for this type's parameters (drives the editor form). }
+
+    Automation:
+      type: object
+      description: A configured automation instance (feedback/14).
+      required: [id, key, name, status, params, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string, description: The catalog type this instance is built from. }
+        name: { type: string }
+        status: { type: string, enum: [enabled, paused] }
+        params: { type: object, additionalProperties: true }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: [string, 'null'], format: date-time }
+
+    CreateAutomationRequest:
+      type: object
+      required: [key, name, params]
+      properties:
+        key: { type: string }
+        name: { type: string }
+        params: { type: object, additionalProperties: true }
+
+    UpdateAutomationRequest:
+      type: object
+      description: Any subset; omit a field to leave it unchanged. `status` flips enable/pause.
+      properties:
+        name: { type: [string, 'null'] }
+        params: { type: [object, 'null'], additionalProperties: true }
+        status: { type: [string, 'null'], enum: [enabled, paused, null] }
 
     # ---- Agent Seat Passport issuance (ADR-0013; the local/A1 path) ----
     IssuePassportRequest:

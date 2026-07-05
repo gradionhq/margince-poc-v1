@@ -45,10 +45,14 @@ func (routeLead) Match(context.Context, workflow.Event) (bool, error) {
 }
 
 func (w routeLead) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
+	dueInDays, err := DueInDays(ev.Params, 1)
+	if err != nil {
+		return workflow.Effect{}, err
+	}
 	args, err := json.Marshal(map[string]any{
 		"kind":    "task",
 		"subject": fmt.Sprintf("Triage new lead %s", ev.Entity.ID),
-		"due_at":  ev.OccurredAt.AddDate(0, 0, 1),
+		"due_at":  ev.OccurredAt.AddDate(0, 0, dueInDays),
 	})
 	if err != nil {
 		return workflow.Effect{}, err
@@ -96,10 +100,14 @@ func (stageChangeCreateTask) Match(_ context.Context, ev workflow.Event) (bool, 
 }
 
 func (w stageChangeCreateTask) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
+	dueInDays, err := DueInDays(ev.Params, 2)
+	if err != nil {
+		return workflow.Effect{}, err
+	}
 	args, err := json.Marshal(map[string]any{
 		"kind":    "task",
 		"subject": "Plan the next step after the stage change",
-		"due_at":  ev.OccurredAt.AddDate(0, 0, 2),
+		"due_at":  ev.OccurredAt.AddDate(0, 0, dueInDays),
 		"links": []map[string]any{{
 			"entity_type": "deal", "entity_id": ev.Entity.ID,
 		}},

@@ -94,7 +94,7 @@ deps:
     canUse: [pgx, oapi]
   agents:
     mayDependOn: [agents, contracts, platform]
-    canUse: [pgx]
+    canUse: [pgx, oapi]
   compose:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, de, contracts, platform, web, migrations]
     canUse: [pgx, chi, oapi]

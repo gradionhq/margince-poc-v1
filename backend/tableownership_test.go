@@ -92,6 +92,7 @@ var tableOwners = map[string]string{
 	"agent_run":    "internal/modules/agents",
 	"runner_job":   "internal/modules/agents",
 	"workflow_run": "internal/modules/agents",
+	"automation":   "internal/modules/agents",
 	// collections
 	"list":        "internal/modules/collections",
 	"list_member": "internal/modules/collections",

@@ -19,13 +19,28 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// seedStarterAutomations enrolls the starter instances the way the
+// workspace bootstrap does — the engine fires nothing for a workspace
+// with no enabled automation rows (B-E15.4 gating).
+func seedStarterAutomations(t *testing.T, e *searchEnv) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		return agents.SeedStarterAutomationsTx(context.Background(), tx)
+	})
+	if err != nil {
+		t.Fatalf("seeding starter automations: %v", err)
+	}
+}
+
 func TestWorkflowRouteLeadAppliesExactlyOnce(t *testing.T) {
 	e := setupSearch(t)
+	seedStarterAutomations(t, e)
 	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
 	engine := compose.NewWorkflowEngine(e.pool)
 
@@ -78,8 +93,94 @@ func TestWorkflowRouteLeadAppliesExactlyOnce(t *testing.T) {
 	}
 }
 
+// The engine is gated on instances: an unseeded workspace fires
+// nothing, a paused instance fires nothing, and enabling flips it live
+// on the very next event (no cache) with its params applied.
+func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
+	e := setupSearch(t)
+	engine := compose.NewWorkflowEngine(e.pool)
+
+	dispatch := func(leadID ids.UUID) {
+		t.Helper()
+		if err := engine.HandleEvent(context.Background(), kevents.Envelope{
+			EventID: ids.NewV7(), Type: "lead.created", WorkspaceID: e.ws,
+			OccurredAt: time.Now().UTC(),
+			Entity:     kevents.EntityRef{Type: "lead", ID: leadID},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	countTasks := func() int {
+		t.Helper()
+		var tasks int
+		err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT count(*) FROM activity WHERE kind = 'task' AND subject LIKE 'Triage new lead%'`).Scan(&tasks)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tasks
+	}
+
+	// No automation rows at all: the registered handler stays silent.
+	first := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
+	dispatch(first)
+	if got := countTasks(); got != 0 {
+		t.Fatalf("unconfigured workspace fired %d tasks, want 0", got)
+	}
+
+	// A PAUSED instance (the contract's created-paused shape) is silent too.
+	var automationID ids.UUID
+	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        'route_lead', 'Route new leads', '{"event_type":"lead.created"}', '{"kind":"create_task"}',
+			        '{"due_in_days": 5}', false)
+			RETURNING id`).Scan(&automationID)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
+	dispatch(second)
+	if got := countTasks(); got != 0 {
+		t.Fatalf("paused instance fired %d tasks, want 0", got)
+	}
+
+	// Enabled: the next event fires exactly once, honoring the instance
+	// params (due 5 days out, not the handler's default 1).
+	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE automation SET enabled = true WHERE id = $1`, automationID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
+	dispatch(third)
+	dispatch(third) // redelivery still applies exactly once
+	if got := countTasks(); got != 1 {
+		t.Fatalf("enabled instance fired %d tasks, want exactly 1", got)
+	}
+	var dueAt, occurredAt time.Time
+	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT a.due_at, r.created_at FROM activity a, workflow_run r
+			WHERE a.kind = 'task' AND r.handler = 'route_lead'`).Scan(&dueAt, &occurredAt)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if days := int(dueAt.Sub(occurredAt).Hours() / 24); days < 4 || days > 5 {
+		t.Fatalf("task due %v after the run — the instance's due_in_days=5 param did not reach Plan", dueAt.Sub(occurredAt))
+	}
+}
+
 func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	e := setupSearch(t)
+	seedStarterAutomations(t, e)
 	e.seedDealFixtures(t, 1, nil)
 	var dealID ids.UUID
 	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {

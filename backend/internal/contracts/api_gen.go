@@ -342,6 +342,42 @@ func (e AuditLogEntryActorType) Valid() bool {
 	}
 }
 
+// Defines values for AutomationStatus.
+const (
+	AutomationStatusEnabled AutomationStatus = "enabled"
+	AutomationStatusPaused  AutomationStatus = "paused"
+)
+
+// Valid indicates whether the value is a known member of the AutomationStatus enum.
+func (e AutomationStatus) Valid() bool {
+	switch e {
+	case AutomationStatusEnabled:
+		return true
+	case AutomationStatusPaused:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationCatalogEntryTier.
+const (
+	Green  AutomationCatalogEntryTier = "green"
+	Yellow AutomationCatalogEntryTier = "yellow"
+)
+
+// Valid indicates whether the value is a known member of the AutomationCatalogEntryTier enum.
+func (e AutomationCatalogEntryTier) Valid() bool {
+	switch e {
+	case Green:
+		return true
+	case Yellow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	BuyingCenter      ColdStartFieldField = "buying_center"
@@ -1494,6 +1530,27 @@ func (e TaggableEntityType) Valid() bool {
 	}
 }
 
+// Defines values for UpdateAutomationRequestStatus.
+const (
+	UpdateAutomationRequestStatusEnabled     UpdateAutomationRequestStatus = "enabled"
+	UpdateAutomationRequestStatusLessThannil UpdateAutomationRequestStatus = "<nil>"
+	UpdateAutomationRequestStatusPaused      UpdateAutomationRequestStatus = "paused"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAutomationRequestStatus enum.
+func (e UpdateAutomationRequestStatus) Valid() bool {
+	switch e {
+	case UpdateAutomationRequestStatusEnabled:
+		return true
+	case UpdateAutomationRequestStatusLessThannil:
+		return true
+	case UpdateAutomationRequestStatusPaused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateDataSubjectRequestStatus.
 const (
 	UpdateDataSubjectRequestStatusFulfilled  UpdateDataSubjectRequestStatus = "fulfilled"
@@ -2321,6 +2378,46 @@ type AuditLogEntryAction string
 // AuditLogEntryActorType defines model for AuditLogEntry.ActorType.
 type AuditLogEntryActorType string
 
+// Automation A configured automation instance (feedback/14).
+type Automation struct {
+	CreatedAt time.Time          `json:"created_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Key The catalog type this instance is built from.
+	Key       string                 `json:"key"`
+	Name      string                 `json:"name"`
+	Params    map[string]interface{} `json:"params"`
+	Status    AutomationStatus       `json:"status"`
+	UpdatedAt *time.Time             `json:"updated_at,omitempty"`
+	Version   *int                   `json:"version,omitempty"`
+}
+
+// AutomationStatus defines model for Automation.Status.
+type AutomationStatus string
+
+// AutomationCatalogEntry An automation *type* in the closed starter library (E15/ADR-0035, feedback/14).
+type AutomationCatalogEntry struct {
+	// Action What it does (e.g. create_task or send_email).
+	Action      string  `json:"action"`
+	Description *string `json:"description,omitempty"`
+
+	// Key Stable type key, e.g. stalled_deal_nudge.
+	Key  string `json:"key"`
+	Name string `json:"name"`
+
+	// ParamsSchema JSON-schema for this type's parameters (drives the editor form).
+	ParamsSchema map[string]interface{} `json:"params_schema"`
+
+	// Tier yellow actions stage to /approvals at run time.
+	Tier *AutomationCatalogEntryTier `json:"tier,omitempty"`
+
+	// Trigger What fires it (e.g. deal.stage_changed or schedule).
+	Trigger string `json:"trigger"`
+}
+
+// AutomationCatalogEntryTier yellow actions stage to /approvals at run time.
+type AutomationCatalogEntryTier string
+
 // BootstrapWorkspaceRequest defines model for BootstrapWorkspaceRequest.
 type BootstrapWorkspaceRequest struct {
 	AdminDisplayName string              `json:"admin_display_name"`
@@ -2436,6 +2533,13 @@ type CreateActivityRequestLinksEntityType string
 
 // CreateActivityRequestMeetingStatus defines model for CreateActivityRequest.MeetingStatus.
 type CreateActivityRequestMeetingStatus string
+
+// CreateAutomationRequest defines model for CreateAutomationRequest.
+type CreateAutomationRequest struct {
+	Key    string                 `json:"key"`
+	Name   string                 `json:"name"`
+	Params map[string]interface{} `json:"params"`
+}
 
 // CreateConsentPurposeRequest defines model for CreateConsentPurposeRequest.
 type CreateConsentPurposeRequest struct {
@@ -3445,6 +3549,16 @@ type UpdateActivityRequest struct {
 	Subject    *string    `json:"subject,omitempty"`
 }
 
+// UpdateAutomationRequest Any subset; omit a field to leave it unchanged. `status` flips enable/pause.
+type UpdateAutomationRequest struct {
+	Name   *string                        `json:"name,omitempty"`
+	Params *map[string]interface{}        `json:"params,omitempty"`
+	Status *UpdateAutomationRequestStatus `json:"status,omitempty"`
+}
+
+// UpdateAutomationRequestStatus defines model for UpdateAutomationRequest.Status.
+type UpdateAutomationRequestStatus string
+
 // UpdateDataSubjectRequest defines model for UpdateDataSubjectRequest.
 type UpdateDataSubjectRequest struct {
 	AssigneeId *openapi_types.UUID             `json:"assignee_id,omitempty"`
@@ -3821,6 +3935,30 @@ type ListAuditLogParams struct {
 	Action *string    `form:"action,omitempty" json:"action,omitempty"`
 	From   *time.Time `form:"from,omitempty" json:"from,omitempty"`
 	To     *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListAutomationsParams defines parameters for ListAutomations.
+type ListAutomationsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// UpdateAutomationParams defines parameters for UpdateAutomation.
+type UpdateAutomationParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // GetAvailabilityParams defines parameters for GetAvailability.
@@ -4576,6 +4714,12 @@ type RejectApprovalJSONRequestBody RejectApprovalJSONBody
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
+
+// CreateAutomationJSONRequestBody defines body for CreateAutomation for application/json ContentType.
+type CreateAutomationJSONRequestBody = CreateAutomationRequest
+
+// UpdateAutomationJSONRequestBody defines body for UpdateAutomation for application/json ContentType.
+type UpdateAutomationJSONRequestBody = UpdateAutomationRequest
 
 // BookMeetingJSONRequestBody defines body for BookMeeting for application/json ContentType.
 type BookMeetingJSONRequestBody BookMeetingJSONBody
@@ -7127,6 +7271,24 @@ type ServerInterface interface {
 	// End the current session and clear the cookie.
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
+	// List the workspace's configured automation instances.
+	// (GET /automations)
+	ListAutomations(w http.ResponseWriter, r *http.Request, params ListAutomationsParams)
+	// Configure an automation instance from a catalog type (created paused).
+	// (POST /automations)
+	CreateAutomation(w http.ResponseWriter, r *http.Request)
+	// The closed starter library of automation types the workspace can instantiate.
+	// (GET /automations/catalog)
+	ListAutomationCatalog(w http.ResponseWriter, r *http.Request)
+	// Delete an automation instance.
+	// (DELETE /automations/{id})
+	DeleteAutomation(w http.ResponseWriter, r *http.Request, id Id)
+	// Read one automation instance.
+	// (GET /automations/{id})
+	GetAutomation(w http.ResponseWriter, r *http.Request, id Id)
+	// Update params or flip status (enable / pause).
+	// (PATCH /automations/{id})
+	UpdateAutomation(w http.ResponseWriter, r *http.Request, id Id, params UpdateAutomationParams)
 	// Free/busy availability for one or more hosts in a window (the `check_availability` MCP verb).
 	// (GET /availability)
 	GetAvailability(w http.ResponseWriter, r *http.Request, params GetAvailabilityParams)
@@ -7433,6 +7595,42 @@ func (_ Unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 // End the current session and clear the cookie.
 // (POST /auth/logout)
 func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the workspace's configured automation instances.
+// (GET /automations)
+func (_ Unimplemented) ListAutomations(w http.ResponseWriter, r *http.Request, params ListAutomationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Configure an automation instance from a catalog type (created paused).
+// (POST /automations)
+func (_ Unimplemented) CreateAutomation(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The closed starter library of automation types the workspace can instantiate.
+// (GET /automations/catalog)
+func (_ Unimplemented) ListAutomationCatalog(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an automation instance.
+// (DELETE /automations/{id})
+func (_ Unimplemented) DeleteAutomation(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read one automation instance.
+// (GET /automations/{id})
+func (_ Unimplemented) GetAutomation(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update params or flip status (enable / pause).
+// (PATCH /automations/{id})
+func (_ Unimplemented) UpdateAutomation(w http.ResponseWriter, r *http.Request, id Id, params UpdateAutomationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8736,6 +8934,224 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAutomations operation middleware
+func (siw *ServerInterfaceWrapper) ListAutomations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAutomationsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAutomations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAutomation operation middleware
+func (siw *ServerInterfaceWrapper) CreateAutomation(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAutomation(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAutomationCatalog operation middleware
+func (siw *ServerInterfaceWrapper) ListAutomationCatalog(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAutomationCatalog(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAutomation operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAutomation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAutomation(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAutomation operation middleware
+func (siw *ServerInterfaceWrapper) GetAutomation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAutomation(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateAutomation operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAutomation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateAutomationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateAutomation(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12730,6 +13146,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/logout", wrapper.Logout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/automations", wrapper.ListAutomations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/automations", wrapper.CreateAutomation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/automations/catalog", wrapper.ListAutomationCatalog)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/automations/{id}", wrapper.DeleteAutomation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/automations/{id}", wrapper.GetAutomation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/automations/{id}", wrapper.UpdateAutomation)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/availability", wrapper.GetAvailability)
