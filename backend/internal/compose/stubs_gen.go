@@ -364,6 +364,10 @@ func (stubs) RunReport(w nethttp.ResponseWriter, r *nethttp.Request, report stri
 	httperr.NotImplemented(w, r, "RunReport")
 }
 
+func (stubs) ExplainReport(w nethttp.ResponseWriter, r *nethttp.Request, report string, params crmcontracts.ExplainReportParams) {
+	httperr.NotImplemented(w, r, "ExplainReport")
+}
+
 func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.SearchParams) {
 	httperr.NotImplemented(w, r, "Search")
 }

@@ -51,9 +51,15 @@ type reportRequest struct {
 // which dimensions may group, which measures may aggregate, which keys
 // may filter — each mapping an API name to a fixed SQL expression.
 type reportSpec struct {
-	entity       datasource.EntityType
-	table        string
+	entity datasource.EntityType
+	table  string
+	// joins widen the FROM side with fixed lookup tables (e.g. the
+	// deal's stage for win_probability); the row grain stays the base
+	// table's — a spec must never join a to-many side, or aggregates
+	// would double-count.
+	joins        []string
 	baseWhere    string
+	basePlain    string // plain-language reading of baseWhere for "Explain This Number"
 	activityWalk bool
 	dimensions   map[string]string
 	measures     map[string]string
@@ -69,6 +75,7 @@ var prebuiltReports = map[string]reportSpec{
 		entity:     datasource.EntityDeal,
 		table:      "deal",
 		baseWhere:  "t.archived_at IS NULL AND t.status = 'open'",
+		basePlain:  "live (unarchived) open deals",
 		dimensions: map[string]string{"organization_id": "t.organization_id", "owner_id": "t.owner_id"},
 		measures:   map[string]string{"amount_minor": "t.amount_minor"},
 		filters:    map[string]string{"owner_id": "t.owner_id", "pipeline_id": "t.pipeline_id"},
@@ -81,6 +88,7 @@ var prebuiltReports = map[string]reportSpec{
 		entity:     datasource.EntityDeal,
 		table:      "deal",
 		baseWhere:  "t.archived_at IS NULL",
+		basePlain:  "live (unarchived) deals",
 		dimensions: map[string]string{"stage_id": "t.stage_id", "status": "t.status", "pipeline_id": "t.pipeline_id"},
 		measures:   map[string]string{"amount_minor": "t.amount_minor"},
 		filters:    map[string]string{"pipeline_id": "t.pipeline_id", "status": "t.status", "owner_id": "t.owner_id"},
@@ -94,6 +102,7 @@ var prebuiltReports = map[string]reportSpec{
 		entity:       datasource.EntityActivity,
 		table:        "activity",
 		baseWhere:    "t.archived_at IS NULL",
+		basePlain:    "live (unarchived) activities",
 		activityWalk: true,
 		dimensions:   map[string]string{"kind": "t.kind", "direction": "t.direction"},
 		measures:     map[string]string{},
@@ -103,6 +112,57 @@ var prebuiltReports = map[string]reportSpec{
 			{Fn: "count", As: "activities"},
 		},
 	},
+	// The forecast (B-E09.10) is a parameterized report over this same
+	// engine, not a separate subsystem. Weighted value follows
+	// formulas-and-rules §6: round(amount_minor × stage.win_probability
+	// / 100) PER DEAL (half away from zero), so the roll-up total equals
+	// the sum of the per-deal weighted values exactly (AC-F1) — the same
+	// expression the drill-through rows expose. Stakeholders never join
+	// in: the grain is one row per deal, so a multi-stakeholder deal
+	// counts once (AC-F2).
+	"forecast": {
+		entity:    datasource.EntityDeal,
+		table:     "deal",
+		joins:     []string{"JOIN stage s ON s.id = t.stage_id"},
+		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
+		basePlain: "open, unarchived deals (win probability read live from the deal's current stage)",
+		dimensions: map[string]string{
+			"owner_id":          "t.owner_id",
+			"stage_id":          "t.stage_id",
+			"pipeline_id":       "t.pipeline_id",
+			"forecast_category": "t.forecast_category",
+			"currency":          "t.currency",
+			"win_probability":   "s.win_probability",
+		},
+		measures: map[string]string{
+			"amount_minor":          "t.amount_minor",
+			"weighted_amount_minor": "round((t.amount_minor * s.win_probability) / 100.0)::bigint",
+		},
+		filters: map[string]string{
+			"owner_id":          "t.owner_id",
+			"stage_id":          "t.stage_id",
+			"pipeline_id":       "t.pipeline_id",
+			"forecast_category": "t.forecast_category",
+			"currency":          "t.currency",
+		},
+		defaultBy: []string{"forecast_category"},
+		defaultAggs: []reportAggregate{
+			{Fn: "count", As: "deals"},
+			{Fn: "sum", Field: "amount_minor", As: "unweighted_minor"},
+			{Fn: "sum", Field: "weighted_amount_minor", As: "weighted_minor"},
+		},
+	},
+}
+
+// fromClause renders the base table (aliased t) plus the spec's fixed
+// lookup joins — the one spelling shared by the aggregate plan and the
+// drill-through, so both read the identical row set.
+func (s reportSpec) fromClause() string {
+	from := s.table + " t"
+	for _, join := range s.joins {
+		from += " " + join
+	}
+	return from
 }
 
 // FieldNotAllowedError maps to 422 report_field_not_allowed.
@@ -113,9 +173,14 @@ func (e *FieldNotAllowedError) Error() string {
 }
 
 // reportOutcome is the executed result plus the validated plan echo.
+// Filters/GroupBy/Aggregates carry the EFFECTIVE plan (defaults applied)
+// so the transport can mint derivation handles for exactly what ran.
 type reportOutcome struct {
 	Report      string
 	Plan        map[string]any
+	Filters     map[string]any
+	GroupBy     []string
+	Aggregates  []reportAggregate
 	Columns     []string
 	Rows        []map[string]any
 	GeneratedAt time.Time
@@ -180,6 +245,9 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 			"group_by":   groupBy,
 			"aggregates": aggregates,
 		},
+		Filters:     req.Filters,
+		GroupBy:     groupBy,
+		Aggregates:  aggregates,
 		Columns:     columns,
 		Rows:        rows,
 		GeneratedAt: time.Now().UTC(),
@@ -198,29 +266,46 @@ func buildSelectList(spec reportSpec, groupBy []string, aggregates []reportAggre
 		selects = append(selects, fmt.Sprintf("%s AS %s", expr, dim))
 		columns = append(columns, dim)
 	}
-	for i, agg := range aggregates {
-		name := agg.As
-		if name == "" {
-			name = agg.Fn
+	for _, agg := range aggregates {
+		name, sel, err := aggregateSelect(spec, agg)
+		if err != nil {
+			return nil, nil, err
 		}
-		switch agg.Fn {
-		case "count":
-			selects = append(selects, fmt.Sprintf("count(*) AS %s", quoteIdent(name)))
-		case "sum", "avg", "min", "max":
-			expr, ok := spec.measures[agg.Field]
-			if !ok {
-				return nil, nil, &FieldNotAllowedError{Field: agg.Field}
-			}
-			selects = append(selects, fmt.Sprintf("%s(%s) AS %s", agg.Fn, expr, quoteIdent(name)))
-		default:
-			return nil, nil, &FieldNotAllowedError{Field: "aggregates[" + fmt.Sprint(i) + "].fn=" + agg.Fn}
-		}
+		selects = append(selects, sel)
 		columns = append(columns, name)
 	}
 	if len(selects) == 0 {
 		return nil, nil, &FieldNotAllowedError{Field: "(empty plan)"}
 	}
 	return columns, selects, nil
+}
+
+// aggregateSelect renders one aggregate's SELECT term against the spec's
+// measure vocabulary. The report plan and the derivation recompute both
+// come through here, so the explained number and the explaining number
+// are spelled by the same expression — reconciliation by construction.
+func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, err error) {
+	name = agg.As
+	if name == "" {
+		name = agg.Fn
+	}
+	if name == reservedDerivationColumn {
+		// The transport injects this key into every aggregate row; an
+		// alias squatting on it would make the handle ambiguous.
+		return "", "", &FieldNotAllowedError{Field: name}
+	}
+	switch agg.Fn {
+	case "count":
+		return name, fmt.Sprintf("count(*) AS %s", quoteIdent(name)), nil
+	case "sum", "avg", "min", "max":
+		expr, ok := spec.measures[agg.Field]
+		if !ok {
+			return "", "", &FieldNotAllowedError{Field: agg.Field}
+		}
+		return name, fmt.Sprintf("%s(%s) AS %s", agg.Fn, expr, quoteIdent(name)), nil
+	default:
+		return "", "", &FieldNotAllowedError{Field: "fn=" + agg.Fn}
+	}
 }
 
 // fetchRows assembles the WHERE side (validated filters + the caller's
@@ -261,8 +346,8 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 			where = append(where, scope)
 		}
 
-		sql := fmt.Sprintf("SELECT %s FROM %s t WHERE %s",
-			strings.Join(selects, ", "), spec.table, strings.Join(where, " AND "))
+		sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s",
+			strings.Join(selects, ", "), spec.fromClause(), strings.Join(where, " AND "))
 		if len(groupBy) > 0 {
 			positions := make([]string, len(groupBy))
 			for i := range groupBy {

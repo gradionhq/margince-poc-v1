@@ -3491,17 +3491,42 @@ type RelationshipListResponse struct {
 	Page PageInfo       `json:"page"`
 }
 
+// ReportDerivation The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
+// the exact filter+group+aggregate plus the underlying source rows, which reconcile
+// exactly to the explained aggregate (AC-X1).
+type ReportDerivation struct {
+	// Aggregates The requested aggregates recomputed over exactly these source rows — equals the explained cell.
+	Aggregates *map[string]interface{} `json:"aggregates,omitempty"`
+	Columns    []string                `json:"columns"`
+
+	// Definition Plain-language reading of the exact filter + group + aggregate that produced the number.
+	Definition  string     `json:"definition"`
+	GeneratedAt *time.Time `json:"generated_at,omitempty"`
+
+	// Plan The validated predicate/group/aggregate set that was resolved.
+	Plan   map[string]interface{} `json:"plan"`
+	Report string                 `json:"report"`
+
+	// Rows The underlying source rows (drill-through), row-scoped exactly like the report.
+	Rows []map[string]interface{} `json:"rows"`
+
+	// TotalRows Source rows matched (rows is capped at the report row limit).
+	TotalRows *int `json:"total_rows,omitempty"`
+}
+
 // ReportResult defines model for ReportResult.
 type ReportResult struct {
 	Columns []string `json:"columns"`
 
-	// DerivationUrl Handle for "Explain This Number" drill-through to source rows.
+	// DerivationUrl Handle for "Explain This Number" drill-through to source rows (`GET /reports/{report}/derivation`); the result-level handle explains the whole filtered set, each row's handle the single cell.
 	DerivationUrl *string    `json:"derivation_url,omitempty"`
 	GeneratedAt   *time.Time `json:"generated_at,omitempty"`
 
 	// Plan The validated query plan that was executed (shown before/after run).
-	Plan      map[string]interface{}   `json:"plan"`
-	Report    string                   `json:"report"`
+	Plan   map[string]interface{} `json:"plan"`
+	Report string                 `json:"report"`
+
+	// Rows Aggregate rows; each carries its own `derivation_url` handle for the exact cell (group keys bound to the row's values).
 	Rows      []map[string]interface{} `json:"rows"`
 	TotalRows *int                     `json:"total_rows,omitempty"`
 }
@@ -4760,6 +4785,15 @@ type UpdateRelationshipParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ExplainReportParams defines parameters for ExplainReport.
+type ExplainReportParams struct {
+	// By The plan's grouping dimensions (each must also appear as a predicate parameter carrying the explained row's group-key value).
+	By *[]string `form:"by,omitempty" json:"by,omitempty"`
+
+	// Agg The plan's aggregates as `fn:field:alias` triplets (field empty for `count`), e.g. `sum:amount_minor:unweighted_minor`.
+	Agg *[]string `form:"agg,omitempty" json:"agg,omitempty"`
 }
 
 // SearchParams defines parameters for Search.
@@ -7625,6 +7659,9 @@ type ServerInterface interface {
 	// Run a report (the `run_report` MCP verb) and return aggregate rows.
 	// (POST /reports/{report})
 	RunReport(w http.ResponseWriter, r *http.Request, report string)
+	// "Explain This Number" — resolve a derivation handle to its definition + source rows.
+	// (GET /reports/{report}/derivation)
+	ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams)
 	// Cross-object search (people, orgs, deals, activities, leads).
 	// (GET /search)
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
@@ -8174,6 +8211,12 @@ func (_ Unimplemented) UpdateRelationship(w http.ResponseWriter, r *http.Request
 // Run a report (the `run_report` MCP verb) and return aggregate rows.
 // (POST /reports/{report})
 func (_ Unimplemented) RunReport(w http.ResponseWriter, r *http.Request, report string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// "Explain This Number" — resolve a derivation handle to its definition + source rows.
+// (GET /reports/{report}/derivation)
+func (_ Unimplemented) ExplainReport(w http.ResponseWriter, r *http.Request, report string, params ExplainReportParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -12922,6 +12965,69 @@ func (siw *ServerInterfaceWrapper) RunReport(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ExplainReport operation middleware
+func (siw *ServerInterfaceWrapper) ExplainReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "report" -------------
+	var report string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "report", chi.URLParam(r, "report"), &report, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "report", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExplainReportParams
+
+	// ------------- Optional query parameter "by" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "by", r.URL.Query(), &params.By, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "by"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "by", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "agg" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "agg", r.URL.Query(), &params.Agg, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "agg"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agg", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExplainReport(w, r, report, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Search operation middleware
 func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request) {
 
@@ -13708,6 +13814,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/reports/{report}", wrapper.RunReport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/reports/{report}/derivation", wrapper.ExplainReport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/search", wrapper.Search)

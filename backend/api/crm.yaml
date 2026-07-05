@@ -2241,6 +2241,61 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /reports/{report}/derivation:
+    parameters:
+      - name: report
+        in: path
+        required: true
+        schema: { type: string }
+        description: Report key (prebuilt) or a saved-report id.
+    get:
+      tags: [Reports]
+      operationId: explainReport
+      summary: '"Explain This Number" — resolve a derivation handle to its definition + source rows.'
+      description: |
+        Resolves the drill-through handle minted as `derivation_url` on every `runReport`
+        aggregate row (features/03 §1.3, AC-R6). Returns (a) the exact filter+group+aggregate
+        definition **in plain language** and (b) the underlying source rows, row-scoped through
+        the SAME RBAC clauses the report itself used — an explanation never out-sees the report.
+        The drill-through rows reconcile exactly to the explained aggregate (AC-X1).
+
+        Query vocabulary: `by` names the plan's grouping dimensions and `agg` its aggregates
+        (`fn:field:alias` triplets); **every other query parameter is an equality predicate**
+        from the report's closed field vocabulary — the group-key values of the explained row
+        plus the plan's filters. An empty predicate value matches SQL NULL (the "no owner"
+        group). An out-of-vocabulary key returns `422 code: report_field_not_allowed`.
+      parameters:
+        - name: by
+          in: query
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+          description: The plan's grouping dimensions (each must also appear as a predicate parameter carrying the explained row's group-key value).
+        - name: agg
+          in: query
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+          description: 'The plan''s aggregates as `fn:field:alias` triplets (field empty for `count`), e.g. `sum:amount_minor:unweighted_minor`.'
+      responses:
+        '200':
+          description: The plain-language definition + drill-through source rows behind the number.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportDerivation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: A predicate key, grouping dimension, or aggregate is outside the report's vocabulary.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # ----------------------------- /search ------------------------------------
   /search:
     get:
@@ -4209,11 +4264,42 @@ components:
         rows:
           type: array
           items: { type: object, additionalProperties: true }
+          description: Aggregate rows; each carries its own `derivation_url` handle for the exact cell (group keys bound to the row's values).
         total_rows: { type: integer }
         generated_at: { type: string, format: date-time }
         derivation_url:
           type: [string, 'null']
-          description: Handle for "Explain This Number" drill-through to source rows.
+          description: Handle for "Explain This Number" drill-through to source rows (`GET /reports/{report}/derivation`); the result-level handle explains the whole filtered set, each row's handle the single cell.
+
+    ReportDerivation:
+      type: object
+      description: |
+        The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
+        the exact filter+group+aggregate plus the underlying source rows, which reconcile
+        exactly to the explained aggregate (AC-X1).
+      required: [report, definition, plan, columns, rows]
+      properties:
+        report: { type: string }
+        definition:
+          type: string
+          description: Plain-language reading of the exact filter + group + aggregate that produced the number.
+        plan:
+          type: object
+          additionalProperties: true
+          description: The validated predicate/group/aggregate set that was resolved.
+        columns:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: The underlying source rows (drill-through), row-scoped exactly like the report.
+        aggregates:
+          type: object
+          additionalProperties: true
+          description: The requested aggregates recomputed over exactly these source rows — equals the explained cell.
+        total_rows: { type: integer, description: Source rows matched (rows is capped at the report row limit). }
+        generated_at: { type: string, format: date-time }
 
     # ---- Search ----
     SearchResult:
