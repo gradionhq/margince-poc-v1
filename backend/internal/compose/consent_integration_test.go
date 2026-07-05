@@ -12,16 +12,10 @@ package compose_test
 // withdrawal re-blocks, and the German double-opt-in norm holds.
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/modules/consent"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"time"
 )
 
 type consentEnv struct {
@@ -212,47 +206,69 @@ func TestConsentDoubleOptInNorm(t *testing.T) {
 	}
 }
 
-// issueDOIToken mints a confirmation token through the store seam under
-// a principal allowed to update the person — the server-side act the
-// (missing) mint endpoint would perform before mailing the link out.
+// issueDOIToken mints a confirmation token over the contract surface
+// (POST /people/{id}/consent/double-opt-in) as the signed-in human —
+// the same call a Settings/capture surface makes before mailing the
+// link out.
 func (c *consentEnv) issueDOIToken(t *testing.T, purposeID string) string {
 	t.Helper()
-	ctx := context.Background()
-	pool, err := database.NewPool(ctx, os.Getenv("MARGINCE_TEST_APP_DSN"))
-	if err != nil {
-		t.Fatal(err)
+	var issued struct {
+		Token     string     `json:"token"`
+		ExpiresAt *time.Time `json:"expires_at"`
 	}
-	t.Cleanup(pool.Close)
-	var wsRaw string
-	if err := c.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, c.slug).Scan(&wsRaw); err != nil {
-		t.Fatalf("workspace lookup: %v", err)
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent/double-opt-in", anyMap{
+		"purpose_id": purposeID, "deliver": false,
+	}, nil, &issued); status != http.StatusCreated {
+		t.Fatalf("issue DOI token → %d", status)
 	}
-	ws, err := ids.Parse(wsRaw)
-	if err != nil {
-		t.Fatal(err)
+	if issued.Token == "" || issued.ExpiresAt == nil {
+		t.Fatalf("DOI issuance response incomplete: %+v", issued)
 	}
-	personID, err := ids.Parse(c.personID)
-	if err != nil {
-		t.Fatal(err)
+	return issued.Token
+}
+
+// The issuance half of the DOI round-trip (feedback/11): a purpose that
+// does not require DOI refuses issuance, and a fresh token supersedes
+// the unredeemed prior one — an old confirmation link in a stale mail
+// can no longer confirm anything.
+func TestDOIIssuanceSupersedesAndValidatesPurpose(t *testing.T) {
+	c := setupConsent(t)
+
+	// transactional does not require double opt-in → 422.
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent/double-opt-in", anyMap{
+		"purpose_id": c.purposes["transactional"],
+	}, nil, nil); status != 422 {
+		t.Fatalf("DOI issuance for a non-DOI purpose → %d, want 422", status)
 	}
-	purpose, err := ids.Parse(purposeID)
-	if err != nil {
-		t.Fatal(err)
+
+	first := c.issueDOIToken(t, c.purposes["marketing_email"])
+	second := c.issueDOIToken(t, c.purposes["marketing_email"])
+
+	// The superseded first token no longer redeems…
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
+		"double_opt_in_token": first,
+	}, nil, nil); status != 422 {
+		t.Fatalf("superseded token redeemed → %d, want 422", status)
 	}
-	sctx := principal.WithWorkspaceID(ctx, ws)
-	sctx = principal.WithCorrelationID(sctx, ids.NewV7())
-	sctx = principal.WithActor(sctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:doi-mint",
-		Permissions: principal.Permissions{
-			Objects:  map[string]principal.ObjectGrant{"person": {Read: true, Update: true}},
-			RowScope: principal.RowScopeAll,
-		},
-	})
-	token, err := consent.NewStore(pool).IssueDoubleOptIn(sctx, personID, purpose)
-	if err != nil {
-		t.Fatalf("issuing the DOI token: %v", err)
+	// …the fresh one does.
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
+		"double_opt_in_token": second,
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("fresh token refused")
 	}
-	return token
+
+	// Issuance is an audited fact.
+	var audit struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := c.call(t, "GET", "/v1/audit-log?entity_type=consent_doi_token", nil, nil, &audit); status != http.StatusOK {
+		t.Fatalf("audit read → %d", status)
+	}
+	if len(audit.Data) != 2 {
+		t.Fatalf("DOI issuances audited %d times, want exactly the 2 mints (a refused issuance writes nothing)", len(audit.Data))
+	}
 }
 
 func TestConsentProofLogIsAppendOnlyAndIdempotent(t *testing.T) {

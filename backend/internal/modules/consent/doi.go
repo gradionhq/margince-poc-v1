@@ -17,6 +17,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -26,20 +27,32 @@ import (
 // mail is a refusal, not a standing credential.
 const doiTokenTTL = 72 * time.Hour
 
+// IssuedDOI carries the plaintext exactly once, with the redemption
+// deadline the caller (and the data subject's mail) may show.
+type IssuedDOI struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
 // IssueDoubleOptIn mints the single-use confirmation token a DOI grant
 // must later present. Only the sha256 lands in the database — the
 // session/passport secret discipline — so a stolen table cannot confirm
-// anything. Delivering the plaintext to the data subject is the
-// caller's concern: the contract defines no mint/delivery endpoint yet
-// (filed as feedback), so this store seam is the one issuance path.
-func (s *Store) IssueDoubleOptIn(ctx context.Context, personID, purposeID ids.UUID) (string, error) {
+// anything. A fresh issuance supersedes any unredeemed prior token for
+// the same (person, purpose): supersession is expiry, so the redeem
+// path needs no extra state. Delivery of the plaintext to the data
+// subject is the deployment's mail seam (the BookMeeting-invite
+// stance); the deliver flag is recorded on the audit row so the
+// issuance intent stays attributable, and the plaintext never lands in
+// audit or outbox payloads.
+func (s *Store) IssueDoubleOptIn(ctx context.Context, personID, purposeID ids.UUID, deliver bool) (IssuedDOI, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
-		return "", err
+		return IssuedDOI{}, err
 	}
 	token, err := newDOIToken()
 	if err != nil {
-		return "", err
+		return IssuedDOI{}, err
 	}
+	var out IssuedDOI
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
 			return err
@@ -58,16 +71,35 @@ func (s *Store) IssueDoubleOptIn(ctx context.Context, personID, purposeID ids.UU
 			return &ValidationError{Field: "purpose_id", Reason: "purpose does not require a double opt-in"}
 		}
 		issued := s.now().UTC()
-		_, err = tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
+			UPDATE consent_doi_token SET expires_at = $3
+			WHERE person_id = $1 AND purpose_id = $2 AND consumed_at IS NULL AND expires_at > $3`,
+			personID, purposeID, issued); err != nil {
+			return err
+		}
+		var tokenRowID ids.UUID
+		if err := tx.QueryRow(ctx, `
 			INSERT INTO consent_doi_token (workspace_id, person_id, purpose_id, token_hash, issued_at, expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)`,
-			personID, purposeID, hashDOIToken(token), issued, issued.Add(doiTokenTTL))
-		return err
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+			RETURNING id`,
+			personID, purposeID, hashDOIToken(token), issued, issued.Add(doiTokenTTL)).Scan(&tokenRowID); err != nil {
+			return err
+		}
+		if _, err := storekit.Audit(ctx, tx, "create", "consent_doi_token", tokenRowID, nil, map[string]any{
+			"person_id":  personID,
+			"purpose_id": purposeID,
+			"expires_at": issued.Add(doiTokenTTL),
+			"deliver":    deliver,
+		}); err != nil {
+			return err
+		}
+		out = IssuedDOI{Token: token, ExpiresAt: issued.Add(doiTokenTTL)}
+		return nil
 	})
 	if err != nil {
-		return "", err
+		return IssuedDOI{}, err
 	}
-	return token, nil
+	return out, nil
 }
 
 // consumeDOIToken redeems the round-trip proof exactly once. The grant

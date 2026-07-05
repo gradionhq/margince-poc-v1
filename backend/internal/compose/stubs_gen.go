@@ -268,6 +268,10 @@ func (stubs) RecordConsent(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "RecordConsent")
 }
 
+func (stubs) IssueDoubleOptIn(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "IssueDoubleOptIn")
+}
+
 func (stubs) MergePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.MergePersonParams) {
 	httperr.NotImplemented(w, r, "MergePerson")
 }

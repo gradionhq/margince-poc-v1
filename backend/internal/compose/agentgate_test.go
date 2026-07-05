@@ -53,6 +53,7 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 		"createPipeline": true, "updatePipeline": true,
 		"createStage": true, "updateStage": true,
 		"issuePassport": true, "revokePassport": true,
+		"issueDoubleOptIn": true,
 	}
 	seen := map[string]bool{}
 	for route, pol := range agentPolicies {

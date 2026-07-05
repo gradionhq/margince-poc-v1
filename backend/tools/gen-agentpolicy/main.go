@@ -16,6 +16,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"go/format"
 	"log"
 	"os"
 	"sort"
@@ -63,7 +64,13 @@ func main() {
 	}
 	sort.Slice(policies, func(i, j int) bool { return policies[i].Route < policies[j].Route })
 
-	if err := os.WriteFile(*out, []byte(renderTable(policies)), 0o600); err != nil {
+	// The emitted table must be gofmt-clean like any committed Go file
+	// (map-literal alignment shifts as route keys change length).
+	formatted, err := format.Source([]byte(renderTable(policies)))
+	if err != nil {
+		log.Fatalf("gen-agentpolicy: formatting the generated table: %v", err)
+	}
+	if err := os.WriteFile(*out, formatted, 0o600); err != nil {
 		log.Fatalf("gen-agentpolicy: %v", err)
 	}
 	fmt.Printf("%d agent policies generated\n", len(policies))

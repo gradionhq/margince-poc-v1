@@ -2387,6 +2387,51 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/consent/double-opt-in:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Compliance]
+      operationId: issueDoubleOptIn
+      security: [ { cookieAuth: [] } ]   # human session only
+      x-agent-access: human-only
+      summary: Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
+      description: |
+        Issues the token that `recordConsent` later redeems (feedback/11 — the contract previously
+        defined only redemption). Mints a **single-use, 72h-TTL** double-opt-in token for `purpose_id`
+        and, when `deliver=true`, queues the confirmation message through the outbound surface for
+        delivery to the data subject. Only the token's **SHA-256 hash is stored** (`consent_doi_token`,
+        data-model §3.4); the plaintext is returned **once** here (and in the delivered message) and
+        never again. A new issuance **supersedes** any unredeemed prior token for the same
+        `(person, purpose)`. Requires the purpose to have `requires_double_opt_in=true` (else `422`).
+        🟢 — an internal issuance; the confirmation send rides the outbound/consent gate like any message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose_id]
+              properties:
+                purpose_id: { type: string, format: uuid }
+                deliver:
+                  type: boolean
+                  default: true
+                  description: When true, queues the confirmation message; false mints only (for a capture surface that delivers its own — feedback/14 booking/forms).
+      responses:
+        '201':
+          description: Token issued (plaintext shown once); confirmation queued when deliver=true.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expires_at]
+                properties:
+                  token: { type: string, description: The single-use DOI token — shown once; redeem via recordConsent.double_opt_in_token. }
+                  expires_at: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /record-grants:
     get:
       tags: [Access]

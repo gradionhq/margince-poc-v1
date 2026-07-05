@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -105,6 +106,30 @@ func (h Handlers) RecordConsent(w http.ResponseWriter, r *http.Request, id crmco
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, wireState(state))
+}
+
+// IssueDoubleOptIn implements (POST /people/{id}/consent/double-opt-in):
+// the issuance half of the DOI round-trip. The plaintext appears in
+// this 201 exactly once; a fresh issuance supersedes the prior
+// unredeemed token for the (person, purpose).
+func (h Handlers) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	var req crmcontracts.IssueDoubleOptInJSONRequestBody
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	deliver := true
+	if req.Deliver != nil {
+		deliver = *req.Deliver
+	}
+	issued, err := h.store.IssueDoubleOptIn(r.Context(), ids.UUID(id), ids.UUID(req.PurposeId), deliver)
+	if err != nil {
+		writeConsentErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}{Token: issued.Token, ExpiresAt: issued.ExpiresAt})
 }
 
 func writeConsentErr(w http.ResponseWriter, r *http.Request, err error) {

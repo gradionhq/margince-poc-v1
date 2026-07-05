@@ -4331,6 +4331,13 @@ type RecordConsentParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// IssueDoubleOptInJSONBody defines parameters for IssueDoubleOptIn.
+type IssueDoubleOptInJSONBody struct {
+	// Deliver When true, queues the confirmation message; false mints only (for a capture surface that delivers its own — feedback/14 booking/forms).
+	Deliver   *bool              `json:"deliver,omitempty"`
+	PurposeId openapi_types.UUID `json:"purpose_id"`
+}
+
 // MergePersonJSONBody defines parameters for MergePerson.
 type MergePersonJSONBody struct {
 	// TargetId The surviving person (B). This row (A) is archived.
@@ -4632,6 +4639,9 @@ type UpdatePersonJSONRequestBody = UpdatePersonRequest
 
 // RecordConsentJSONRequestBody defines body for RecordConsent for application/json ContentType.
 type RecordConsentJSONRequestBody = RecordConsentRequest
+
+// IssueDoubleOptInJSONRequestBody defines body for IssueDoubleOptIn for application/json ContentType.
+type IssueDoubleOptInJSONRequestBody IssueDoubleOptInJSONBody
 
 // MergePersonJSONRequestBody defines body for MergePerson for application/json ContentType.
 type MergePersonJSONRequestBody MergePersonJSONBody
@@ -7258,6 +7268,9 @@ type ServerInterface interface {
 	// Grant or withdraw consent for one purpose — writes an append-only proof row.
 	// (POST /people/{id}/consent)
 	RecordConsent(w http.ResponseWriter, r *http.Request, id Id, params RecordConsentParams)
+	// Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
+	// (POST /people/{id}/consent/double-opt-in)
+	IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
@@ -7702,6 +7715,12 @@ func (_ Unimplemented) GetPersonConsent(w http.ResponseWriter, r *http.Request, 
 // Grant or withdraw consent for one purpose — writes an append-only proof row.
 // (POST /people/{id}/consent)
 func (_ Unimplemented) RecordConsent(w http.ResponseWriter, r *http.Request, id Id, params RecordConsentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
+// (POST /people/{id}/consent/double-opt-in)
+func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -11333,6 +11352,38 @@ func (siw *ServerInterfaceWrapper) RecordConsent(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// IssueDoubleOptIn operation middleware
+func (siw *ServerInterfaceWrapper) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.IssueDoubleOptIn(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergePerson operation middleware
 func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Request) {
 
@@ -12820,6 +12871,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/consent", wrapper.RecordConsent)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/consent/double-opt-in", wrapper.IssueDoubleOptIn)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)
