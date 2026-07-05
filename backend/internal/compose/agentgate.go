@@ -246,14 +246,25 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 // record_type annotation and {id} name the audited record. A patch that
 // would overwrite a human-written value resolves 🟡, same as the MCP
 // tool — transport never changes the tier answer.
+// actionShapedUpdateOps are the update_record twins whose body is a
+// membership/apply request naming ANOTHER record, not a field patch on
+// the routed one — there is no human-typed field the call could
+// overwrite, so the ownership probe has nothing to ask and the call
+// resolves 🟢 by design (an op absent here gets the full probe).
+var actionShapedUpdateOps = map[string]bool{
+	"applyTag":      true,
+	"addListMember": true,
+}
+
 func updateRecordTierInput(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
+	if actionShapedUpdateOps[pol.Op] {
+		return mcp.TierResolverInput{Args: body}, nil
+	}
 	raw := chi.URLParam(r, "id")
 	if raw == "" {
-		// Every dynamic update_record twin routes with {id} today (the
-		// action-shaped twins — applyTag, addListMember — stay green in
-		// the contract because their bodies are not field patches). A
-		// future dynamic route without an id cannot answer the ownership
-		// question, so it is refused, never admitted unprobed.
+		// Every field-patch twin routes with {id} today; a future route
+		// without one cannot answer the ownership question, so it is
+		// refused, never admitted unprobed.
 		return mcp.TierResolverInput{}, fmt.Errorf(
 			"agent gate: %s routes update_record without a target id — the ownership probe cannot run: %w",
 			pol.Op, apperrors.ErrPermissionDenied)
