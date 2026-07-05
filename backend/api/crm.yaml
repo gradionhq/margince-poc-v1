@@ -247,6 +247,29 @@ paths:
 
   # ------------------------------ /passports --------------------------------
   /passports:
+    get:
+      tags: [Identity]
+      operationId: listPassports
+      security: [ { cookieAuth: [] } ]   # human session only
+      x-agent-access: human-only
+      summary: List the caller's own Agent Seat Passports (metadata only — no token re-disclosure).
+      description: |
+        Enumerates the Agent Seat Passports the caller has minted, so Settings can show them and offer
+        revoke (feedback/13). **Never re-discloses a token** — the plaintext is shown once at mint time
+        only. Pairs with the mint (`POST`) and revoke (`DELETE /passports/{id}`) below.
+      responses:
+        '200':
+          description: The caller's passports (metadata).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PassportSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [Identity]
       operationId: issuePassport
@@ -4113,3 +4136,17 @@ components:
           items: { type: string }
         on_behalf_of: { type: string, format: uuid, description: The human whose RBAC bounds every call this passport makes. }
         expires_at:   { type: string, format: date-time }
+
+    PassportSummary:
+      type: object
+      description: Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.
+      required: [id, label, scopes, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, description: Human-given name for the passport (e.g. "Marcus's Claude"). }
+        scopes: { type: array, items: { type: string }, description: The granted MCP scopes (intersected with the minting human's role at bind time). }
+        agent_id: { type: [string, 'null'], description: The agent this passport is bound to, if any. }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }

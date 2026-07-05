@@ -41,6 +41,34 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
+	// The Settings list shows the passport's metadata and never
+	// re-discloses the token — the plaintext existed once, above.
+	var listed struct {
+		Data []map[string]any `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/passports", nil, nil, &listed); status != 200 {
+		t.Fatalf("list passports → %d", status)
+	}
+	if len(listed.Data) != 1 {
+		t.Fatalf("listed %d passports, want 1", len(listed.Data))
+	}
+	if got := listed.Data[0]["id"]; got != minted.PassportID {
+		t.Fatalf("listed id %v, want %s", got, minted.PassportID)
+	}
+	for key, value := range listed.Data[0] {
+		if s, isString := value.(string); isString && strings.Contains(s, minted.Token) {
+			t.Fatalf("passport list re-discloses the token in field %q", key)
+		}
+		if key == "token" || key == "token_hash" {
+			t.Fatalf("passport list carries forbidden field %q", key)
+		}
+	}
+
+	// The list is a human Settings surface: an agent bearer is refused.
+	if status := e.call(t, "GET", "/v1/passports", nil, bearer, nil); status != 401 {
+		t.Fatalf("agent bearer lists passports → %d, want 401", status)
+	}
+
 	// The read scope reads…
 	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != 200 {
 		t.Fatalf("bearer GET /people → %d", status)

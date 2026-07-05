@@ -206,6 +206,40 @@ func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListPassports implements (GET /passports): passport metadata for the
+// Settings list. Tokens are never re-disclosed; agent_id and
+// last_used_at have no storage yet and read as absent (recorded in the
+// batch's decision file).
+func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
+	identity, ok := identityFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, "passports are listed by a signed-in human")
+		return
+	}
+	rows, err := h.svc.ListPassports(r.Context(), identity)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	data := make([]crmcontracts.PassportSummary, 0, len(rows))
+	for _, p := range rows {
+		summary := crmcontracts.PassportSummary{
+			Id:        openapi_types.UUID(p.ID),
+			Scopes:    p.Scopes,
+			CreatedAt: p.CreatedAt,
+			ExpiresAt: &p.ExpiresAt,
+			RevokedAt: p.RevokedAt,
+		}
+		if p.Label != nil {
+			summary.Label = *p.Label
+		}
+		data = append(data, summary)
+	}
+	httperr.WriteJSON(w, http.StatusOK, struct {
+		Data []crmcontracts.PassportSummary `json:"data"`
+	}{Data: data})
+}
+
 // RevokePassport implements (DELETE /passports/{id}): the kill switch.
 func (h Handlers) RevokePassport(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	identity, ok := identityFrom(r.Context())

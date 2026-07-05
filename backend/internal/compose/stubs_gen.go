@@ -224,6 +224,10 @@ func (stubs) ListPartners(w nethttp.ResponseWriter, r *nethttp.Request, params c
 	httperr.NotImplemented(w, r, "ListPartners")
 }
 
+func (stubs) ListPassports(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListPassports")
+}
+
 func (stubs) IssuePassport(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "IssuePassport")
 }

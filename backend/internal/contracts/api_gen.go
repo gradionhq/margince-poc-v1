@@ -2860,6 +2860,23 @@ type PartnerMarginTier string
 // PartnerPartnerRole Functional role (A44/ADR-0034); implementation + dev are Gradion's turf.
 type PartnerPartnerRole string
 
+// PassportSummary Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.
+type PassportSummary struct {
+	// AgentId The agent this passport is bound to
+	AgentId   *string            `json:"agent_id,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Label Human-given name for the passport (e.g. "Marcus's Claude").
+	Label      string     `json:"label"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+
+	// Scopes The granted MCP scopes (intersected with the minting human's role at bind time).
+	Scopes []string `json:"scopes"`
+}
+
 // Person A contact. Mirrors the `person` table.
 type Person struct {
 	// Address Structured postal address.
@@ -7054,6 +7071,9 @@ type ServerInterface interface {
 	// List partner organizations (orgs with a partner row), filterable by role/cert status.
 	// (GET /partners)
 	ListPartners(w http.ResponseWriter, r *http.Request, params ListPartnersParams)
+	// List the caller's own Agent Seat Passports (metadata only — no token re-disclosure).
+	// (GET /passports)
+	ListPassports(w http.ResponseWriter, r *http.Request)
 	// Mint an Agent Seat Passport for the calling user's own agent.
 	// (POST /passports)
 	IssuePassport(w http.ResponseWriter, r *http.Request)
@@ -7459,6 +7479,12 @@ func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id 
 // List partner organizations (orgs with a partner row), filterable by role/cert status.
 // (GET /partners)
 func (_ Unimplemented) ListPartners(w http.ResponseWriter, r *http.Request, params ListPartnersParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the caller's own Agent Seat Passports (metadata only — no token re-disclosure).
+// (GET /passports)
+func (_ Unimplemented) ListPassports(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -10539,6 +10565,26 @@ func (siw *ServerInterfaceWrapper) ListPartners(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListPassports operation middleware
+func (siw *ServerInterfaceWrapper) ListPassports(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPassports(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // IssuePassport operation middleware
 func (siw *ServerInterfaceWrapper) IssuePassport(w http.ResponseWriter, r *http.Request) {
 
@@ -12448,6 +12494,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/partners", wrapper.ListPartners)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/passports", wrapper.ListPassports)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/passports", wrapper.IssuePassport)
