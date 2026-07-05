@@ -116,15 +116,17 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 // connector_connection row, no stored credentials, no cursor. It is the
 // one-shot pull path — the connector holds its live provider session and
 // its own credentials; the registry contributes the run-time connector
-// principal built from the human's LIVE RBAC. Authority is capped exactly
-// where every capture write is: the Sink's per-entry RBAC gate against that
-// principal (a human lacking activity:create cannot land a row), and the
-// REST admission layer already refused a read-seat human on this POST. The
-// write lands through the same Sink, so audit + outbox hold.
+// principal built from the human's LIVE RBAC. Authority is capped where every
+// capture write is: the Sink's per-entry RBAC gate against that principal (a
+// human lacking activity:create cannot land a row — that gate, not any
+// HTTP-layer seat check, is authoritative). The write lands through the same
+// Sink, so audit + outbox hold.
 func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth connector.Auth) error {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
-		return errors.New("capture: only a human runs a one-shot connector pull")
+		// A one-shot pull is a human action; a non-human principal here is a
+		// wiring error, surfaced as a 403 rather than an opaque 500.
+		return fmt.Errorf("capture: only a human runs a one-shot connector pull: %w", apperrors.ErrPermissionDenied)
 	}
 	runCtx, err := r.connectorContext(ctx, c.Descriptor().Name, actor.UserID)
 	if err != nil {

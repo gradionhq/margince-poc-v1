@@ -259,3 +259,15 @@ func TestCaptureAccountsForOutcomes(t *testing.T) {
 		t.Fatalf("write fault should propagate, got %v", err)
 	}
 }
+
+// Close is safe on a connector that never authenticated (the handler defers it
+// unconditionally) and is idempotent, so double teardown can't panic.
+func TestCloseIsSafeWithoutSession(t *testing.T) {
+	c := New()
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close on an unauthenticated connector: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("second Close should be a no-op: %v", err)
+	}
+}

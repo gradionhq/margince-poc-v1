@@ -200,7 +200,6 @@ func (c *Connector) Authenticate(_ context.Context, req connector.AuthRequest) (
 	// (v2 exposes no per-command timeout).
 	//craft:ignore swallowed-errors SetDeadline only errors on a closed conn; we just dialed it, and a failure surfaces as the next read timing out
 	_ = tlsConn.SetDeadline(time.Now().Add(pullDeadline))
-	c.netConn = tlsConn
 
 	client := imapclient.New(tlsConn, &imapclient.Options{})
 	if err := client.Login(creds.Email, creds.Password).Wait(); err != nil {
@@ -208,7 +207,6 @@ func (c *Connector) Authenticate(_ context.Context, req connector.AuthRequest) (
 		_ = client.Close()
 		return nil, ErrLoginRejected
 	}
-	c.conn = client
 
 	cfg := authConfig{Owner: creds.Email, Mailbox: mailbox, MaxMessages: maxMessages}
 	auth, err := json.Marshal(cfg)
@@ -217,7 +215,27 @@ func (c *Connector) Authenticate(_ context.Context, req connector.AuthRequest) (
 		_ = client.Close()
 		return nil, fmt.Errorf("imap: encoding run config: %w", err)
 	}
+	// Live session is established: hand ownership to the connector. From here
+	// the caller MUST Close() on every exit path — the handler defers it right
+	// after a successful Authenticate.
+	c.conn = client
+	c.netConn = tlsConn
 	return auth, nil
+}
+
+// Close releases the live IMAP session. It is idempotent and safe on every
+// exit path — including Authenticate-succeeded-but-Sync-never-reached, where
+// the leaked fd and the client's background read goroutine would otherwise
+// live for the life of the process. The handler defers it after Authenticate.
+func (c *Connector) Close() error {
+	if c.conn == nil {
+		return nil
+	}
+	conn := c.conn
+	c.conn = nil
+	//craft:ignore swallowed-errors best-effort polite logout before the close that actually frees the fd + reader goroutine
+	_ = conn.Logout().Wait()
+	return conn.Close()
 }
 
 // Sync selects the mailbox, fetches the most recent MaxMessages, and emits
@@ -230,8 +248,8 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 	if c.conn == nil {
 		return nil, errors.New("imap: Sync called before Authenticate")
 	}
-	//craft:ignore swallowed-errors deferred best-effort close of the read-only session — the pull's own result (records or error) is the outcome, a close failure changes nothing
-	defer func() { _ = c.conn.Close() }()
+	// The session is closed by the caller's deferred Close() (the handler),
+	// which runs on every exit path — not just the ones that reach here.
 
 	var cfg authConfig
 	if err := json.Unmarshal(auth, &cfg); err != nil {

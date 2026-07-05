@@ -69,6 +69,11 @@ func (h imapConnectHandlers) ConnectImap(w http.ResponseWriter, r *http.Request)
 		writeImapError(w, r, err)
 		return
 	}
+	// Authenticate opened a live session (fd + a background reader goroutine);
+	// own its teardown here so every exit — including a RunTransient failure
+	// before the pull reaches its own cleanup — releases it.
+	//craft:ignore swallowed-errors best-effort teardown of the read-only session; the response is already written by this point
+	defer func() { _ = conn.Close() }()
 	if err := h.registry.RunTransient(ctx, conn, auth); err != nil {
 		writeImapError(w, r, err)
 		return

@@ -71,8 +71,18 @@ browser, rebuild it to the design source of truth, and connect a real mailbox.
     connector-resolved mailbox (single source of truth); `Connector.capture`
     gained direct unit coverage. Smoke-tested live: bad creds → 422, unreachable
     → 502, and a private host (127.0.0.1) → blocked at dial → 502.
-  The credential/isolation/write-shape core was confirmed sound across both
-  reviews.
+  - Round 3: security found no exploitable finding (guard/isolation/credentials
+    confirmed sound); craft found a resource leak — the live IMAP session (fd +
+    v2's background reader goroutine) was closed only in `Sync`'s defer, so any
+    error returning before `Sync` (e.g. `connectorContext` failing) leaked it.
+    Fixed by giving the connector an idempotent `Close()` that the handler
+    `defer`s right after a successful `Authenticate` (closes on every path);
+    `Authenticate` now hands ownership only on full success. Also: the
+    non-human `RunTransient` guard now maps to 403 (was an opaque 500), and a
+    comment overstating a non-existent HTTP-layer seat gate was corrected to
+    name the Sink's `activity:create` gate as authoritative.
+  The credential/isolation/write-shape core was confirmed sound across all
+  three reviews.
 
 Gates at close: `make frontend-check` (lint + 89 unit + build) · `make
 frontend-e2e` (AC suite) · backend `make build vet lint arch-lint test`
