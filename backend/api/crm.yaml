@@ -3757,6 +3757,7 @@ components:
         body: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
         due_at: { type: [string, 'null'], format: date-time, description: Task only. }
+        remind_at: { type: [string, 'null'], format: date-time, description: Task only. }
         assignee_id: { type: [string, 'null'], format: uuid, description: Task only. }
         is_done: { type: boolean, default: false, description: Task only. }
         done_at: { type: [string, 'null'], format: date-time }
@@ -3786,6 +3787,7 @@ components:
         body: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
         due_at: { type: [string, 'null'], format: date-time }
+        remind_at: { type: [string, 'null'], format: date-time }
         assignee_id: { type: [string, 'null'], format: uuid }
         duration_seconds: { type: [integer, 'null'] }
         direction: { type: [string, 'null'], enum: [null, inbound, outbound] }
@@ -3810,6 +3812,7 @@ components:
         body: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
         due_at: { type: [string, 'null'], format: date-time }
+        remind_at: { type: [string, 'null'], format: date-time }
         assignee_id: { type: [string, 'null'], format: uuid }
         is_done: { type: boolean, description: Completing a task writes one audit row + task.completed event. }
 

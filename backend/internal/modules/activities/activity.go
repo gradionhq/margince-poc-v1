@@ -34,6 +34,7 @@ type LogActivityInput struct {
 	OccurredAt   *time.Time
 	Direction    *string
 	DueAt        *time.Time
+	RemindAt     *time.Time
 	AssigneeID   *ids.UUID
 	HostUserID   *ids.UUID
 	SourceSystem *string
@@ -76,10 +77,10 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 		id := ids.NewV7()
 		_, err = tx.Exec(ctx,
 			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
-			                       due_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 			id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
-			in.DueAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by)
+			in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by)
 		if err != nil {
 			if storekit.IsUniqueViolation(err) {
 				return apperrors.ErrConflict
@@ -285,7 +286,7 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 }
 
 const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occurred_at, a.direction,
-	a.due_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
+	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at`
 
 func readActivity(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
@@ -309,7 +310,7 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	var version int64
 
 	err := row.Scan(&id, &wsID, &kind, &a.Subject, &a.Body, &a.OccurredAt, &direction,
-		&a.DueAt, &assigneeID, &a.IsDone, &a.DoneAt, &a.DurationSeconds, &meetingStatus,
+		&a.DueAt, &a.RemindAt, &assigneeID, &a.IsDone, &a.DoneAt, &a.DurationSeconds, &meetingStatus,
 		&a.SourceSystem, &a.SourceId, &a.Source, &a.CapturedBy, &version, &a.CreatedAt, &a.UpdatedAt, &a.ArchivedAt)
 	if err != nil {
 		return a, err

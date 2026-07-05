@@ -29,6 +29,7 @@ type UpdateActivityInput struct {
 	Body       *string
 	OccurredAt *time.Time
 	DueAt      *time.Time
+	RemindAt   *time.Time
 	AssigneeID *ids.UUID
 	IsDone     *bool
 	IfVersion  *int64
@@ -68,14 +69,15 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 			  body = coalesce($3, body),
 			  occurred_at = coalesce($4, occurred_at),
 			  due_at = coalesce($5, due_at),
-			  assignee_id = coalesce($6, assignee_id),
-			  is_done = coalesce($7, is_done),
+			  remind_at = coalesce($6, remind_at),
+			  assignee_id = coalesce($7, assignee_id),
+			  is_done = coalesce($8, is_done),
 			  done_at = CASE
-			    WHEN $7 IS TRUE AND NOT is_done THEN now()
-			    WHEN $7 IS FALSE THEN NULL
+			    WHEN $8 IS TRUE AND NOT is_done THEN now()
+			    WHEN $8 IS FALSE THEN NULL
 			    ELSE done_at END
 			WHERE id = $1`,
-			id, in.Subject, in.Body, in.OccurredAt, in.DueAt, in.AssigneeID, in.IsDone); err != nil {
+			id, in.Subject, in.Body, in.OccurredAt, in.DueAt, in.RemindAt, in.AssigneeID, in.IsDone); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "activity", id, nil, updateDelta(in))
@@ -200,6 +202,9 @@ func updateDelta(in UpdateActivityInput) map[string]any {
 	}
 	if in.DueAt != nil {
 		delta["due_at"] = *in.DueAt
+	}
+	if in.RemindAt != nil {
+		delta["remind_at"] = *in.RemindAt
 	}
 	if in.AssigneeID != nil {
 		delta["assignee_id"] = *in.AssigneeID

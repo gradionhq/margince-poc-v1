@@ -25,6 +25,7 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 		Body:       req.Body,
 		OccurredAt: req.OccurredAt,
 		DueAt:      req.DueAt,
+		RemindAt:   req.RemindAt,
 		IsDone:     req.IsDone,
 		IfVersion:  ifVersion,
 	}

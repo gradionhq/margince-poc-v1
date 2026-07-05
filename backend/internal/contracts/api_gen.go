@@ -2194,7 +2194,10 @@ type Activity struct {
 	MeetingStatus *ActivityMeetingStatus  `json:"meeting_status,omitempty"`
 	OccurredAt    time.Time               `json:"occurred_at"`
 	Raw           *map[string]interface{} `json:"raw,omitempty"`
-	Source        string                  `json:"source"`
+
+	// RemindAt Task only.
+	RemindAt *time.Time `json:"remind_at,omitempty"`
+	Source   string     `json:"source"`
 
 	// SourceId Provider message/event id — idempotency key part.
 	SourceId *string `json:"source_id,omitempty"`
@@ -2546,6 +2549,7 @@ type CreateActivityRequest struct {
 	MeetingStatus *CreateActivityRequestMeetingStatus `json:"meeting_status,omitempty"`
 	OccurredAt    *time.Time                          `json:"occurred_at,omitempty"`
 	Raw           *map[string]interface{}             `json:"raw,omitempty"`
+	RemindAt      *time.Time                          `json:"remind_at,omitempty"`
 	Source        string                              `json:"source"`
 	SourceId      *string                             `json:"source_id,omitempty"`
 	SourceSystem  *string                             `json:"source_system,omitempty"`
@@ -3638,6 +3642,7 @@ type UpdateActivityRequest struct {
 	// IsDone Completing a task writes one audit row + task.completed event.
 	IsDone     *bool      `json:"is_done,omitempty"`
 	OccurredAt *time.Time `json:"occurred_at,omitempty"`
+	RemindAt   *time.Time `json:"remind_at,omitempty"`
 	Subject    *string    `json:"subject,omitempty"`
 }
 
