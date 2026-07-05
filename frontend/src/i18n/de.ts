@@ -171,4 +171,30 @@ export const de = {
   "ai.connectDetail":
     "Erstelle in den Einstellungen einen Passport und verbinde einen MCP-fähigen Agenten mit deinem Workspace. Er liest nur, was du sehen kannst.",
   "ai.paletteHint": "Frag von überall mit",
+
+  "settings.identity": "Du",
+  "settings.workspace": "Workspace-Verbindung",
+  "settings.workspaceSub":
+    "nur lokale Entwicklung — produktiv kommt der Workspace aus der Subdomain",
+  "settings.slug": "Workspace-Slug",
+  "settings.saved": "Gespeichert.",
+  "settings.passports": "Agenten-Passports",
+  "settings.passportsSub":
+    "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
+  "settings.passportLabel": "Agentenname",
+  "settings.mint": "Passport ausstellen",
+  "settings.tokenOnce":
+    "Jetzt kopieren — dieses Token wird nur einmal angezeigt.",
+  "settings.autonomy": "Autonomie-Stufen",
+  "settings.autonomySub": "was sofort läuft und was im Eingang wartet",
+  "settings.tierRead":
+    "Lesen, Zusammenfassen, Entwerfen — läuft sofort, voll protokolliert.",
+  "settings.tierSend":
+    "E-Mail senden, Termine buchen, Daten ändern — wartet auf deine Freigabe.",
+  "settings.tierAdvance": "Deal-Phase vorziehen — immer erst bestätigen.",
+  "settings.locked": "fest",
+  "settings.purposes": "Einwilligungszwecke",
+  "settings.privacy": "Datenschutz-Eingang",
+  "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
+  "settings.due": "fällig {date}",
 } as const satisfies Record<MessageKey, string>;

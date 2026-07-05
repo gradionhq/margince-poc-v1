@@ -168,6 +168,30 @@ export const en = {
   "ai.connectDetail":
     "Mint a passport in Settings and point any MCP-capable agent at your workspace. It reads only what you can see.",
   "ai.paletteHint": "Ask from anywhere with",
+
+  "settings.identity": "You",
+  "settings.workspace": "Workspace connection",
+  "settings.workspaceSub":
+    "local dev only — production resolves the workspace from the subdomain",
+  "settings.slug": "Workspace slug",
+  "settings.saved": "Saved.",
+  "settings.passports": "Agent passports",
+  "settings.passportsSub":
+    "an agent acts as you, never above you — every call re-checks your RBAC",
+  "settings.passportLabel": "Agent name",
+  "settings.mint": "Mint passport",
+  "settings.tokenOnce": "Copy it now — this token is shown once.",
+  "settings.autonomy": "Autonomy tiers",
+  "settings.autonomySub": "what runs instantly vs. what waits in the inbox",
+  "settings.tierRead": "Read, summarize, draft — runs instantly, fully logged.",
+  "settings.tierSend":
+    "Send email, book meetings, change records — waits for your approval.",
+  "settings.tierAdvance": "Advance a deal stage — always confirm-first.",
+  "settings.locked": "locked",
+  "settings.purposes": "Consent purposes",
+  "settings.privacy": "Privacy inbox",
+  "settings.privacySub": "data-subject requests with their statutory deadlines",
+  "settings.due": "due {date}",
 } as const;
 
 export type MessageKey = keyof typeof en;

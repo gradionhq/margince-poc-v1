@@ -17,6 +17,7 @@ import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { ContactsScreen, PersonScreen } from "./screens/people";
 import { ReportsScreen } from "./screens/reports";
+import { SettingsScreen } from "./screens/settings";
 import { TasksScreen } from "./screens/tasks";
 
 // Route → screen. Surfaces land here ticket by ticket; anything not yet
@@ -53,6 +54,8 @@ function ScreenView({ screen, id }: { screen: string; id?: string }) {
       return <ReportsScreen />;
     case "ai":
       return <AskAiScreen />;
+    case "settings":
+      return <SettingsScreen />;
     default:
       return <PendingScreen />;
   }
