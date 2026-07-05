@@ -316,6 +316,14 @@ func (stubs) UpdatePipeline(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "UpdatePipeline")
 }
 
+func (stubs) BookPublicMeeting(w nethttp.ResponseWriter, r *nethttp.Request, hostSlug string, params crmcontracts.BookPublicMeetingParams) {
+	httperr.NotImplemented(w, r, "BookPublicMeeting")
+}
+
+func (stubs) GetPublicAvailability(w nethttp.ResponseWriter, r *nethttp.Request, hostSlug string, params crmcontracts.GetPublicAvailabilityParams) {
+	httperr.NotImplemented(w, r, "GetPublicAvailability")
+}
+
 func (stubs) ListRecordGrants(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRecordGrantsParams) {
 	httperr.NotImplemented(w, r, "ListRecordGrants")
 }

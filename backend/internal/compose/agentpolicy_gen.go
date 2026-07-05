@@ -65,6 +65,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/people/{id}/consent/double-opt-in": {Op: "issueDoubleOptIn", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/people/{id}/merge":                 {Op: "mergePerson", Access: "tool", Tool: "merge_records", RecordType: "person", Tier: "yellow"},
 	"POST /v1/pipelines":                         {Op: "createPipeline", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/public/booking/{host_slug}":        {Op: "bookPublicMeeting", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/record-grants":                     {Op: "createRecordGrant", Access: "tool", Tool: "share_record", RecordType: "record_grant", Tier: "yellow"},
 	"POST /v1/relationships":                     {Op: "createRelationship", Access: "tool", Tool: "create_record", RecordType: "relationship", Tier: "green"},
 	"POST /v1/reports/{report}":                  {Op: "runReport", Access: "tool", Tool: "run_report", RecordType: "", Tier: "green"},

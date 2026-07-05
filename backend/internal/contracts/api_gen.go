@@ -2431,6 +2431,21 @@ type BootstrapWorkspaceRequest struct {
 	WorkspaceName string  `json:"workspace_name"`
 }
 
+// CaptureConsent The consent passthrough every capture surface (booking, public forms, imports) must carry
+// (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
+// wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
+type CaptureConsent struct {
+	// DoubleOptInToken Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false).
+	DoubleOptInToken *string `json:"double_opt_in_token,omitempty"`
+
+	// PolicyVersion Version id of the consent wording shown to the subject.
+	PolicyVersion string             `json:"policy_version"`
+	PurposeId     openapi_types.UUID `json:"purpose_id"`
+
+	// Wording The exact wording shown
+	Wording *string `json:"wording,omitempty"`
+}
+
 // ColdStartField One read-back field. EVERY field carries non-empty evidence + confidence, or it is omitted (no-guess gate).
 type ColdStartField struct {
 	Confidence float32 `json:"confidence"`
@@ -4531,6 +4546,41 @@ type UpdatePipelineParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// BookPublicMeetingJSONBody defines parameters for BookPublicMeeting.
+type BookPublicMeetingJSONBody struct {
+	Booker struct {
+		Email openapi_types.Email `json:"email"`
+		Name  string              `json:"name"`
+	} `json:"booker"`
+
+	// Consent The consent passthrough every capture surface (booking, public forms, imports) must carry
+	// (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
+	// wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
+	Consent CaptureConsent `json:"consent"`
+	End     time.Time      `json:"end"`
+	Start   time.Time      `json:"start"`
+	Subject *string        `json:"subject,omitempty"`
+}
+
+// BookPublicMeetingParams defines parameters for BookPublicMeeting.
+type BookPublicMeetingParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetPublicAvailabilityParams defines parameters for GetPublicAvailability.
+type GetPublicAvailabilityParams struct {
+	From            time.Time `form:"from" json:"from"`
+	To              time.Time `form:"to" json:"to"`
+	DurationMinutes *int      `form:"duration_minutes,omitempty" json:"duration_minutes,omitempty"`
+}
+
 // ListRecordGrantsParams defines parameters for ListRecordGrants.
 type ListRecordGrantsParams struct {
 	RecordType  *ListRecordGrantsParamsRecordType  `form:"record_type,omitempty" json:"record_type,omitempty"`
@@ -4795,6 +4845,9 @@ type CreatePipelineJSONRequestBody = CreatePipelineRequest
 
 // UpdatePipelineJSONRequestBody defines body for UpdatePipeline for application/json ContentType.
 type UpdatePipelineJSONRequestBody = UpdatePipelineRequest
+
+// BookPublicMeetingJSONRequestBody defines body for BookPublicMeeting for application/json ContentType.
+type BookPublicMeetingJSONRequestBody BookPublicMeetingJSONBody
 
 // CreateRecordGrantJSONRequestBody defines body for CreateRecordGrant for application/json ContentType.
 type CreateRecordGrantJSONRequestBody = CreateRecordGrantRequest
@@ -7448,6 +7501,12 @@ type ServerInterface interface {
 	// Update a pipeline (rename / reorder / set default — bounded config).
 	// (PATCH /pipelines/{id})
 	UpdatePipeline(w http.ResponseWriter, r *http.Request, id Id, params UpdatePipelineParams)
+	// Book a meeting from the public page (anonymous) — captures the booker + mandatory consent.
+	// (POST /public/booking/{host_slug})
+	BookPublicMeeting(w http.ResponseWriter, r *http.Request, hostSlug string, params BookPublicMeetingParams)
+	// Free/busy slots for a public booking page (anonymous).
+	// (GET /public/booking/{host_slug}/availability)
+	GetPublicAvailability(w http.ResponseWriter, r *http.Request, hostSlug string, params GetPublicAvailabilityParams)
 	// List manual per-record grants, filtered by record or by subject (A52/ADR-0039).
 	// (GET /record-grants)
 	ListRecordGrants(w http.ResponseWriter, r *http.Request, params ListRecordGrantsParams)
@@ -7949,6 +8008,18 @@ func (_ Unimplemented) GetPipeline(w http.ResponseWriter, r *http.Request, id Id
 // Update a pipeline (rename / reorder / set default — bounded config).
 // (PATCH /pipelines/{id})
 func (_ Unimplemented) UpdatePipeline(w http.ResponseWriter, r *http.Request, id Id, params UpdatePipelineParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Book a meeting from the public page (anonymous) — captures the booker + mandatory consent.
+// (POST /public/booking/{host_slug})
+func (_ Unimplemented) BookPublicMeeting(w http.ResponseWriter, r *http.Request, hostSlug string, params BookPublicMeetingParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Free/busy slots for a public booking page (anonymous).
+// (GET /public/booking/{host_slug}/availability)
+func (_ Unimplemented) GetPublicAvailability(w http.ResponseWriter, r *http.Request, hostSlug string, params GetPublicAvailabilityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -12055,6 +12126,124 @@ func (siw *ServerInterfaceWrapper) UpdatePipeline(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// BookPublicMeeting operation middleware
+func (siw *ServerInterfaceWrapper) BookPublicMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host_slug" -------------
+	var hostSlug string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host_slug", chi.URLParam(r, "host_slug"), &hostSlug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host_slug", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BookPublicMeetingParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BookPublicMeeting(w, r, hostSlug, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPublicAvailability operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicAvailability(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host_slug" -------------
+	var hostSlug string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host_slug", chi.URLParam(r, "host_slug"), &hostSlug, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host_slug", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicAvailabilityParams
+
+	// ------------- Required query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "duration_minutes" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "duration_minutes", r.URL.Query(), &params.DurationMinutes, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "duration_minutes"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "duration_minutes", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicAvailability(w, r, hostSlug, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRecordGrants operation middleware
 func (siw *ServerInterfaceWrapper) ListRecordGrants(w http.ResponseWriter, r *http.Request) {
 
@@ -13323,6 +13512,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/pipelines/{id}", wrapper.UpdatePipeline)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/booking/{host_slug}", wrapper.BookPublicMeeting)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/booking/{host_slug}/availability", wrapper.GetPublicAvailability)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/record-grants", wrapper.ListRecordGrants)

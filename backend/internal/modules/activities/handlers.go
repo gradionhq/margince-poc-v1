@@ -23,6 +23,10 @@ type Handlers struct {
 	store *Store
 	// consent gates the send path; nil fails closed (WithConsent wires it).
 	consent ConsentGate
+	// The public-booking capture seams; nil fails closed
+	// (WithPublicBooking wires them).
+	publicPeople  PersonEnsurer
+	publicConsent ConsentCapturer
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {

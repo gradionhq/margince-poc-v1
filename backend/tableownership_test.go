@@ -70,6 +70,7 @@ var tableOwners = map[string]string{
 	"activity":      "internal/modules/activities",
 	"activity_link": "internal/modules/activities",
 	"attachment":    "internal/modules/activities",
+	"booking_page":  "internal/modules/activities",
 	// approvals (workspace_signing_key backs the approval-token JWS)
 	"approval":              "internal/modules/approvals",
 	"workspace_signing_key": "internal/modules/approvals",

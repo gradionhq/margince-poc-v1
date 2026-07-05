@@ -59,6 +59,7 @@ var idempotentOperations = map[string]bool{
 	"POST /v1/activities/{id}/relink":     true,
 	"POST /v1/activities/{id}/send-email": true,
 	"POST /v1/bookings":                   true,
+	"POST /v1/public/booking/{host_slug}": true,
 	"POST /v1/leads":                      true,
 	"PATCH /v1/leads/{id}":                true,
 	"POST /v1/leads/{id}/promote":         true,

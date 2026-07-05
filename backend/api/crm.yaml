@@ -1475,6 +1475,95 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ---- Public booking (feedback/14 — B-EP09.14 book.html) ----
+  # Deviation from the spec source (recorded in this batch's decision file):
+  # bookPublicMeeting additionally carries `x-agent-access: human-only` —
+  # the ADR-0055 lint is fail-closed on un-annotated mutating ops, and an
+  # agent presenting a passport at the anonymous URL is rejected outright
+  # (the surface is for the anonymous booker; agents book via /bookings).
+  /public/booking/{host_slug}/availability:
+    parameters:
+      - { name: host_slug, in: path, required: true, schema: { type: string }, description: The host's unguessable public booking slug (not the user uuid). }
+    get:
+      tags: [Public]
+      operationId: getPublicAvailability
+      security: []   # anonymous public page
+      summary: Free/busy slots for a public booking page (anonymous).
+      description: |
+        The anonymous read behind the public `book.html` (feedback/14 — B-EP09.14). Resolves the host
+        by `host_slug` and returns candidate slots only — no session, no record data beyond free/busy.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: duration_minutes, in: query, required: false, schema: { type: integer, default: 30 } }
+      responses:
+        '200':
+          description: Candidate free slots.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [slots]
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      required: [start, end]
+                      properties:
+                        start: { type: string, format: date-time }
+                        end:   { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /public/booking/{host_slug}:
+    parameters:
+      - { name: host_slug, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Public]
+      operationId: bookPublicMeeting
+      security: []   # anonymous public page
+      x-agent-access: human-only
+      summary: Book a meeting from the public page (anonymous) — captures the booker + mandatory consent.
+      description: |
+        The anonymous booking behind `book.html` (feedback/14). Captures/matches the booker as a person
+        (idempotent on email), books the slot on the host's calendar, logs the meeting activity.
+        **Consent is mandatory** — a public capture surface must pass the purpose + policy wording/version
+        through (EP07 capture contract, `features/07`); a booking without `consent` is `422`. Rate-limited;
+        no approval token (the host pre-authorized the public page).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start, end, booker, consent]
+              properties:
+                start: { type: string, format: date-time }
+                end:   { type: string, format: date-time }
+                subject: { type: string }
+                booker:
+                  type: object
+                  required: [name, email]
+                  properties:
+                    name:  { type: string }
+                    email: { type: string, format: email }
+                consent: { $ref: '#/components/schemas/CaptureConsent' }
+      responses:
+        '201':
+          description: Booked; a minimal confirmation (no CRM record data disclosed).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [start, end]
+                properties:
+                  start: { type: string, format: date-time }
+                  end:   { type: string, format: date-time }
+        '409': { description: 'Slot no longer available (`code: slot_taken`).', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ---- Automations (feedback/14 — un-defers E15/ADR-0035 for the EP09.15 editor) ----
   # Deviation from the spec source (recorded in this batch's decision file):
   # the three mutating ops carry `security: cookieAuth` + `x-agent-access:
@@ -4298,6 +4387,19 @@ components:
         status: { type: string, enum: [open, in_progress, fulfilled, rejected] }
         assignee_id: { type: [string, 'null'], format: uuid }
         resolution: { type: [string, 'null'] }
+
+    CaptureConsent:
+      type: object
+      description: |
+        The consent passthrough every capture surface (booking, public forms, imports) must carry
+        (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
+        wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
+      required: [purpose_id, policy_version]
+      properties:
+        purpose_id: { type: string, format: uuid }
+        policy_version: { type: string, description: Version id of the consent wording shown to the subject. }
+        wording: { type: [string, 'null'], description: The exact wording shown, stored with the consent event for demonstrability. }
+        double_opt_in_token: { type: [string, 'null'], description: Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false). }
 
     # ---- Automations (E15/ADR-0035, feedback/14) ----
     AutomationCatalogEntry:

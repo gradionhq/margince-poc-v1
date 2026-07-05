@@ -176,6 +176,12 @@ type RecordInput struct {
 	LawfulBasis      *string
 	Source           *string
 	DoubleOptInToken *string
+	// PolicyText/PolicyVersion carry the CaptureConsent passthrough of a
+	// capture surface (feedback/14): the EXACT wording and version shown
+	// to the subject, stored verbatim on the proof row (Art 7(1)
+	// demonstrability). Nil keeps the API-surface defaults.
+	PolicyText    *string
+	PolicyVersion *string
 }
 
 // Record sets one person×purpose state and appends the proof row —
@@ -280,9 +286,9 @@ func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, doiC
 		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, lawful_basis, source,
 		                           policy_text, policy_version, double_opt_in_confirmed_at, captured_at, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, coalesce($5, 'api'), $6, $7, $8, $9, $10)`,
+		        $1, $2, $3, $4, coalesce($5, 'api'), coalesce($6, 'recorded via API'), coalesce($7, 'v1'), $8, $9, $10)`,
 		in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, in.Source,
-		"recorded via API", "v1", doiConfirmedAt, capturedAt, actorID)
+		in.PolicyText, in.PolicyVersion, doiConfirmedAt, capturedAt, actorID)
 	return err
 }
 

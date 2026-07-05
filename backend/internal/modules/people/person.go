@@ -488,3 +488,53 @@ func attachPersonChildren(ctx context.Context, tx pgx.Tx, people []crmcontracts.
 	}
 	return phoneRows.Err()
 }
+
+// EnsurePersonByEmail resolves the live person who owns email, or
+// creates one through the normal governed write path — the idempotent-
+// on-email contract of the public capture surfaces (feedback/14): a
+// returning booker never becomes a duplicate person.
+func (s *Store) EnsurePersonByEmail(ctx context.Context, fullName, email, source string) (ids.UUID, error) {
+	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
+		return ids.Nil, err
+	}
+	lookup := func() (ids.UUID, bool, error) {
+		var id ids.UUID
+		found := false
+		err := s.tx(ctx, func(tx pgx.Tx) error {
+			err := tx.QueryRow(ctx, `
+				SELECT p.id FROM person p
+				JOIN person_email e ON e.person_id = p.id
+				WHERE lower(e.email) = lower($1) AND p.archived_at IS NULL
+				ORDER BY p.created_at LIMIT 1`, email).Scan(&id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			if err == nil {
+				found = true
+			}
+			return err
+		})
+		return id, found, err
+	}
+
+	if id, found, err := lookup(); err != nil || found {
+		return id, err
+	}
+	created, err := s.CreatePerson(ctx, CreatePersonInput{
+		FullName: fullName,
+		Emails:   []PersonEmailInput{{Email: email, EmailType: "work", IsPrimary: true}},
+		Source:   source,
+	})
+	if err == nil {
+		return ids.UUID(created.Id), nil
+	}
+	// A concurrent capture of the same email won the race: its row IS
+	// the idempotent answer.
+	var dup *DuplicateEmailError
+	if errors.As(err, &dup) {
+		if id, found, lookupErr := lookup(); lookupErr == nil && found {
+			return id, nil
+		}
+	}
+	return ids.Nil, err
+}

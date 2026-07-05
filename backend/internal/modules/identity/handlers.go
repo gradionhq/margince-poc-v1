@@ -17,8 +17,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -39,7 +39,7 @@ type Handlers struct {
 	// The unauthenticated endpoints carry their own throttles: login
 	// attempts cost a full Argon2 verification each and bootstrap mints
 	// whole tenants. Fixed windows, in-process (single-binary scope; see
-	// internal/ratelimit).
+	// platform/ratelimit).
 	loginFailures  *ratelimit.Limiter // 10 failures/min per (email, IP)
 	loginPerIP     *ratelimit.Limiter // 30/min per client IP
 	bootstrapPerIP *ratelimit.Limiter // 3/hour per client IP
@@ -286,6 +286,14 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		}
 
 		if publicPaths[r.URL.Path] {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		// The anonymous booking surface has neither session nor workspace
+		// header — its slug IS the tenant resolver. Everything else about
+		// the request (workspace binding, principal, rate limits) is the
+		// public-booking middleware's job, composed downstream.
+		if strings.HasPrefix(r.URL.Path, "/v1/public/") {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}

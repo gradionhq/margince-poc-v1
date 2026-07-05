@@ -14,6 +14,7 @@ package migrations
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,13 @@ import (
 // silently. Here the DATABASE is the source of truth: every base table
 // carrying a workspace_id column must have ENABLE + FORCE row security
 // and at least one policy, or this test names the stragglers.
+// rlsExemptTables are the ratified non-RLS workspace_id tables. Every
+// entry carries its rationale inline — an entry without one is a
+// finding, and a stale entry (table gone or since enrolled) fails too.
+var rlsExemptTables = map[string]string{
+	"booking_page": "the slug→tenant RESOLVER (0036): it is read to discover which workspace to bind BEFORE any GUC exists, exactly like the workspace table itself (data-model §1.2); it carries no CRM record data — slug, workspace, host, revocation only",
+}
+
 func TestRLS_coversEveryTenantTable(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
@@ -49,6 +57,7 @@ func TestRLS_coversEveryTenantTable(t *testing.T) {
 	defer rows.Close()
 
 	tenantTables := 0
+	exemptSeen := map[string]bool{}
 	for rows.Next() {
 		var name string
 		var enabled, forced, hasPolicy bool
@@ -56,11 +65,26 @@ func TestRLS_coversEveryTenantTable(t *testing.T) {
 			t.Fatal(err)
 		}
 		tenantTables++
+		if rationale, exempt := rlsExemptTables[name]; exempt {
+			exemptSeen[name] = true
+			if strings.TrimSpace(rationale) == "" {
+				t.Errorf("rlsExemptTables[%s] has no rationale — an exemption must say why RLS cannot apply", name)
+			}
+			if enabled || forced {
+				t.Errorf("table %s is RLS-exempt by rationale but HAS row security — retire the stale exemption", name)
+			}
+			continue
+		}
 		if !enabled || !forced {
 			t.Errorf("table %s carries workspace_id but RLS is enable=%v force=%v — enrol it in the RLS migration", name, enabled, forced)
 		}
 		if !hasPolicy {
 			t.Errorf("table %s has RLS flags but NO policy — it would deny everything, or worse, a later DISABLE would open it", name)
+		}
+	}
+	for name := range rlsExemptTables {
+		if !exemptSeen[name] {
+			t.Errorf("rlsExemptTables names %s but the schema has no such workspace_id table — retire the stale exemption", name)
 		}
 	}
 	if err := rows.Err(); err != nil {

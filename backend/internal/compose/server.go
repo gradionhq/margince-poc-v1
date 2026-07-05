@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/web"
 )
 
@@ -123,17 +124,32 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		if err := consent.SeedDefaultRetentionTx(ctx, tx); err != nil {
 			return err
 		}
-		return agents.SeedStarterAutomationsTx(ctx, tx)
+		if err := agents.SeedStarterAutomationsTx(ctx, tx); err != nil {
+			return err
+		}
+		// The admin's public booking page: the workspace's only user at
+		// seed time IS the bootstrap admin (RLS scopes the read).
+		var adminID ids.UUID
+		if err := tx.QueryRow(ctx, `SELECT id FROM app_user ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
+			return err
+		}
+		_, err := activities.SeedBookingPageTx(ctx, tx, adminID)
+		return err
 	}
 	authH := identity.NewHandlers(identitySvc, seedDefaults)
 
 	srv := Server{
-		authHandlers:       authH,
-		peopleHandlers:     people.NewHandlers(pool),
-		dealsHandlers:      dealsH,
-		activitiesHandlers: activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
-		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
-		searchHandlers:     search.NewHandlers(pool),
+		authHandlers:   authH,
+		peopleHandlers: people.NewHandlers(pool),
+		dealsHandlers:  dealsH,
+		activitiesHandlers: activities.NewHandlers(pool).
+			WithConsent(consent.NewGate(consent.NewStore(pool))).
+			// The public booking capture seams (feedback/14): people is the
+			// idempotent-on-email person path, consent records the
+			// passthrough — both injected here, never sibling imports.
+			WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}),
+		approvalsHandlers: approvals.NewHandlers(approvals.NewService(pool)),
+		searchHandlers:    search.NewHandlers(pool),
 		// DSR fulfillment executes privacy's erase path — injected here so
 		// consent never imports its sibling.
 		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
@@ -180,7 +196,11 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal))
-	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(api))))
+	// The anonymous booking edge sits between the session middleware
+	// (which lets /v1/public/ through without session or workspace) and
+	// the router: slug→tenant resolution, throttles, system principal.
+	publicEdge := publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api)
+	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(publicEdge))))
 	// The A2 authorization server (ADR-0013): AS endpoints live outside
 	// the generated resource surface but behind the same workspace and
 	// session middleware; the discovery documents are static.

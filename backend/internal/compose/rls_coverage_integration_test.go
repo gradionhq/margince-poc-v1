@@ -73,6 +73,13 @@ func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
 	}
 	defer rows.Close()
 
+	// The ratified non-RLS workspace_id tables (mirrored, with the same
+	// rationale, in migrations/schema_fitness_integration_test.go):
+	// booking_page is the slug→tenant RESOLVER (0036) — read to discover
+	// which workspace to bind BEFORE any GUC exists, like `workspace`
+	// itself; it carries no CRM record data.
+	exempt := map[string]bool{"booking_page": true}
+
 	checked := 0
 	for rows.Next() {
 		var table string
@@ -81,6 +88,12 @@ func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
 			t.Fatal(err)
 		}
 		checked++
+		if exempt[table] {
+			if enabled || forced {
+				t.Errorf("%s is RLS-exempt by rationale but HAS row security — retire the stale exemption", table)
+			}
+			continue
+		}
 		if !enabled {
 			t.Errorf("%s: row level security is not ENABLEd", table)
 		}
