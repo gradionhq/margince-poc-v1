@@ -52,9 +52,21 @@ browser, rebuild it to the design source of truth, and connect a real mailbox.
   cold-start entry accelerator (client-side Web Speech API; distinct from the
   Voice-DNA writing-tone step). Founder-requested.
 
+- **Post-commit review remediation** (craft + security red-team on the IMAP
+  diff): fixed a Sync goroutine-deadlock on a mid-stream Sink error (drain the
+  channel before the deferred Logout, which shares the one connection); bounded
+  the per-message read (`readCapped`, 2 MiB cap → skip oversized, closing a
+  memory/storage-amplification vector from a hostile server); added an egress
+  SSRF guard on the IMAP dial via a new shared `platform/netguard`
+  (`RefusePrivate` dialer Control blocking internal/reserved IPs at connect
+  time) — coldstart's fetcher now shares the same single-source guard (its
+  duplicate `publicIP`/`reservedNets` removed). The credential/isolation/write-
+  shape core was confirmed sound by both reviewers.
+
 Gates at close: `make frontend-check` (lint + 89 unit + build) · `make
 frontend-e2e` (AC suite) · backend `make build vet lint arch-lint test`
-(lint 0 issues) · `make test-integration` (real-PG RLS + HTTP e2e) — all green.
+(lint 0 issues) · `make test-integration` (real-PG RLS + HTTP e2e) · `craft
+static` (0 blocker) — all green.
 `make drift` passes once the contract + generated files are committed together
 (this commit). Deps added: `emersion/go-imap` + `emersion/go-message`.
 

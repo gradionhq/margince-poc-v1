@@ -28,6 +28,7 @@ import (
 	imapclient "github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
 
+	"github.com/gradionhq/margince/backend/internal/platform/netguard"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -50,7 +51,19 @@ const (
 	// maxBodyLen caps the stored email body — the timeline needs a legible
 	// excerpt, not the full multi-megabyte thread with quoted history.
 	maxBodyLen = 8000
+
+	// maxRawLen bounds how many bytes we read from any one message. The host
+	// is tenant-supplied and the server declares each literal's size, so an
+	// unbounded read is a memory/storage-amplification vector: a hostile
+	// server could answer every FETCH with a multi-gigabyte literal. A message
+	// larger than this is skipped, not truncated — a truncated MIME blob is
+	// neither parseable nor honest evidence.
+	maxRawLen = 2 << 20 // 2 MiB
 )
+
+// errMessageTooLarge marks a message whose body exceeds maxRawLen; Sync counts
+// it as skipped rather than reading or persisting an unbounded blob.
+var errMessageTooLarge = errors.New("imap: message exceeds the size cap")
 
 // Connector pulls recent mail from one mailbox. It is stateful for the
 // span of a single authenticate→sync→close request (it holds the live
@@ -156,7 +169,12 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 	}
 
 	addr := net.JoinHostPort(creds.Host, fmt.Sprintf("%d", port))
-	conn, err := client.DialWithDialerTLS(&net.Dialer{Timeout: dialTimeout}, addr, &tls.Config{ServerName: creds.Host, MinVersion: tls.VersionTLS12})
+	// The host is tenant-supplied, so guard egress: RefusePrivate blocks a
+	// dial to any internal/reserved address at connect time (SSRF), and a
+	// refusal reads as unreachable — the client never learns whether an
+	// internal service answered.
+	dialer := &net.Dialer{Timeout: dialTimeout, Control: netguard.RefusePrivate}
+	conn, err := client.DialWithDialerTLS(dialer, addr, &tls.Config{ServerName: creds.Host, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		// A dial failure is a reachability problem, not a credential one —
 		// wrap the sentinel and drop the raw cause so no host/network
@@ -230,43 +248,75 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 	}()
 
 	contacts := map[string]struct{}{}
+	var writeErr error
 	for msg := range messages {
-		raw, err := readSection(msg, section)
-		if err != nil {
-			c.stats.Skipped++
-			continue
-		}
-		parsed, err := parseMessage(raw, c.owner)
-		if err != nil {
-			// A single unparseable message is dropped, not fatal — one bad
-			// MIME structure must not abort the whole pull.
-			c.stats.Skipped++
-			continue
-		}
-		if _, drop := parsed.skipReason(); drop {
-			c.stats.Skipped++
-			continue
-		}
-		rec := parsed.toRecord(raw)
-		if _, err := sink.Upsert(ctx, rec); err != nil {
-			if errors.Is(err, connector.ErrSkip) {
-				// The Sink dropped it (e.g. an erased subject's suppression
-				// list) — a deliberate skip, counted like any other.
-				c.stats.Skipped++
-				continue
-			}
-			return nil, err
-		}
-		c.stats.Captured++
-		if parsed.counterparty != "" {
-			contacts[strings.ToLower(parsed.counterparty)] = struct{}{}
+		if err := c.capture(ctx, msg, section, sink, contacts); err != nil {
+			// A real write fault stops the pull, but we must NOT abandon the
+			// channel mid-stream: the Fetch goroutine would block sending into
+			// it and the deferred Logout would deadlock on the same single
+			// connection. Record the fault, break, and drain below so Fetch
+			// finishes and the connection is free for Logout.
+			writeErr = err
+			break
 		}
 	}
-	if err := <-fetchErr; err != nil {
+	// Drain any remaining messages so the Fetch goroutine can close the channel
+	// and release the connection (see the break above), then join it.
+	for range messages { //nolint:revive // intentional drain to unblock the producer
+	}
+	fetchDone := <-fetchErr
+	if writeErr != nil {
+		return nil, writeErr
+	}
+	if fetchDone != nil {
 		return nil, fmt.Errorf("imap: fetching messages: %w", ErrUnreachable)
 	}
 	c.stats.Contacts = len(contacts)
 	return nil, nil
+}
+
+// capture processes one fetched message: read (bounded), parse, drop if
+// automated/unparseable/suppressed, else upsert through the Sink and tally the
+// counterparty. A dropped message is counted as skipped and returns nil; only
+// a real Sink write fault returns a non-nil error (which stops the pull).
+func (c *Connector) capture(
+	ctx context.Context,
+	msg *imapclient.Message,
+	section *imapclient.BodySectionName,
+	sink connector.Sink,
+	contacts map[string]struct{},
+) error {
+	raw, err := readSection(msg, section)
+	if err != nil {
+		// Oversized or bodyless — dropped, not fatal.
+		c.stats.Skipped++
+		return nil
+	}
+	parsed, err := parseMessage(raw, c.owner)
+	if err != nil {
+		// A single unparseable message is dropped, not fatal — one bad MIME
+		// structure must not abort the whole pull.
+		c.stats.Skipped++
+		return nil
+	}
+	if _, drop := parsed.skipReason(); drop {
+		c.stats.Skipped++
+		return nil
+	}
+	if _, err := sink.Upsert(ctx, parsed.toRecord(raw)); err != nil {
+		if errors.Is(err, connector.ErrSkip) {
+			// The Sink dropped it (e.g. an erased subject's suppression list) —
+			// a deliberate skip, counted like any other.
+			c.stats.Skipped++
+			return nil
+		}
+		return err
+	}
+	c.stats.Captured++
+	if parsed.counterparty != "" {
+		contacts[strings.ToLower(parsed.counterparty)] = struct{}{}
+	}
+	return nil
 }
 
 // Normalize maps ONE raw RFC822 message to its activity record. It is pure
@@ -299,12 +349,30 @@ func (c *Connector) HealthCheck(_ context.Context, _ connector.Auth) error {
 // Stats returns the outcome of the last Sync on this connector.
 func (c *Connector) Stats() Stats { return c.stats }
 
-// readSection copies the fetched body literal into memory; the fetch
-// channel reuses buffers, so the bytes must be read before the next message.
+// readSection copies the fetched body literal into memory; the fetch channel
+// reuses buffers, so the bytes must be read before the next message. The read
+// is bounded to maxRawLen — the server declares the literal's size, so an
+// unbounded ReadAll of a tenant-supplied host is a memory-exhaustion vector.
+// A message larger than the cap is reported too-large so Sync skips it.
 func readSection(msg *imapclient.Message, section *imapclient.BodySectionName) ([]byte, error) {
 	literal := msg.GetBody(section)
 	if literal == nil {
 		return nil, errors.New("imap: message carried no body section")
 	}
-	return io.ReadAll(literal)
+	return readCapped(literal)
+}
+
+// readCapped reads at most maxRawLen bytes from r; a source larger than the cap
+// is rejected as too-large rather than truncated (a truncated MIME blob is not
+// parseable, honest evidence). It reads one byte past the cap to distinguish
+// "exactly at the cap" from "over".
+func readCapped(r io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(r, maxRawLen+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxRawLen {
+		return nil, errMessageTooLarge
+	}
+	return raw, nil
 }

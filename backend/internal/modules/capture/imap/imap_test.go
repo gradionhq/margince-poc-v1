@@ -177,3 +177,29 @@ func TestNormalizeFallsBackToHTMLWhenNoPlainPart(t *testing.T) {
 		t.Errorf("HTML should be tag-stripped into readable text: %q", fields.Body)
 	}
 }
+
+// readCapped bounds the per-message read so a hostile server can't drive an
+// unbounded allocation: at or under the cap reads through, over the cap is
+// rejected as too-large rather than persisted truncated.
+func TestReadCappedRejectsOversizedMessages(t *testing.T) {
+	small := strings.Repeat("a", 1024)
+	got, err := readCapped(strings.NewReader(small))
+	if err != nil {
+		t.Fatalf("under-cap read should succeed: %v", err)
+	}
+	if len(got) != len(small) {
+		t.Fatalf("under-cap read = %d bytes, want %d", len(got), len(small))
+	}
+
+	atCap, err := readCapped(strings.NewReader(strings.Repeat("a", maxRawLen)))
+	if err != nil {
+		t.Fatalf("exactly-at-cap read should succeed: %v", err)
+	}
+	if len(atCap) != maxRawLen {
+		t.Fatalf("at-cap read = %d bytes, want %d", len(atCap), maxRawLen)
+	}
+
+	if _, err := readCapped(strings.NewReader(strings.Repeat("a", maxRawLen+1))); !errors.Is(err, errMessageTooLarge) {
+		t.Fatalf("over-cap read should be errMessageTooLarge, got %v", err)
+	}
+}

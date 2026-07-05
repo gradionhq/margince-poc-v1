@@ -13,9 +13,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 )
 
-// TestWriteImapErrorMapsSentinelsWithoutLeaking proves the transport turns
-// the connector's sentinels into the right status + actionable detail, and
-// that the raw wrapped cause (host/network text) never reaches the client.
+// The transport turns the connector's sentinels into the right status +
+// actionable detail, and the raw wrapped cause (host/network text) never
+// reaches the client.
 func TestWriteImapErrorMapsSentinels(t *testing.T) {
 	cases := []struct {
 		name       string
