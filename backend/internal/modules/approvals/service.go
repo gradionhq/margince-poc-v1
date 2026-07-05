@@ -25,6 +25,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -155,14 +156,12 @@ type AlreadyDecidedError struct{ Status string }
 
 func (e *AlreadyDecidedError) Error() string { return "approval is already " + e.Status }
 
-// EditNotSupportedError maps to 422: the edit-then-approve re-gating path
-// is specified (ADR-0036) but not built yet — refusing loudly beats
-// executing an un-re-gated edit.
-type EditNotSupportedError struct{}
+// InvalidEditError maps to 422: an edited payload that is not a JSON
+// object cannot be canonicalized, so it cannot become an authority.
+type InvalidEditError struct{ Cause error }
 
-func (e *EditNotSupportedError) Error() string {
-	return "edited_payload is not supported yet; reject and let the agent re-propose"
-}
+func (e *InvalidEditError) Error() string { return "edited_payload: " + e.Cause.Error() }
+func (e *InvalidEditError) Unwrap() error { return e.Cause }
 
 // Decide approves or rejects one pending approval. Both verdicts demand
 // the same authority the inbox demands for visibility: the RBAC the
@@ -172,6 +171,26 @@ func (e *EditNotSupportedError) Error() string {
 // UUID may take. An undecidable approval reads as absent, exactly like
 // Get, so Decide never becomes the lookup oracle the inbox filter closed.
 func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason *string) (row, error) {
+	return s.decide(ctx, id, approve, reason, nil)
+}
+
+// DecideEdited is the ADR-0036 §4 modify-then-approve arm: the human's
+// edited payload replaces the staged change under a freshly computed
+// diff_hash, and the decision's audit row carries BOTH the original
+// agent proposal and the human's version. The edited effect re-enters
+// admission from scratch by construction: a kind effect executes under
+// the APPROVER's principal against the stores' own RBAC gates, and an
+// agent redemption only fits the new hash if it re-presents the edited
+// call — which the gate re-tiers and re-admits like any other call. The
+// old hash, and any token bound to it, no longer opens anything.
+func (s *Service) DecideEdited(ctx context.Context, id ids.UUID, edited json.RawMessage) (row, error) {
+	if len(edited) == 0 {
+		return row{}, &InvalidEditError{Cause: errors.New("empty payload")}
+	}
+	return s.decide(ctx, id, true, nil, edited)
+}
+
+func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason *string, edited json.RawMessage) (row, error) {
 	if err := humanOnly(ctx); err != nil {
 		return row{}, err
 	}
@@ -199,21 +218,43 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		if approve {
 			status, action, verdict = "approved", "approve", "approved"
 		}
+		auditEvidence := map[string]any{
+			"kind": a.Kind, "verdict": verdict, "reason": reason,
+		}
+		decidedPayload := map[string]any{
+			"kind": a.Kind, "verdict": verdict, "decided_by": p.UserID,
+		}
+		if edited != nil {
+			canonical, editedHash, hashErr := diffhash.Canonical(edited)
+			if hashErr != nil {
+				return &InvalidEditError{Cause: hashErr}
+			}
+			if _, err := tx.Exec(ctx,
+				`UPDATE approval SET proposed_change = $2, diff_hash = $3 WHERE id = $1`,
+				id, canonical, editedHash); err != nil {
+				return err
+			}
+			// Both sides of the human delta go on the record: what the
+			// agent proposed, and what the human actually released.
+			auditEvidence["edited"] = true
+			auditEvidence["original_change"] = json.RawMessage(a.ProposedChange)
+			auditEvidence["original_diff_hash"] = a.DiffHash
+			auditEvidence["edited_change"] = json.RawMessage(canonical)
+			auditEvidence["edited_diff_hash"] = editedHash
+			decidedPayload["edited"] = true
+			decidedPayload["diff_hash"] = editedHash
+		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE approval SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4
 			 WHERE id = $1`,
 			id, status, p.UserID, reason); err != nil {
 			return err
 		}
-		auditID, err := s.audit(ctx, tx, p, action, id, map[string]any{
-			"kind": a.Kind, "verdict": verdict, "reason": reason,
-		})
+		auditID, err := s.audit(ctx, tx, p, action, id, auditEvidence)
 		if err != nil {
 			return err
 		}
-		if err := s.emit(ctx, tx, p, auditID, "approval.decided", id, map[string]any{
-			"kind": a.Kind, "verdict": verdict, "decided_by": p.UserID,
-		}); err != nil {
+		if err := s.emit(ctx, tx, p, auditID, "approval.decided", id, decidedPayload); err != nil {
 			return err
 		}
 		if echo, ok := kindDecidedEvents[a.Kind]; ok {

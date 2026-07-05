@@ -13,11 +13,10 @@ package agents
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -60,13 +59,11 @@ type stageableTool interface {
 }
 
 // splitApproval pops the approval_id argument and canonicalizes what
-// remains: the diff_hash is computed over the SAME bytes on staging and
-// redemption, so "identical call" is a property of content, not of
-// whitespace or key order.
+// remains through the shared diffhash spelling: the diff_hash is
+// computed over the SAME bytes on staging, redemption, and
+// modify-then-approve, so "identical call" is a property of content,
+// not of whitespace or key order.
 func splitApproval(in json.RawMessage) (args json.RawMessage, approvalID ids.UUID, diffHash string, err error) {
-	// Decoding into interface maps and re-marshaling sorts keys at EVERY
-	// depth — a re-invocation hashes equal by content, not by the
-	// client's serialization habits.
 	var m map[string]any
 	if err := json.Unmarshal(in, &m); err != nil {
 		return nil, ids.Nil, "", &BadArgsError{Cause: err}
@@ -82,10 +79,9 @@ func splitApproval(in json.RawMessage) (args json.RawMessage, approvalID ids.UUI
 		}
 		delete(m, "approval_id")
 	}
-	canonical, err := json.Marshal(m)
+	canonical, diffHash, err := diffhash.Object(m)
 	if err != nil {
 		return nil, ids.Nil, "", err
 	}
-	sum := sha256.Sum256(canonical)
-	return canonical, approvalID, hex.EncodeToString(sum[:]), nil
+	return canonical, approvalID, diffHash, nil
 }

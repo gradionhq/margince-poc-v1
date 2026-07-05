@@ -64,11 +64,18 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 			return
 		}
 	}
+	var a row
+	var err error
 	if req.EditedPayload != nil {
-		writeErr(w, r, &EditNotSupportedError{})
-		return
+		edited, marshalErr := json.Marshal(*req.EditedPayload)
+		if marshalErr != nil {
+			httperr.Write(w, r, httperr.Validation("edited_payload", "malformed_json", marshalErr.Error()))
+			return
+		}
+		a, err = h.svc.DecideEdited(r.Context(), ids.UUID(id), edited)
+	} else {
+		a, err = h.svc.Decide(r.Context(), ids.UUID(id), true, nil)
 	}
-	a, err := h.svc.Decide(r.Context(), ids.UUID(id), true, nil)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -112,9 +119,9 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 		})
 		return
 	}
-	var edit *EditNotSupportedError
+	var edit *InvalidEditError
 	if errors.As(err, &edit) {
-		httperr.Write(w, r, httperr.Validation("edited_payload", "not_supported", edit.Error()))
+		httperr.Write(w, r, httperr.Validation("edited_payload", "malformed", edit.Error()))
 		return
 	}
 	httperr.Write(w, r, err)
