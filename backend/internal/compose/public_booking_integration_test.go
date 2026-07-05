@@ -200,6 +200,45 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 			policyVersion, policyText, source, actorType)
 	}
 
+	// The meeting's provenance is the public surface, never "manual".
+	var activitySource string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT source FROM activity WHERE kind = 'meeting' LIMIT 1`).Scan(&activitySource); err != nil {
+		t.Fatal(err)
+	}
+	if activitySource != "public_booking" {
+		t.Fatalf("public booking captured as source=%q — a stranger's submission must not read as hand-entered", activitySource)
+	}
+
+	// A withdrawal on record STANDS: an anonymous booking naming the same
+	// email cannot flip it back to granted (the consent-hijack guard).
+	var annaID string
+	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM person`).Scan(&annaID); err != nil {
+		t.Fatal(err)
+	}
+	if status := e.call(t, "POST", "/v1/people/"+annaID+"/consent", anyMap{
+		"purpose_id": purposeID, "new_state": "withdrawn",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("withdraw → %d", status)
+	}
+	fourth := anyMap{
+		"start": monday.Add(7 * time.Hour), "end": monday.Add(7*time.Hour + 30*time.Minute),
+		"booker":  anyMap{"name": "Anna Anonymous", "email": "anna@visitor.example"},
+		"consent": consent,
+	}
+	if status := publicCall(t, e, "POST", base, fourth, nil, nil); status != http.StatusCreated {
+		t.Fatalf("booking after withdrawal → %d (the booking may proceed; the consent flip may not)", status)
+	}
+	var stateAfter string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT state FROM person_consent WHERE person_id = $1 AND purpose_id = $2`,
+		annaID, purposeID).Scan(&stateAfter); err != nil {
+		t.Fatal(err)
+	}
+	if stateAfter != "withdrawn" {
+		t.Fatalf("anonymous booking flipped a withdrawal to %q — consent hijack", stateAfter)
+	}
+
 	// The taken slot answers slot_taken.
 	var problem struct {
 		Code string `json:"code"`
@@ -227,8 +266,8 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 		`SELECT count(*) FROM activity WHERE kind = 'meeting'`).Scan(&meetings); err != nil {
 		t.Fatal(err)
 	}
-	if meetings != 3 {
-		t.Fatalf("%d meetings landed, want 3 (the replay applied nothing)", meetings)
+	if meetings != 4 {
+		t.Fatalf("%d meetings landed, want 4 (the replay applied nothing)", meetings)
 	}
 }
 

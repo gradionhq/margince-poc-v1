@@ -199,6 +199,7 @@ func (h Handlers) BookPublicMeeting(w http.ResponseWriter, r *http.Request, host
 		End:     req.End,
 		Subject: subject,
 		Links:   []ActivityLinkInput{{EntityType: "person", EntityID: personID}},
+		Source:  "public_booking",
 	})
 	if err != nil {
 		var slotTaken *SlotTakenError

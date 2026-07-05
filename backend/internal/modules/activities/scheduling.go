@@ -166,6 +166,10 @@ type BookMeetingInput struct {
 	Subject        string
 	AttendeeEmails []string
 	Links          []ActivityLinkInput
+	// Source names the capture surface ("manual" when empty — the
+	// authenticated default). The anonymous page passes public_booking
+	// so a stranger's submission never masquerades as hand-entered data.
+	Source string
 }
 
 // BookMeeting commits one slot: the meeting lands as an activity on the
@@ -214,6 +218,10 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 	if subject == "" {
 		subject = "Meeting"
 	}
+	source := in.Source
+	if source == "" {
+		source = "manual"
+	}
 	occurred := in.Start
 	activity, _, err := s.LogActivity(ctx, LogActivityInput{
 		Kind:       "meeting",
@@ -221,7 +229,7 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 		OccurredAt: &occurred,
 		HostUserID: &in.Host,
 		Links:      in.Links,
-		Source:     "manual",
+		Source:     source,
 	})
 	if _, excluded := storekit.ExclusionViolation(err); excluded {
 		return crmcontracts.Activity{}, &SlotTakenError{Start: in.Start}

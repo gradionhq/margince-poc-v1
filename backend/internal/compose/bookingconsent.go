@@ -49,6 +49,9 @@ func (a bookingConsentAdapter) CaptureBookingConsent(ctx context.Context, person
 		DoubleOptInToken: c.DoubleOptInToken,
 		PolicyText:       c.Wording,
 		PolicyVersion:    &c.PolicyVersion,
+		// Anyone knowing an email can post this form: a decision already
+		// on record — above all a withdrawal — must stand.
+		NeverOverrideExisting: true,
 	})
 	// The consent module's client-fault type is its own; the booking
 	// transport only knows the platform vocabulary — translate here so a

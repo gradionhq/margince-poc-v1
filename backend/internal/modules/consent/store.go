@@ -182,6 +182,14 @@ type RecordInput struct {
 	// demonstrability). Nil keeps the API-surface defaults.
 	PolicyText    *string
 	PolicyVersion *string
+	// NeverOverrideExisting is the anonymous-capture rule: a public
+	// surface asserting "granted" must not flip a decision already on
+	// record — above all a WITHDRAWAL, which an attacker knowing only an
+	// email address could otherwise anonymously reverse. When set, an
+	// existing different state is left untouched and returned as-is
+	// (silently: refusing loudly would make the surface a consent-state
+	// oracle).
+	NeverOverrideExisting bool
 }
 
 // Record sets one person×purpose state and appends the proof row —
@@ -223,6 +231,10 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		if current == in.NewState {
 			out = State{PurposeID: in.PurposeID, PurposeKey: purposeKey, State: current, LawfulBasis: in.LawfulBasis}
 			return nil // idempotent re-assertion: no proof row, no event, no fresh token demanded
+		}
+		if in.NeverOverrideExisting && current != "" {
+			out = State{PurposeID: in.PurposeID, PurposeKey: purposeKey, State: current}
+			return nil // the decision on record stands; an anonymous capture cannot flip it
 		}
 
 		// The German email norm: a DOI purpose's grant is only effective
