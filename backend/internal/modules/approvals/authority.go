@@ -25,7 +25,10 @@ var decisionGrants = map[string][]struct {
 	Object string
 	Action principal.Action
 }{
-	"advance_deal":   {{"deal", principal.ActionUpdate}},
+	"advance_deal": {{"deal", principal.ActionUpdate}},
+	// progress_deal is advance_deal plus a timeline note; the gated effect
+	// is the deal move, so deciding it needs the same grant.
+	"progress_deal":  {{"deal", principal.ActionUpdate}},
 	"promote_lead":   {{"lead", principal.ActionUpdate}, {"person", principal.ActionCreate}},
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below

@@ -36,23 +36,37 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	if err != nil {
 		return "", "", err
 	}
-	subject := "Re: follow-up"
-	if activity.Subject != nil && *activity.Subject != "" {
-		subject = "Re: " + *activity.Subject
+	topic := ""
+	if activity.Subject != nil {
+		topic = *activity.Subject
 	}
-	var body strings.Builder
-	body.WriteString("Hi,\n\nfollowing up on ")
-	if activity.Subject != nil && *activity.Subject != "" {
-		fmt.Fprintf(&body, "%q", *activity.Subject)
+	subject, body := deterministicDraft(topic, intent)
+	return subject, body, nil
+}
+
+// deterministicDraft is the ONE spelling of the deterministic follow-up
+// voice: draft_email (reply-anchored) and draft_follow_ups_for
+// (deal-anchored) both compose over it, so the two draft paths cannot
+// drift. The model-backed Voice-DNA draft replaces the body here once
+// the drafting lane rides the model router.
+func deterministicDraft(topic, intent string) (subject, body string) {
+	subject = "Re: follow-up"
+	if topic != "" {
+		subject = "Re: " + topic
+	}
+	var b strings.Builder
+	b.WriteString("Hi,\n\nfollowing up on ")
+	if topic != "" {
+		fmt.Fprintf(&b, "%q", topic)
 	} else {
-		body.WriteString("our last conversation")
+		b.WriteString("our last conversation")
 	}
-	body.WriteString(".")
+	b.WriteString(".")
 	if strings.TrimSpace(intent) != "" {
-		body.WriteString("\n\n" + strings.TrimSpace(intent))
+		b.WriteString("\n\n" + strings.TrimSpace(intent))
 	}
-	body.WriteString("\n\nBest regards")
-	return subject, body.String(), nil
+	b.WriteString("\n\nBest regards")
+	return subject, b.String()
 }
 
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (json.RawMessage, error) {

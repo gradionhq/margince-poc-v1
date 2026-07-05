@@ -40,6 +40,9 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
 	agents.RegisterIntentTools(registry, search.NewRetriever(search.NewStore(pool), nil))
+	// The pipeline-risk intents: the candidate set rides the deals
+	// module's row-scoped list, the drafts land through the provider.
+	agents.RegisterSlippingTools(registry, slippingLister(pool), followUpDrafter(provider))
 	agents.RegisterCommsTools(registry, commsAdapter{
 		store: activities.NewStore(pool),
 		gate:  consent.NewGate(consent.NewStore(pool)),

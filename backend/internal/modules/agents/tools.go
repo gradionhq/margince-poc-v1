@@ -39,7 +39,10 @@ type StageResolver interface {
 // confirm-first tools now that the approval loop can carry them —
 // `archive_record` and `promote_lead`. run_report joins when the compiled
 // report engine lands; merge/disqualify/enrich/send join with their
-// underlying verbs.
+// underlying verbs. The two write-shaped §2.2 intents that compose over
+// the SAME provider + stage seams — `qualify_lead` and `progress_deal` —
+// register here too; the read/draft intents have their own seams
+// (RegisterIntentTools, RegisterSlippingTools).
 func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages StageResolver, promoter LeadPromoter, ownership FieldOwnership) {
 	r.Register(searchRecords{p: p})
 	r.Register(readRecord{p: p})
@@ -47,6 +50,8 @@ func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages 
 	r.Register(updateRecord{p: p, ownership: ownership})
 	r.Register(logActivity{p: p})
 	r.Register(advanceDeal{p: p, stages: stages})
+	r.Register(progressDeal{p: p, stages: stages})
+	r.Register(qualifyLead{p: p})
 	r.Register(archiveRecord{p: p})
 	r.Register(promoteLead{p: p, promoter: promoter})
 	r.Register(mergeRecords{p: p})
