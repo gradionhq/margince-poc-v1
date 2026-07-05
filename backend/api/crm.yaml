@@ -2264,6 +2264,41 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DataSubjectRequest' }
+  /audit-log:
+    get:
+      tags: [Compliance]
+      operationId: listAuditLog
+      security: [ { cookieAuth: [] } ]   # human session only
+      x-agent-access: human-only
+      summary: Read the human+agent-attributable audit log (Settings governance view).
+      description: |
+        Cursor-paginated read over `audit_log` (feedback/13, un-defers the fast-follow stub). Powers
+        AC-settings-16 (B-EP09.13b) — the live-filterable audit view. Every entry attributes the actor
+        (`human:*` / `agent:*` + `passport_id`), the action, and the target. Admin/compliance scope;
+        read-only.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - { name: actor, in: query, schema: { type: string }, description: 'Typed principal filter, e.g. human:<uuid> or agent:sdr.' }
+        - { name: entity_type, in: query, schema: { type: string } }
+        - { name: entity_id, in: query, schema: { type: string, format: uuid } }
+        - { name: action, in: query, schema: { type: string }, description: 'One of the AuditLogEntry.action values.' }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: A page of audit entries, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AuditLogEntry' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /consent-purposes:
     get:
       tags: [Compliance]
@@ -2577,7 +2612,6 @@ paths:
   #   /embeddings, /context-graph/*                      (pgvector retrieval store)
   #   /workflow-runs                                     (workflow registry run records)
   #   /attachments                                       (S3/MinIO refs — schema exists; endpoints fast-follow)
-  #   /audit-log                                         (read API for AuditLogEntry — admin/compliance; fast-follow)
   #   /users, /teams, /roles                             (admin identity mgmt — schema below; CRUD fast-follow)
   # =========================================================================
 

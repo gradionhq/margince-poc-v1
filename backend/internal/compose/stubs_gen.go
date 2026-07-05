@@ -68,6 +68,10 @@ func (stubs) RejectApproval(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "RejectApproval")
 }
 
+func (stubs) ListAuditLog(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAuditLogParams) {
+	httperr.NotImplemented(w, r, "ListAuditLog")
+}
+
 func (stubs) Login(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "Login")
 }

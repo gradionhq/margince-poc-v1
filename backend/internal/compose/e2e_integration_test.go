@@ -391,6 +391,24 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 			t.Error("archived person still appears in the default list")
 		}
 	}
+
+	// --- the governance audit view reflects the session's own trail ---
+	var audit struct {
+		Data []anyMap `json:"data"`
+		Page anyMap   `json:"page"`
+	}
+	if status := e.call(t, "GET", "/v1/audit-log?entity_type=person&action=archive", nil, nil, &audit); status != http.StatusOK {
+		t.Fatalf("audit log = %d", status)
+	}
+	found := false
+	for _, entry := range audit.Data {
+		if entry["entity_id"] == personID && entry["actor_type"] == "human" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the person archive is missing from the filtered audit view: %v", audit.Data)
+	}
 }
 
 func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {

@@ -246,6 +246,102 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for AuditLogEntryAction.
+const (
+	AdvanceStage    AuditLogEntryAction = "advance_stage"
+	Anonymize       AuditLogEntryAction = "anonymize"
+	Approve         AuditLogEntryAction = "approve"
+	Archive         AuditLogEntryAction = "archive"
+	Assign          AuditLogEntryAction = "assign"
+	ConsentGrant    AuditLogEntryAction = "consent_grant"
+	ConsentWithdraw AuditLogEntryAction = "consent_withdraw"
+	Create          AuditLogEntryAction = "create"
+	Disqualify      AuditLogEntryAction = "disqualify"
+	Erase           AuditLogEntryAction = "erase"
+	Export          AuditLogEntryAction = "export"
+	Login           AuditLogEntryAction = "login"
+	Merge           AuditLogEntryAction = "merge"
+	Promote         AuditLogEntryAction = "promote"
+	RecordShare     AuditLogEntryAction = "record_share"
+	RecordUnshare   AuditLogEntryAction = "record_unshare"
+	Reject          AuditLogEntryAction = "reject"
+	Restore         AuditLogEntryAction = "restore"
+	SendEmail       AuditLogEntryAction = "send_email"
+	Update          AuditLogEntryAction = "update"
+)
+
+// Valid indicates whether the value is a known member of the AuditLogEntryAction enum.
+func (e AuditLogEntryAction) Valid() bool {
+	switch e {
+	case AdvanceStage:
+		return true
+	case Anonymize:
+		return true
+	case Approve:
+		return true
+	case Archive:
+		return true
+	case Assign:
+		return true
+	case ConsentGrant:
+		return true
+	case ConsentWithdraw:
+		return true
+	case Create:
+		return true
+	case Disqualify:
+		return true
+	case Erase:
+		return true
+	case Export:
+		return true
+	case Login:
+		return true
+	case Merge:
+		return true
+	case Promote:
+		return true
+	case RecordShare:
+		return true
+	case RecordUnshare:
+		return true
+	case Reject:
+		return true
+	case Restore:
+		return true
+	case SendEmail:
+		return true
+	case Update:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuditLogEntryActorType.
+const (
+	AuditLogEntryActorTypeAgent     AuditLogEntryActorType = "agent"
+	AuditLogEntryActorTypeConnector AuditLogEntryActorType = "connector"
+	AuditLogEntryActorTypeHuman     AuditLogEntryActorType = "human"
+	AuditLogEntryActorTypeSystem    AuditLogEntryActorType = "system"
+)
+
+// Valid indicates whether the value is a known member of the AuditLogEntryActorType enum.
+func (e AuditLogEntryActorType) Valid() bool {
+	switch e {
+	case AuditLogEntryActorTypeAgent:
+		return true
+	case AuditLogEntryActorTypeConnector:
+		return true
+	case AuditLogEntryActorTypeHuman:
+		return true
+	case AuditLogEntryActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	BuyingCenter      ColdStartFieldField = "buying_center"
@@ -305,22 +401,22 @@ func (e ColdStartProposalStatus) Valid() bool {
 
 // Defines values for ConsentEventActorType.
 const (
-	Agent     ConsentEventActorType = "agent"
-	Connector ConsentEventActorType = "connector"
-	Human     ConsentEventActorType = "human"
-	System    ConsentEventActorType = "system"
+	ConsentEventActorTypeAgent     ConsentEventActorType = "agent"
+	ConsentEventActorTypeConnector ConsentEventActorType = "connector"
+	ConsentEventActorTypeHuman     ConsentEventActorType = "human"
+	ConsentEventActorTypeSystem    ConsentEventActorType = "system"
 )
 
 // Valid indicates whether the value is a known member of the ConsentEventActorType enum.
 func (e ConsentEventActorType) Valid() bool {
 	switch e {
-	case Agent:
+	case ConsentEventActorTypeAgent:
 		return true
-	case Connector:
+	case ConsentEventActorTypeConnector:
 		return true
-	case Human:
+	case ConsentEventActorTypeHuman:
 		return true
-	case System:
+	case ConsentEventActorTypeSystem:
 		return true
 	default:
 		return false
@@ -2191,6 +2287,40 @@ type ApproveRequest struct {
 	EditedPayload *map[string]interface{} `json:"edited_payload,omitempty"`
 }
 
+// AuditLogEntry An append-only audit row. Mirrors the `audit_log` table.
+type AuditLogEntry struct {
+	Action AuditLogEntryAction `json:"action"`
+
+	// ActorId User uuid, agent id, connector name (e.g. connector:gmail), or 'system'.
+	ActorId   string                  `json:"actor_id"`
+	ActorType AuditLogEntryActorType  `json:"actor_type"`
+	After     *map[string]interface{} `json:"after,omitempty"`
+
+	// AuthorizationRule Which RBAC/scope rule allowed it.
+	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
+	Before            *map[string]interface{} `json:"before,omitempty"`
+	EntityId          *openapi_types.UUID     `json:"entity_id,omitempty"`
+	EntityType        string                  `json:"entity_type"`
+
+	// Evidence e.g. which inbound email/meeting triggered a promotion.
+	Evidence   *map[string]interface{} `json:"evidence,omitempty"`
+	Id         openapi_types.UUID      `json:"id"`
+	OccurredAt time.Time               `json:"occurred_at"`
+
+	// OnBehalfOf The human authority for an agent action.
+	OnBehalfOf *openapi_types.UUID `json:"on_behalf_of,omitempty"`
+
+	// PassportId Agent Seat Passport that authorized an agent action.
+	PassportId  *openapi_types.UUID `json:"passport_id,omitempty"`
+	WorkspaceId openapi_types.UUID  `json:"workspace_id"`
+}
+
+// AuditLogEntryAction defines model for AuditLogEntry.Action.
+type AuditLogEntryAction string
+
+// AuditLogEntryActorType defines model for AuditLogEntry.ActorType.
+type AuditLogEntryActorType string
+
 // BootstrapWorkspaceRequest defines model for BootstrapWorkspaceRequest.
 type BootstrapWorkspaceRequest struct {
 	AdminDisplayName string              `json:"admin_display_name"`
@@ -3667,6 +3797,30 @@ type ApproveApprovalParams struct {
 // RejectApprovalJSONBody defines parameters for RejectApproval.
 type RejectApprovalJSONBody struct {
 	Reason *string `json:"reason,omitempty"`
+}
+
+// ListAuditLogParams defines parameters for ListAuditLog.
+type ListAuditLogParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Actor Typed principal filter, e.g. human:<uuid> or agent:sdr.
+	Actor      *string             `form:"actor,omitempty" json:"actor,omitempty"`
+	EntityType *string             `form:"entity_type,omitempty" json:"entity_type,omitempty"`
+	EntityId   *openapi_types.UUID `form:"entity_id,omitempty" json:"entity_id,omitempty"`
+
+	// Action One of the AuditLogEntry.action values.
+	Action *string    `form:"action,omitempty" json:"action,omitempty"`
+	From   *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To     *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // GetAvailabilityParams defines parameters for GetAvailability.
@@ -6954,6 +7108,9 @@ type ServerInterface interface {
 	// Reject a staged action (discards it; nothing commits).
 	// (POST /approvals/{id}/reject)
 	RejectApproval(w http.ResponseWriter, r *http.Request, id Id)
+	// Read the human+agent-attributable audit log (Settings governance view).
+	// (GET /audit-log)
+	ListAuditLog(w http.ResponseWriter, r *http.Request, params ListAuditLogParams)
 	// Authenticate with email + password (+ MFA when required) and open a session.
 	// (POST /auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
@@ -7245,6 +7402,12 @@ func (_ Unimplemented) ApproveApproval(w http.ResponseWriter, r *http.Request, i
 // Reject a staged action (discards it; nothing commits).
 // (POST /approvals/{id}/reject)
 func (_ Unimplemented) RejectApproval(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read the human+agent-attributable audit log (Settings governance view).
+// (GET /audit-log)
+func (_ Unimplemented) ListAuditLog(w http.ResponseWriter, r *http.Request, params ListAuditLogParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8390,6 +8553,136 @@ func (siw *ServerInterfaceWrapper) RejectApproval(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RejectApproval(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAuditLog operation middleware
+func (siw *ServerInterfaceWrapper) ListAuditLog(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditLogParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "actor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actor", r.URL.Query(), &params.Actor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entity_type", r.URL.Query(), &params.EntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entity_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entity_id", r.URL.Query(), &params.EntityId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuditLog(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12377,6 +12670,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/approvals/{id}/reject", wrapper.RejectApproval)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/audit-log", wrapper.ListAuditLog)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/login", wrapper.Login)

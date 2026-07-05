@@ -81,8 +81,8 @@ deps:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   privacy:
-    mayDependOn: [platform]
-    canUse: [pgx]
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   deals:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

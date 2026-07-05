@@ -46,6 +46,7 @@ type (
 	searchHandlers      = search.Handlers
 	consentHandlers     = consent.Handlers
 	collectionsHandlers = collections.Handlers
+	privacyHandlers     = privacy.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding the module
@@ -62,6 +63,7 @@ type Server struct {
 	searchHandlers
 	consentHandlers
 	collectionsHandlers
+	privacyHandlers
 	reportHandlers
 	coldstartHandlers
 
@@ -130,6 +132,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		// consent never imports its sibling.
 		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
 		collectionsHandlers: collections.NewHandlers(pool),
+		privacyHandlers:     privacy.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
 	}
 	for _, opt := range opts {
