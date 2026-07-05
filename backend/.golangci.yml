@@ -19,7 +19,7 @@ linters:
           # Default-deny: the shared layer (kernel + apperrors + ports) is
           # stdlib + each other, period — a new shared package pulling a
           # third-party dep fails HERE, not only in the arch fitness test.
-          listMode: strict
+          list-mode: strict
           allow:
             - $gostd
             - github.com/gradionhq/margince/backend/internal/shared
