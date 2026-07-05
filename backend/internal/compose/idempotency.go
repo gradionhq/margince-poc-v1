@@ -104,8 +104,11 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 				return
 			}
 
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
+			// Bound the buffer at the site (the chassis LimitBodies cap also
+			// applies, but the invariant should be visible here, as it is in
+			// the agent gate's maxGatedBody read).
+			body, err := io.ReadAll(io.LimitReader(r.Body, maxGatedBody+1))
+			if err != nil || len(body) > maxGatedBody {
 				httperr.Write(w, r, httperr.Validation("body", "unreadable", "request body unreadable or too large"))
 				return
 			}

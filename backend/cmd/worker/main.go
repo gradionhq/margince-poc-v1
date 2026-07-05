@@ -66,7 +66,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New("worker: --dsn or MARGINCE_DSN required")
 	}
 
-	handler, err := newLogHandler(stdout, *logLevel, *logFormat)
+	handler, err := httpserver.LogHandler(stdout, *logLevel, *logFormat)
 	if err != nil {
 		return err
 	}
@@ -125,34 +125,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	events.NewRelay(pool, rdb, logger).Run(ctx)
 	background.Wait()
 	return nil
-}
-
-// newLogHandler builds the slog backend from the operator's level and
-// format choices; a typo in either is a boot error, never a silent
-// fallback to defaults.
-func newLogHandler(w io.Writer, level, format string) (slog.Handler, error) {
-	var lv slog.LevelVar
-	switch level {
-	case "debug":
-		lv.Set(slog.LevelDebug)
-	case "info":
-		lv.Set(slog.LevelInfo)
-	case "warn":
-		lv.Set(slog.LevelWarn)
-	case "error":
-		lv.Set(slog.LevelError)
-	default:
-		return nil, fmt.Errorf("--log-level %q: want debug, info, warn, or error", level)
-	}
-	opts := &slog.HandlerOptions{Level: &lv}
-	switch format {
-	case "text":
-		return slog.NewTextHandler(w, opts), nil
-	case "json":
-		return slog.NewJSONHandler(w, opts), nil
-	default:
-		return nil, fmt.Errorf("--log-format %q: want text or json", format)
-	}
 }
 
 // selectModelPath resolves the model path: a routing config for real

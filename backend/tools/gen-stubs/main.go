@@ -83,7 +83,7 @@ func run() error {
 		count++
 	}
 
-	if err := os.WriteFile(*outPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+	if err := os.WriteFile(*outPath, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
 		return err
 	}
 	fmt.Printf("%d stubs generated\n", count)

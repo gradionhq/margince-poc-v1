@@ -84,7 +84,7 @@ func (s *Store) Append(sig Signal) error {
 		_ = f.Close()
 		return err
 	}
-	// Close is the last step that can lose the appended line — report it.
+	// The final Close is the only close that can lose the appended line.
 	return f.Close()
 }
 

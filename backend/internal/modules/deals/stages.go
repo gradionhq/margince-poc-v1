@@ -11,6 +11,7 @@ package deals
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -43,7 +44,7 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipeli
 			return apperrors.ErrNotFound
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("read pipeline before update: %w", err)
 		}
 		if in.IfVersion != nil && *in.IfVersion != version {
 			return apperrors.ErrVersionSkew
@@ -53,7 +54,7 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipeli
 		if in.IsDefault != nil && *in.IsDefault {
 			if _, err := tx.Exec(ctx,
 				`UPDATE pipeline SET is_default = false WHERE is_default AND id <> $1`, id); err != nil {
-				return err
+				return fmt.Errorf("demote incumbent default pipeline: %w", err)
 			}
 		}
 		if _, err := tx.Exec(ctx, `
@@ -63,21 +64,23 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipeli
 			  position = coalesce($4, position)
 			WHERE id = $1`,
 			id, in.Name, in.IsDefault, in.Position); err != nil {
-			return err
+			return fmt.Errorf("update pipeline: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "pipeline", id, nil, map[string]any{
 			"name": in.Name, "is_default": in.IsDefault, "position": in.Position,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit pipeline update: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", id, map[string]any{
 			"delta": map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
 		}); err != nil {
-			return err
+			return fmt.Errorf("emit pipeline.updated: %w", err)
 		}
-		out, err = readPipeline(ctx, tx, id)
-		return err
+		if out, err = readPipeline(ctx, tx, id); err != nil {
+			return fmt.Errorf("read updated pipeline: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -112,7 +115,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM pipeline WHERE id = $1 AND archived_at IS NULL)`,
 			in.PipelineID).Scan(&exists); err != nil {
-			return err
+			return fmt.Errorf("resolve pipeline: %w", err)
 		}
 		if !exists {
 			return apperrors.ErrNotFound
@@ -127,22 +130,24 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 			if storekit.IsUniqueViolation(err) {
 				return apperrors.ErrConflict
 			}
-			return err
+			return fmt.Errorf("insert stage: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "create", "stage", stageID, nil, map[string]any{
 			"pipeline_id": in.PipelineID, "name": in.Name, "semantic": in.Semantic,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit stage create: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "stage.created", "stage", stageID, map[string]any{
 			"pipeline_id": in.PipelineID, "name": in.Name, "position": in.Position,
 			"semantic": in.Semantic, "win_probability": probability,
 		}); err != nil {
-			return err
+			return fmt.Errorf("emit stage.created: %w", err)
 		}
-		out, err = readStage(ctx, tx, stageID, storekit.LiveOnly)
-		return err
+		if out, err = readStage(ctx, tx, stageID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read created stage: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -227,7 +232,7 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 			return apperrors.ErrNotFound
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("read stage before update: %w", err)
 		}
 		if in.IfVersion != nil && *in.IfVersion != version {
 			return apperrors.ErrVersionSkew
@@ -246,13 +251,13 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 			if storekit.IsUniqueViolation(err) {
 				return apperrors.ErrConflict
 			}
-			return err
+			return fmt.Errorf("update stage: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "stage", id, nil, map[string]any{
 			"name": in.Name, "position": in.Position, "semantic": in.Semantic, "win_probability": in.WinProbability,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit stage update: %w", err)
 		}
 		// Reorders are pipeline-level facts (ONE pipeline.updated with
 		// the position delta); everything else is a stage.updated.
@@ -267,10 +272,12 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 			})
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("emit stage update: %w", err)
 		}
-		out, err = readStage(ctx, tx, id, storekit.IncludeArchived)
-		return err
+		if out, err = readStage(ctx, tx, id, storekit.IncludeArchived); err != nil {
+			return fmt.Errorf("read updated stage: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }

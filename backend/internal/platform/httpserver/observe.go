@@ -11,6 +11,7 @@ package httpserver
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -19,6 +20,34 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// LogHandler builds the slog backend from the operator's --log-level and
+// --log-format values. It lives here so every process role shares one
+// level/format vocabulary and one "a typo is a boot error" rule.
+func LogHandler(w io.Writer, level, format string) (slog.Handler, error) {
+	var lv slog.LevelVar
+	switch level {
+	case "debug":
+		lv.Set(slog.LevelDebug)
+	case "info":
+		lv.Set(slog.LevelInfo)
+	case "warn":
+		lv.Set(slog.LevelWarn)
+	case "error":
+		lv.Set(slog.LevelError)
+	default:
+		return nil, fmt.Errorf("--log-level %q: want debug, info, warn, or error", level)
+	}
+	opts := &slog.HandlerOptions{Level: &lv}
+	switch format {
+	case "text":
+		return slog.NewTextHandler(w, opts), nil
+	case "json":
+		return slog.NewJSONHandler(w, opts), nil
+	default:
+		return nil, fmt.Errorf("--log-format %q: want text or json", format)
+	}
+}
 
 // WithCorrelation wraps a slog.Handler so every record logged through a
 // *Context method carries the request's correlation_id — the same id the

@@ -6,6 +6,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -85,7 +86,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8, '{}'::jsonb), $9, $10)`,
 			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID, storekit.JSONArg(in.Social), in.Source, by)
 		if err != nil {
-			return err
+			return fmt.Errorf("insert person: %w", err)
 		}
 
 		for _, e := range in.Emails {
@@ -102,7 +103,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 					}
 					return apperrors.ErrConflict // e.g. two primary emails of one type
 				}
-				return err
+				return fmt.Errorf("insert person email: %w", err)
 			}
 		}
 		for _, p := range in.Phones {
@@ -110,20 +111,22 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 				`INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 				wsID, id, p.Phone, p.PhoneType, p.IsPrimary, p.Position, in.Source, by); err != nil {
-				return err
+				return fmt.Errorf("insert person phone: %w", err)
 			}
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "person", id, nil, map[string]any{"full_name": in.FullName})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit person create: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "person.created", "person", id, map[string]any{"full_name": in.FullName}); err != nil {
-			return err
+			return fmt.Errorf("emit person.created: %w", err)
 		}
 
-		out, err = readPerson(ctx, tx, id, storekit.LiveOnly)
-		return err
+		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read created person: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -143,7 +146,7 @@ func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []Person
 			continue
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("probe email dedupe: %w", err)
 		}
 		dup := &DuplicateEmailError{Email: e.Email}
 		visible, err := auth.VisibleTo(ctx, tx, "person", existing)
@@ -276,7 +279,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		}
 		current, err := readPerson(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
-			return err
+			return fmt.Errorf("read person before update: %w", err)
 		}
 
 		p := storekit.NewPatch()
@@ -304,17 +307,19 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		}
 
 		if err := p.Apply(ctx, tx, "person", id, in.IfVersion); err != nil {
-			return err
+			return fmt.Errorf("apply person patch: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "person", id, p.Before(), p.After())
 		if err != nil {
-			return err
+			return fmt.Errorf("audit person update: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id, p.After()); err != nil {
-			return err
+			return fmt.Errorf("emit person.updated: %w", err)
 		}
-		out, err = readPerson(ctx, tx, id, storekit.LiveOnly)
-		return err
+		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read updated person: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }

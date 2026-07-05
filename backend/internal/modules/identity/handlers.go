@@ -269,16 +269,17 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// tool's declared scope and either admits, stages an approval,
 		// or default-denies an un-tiered operation.
 		if bearer := bearerToken(r); bearer != "" {
-			h.serveAsAgent(w, r.WithContext(ctx), next, bearer)
+			h.serveAsAgent(ctx, w, r, next, bearer)
 			return
 		}
-		h.serveAsHuman(w, r.WithContext(ctx), next)
+		h.serveAsHuman(ctx, w, r, next)
 	})
 }
 
-// serveAsAgent admits a passport bearer under the agent principal.
-func (h Handlers) serveAsAgent(w http.ResponseWriter, r *http.Request, next http.Handler, bearer string) {
-	ctx := r.Context()
+// serveAsAgent admits a passport bearer under the agent principal. ctx is
+// the workspace-resolved context; it lands on the request exactly once,
+// at the hand-off to next.
+func (h Handlers) serveAsAgent(ctx context.Context, w http.ResponseWriter, r *http.Request, next http.Handler, bearer string) {
 	agent, err := h.svc.AuthenticateAgent(ctx, bearer)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
@@ -296,9 +297,10 @@ func (h Handlers) serveAsAgent(w http.ResponseWriter, r *http.Request, next http
 }
 
 // serveAsHuman resolves the session cookie to a human principal and
-// enforces the seat ceiling before the request reaches RBAC.
-func (h Handlers) serveAsHuman(w http.ResponseWriter, r *http.Request, next http.Handler) {
-	ctx := r.Context()
+// enforces the seat ceiling before the request reaches RBAC. ctx is the
+// workspace-resolved context; it lands on the request exactly once, at
+// the hand-off to next.
+func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *http.Request, next http.Handler) {
 	cookie, err := r.Cookie(sessionCookie)
 	if err != nil {
 		httperr.Unauthorized(w, r, "missing session cookie")

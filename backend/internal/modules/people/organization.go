@@ -6,6 +6,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 				return dup
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
-				return err
+				return fmt.Errorf("probe domain dedupe: %w", err)
 			}
 		}
 
@@ -99,7 +100,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID, in.Source, by)
 		if err != nil {
-			return err
+			return fmt.Errorf("insert organization: %w", err)
 		}
 
 		for _, d := range in.Domains {
@@ -113,19 +114,21 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 					}
 					return apperrors.ErrConflict // e.g. a second primary domain
 				}
-				return err
+				return fmt.Errorf("insert organization domain: %w", err)
 			}
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "organization", id, nil, map[string]any{"display_name": in.DisplayName})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit organization create: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id, map[string]any{"display_name": in.DisplayName}); err != nil {
-			return err
+			return fmt.Errorf("emit organization.created: %w", err)
 		}
-		out, err = readOrganization(ctx, tx, id, storekit.LiveOnly)
-		return err
+		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read created organization: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -247,7 +250,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 		}
 		current, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
-			return err
+			return fmt.Errorf("read organization before update: %w", err)
 		}
 
 		p := storekit.NewPatch()
@@ -279,17 +282,19 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 		}
 
 		if err := p.Apply(ctx, tx, "organization", id, in.IfVersion); err != nil {
-			return err
+			return fmt.Errorf("apply organization patch: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id, p.Before(), p.After())
 		if err != nil {
-			return err
+			return fmt.Errorf("audit organization update: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id, p.After()); err != nil {
-			return err
+			return fmt.Errorf("emit organization.updated: %w", err)
 		}
-		out, err = readOrganization(ctx, tx, id, storekit.LiveOnly)
-		return err
+		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read updated organization: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }

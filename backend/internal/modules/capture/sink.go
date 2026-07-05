@@ -164,8 +164,9 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // captureLead lands one lead behind the suppression and dedupe guards.
 // A collision with a live lead from another source writes nothing in
 // this transaction: it returns the incumbent's ref plus the collision
-// (dedupeHit, dedupeFields) for the caller to stage after commit.
-func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (ref datasource.EntityRef, dedupeHit *ids.UUID, dedupeFields json.RawMessage, err error) {
+// (the incumbent's id and the captured fields) for the caller to stage
+// after commit.
+func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (datasource.EntityRef, *ids.UUID, json.RawMessage, error) {
 	// Provider payloads carry whitespace; every downstream email
 	// comparison (suppression, dedupe, the DB lower()) assumes a
 	// trimmed address.
@@ -206,7 +207,7 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	if err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
-	ref = datasource.EntityRef{Type: datasource.EntityLead, ID: id}
+	ref := datasource.EntityRef{Type: datasource.EntityLead, ID: id}
 	if !created {
 		return ref, nil, nil, nil
 	}

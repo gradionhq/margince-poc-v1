@@ -6,6 +6,7 @@ package deals
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -62,7 +63,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.Pipeline{}, apperrors.ErrConflict
 		}
-		return crmcontracts.Pipeline{}, err
+		return crmcontracts.Pipeline{}, fmt.Errorf("insert pipeline: %w", err)
 	}
 
 	for _, st := range in.Stages {
@@ -70,13 +71,13 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 			`INSERT INTO stage (workspace_id, pipeline_id, name, position, semantic, win_probability)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
 			wsID, id, st.Name, st.Position, st.Semantic, st.WinProbability); err != nil {
-			return crmcontracts.Pipeline{}, err
+			return crmcontracts.Pipeline{}, fmt.Errorf("insert stage: %w", err)
 		}
 	}
 
 	auditID, err := storekit.Audit(ctx, tx, "create", "pipeline", id, nil, map[string]any{"name": in.Name})
 	if err != nil {
-		return crmcontracts.Pipeline{}, err
+		return crmcontracts.Pipeline{}, fmt.Errorf("audit pipeline create: %w", err)
 	}
 	// events.md §5.3b: config changes are first-class facts — one
 	// pipeline.created carries the whole stage set.
@@ -87,9 +88,13 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 	if err := storekit.Emit(ctx, tx, auditID, "pipeline.created", "pipeline", id, map[string]any{
 		"name": in.Name, "is_default": in.IsDefault, "stages": stages,
 	}); err != nil {
-		return crmcontracts.Pipeline{}, err
+		return crmcontracts.Pipeline{}, fmt.Errorf("emit pipeline.created: %w", err)
 	}
-	return readPipeline(ctx, tx, id)
+	out, err := readPipeline(ctx, tx, id)
+	if err != nil {
+		return crmcontracts.Pipeline{}, fmt.Errorf("read created pipeline: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Store) GetPipeline(ctx context.Context, id ids.UUID) (crmcontracts.Pipeline, error) {

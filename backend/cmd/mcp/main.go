@@ -130,22 +130,15 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// newLogger builds the diagnostic logger the flags describe; an unknown
-// level or format is a boot error, not a silent default.
+// newLogger builds the diagnostic logger the flags describe; the shared
+// chassis builder keeps the level/format vocabulary (and the "a typo is a
+// boot error" rule) identical across every process role.
 func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
-	var lvl slog.Level
-	if err := lvl.UnmarshalText([]byte(level)); err != nil {
-		return nil, fmt.Errorf("mcp: --log-level %q is not debug|info|warn|error", level)
+	handler, err := httpserver.LogHandler(w, level, format)
+	if err != nil {
+		return nil, err
 	}
-	opts := &slog.HandlerOptions{Level: lvl}
-	switch format {
-	case "text":
-		return slog.New(slog.NewTextHandler(w, opts)), nil
-	case "json":
-		return slog.New(slog.NewJSONHandler(w, opts)), nil
-	default:
-		return nil, fmt.Errorf("mcp: --log-format %q is not text|json", format)
-	}
+	return slog.New(handler), nil
 }
 
 // serveHosted is the A2 transport: POST /mcp with a Bearer passport
