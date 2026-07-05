@@ -11,7 +11,7 @@ import (
 
 func TestEverySystemRoleHasAValidDefaultDocument(t *testing.T) {
 	for _, key := range []string{"admin", "manager", "rep", "read_only", "ops"} {
-		doc, err := Parse(DefaultJSON(key))
+		doc, err := Parse(MustDefaultJSON(key))
 		if err != nil {
 			t.Errorf("seeded default for %q does not pass its own validator: %v", key, err)
 			continue
@@ -47,8 +47,8 @@ func TestParseDefaultsAnUnsetScopeToNarrowest(t *testing.T) {
 }
 
 func TestMergeUnionsGrantsAndWidensScope(t *testing.T) {
-	rep, _ := Parse(DefaultJSON("rep"))
-	readonly, _ := Parse(DefaultJSON("read_only"))
+	rep, _ := Parse(MustDefaultJSON("rep"))
+	readonly, _ := Parse(MustDefaultJSON("read_only"))
 	merged := Merge(map[string]Document{"rep": rep, "read_only": readonly})
 
 	// Union: rep's writes survive the read-only role being added.

@@ -8,7 +8,9 @@ package compose_test
 // End-to-end lane: the real handler stack (session auth, RLS transaction
 // helper, stores, RFC 7807 mapper) over the real migrated Postgres —
 // bootstrap → login-by-cookie → CRUD → optimistic concurrency → archive.
-// TLS test server because the session cookie is Secure per ADR-0043.
+// TLS test server because the session cookie is Secure per ADR-0043. The
+// agent-governance slice of this lane lives in
+// e2e_agent_integration_test.go.
 
 import (
 	"bytes"
@@ -20,7 +22,6 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -51,7 +52,11 @@ func setup(t *testing.T) *env {
 	if err != nil {
 		t.Fatalf("connecting as owner: %v", err)
 	}
-	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
 
 	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
 		t.Fatalf("resetting schema: %v", err)
@@ -87,6 +92,21 @@ func setup(t *testing.T) *env {
 	return &env{ts: ts, client: client, slug: "fable-e2e", owner: owner}
 }
 
+// bootstrapWorkspace provisions the tenant + admin and leaves the session
+// cookie in the client jar — the first step of every e2e scenario.
+func (e *env) bootstrapWorkspace(t *testing.T) {
+	t.Helper()
+	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
+		"workspace_name":     "Fable E2E",
+		"admin_email":        "ada@example.com",
+		"admin_display_name": "Ada Admin",
+		"admin_password":     "correct-horse-battery",
+	}, nil, nil); status != http.StatusCreated {
+		t.Fatalf("bootstrap status = %d", status)
+	}
+	e.slug = "fable-e2e" // slugify("Fable E2E")
+}
+
 // setWorkspaceSeat flips a workspace's users to a seat type through the
 // owner connection, inside a workspace-bound transaction so RLS (FORCE)
 // admits the UPDATE. Used to drive the read-seat ceiling from a test.
@@ -97,6 +117,7 @@ func (e *env) setWorkspaceSeat(t *testing.T, slug, seat string) {
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
 	defer func() { _ = tx.Rollback(ctx) }()
 	var wsID string
 	if err := tx.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, slug).Scan(&wsID); err != nil {
@@ -115,6 +136,8 @@ func (e *env) setWorkspaceSeat(t *testing.T, slug, seat string) {
 
 // call issues one API request with the dev workspace header and decodes
 // the JSON response into out (when non-nil), returning the status code.
+//
+//craft:ignore naked-any the test transport seam: body/out are whichever request/response shapes the scenario exercises
 func (e *env) call(t *testing.T, method, path string, body any, headers map[string]string, out any) int {
 	t.Helper()
 	var reqBody io.Reader
@@ -139,7 +162,7 @@ func (e *env) call(t *testing.T, method, path string, body any, headers map[stri
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, path, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(t, resp)
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -155,31 +178,19 @@ func (e *env) call(t *testing.T, method, path string, body any, headers map[stri
 
 type anyMap = map[string]any
 
-func TestEndToEnd_coreSalesFlow(t *testing.T) {
-	e := setup(t)
+// seededStages is the seeded default pipeline's stage vocabulary a
+// scenario advances deals through.
+type seededStages struct {
+	pipelineID string
+	open       string
+	won        string
+	lost       string
+}
 
-	// --- bootstrap: tenant + admin + session cookie + seeded pipeline ---
-	var me anyMap
-	status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Fable E2E",
-		"admin_email":        "ada@example.com",
-		"admin_display_name": "Ada Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, &me)
-	if status != http.StatusCreated {
-		t.Fatalf("bootstrap status = %d, body %v", status, me)
-	}
-	e.slug = "fable-e2e" // slugify("Fable E2E")
-
-	// The cookie authenticates /me.
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
-		t.Fatalf("/me status = %d", status)
-	}
-	if got := me["user"].(anyMap)["email"]; got != "ada@example.com" {
-		t.Fatalf("/me email = %v", got)
-	}
-
-	// --- the seeded default pipeline arrived with its stages ---
+// discoverSeededPipeline asserts the bootstrap seeded exactly one default
+// pipeline with its six stages and resolves the semantic stage ids.
+func discoverSeededPipeline(t *testing.T, e *env) seededStages {
+	t.Helper()
 	var pipelines struct {
 		Data []struct {
 			Id        string `json:"id"`
@@ -196,24 +207,29 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 	if len(pipelines.Data) != 1 || !pipelines.Data[0].IsDefault || len(pipelines.Data[0].Stages) != 6 {
 		t.Fatalf("seeded pipeline shape wrong: %+v", pipelines.Data)
 	}
-	pipeline := pipelines.Data[0]
-	var openStage, wonStage, lostStage string
-	for _, s := range pipeline.Stages {
+	stages := seededStages{pipelineID: pipelines.Data[0].Id}
+	for _, s := range pipelines.Data[0].Stages {
 		switch s.Semantic {
 		case "won":
-			wonStage = s.Id
+			stages.won = s.Id
 		case "lost":
-			lostStage = s.Id
+			stages.lost = s.Id
 		case "open":
-			if openStage == "" {
-				openStage = s.Id
+			if stages.open == "" {
+				stages.open = s.Id
 			}
 		}
 	}
+	return stages
+}
 
-	// --- person: create, duplicate-email 409, If-Match skew, archive ---
+// exercisePersonWriteInvariants runs the person write shape: create with
+// server-stamped provenance, duplicate-email 409 with the existing id,
+// If-Match version skew, then the versioned update. Returns the person id.
+func exercisePersonWriteInvariants(t *testing.T, e *env, adminUserID string) string {
+	t.Helper()
 	var person anyMap
-	status = e.call(t, "POST", "/v1/people", anyMap{
+	status := e.call(t, "POST", "/v1/people", anyMap{
 		"full_name": "Grace Hopper",
 		"source":    "ui",
 		"emails":    []anyMap{{"email": "grace@navy.mil", "is_primary": true}},
@@ -222,7 +238,7 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 		t.Fatalf("create person = %d %v", status, person)
 	}
 	personID := person["id"].(string)
-	if person["captured_by"] != "human:"+me["user"].(anyMap)["id"].(string) {
+	if person["captured_by"] != "human:"+adminUserID {
 		t.Errorf("captured_by = %v; the server must stamp the acting principal", person["captured_by"])
 	}
 
@@ -246,15 +262,22 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 		t.Fatalf("stale If-Match = %d %v, want 409 version_skew", status, conflict)
 	}
 
+	var person2 anyMap
 	status = e.call(t, "PATCH", "/v1/people/"+personID, anyMap{"title": "Rear Admiral"},
-		map[string]string{"If-Match": "1"}, &person)
-	if status != http.StatusOK || person["version"].(float64) != 2 {
-		t.Fatalf("If-Match update = %d version %v, want 200 v2", status, person["version"])
+		map[string]string{"If-Match": "1"}, &person2)
+	if status != http.StatusOK || person2["version"].(float64) != 2 {
+		t.Fatalf("If-Match update = %d version %v, want 200 v2", status, person2["version"])
 	}
+	return personID
+}
 
-	// --- organization + deal + advance to won (FX freeze at 1 for base) ---
+// exerciseDealToWon creates the organization + deal, asserts losing
+// without a reason is refused, and closes the deal as won. Returns the
+// deal id.
+func exerciseDealToWon(t *testing.T, e *env, stages seededStages) string {
+	t.Helper()
 	var org anyMap
-	status = e.call(t, "POST", "/v1/organizations", anyMap{
+	status := e.call(t, "POST", "/v1/organizations", anyMap{
 		"display_name": "Acme GmbH",
 		"source":       "ui",
 		"domains":      []anyMap{{"domain": "acme.example", "is_primary": true}},
@@ -268,8 +291,8 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 		"name":            "Acme rollout",
 		"amount_minor":    250_000_00,
 		"currency":        "EUR",
-		"pipeline_id":     pipeline.Id,
-		"stage_id":        openStage,
+		"pipeline_id":     stages.pipelineID,
+		"stage_id":        stages.open,
 		"organization_id": org["id"],
 		"source":          "ui",
 	}, nil, &deal)
@@ -280,15 +303,34 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 
 	// Losing without a reason is refused (deal_lost_reason).
 	var lostErr anyMap
-	status = e.call(t, "POST", "/v1/deals/"+dealID+"/advance", anyMap{"to_stage_id": lostStage}, nil, &lostErr)
+	status = e.call(t, "POST", "/v1/deals/"+dealID+"/advance", anyMap{"to_stage_id": stages.lost}, nil, &lostErr)
 	if status != http.StatusUnprocessableEntity {
 		t.Fatalf("lost without reason = %d %v, want 422", status, lostErr)
 	}
 
-	status = e.call(t, "POST", "/v1/deals/"+dealID+"/advance", anyMap{"to_stage_id": wonStage}, nil, &deal)
+	status = e.call(t, "POST", "/v1/deals/"+dealID+"/advance", anyMap{"to_stage_id": stages.won}, nil, &deal)
 	if status != http.StatusOK || deal["status"] != "won" || deal["closed_at"] == nil {
 		t.Fatalf("advance to won = %d %v", status, deal)
 	}
+	return dealID
+}
+
+func TestEndToEnd_coreSalesFlow(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+
+	// The cookie authenticates /me.
+	var me anyMap
+	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("/me status = %d", status)
+	}
+	if got := me["user"].(anyMap)["email"]; got != "ada@example.com" {
+		t.Fatalf("/me email = %v", got)
+	}
+
+	stages := discoverSeededPipeline(t, e)
+	personID := exercisePersonWriteInvariants(t, e, me["user"].(anyMap)["id"].(string))
+	dealID := exerciseDealToWon(t, e, stages)
 
 	// --- activity: log against the deal, idempotent capture replay ---
 	var activity anyMap
@@ -313,7 +355,7 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 
 	// --- lead: segregated, dedupes on email ---
 	var lead anyMap
-	status = e.call(t, "POST", "/v1/leads", anyMap{
+	status := e.call(t, "POST", "/v1/leads", anyMap{
 		"full_name":    "Cold Prospect",
 		"email":        "cold@example.org",
 		"company_name": "Unknown AG",
@@ -331,6 +373,7 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 	}
 
 	// --- archive cascades and stays fetchable by id ---
+	var person anyMap
 	if status := e.call(t, "DELETE", "/v1/people/"+personID, nil, nil, &person); status != http.StatusOK {
 		t.Fatalf("archive person = %d", status)
 	}
@@ -352,16 +395,7 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 
 func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {
 	e := setup(t)
-
-	var me anyMap
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Fable E2E",
-		"admin_email":        "ada@example.com",
-		"admin_display_name": "Ada Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, &me); status != http.StatusCreated {
-		t.Fatalf("bootstrap = %d", status)
-	}
+	e.bootstrapWorkspace(t)
 
 	// An unimplemented contract operation answers an explicit 501.
 	var problem anyMap
@@ -378,6 +412,7 @@ func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {
 	}
 
 	// Login re-authenticates with fresh credentials.
+	var me anyMap
 	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 		"email":    "ada@example.com",
 		"password": "correct-horse-battery",
@@ -395,213 +430,5 @@ func TestEndToEnd_authAndSurfaceBoundaries(t *testing.T) {
 		"password": "wrong",
 	}, nil, &authErr); status != http.StatusUnauthorized {
 		t.Fatalf("bad login = %d, want 401", status)
-	}
-
-}
-
-// The agent path on the REST surface (ADR-0013: agents are clients of the
-// same contract): mint a passport over HTTP, then ride it — reads under
-// the read scope, writes refused without the write scope, revocation as
-// the kill switch.
-func TestEndToEnd_passportBearerSurface(t *testing.T) {
-	e := setup(t)
-
-	status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Fable E2E", "admin_email": "admin@fable.test",
-		"admin_display_name": "Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil)
-	if status != 201 {
-		t.Fatalf("bootstrap → %d", status)
-	}
-
-	// A human session mints the passport; the response carries the token
-	// exactly once.
-	var minted struct {
-		PassportID string `json:"passport_id"`
-		Token      string `json:"token"`
-	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
-		"label": "e2e agent", "scopes": []string{"read"},
-	}, nil, &minted); status != 201 {
-		t.Fatalf("issue passport → %d", status)
-	}
-	if minted.Token == "" {
-		t.Fatal("no token in the mint response")
-	}
-
-	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
-
-	// The read scope reads…
-	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != 200 {
-		t.Fatalf("bearer GET /people → %d", status)
-	}
-	// …and cannot write: refused with the scope code, and no row lands.
-	var problem struct {
-		Code string `json:"code"`
-	}
-	status = e.call(t, "POST", "/v1/people", anyMap{
-		"full_name": "Should not exist", "source": "mcp", "captured_by": "x",
-	}, bearer, &problem)
-	if status != 403 || problem.Code != "scope_exceeds_grantor" {
-		t.Fatalf("read-scope write → %d %q, want 403 scope_exceeds_grantor", status, problem.Code)
-	}
-
-	// Bad tokens are 401, not 500.
-	if status := e.call(t, "GET", "/v1/people", nil, map[string]string{"Authorization": "Bearer mgp_bogus"}, nil); status != 401 {
-		t.Fatalf("bogus bearer → %d", status)
-	}
-
-	// Revoke over HTTP (session-authenticated); the token dies with it.
-	if status := e.call(t, "DELETE", "/v1/passports/"+minted.PassportID, nil, nil, nil); status != 204 {
-		t.Fatalf("revoke → %d", status)
-	}
-	if status := e.call(t, "GET", "/v1/people", nil, bearer, nil); status != 401 {
-		t.Fatalf("revoked bearer still reads: %d", status)
-	}
-}
-
-// ADR-0055: agent REST writes are governed, not blocked. A write-scoped
-// passport's 🟢 mutation lands (with server-stamped agent provenance); a
-// 🟡 mutation stages an approval and only a HUMAN decision releases it —
-// the agent's own attempt to approve is the self-approval bypass and is
-// rejected on principal type; human-only config ops reject the agent
-// outright.
-func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
-	e := setup(t)
-
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Fable E2E", "admin_email": "admin@fable.test",
-		"admin_display_name": "Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != 201 {
-		t.Fatalf("bootstrap → %d", status)
-	}
-
-	var minted struct {
-		Token string `json:"token"`
-	}
-	if status := e.call(t, "POST", "/v1/passports", anyMap{
-		"label": "write agent", "scopes": []string{"read", "write"},
-	}, nil, &minted); status != 201 {
-		t.Fatalf("issue passport → %d", status)
-	}
-	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
-
-	// 🟢 (create_record): the write goes through, and provenance is the
-	// authenticated agent — never the body's claim.
-	var created struct {
-		ID         string `json:"id"`
-		CapturedBy string `json:"captured_by"`
-	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
-		"full_name": "Governed Green Write", "source": "mcp", "captured_by": "human:forged",
-	}, bearer, &created); status != 201 {
-		t.Fatalf("write-scope 🟢 REST mutation → %d, want 201 (ADR-0055 admits governed agent writes)", status)
-	}
-	if !strings.HasPrefix(created.CapturedBy, "agent:") {
-		t.Fatalf("agent create stamped captured_by=%q, want the authenticated agent", created.CapturedBy)
-	}
-
-	// 🟡 (archivePerson is on the confirm-first floor): no effect, a
-	// staged approval instead.
-	var problem struct {
-		Code   string `json:"code"`
-		Detail string `json:"detail"`
-	}
-	status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, bearer, &problem)
-	if status != 403 || problem.Code != "approval_required" {
-		t.Fatalf("🟡 REST mutation → %d %q, want 403 approval_required", status, problem.Code)
-	}
-	if getStatus := e.call(t, "GET", "/v1/people/"+created.ID, nil, bearer, nil); getStatus != 200 {
-		t.Fatalf("staged archive must not have executed; GET → %d", getStatus)
-	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
-
-	// The agent may STAGE but never APPROVE — including its own staging.
-	var denyBody struct {
-		Code string `json:"code"`
-	}
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
-		t.Fatalf("agent self-approval → %d %q, want 403 permission_denied", status, denyBody.Code)
-	}
-
-	// Human-only config surface rejects the agent whatever its scopes.
-	if status := e.call(t, "POST", "/v1/pipelines", anyMap{"name": "Shadow"}, bearer, &denyBody); status != 403 || denyBody.Code != "permission_denied" {
-		t.Fatalf("agent on human-only pipeline config → %d %q, want 403 permission_denied", status, denyBody.Code)
-	}
-
-	// A human approves; the agent repeats the IDENTICAL request with the
-	// approval token and the effect lands exactly once.
-	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != 200 {
-		t.Fatalf("human approve → %d", status)
-	}
-	withToken := map[string]string{"Authorization": "Bearer " + minted.Token, "X-Approval-Token": approvalID}
-	if status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, nil); status != 200 {
-		t.Fatalf("approved retry → %d, want the archive to execute", status)
-	}
-	// Single-use: the same token cannot authorize a second effect.
-	if status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem); status == 200 {
-		t.Fatal("a consumed approval token authorized a second effect")
-	}
-}
-
-// extractStagedApprovalID pulls the staged approval's id out of the 403
-// approval_required detail — the same reference the human inbox lists.
-func extractStagedApprovalID(t *testing.T, detail string) string {
-	t.Helper()
-	const marker = "staged as approval "
-	i := strings.Index(detail, marker)
-	if i < 0 {
-		t.Fatalf("no staged approval reference in %q", detail)
-	}
-	rest := detail[i+len(marker):]
-	if j := strings.IndexByte(rest, ' '); j > 0 {
-		rest = rest[:j]
-	}
-	return rest
-}
-
-// C2: a read seat is a hard capability ceiling — a read-seat human may read
-// but not mutate over REST, whatever their role grants (A62/ADR-0047). The
-// bootstrap admin is a full seat that mutates; flipping the workspace to
-// read seats turns the same authenticated call into a 403.
-func TestEndToEnd_readSeatCannotMutate(t *testing.T) {
-	e := setup(t)
-
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Fable E2E", "admin_email": "admin@fable.test",
-		"admin_display_name": "Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != 201 {
-		t.Fatalf("bootstrap → %d", status)
-	}
-
-	// A full-seat admin creates freely.
-	var created struct {
-		ID string `json:"id"`
-	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
-		"full_name": "Full Seat Made", "source": "manual", "captured_by": "admin",
-	}, nil, &created); status != 201 {
-		t.Fatalf("full-seat create → %d", status)
-	}
-
-	// Demote to a read seat; the live seat is read at authentication, so the
-	// same session now hits the ceiling.
-	e.setWorkspaceSeat(t, e.slug, "read")
-
-	// Reads still succeed…
-	if status := e.call(t, "GET", "/v1/people", nil, nil, nil); status != 200 {
-		t.Fatalf("read-seat GET → %d", status)
-	}
-	// …every mutation is refused with the seat code, before RBAC.
-	var problem struct {
-		Code string `json:"code"`
-	}
-	if status := e.call(t, "POST", "/v1/people", anyMap{
-		"full_name": "Read Seat Blocked", "source": "manual", "captured_by": "admin",
-	}, nil, &problem); status != 403 || problem.Code != "seat_tier_insufficient" {
-		t.Fatalf("read-seat create → %d %q, want 403 seat_tier_insufficient", status, problem.Code)
-	}
-	if status := e.call(t, "PATCH", "/v1/people/"+created.ID, anyMap{"title": "X"}, nil, &problem); status != 403 || problem.Code != "seat_tier_insufficient" {
-		t.Fatalf("read-seat update → %d %q, want 403 seat_tier_insufficient", status, problem.Code)
 	}
 }

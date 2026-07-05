@@ -125,7 +125,7 @@ func (f *FakeClient) nextText(payload []byte) string {
 
 // fakeWire mirrors the shape a real adapter marshals, so stripper
 // conformance tested against the fake carries over to the cloud path.
-func fakeWire(req model.Request) any {
+func fakeWire(req model.Request) map[string]any {
 	return map[string]any{
 		"model":    req.Model,
 		"system":   req.System,

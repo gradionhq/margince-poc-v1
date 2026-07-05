@@ -268,6 +268,7 @@ func NewWebFetcher() PageFetcher {
 			}
 			// Checked post-dial so DNS answers cannot bypass the guard.
 			if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok && !publicIP(tcp.IP) {
+				//craft:ignore swallowed-errors best-effort close of a connection being refused — the SSRF refusal below is the error that matters
 				_ = conn.Close()
 				return nil, fmt.Errorf("coldstart: refusing non-public address %s", tcp.IP)
 			}
@@ -329,6 +330,7 @@ func (f webFetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for the fetch result
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("coldstart: page answered %d", resp.StatusCode)

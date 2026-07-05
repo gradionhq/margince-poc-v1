@@ -70,35 +70,9 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 	var person crmcontracts.Person
 	merged := false
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
-			return err
-		}
-		// Archived leads resolve here so a re-promote answers 409 with
-		// the outcome pointer instead of a misleading 404; a disqualified
-		// (archived, unpromoted) lead stays 404 like any archived row.
-		lead, err := readLead(ctx, tx, id, storekit.IncludeArchived)
+		lead, err := promotableLead(ctx, tx, id, in)
 		if err != nil {
-			return fmt.Errorf("read lead before promote: %w", err)
-		}
-		if lead.Status == crmcontracts.LeadStatusPromoted {
-			e := &AlreadyPromotedError{}
-			if lead.PromotedPersonId != nil {
-				e.PersonID = ids.UUID(*lead.PromotedPersonId)
-			}
-			return e
-		}
-		if lead.ArchivedAt != nil {
-			return apperrors.ErrNotFound
-		}
-		if lead.FullName == nil && lead.Email == nil {
-			return &PromoteNeedsIdentityError{}
-		}
-		if in.EvidenceActivityID != nil {
-			// The evidence must be a real, in-scope activity — a promotion
-			// justified by a record the promoter cannot see is not evidence.
-			if err := auth.EnsureActivityVisible(ctx, tx, *in.EvidenceActivityID); err != nil {
-				return err
-			}
+			return err
 		}
 
 		personID, err := s.promoteTarget(ctx, tx, lead, by, &merged)
@@ -159,6 +133,43 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		return nil
 	})
 	return person, merged, err
+}
+
+// promotableLead loads the lead and enforces every promotion guard:
+// visibility, the once-only rule, live status, minimal identity, and
+// in-scope evidence. Archived leads resolve here so a re-promote answers
+// 409 with the outcome pointer instead of a misleading 404; a
+// disqualified (archived, unpromoted) lead stays 404 like any archived
+// row.
+func promotableLead(ctx context.Context, tx pgx.Tx, id ids.UUID, in PromoteLeadInput) (crmcontracts.Lead, error) {
+	if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	lead, err := readLead(ctx, tx, id, storekit.IncludeArchived)
+	if err != nil {
+		return crmcontracts.Lead{}, fmt.Errorf("read lead before promote: %w", err)
+	}
+	if lead.Status == crmcontracts.LeadStatusPromoted {
+		e := &AlreadyPromotedError{}
+		if lead.PromotedPersonId != nil {
+			e.PersonID = ids.UUID(*lead.PromotedPersonId)
+		}
+		return crmcontracts.Lead{}, e
+	}
+	if lead.ArchivedAt != nil {
+		return crmcontracts.Lead{}, apperrors.ErrNotFound
+	}
+	if lead.FullName == nil && lead.Email == nil {
+		return crmcontracts.Lead{}, &PromoteNeedsIdentityError{}
+	}
+	if in.EvidenceActivityID != nil {
+		// The evidence must be a real, in-scope activity — a promotion
+		// justified by a record the promoter cannot see is not evidence.
+		if err := auth.EnsureActivityVisible(ctx, tx, *in.EvidenceActivityID); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	}
+	return lead, nil
 }
 
 // promoteTarget resolves where the lead lands: the §1.3 dedupe path — a

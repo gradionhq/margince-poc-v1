@@ -64,34 +64,17 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		wsID := storekit.MustWorkspace(ctx)
 
-		if in.SourceSystem != nil && in.SourceID != nil {
-			var existing ids.UUID
-			err := tx.QueryRow(ctx,
-				`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
-				*in.SourceSystem, *in.SourceID).Scan(&existing)
-			if err == nil {
-				// The replay path returns a record, so it is a read and
-				// carries the read's row scope: replaying someone else's
-				// external key must not hand over their activity. Out of
-				// scope answers the same 409 the unique-index race does —
-				// the key is taken, the record is not disclosed.
-				if verr := auth.EnsureActivityVisible(ctx, tx, existing); verr != nil {
-					if errors.Is(verr, apperrors.ErrNotFound) {
-						return apperrors.ErrConflict
-					}
-					return verr
-				}
-				created = false
-				out, err = readActivity(ctx, tx, existing, storekit.IncludeArchived)
-				return err
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
+		replay, err := replayedActivity(ctx, tx, in)
+		if err != nil {
+			return err
+		}
+		if replay != nil {
+			created, out = false, *replay
+			return nil
 		}
 
 		id := ids.NewV7()
-		_, err := tx.Exec(ctx,
+		_, err = tx.Exec(ctx,
 			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
 			                       due_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -104,31 +87,8 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			return err
 		}
 
-		for _, link := range in.Links {
-			column := map[string]string{
-				"person": "person_id", "organization": "organization_id", "deal": "deal_id",
-			}[link.EntityType]
-			if column == "" {
-				return &InvalidLinkTypeError{EntityType: link.EntityType}
-			}
-			// The FK alone is not enough: it is checked as the table
-			// owner, bypassing RLS, so it would accept a guessed
-			// cross-tenant or out-of-scope UUID as a link target.
-			if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx,
-				sprintf(`INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s) VALUES ($1, $2, $3, $4)`, column),
-				wsID, id, link.EntityType, link.EntityID); err != nil {
-				return err
-			}
-			if link.EntityType == "deal" {
-				if _, err := tx.Exec(ctx,
-					`UPDATE deal SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
-					link.EntityID, occurredAt); err != nil {
-					return err
-				}
-			}
+		if err := insertActivityLinks(ctx, tx, wsID, id, in.Links, occurredAt); err != nil {
+			return err
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "activity", id, nil, map[string]any{"kind": in.Kind, "subject": in.Subject})
@@ -144,6 +104,71 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 		return err
 	})
 	return out, created, err
+}
+
+// replayedActivity resolves the (source_system, source_id) idempotency
+// key: replaying a capture returns the existing activity. The replay
+// path returns a record, so it is a read and carries the read's row
+// scope: replaying someone else's external key must not hand over their
+// activity. Out of scope answers the same 409 the unique-index race
+// does — the key is taken, the record is not disclosed.
+func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crmcontracts.Activity, error) {
+	if in.SourceSystem == nil || in.SourceID == nil {
+		return nil, nil
+	}
+	var existing ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
+		*in.SourceSystem, *in.SourceID).Scan(&existing)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if verr := auth.EnsureActivityVisible(ctx, tx, existing); verr != nil {
+		if errors.Is(verr, apperrors.ErrNotFound) {
+			return nil, apperrors.ErrConflict
+		}
+		return nil, verr
+	}
+	out, err := readActivity(ctx, tx, existing, storekit.IncludeArchived)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// insertActivityLinks writes the polymorphic link rows and maintains
+// deal.last_activity_at on deal links. The FK alone is not enough: it is
+// checked as the table owner, bypassing RLS, so it would accept a
+// guessed cross-tenant or out-of-scope UUID as a link target — every
+// target passes the row-scope link check first.
+func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID, activityID ids.UUID, links []ActivityLinkInput, occurredAt time.Time) error {
+	for _, link := range links {
+		column := map[string]string{
+			"person": "person_id", "organization": "organization_id", "deal": "deal_id",
+		}[link.EntityType]
+		if column == "" {
+			return &InvalidLinkTypeError{EntityType: link.EntityType}
+		}
+		if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			sprintf(`INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s) VALUES ($1, $2, $3, $4)`, column),
+			wsID, activityID, link.EntityType, link.EntityID); err != nil {
+			return err
+		}
+		if link.EntityType == "deal" {
+			if _, err := tx.Exec(ctx,
+				`UPDATE deal SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
+				link.EntityID, occurredAt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // InvalidLinkTypeError maps to 422.

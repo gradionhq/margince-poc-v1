@@ -162,12 +162,38 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		aggregates = spec.defaultAggs
 	}
 
-	var columns []string
-	var selects []string
+	columns, selects, err := buildSelectList(spec, groupBy, aggregates)
+	if err != nil {
+		return reportOutcome{}, err
+	}
+
+	rows, err := e.fetchRows(ctx, report, spec, req, groupBy, selects, columns)
+	if err != nil {
+		return reportOutcome{}, err
+	}
+
+	return reportOutcome{
+		Report: report,
+		Plan: map[string]any{
+			"object":     string(spec.entity),
+			"filters":    req.Filters,
+			"group_by":   groupBy,
+			"aggregates": aggregates,
+		},
+		Columns:     columns,
+		Rows:        rows,
+		GeneratedAt: time.Now().UTC(),
+	}, nil
+}
+
+// buildSelectList validates the requested dimensions and aggregates
+// against the spec's closed vocabulary and renders the SELECT list — the
+// only path by which a caller-chosen name reaches the query text.
+func buildSelectList(spec reportSpec, groupBy []string, aggregates []reportAggregate) (columns, selects []string, err error) {
 	for _, dim := range groupBy {
 		expr, ok := spec.dimensions[dim]
 		if !ok {
-			return reportOutcome{}, &FieldNotAllowedError{Field: dim}
+			return nil, nil, &FieldNotAllowedError{Field: dim}
 		}
 		selects = append(selects, fmt.Sprintf("%s AS %s", expr, dim))
 		columns = append(columns, dim)
@@ -183,18 +209,24 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		case "sum", "avg", "min", "max":
 			expr, ok := spec.measures[agg.Field]
 			if !ok {
-				return reportOutcome{}, &FieldNotAllowedError{Field: agg.Field}
+				return nil, nil, &FieldNotAllowedError{Field: agg.Field}
 			}
 			selects = append(selects, fmt.Sprintf("%s(%s) AS %s", agg.Fn, expr, quoteIdent(name)))
 		default:
-			return reportOutcome{}, &FieldNotAllowedError{Field: "aggregates[" + fmt.Sprint(i) + "].fn=" + agg.Fn}
+			return nil, nil, &FieldNotAllowedError{Field: "aggregates[" + fmt.Sprint(i) + "].fn=" + agg.Fn}
 		}
 		columns = append(columns, name)
 	}
 	if len(selects) == 0 {
-		return reportOutcome{}, &FieldNotAllowedError{Field: "(empty plan)"}
+		return nil, nil, &FieldNotAllowedError{Field: "(empty plan)"}
 	}
+	return columns, selects, nil
+}
 
+// fetchRows assembles the WHERE side (validated filters + the caller's
+// row-scope clause), runs the plan inside the workspace-bound
+// transaction, and shapes each row for the wire.
+func (e *reportEngine) fetchRows(ctx context.Context, report string, spec reportSpec, req reportRequest, groupBy, selects, columns []string) ([]map[string]any, error) {
 	var rows []map[string]any
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var args []any
@@ -259,25 +291,15 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		return pgRows.Err()
 	})
 	if err != nil {
-		return reportOutcome{}, err
+		return nil, err
 	}
-
-	return reportOutcome{
-		Report: report,
-		Plan: map[string]any{
-			"object":     string(spec.entity),
-			"filters":    req.Filters,
-			"group_by":   groupBy,
-			"aggregates": aggregates,
-		},
-		Columns:     columns,
-		Rows:        rows,
-		GeneratedAt: time.Now().UTC(),
-	}, nil
+	return rows, nil
 }
 
 // wireValue renders driver-native values JSON-friendly: uuids as their
 // canonical string, not a 16-byte array.
+//
+//craft:ignore naked-any report rows are schemaless by design — values arrive driver-native and leave JSON-wire-shaped
 func wireValue(v any) any {
 	if raw, ok := v.([16]byte); ok {
 		return ids.UUID(raw).String()

@@ -11,7 +11,6 @@ package compose
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -108,11 +107,7 @@ func TestSeatDerivedBudget(t *testing.T) {
 	// workspace table sits outside RLS and is owner-seeded, so the seed
 	// goes through the owner connection like every other fixture.
 	empty := ids.NewV7()
-	owner, err := pgx.Connect(context.Background(), os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatalf("connecting as owner: %v", err)
-	}
-	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	owner := ownerConn(t)
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Empty', 'empty-budget', 'EUR')`, empty); err != nil {
 		t.Fatalf("workspace insert: %v", err)

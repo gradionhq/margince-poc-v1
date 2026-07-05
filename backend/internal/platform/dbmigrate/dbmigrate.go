@@ -221,6 +221,10 @@ func inTx(ctx context.Context, conn *pgx.Conn, fn func(pgx.Tx) error) error {
 		return err
 	}
 	if err := fn(tx); err != nil {
+		// The migration failure is the error the operator must see; the
+		// rollback is best-effort cleanup of a transaction that is being
+		// abandoned either way.
+		//craft:ignore swallowed-errors the migration error being returned supersedes a rollback failure on this abandoned tx
 		_ = tx.Rollback(ctx)
 		return err
 	}

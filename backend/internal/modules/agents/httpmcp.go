@@ -33,6 +33,7 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="/.well-known/oauth-protected-resource"`)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
+			//craft:ignore swallowed-errors a failed write of the 401 body means the client hung up — there is no channel left to report on
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_token"})
 			return
 		}
@@ -45,6 +46,7 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		var req rpcRequest
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.Unmarshal(body, &req); err != nil {
+			//craft:ignore swallowed-errors a failed write of the parse-error response means the client hung up — there is no channel left to report on
 			_ = json.NewEncoder(w).Encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
 			return
 		}
@@ -56,6 +58,7 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		// bind is a passthrough: this request's ctx IS the authenticated
 		// session, minted moments ago.
 		server := NewStdioServer(registry, func(context.Context) (context.Context, error) { return ctx, nil }, name, version)
+		//craft:ignore swallowed-errors the JSON-RPC result carries its own error member; a failed response write means the client hung up
 		_ = json.NewEncoder(w).Encode(server.handle(ctx, req))
 	})
 }

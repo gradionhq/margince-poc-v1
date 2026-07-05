@@ -116,9 +116,14 @@ func (s *Store) Availability(ctx context.Context, host ids.UUID, from, to time.T
 		return nil, err
 	}
 
-	// Candidates align to the duration grid, never before the caller's
-	// window, and must END inside business hours (17:00 sharp is fine,
-	// 17:01 is not).
+	return freeSlots(from, to, duration, busy), nil
+}
+
+// freeSlots walks the duration-aligned candidate grid inside the window
+// and keeps business-hour slots that miss every busy block. Candidates
+// align to the duration grid, never before the caller's window, and
+// must END inside business hours (17:00 sharp is fine, 17:01 is not).
+func freeSlots(from, to time.Time, duration time.Duration, busy []slot) []slot {
 	cursor := from.UTC().Truncate(duration)
 	if cursor.Before(from.UTC()) {
 		cursor = cursor.Add(duration)
@@ -142,7 +147,7 @@ func (s *Store) Availability(ctx context.Context, host ids.UUID, from, to time.T
 			break
 		}
 	}
-	return free, nil
+	return free
 }
 
 func overlapsAny(candidate slot, busy []slot) bool {

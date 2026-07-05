@@ -82,7 +82,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = rdb.Close() }()
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			logger.Warn("closing bus client", "err", err)
+		}
+	}()
 
 	modelPath, err := selectModelPath(*routingPath, *fakeBrain, pool)
 	if err != nil {

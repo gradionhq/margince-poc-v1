@@ -52,6 +52,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("migrate: connecting: %w", err)
 	}
+	//craft:ignore swallowed-errors close at process exit after the migration outcome is decided — a failed close cannot un-apply schema changes
 	defer func() { _ = conn.Close(ctx) }()
 
 	core, err := migrations.Core()

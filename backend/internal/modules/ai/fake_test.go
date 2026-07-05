@@ -102,7 +102,11 @@ func TestFakeClientStreamReassemblesText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = stream.Close() }()
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
 	var got strings.Builder
 	for {
 		chunk, ok, err := stream.Next(ctx)

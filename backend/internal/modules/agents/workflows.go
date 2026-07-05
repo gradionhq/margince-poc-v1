@@ -48,15 +48,18 @@ func NewWorkflowEngine(pool *pgxpool.Pool) *WorkflowEngine {
 func (e *WorkflowEngine) RegisterWorkflow(h workflow.Handler) {
 	spec := h.Spec()
 	if spec.Name == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: registering a workflow with no name")
 	}
 	if spec.Trigger.EventType == "" && spec.Trigger.Schedule == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: workflow %s declares no trigger", spec.Name))
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, existing := range e.handlers {
 		if existing.Spec().Name == spec.Name {
+			//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 			panic(fmt.Sprintf("crmagents: duplicate workflow %s", spec.Name))
 		}
 	}

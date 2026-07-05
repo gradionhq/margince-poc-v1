@@ -14,6 +14,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -56,7 +57,11 @@ func setup(t *testing.T) *busEnv {
 	if err != nil {
 		t.Fatalf("connecting as owner: %v", err)
 	}
-	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
 	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
 		t.Fatalf("resetting schema: %v", err)
 	}
@@ -93,7 +98,11 @@ func setup(t *testing.T) *busEnv {
 	if err := rdb.FlushDB(ctx).Err(); err != nil {
 		t.Fatalf("flushing test redis db: %v", err)
 	}
-	t.Cleanup(func() { _ = rdb.Close() })
+	t.Cleanup(func() {
+		if err := rdb.Close(); err != nil {
+			t.Errorf("closing redis client: %v", err)
+		}
+	})
 
 	return &busEnv{pool: pool, rdb: rdb, ws: ws}
 }
@@ -261,7 +270,11 @@ func consumeUntil(t *testing.T, s *Subscriber, deadline time.Duration, done func
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		_ = s.Run(ctx)
+		// Cancellation is the intended way out; anything else means the
+		// subscriber died before the predicate could hold.
+		if err := s.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("subscriber exited: %v", err)
+		}
 	}()
 
 	waited := time.NewTimer(deadline)

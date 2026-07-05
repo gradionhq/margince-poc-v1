@@ -33,10 +33,12 @@ func TestOllamaCompleteCarriesSystemAsLeadingMessage(t *testing.T) {
 			t.Fatalf("wrong path %s", r.URL.Path)
 		}
 		received, _ = io.ReadAll(r.Body)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"message": map[string]string{"content": "local hello"},
 			"done":    true, "prompt_eval_count": 7, "eval_count": 2,
-		})
+		}); err != nil {
+			t.Errorf("encoding fixture response: %v", err)
+		}
 	})
 	resp, err := client.Complete(context.Background(), model.Request{
 		System:         "be terse",
@@ -70,9 +72,11 @@ func TestOllamaEmbedReturnsVectors(t *testing.T) {
 		if r.URL.Path != "/api/embed" {
 			t.Fatalf("wrong path %s", r.URL.Path)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"embeddings": [][]float32{{0.1, 0.2, 0.3}, {0.4, 0.5, 0.6}},
-		})
+		}); err != nil {
+			t.Errorf("encoding fixture response: %v", err)
+		}
 	})
 	res, err := client.Embed(context.Background(), model.EmbedRequest{Inputs: []string{"a", "b"}})
 	if err != nil {
@@ -93,7 +97,11 @@ func TestOllamaStreamReadsJSONLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = stream.Close() }()
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
 	var got strings.Builder
 	for {
 		chunk, ok, err := stream.Next(context.Background())

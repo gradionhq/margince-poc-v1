@@ -126,32 +126,9 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		qPos := arg(query)
 
-		var branches []string
-		for _, branch := range searchBranches {
-			if !slices.Contains(types, branch.entity) {
-				continue
-			}
-			// A hit is a read twice over: object RBAC first (a role
-			// without person.read gets no person hits — search must not
-			// out-see the entity lists), then the row scope.
-			scope, admitted, err := branchScope(ctx, branch, arg)
-			if err != nil {
-				return err
-			}
-			if !admitted {
-				continue
-			}
-			sql := fmt.Sprintf(
-				`SELECT '%s'::text AS rtype, t.id, %s AS title, %s AS snippet,
-				        ts_rank_cd(t.search_tsv, websearch_to_tsquery('simple', $%d))::float8 AS score
-				 FROM %s t
-				 WHERE t.search_tsv @@ websearch_to_tsquery('simple', $%d)
-				   AND t.archived_at IS NULL`,
-				branch.entity, branch.title, branch.snippet, qPos, branch.table, qPos)
-			if scope != "" {
-				sql += " AND " + scope
-			}
-			branches = append(branches, sql)
+		branches, err := admittedBranchSQL(ctx, types, qPos, arg)
+		if err != nil {
+			return err
 		}
 		if len(branches) == 0 {
 			// Every requested type was denied by object RBAC: an empty
@@ -175,33 +152,73 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 			return fmt.Errorf("search: query: %w", err)
 		}
 		defer rows.Close()
-		for rows.Next() {
-			var h Hit
-			var title, snippet *string
-			if err := rows.Scan(&h.Type, &h.ID, &title, &snippet, &h.Score); err != nil {
-				return err
-			}
-			if title != nil {
-				h.Title = *title
-			}
-			if snippet != nil {
-				h.Snippet = strings.TrimSpace(*snippet)
-			}
-			page.Hits = append(page.Hits, h)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(page.Hits) > limit {
-			page.Hits = page.Hits[:limit]
-			page.HasMore = true
-			last := page.Hits[limit-1]
-			page.NextCursor = encodeCursor(rankedCursor{Score: last.Score, Type: last.Type, ID: last.ID})
-		}
-		return nil
+		page, err = scanRankedPage(rows, limit)
+		return err
 	})
 	if err != nil {
 		return Page{}, err
+	}
+	return page, nil
+}
+
+// admittedBranchSQL builds one ranked SELECT per requested-and-admitted
+// entity type. A hit is a read twice over: object RBAC first (a role
+// without person.read gets no person hits — search must not out-see the
+// entity lists), then the row scope.
+func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(any) int) ([]string, error) {
+	var branches []string
+	for _, branch := range searchBranches {
+		if !slices.Contains(types, branch.entity) {
+			continue
+		}
+		scope, admitted, err := branchScope(ctx, branch, arg)
+		if err != nil {
+			return nil, err
+		}
+		if !admitted {
+			continue
+		}
+		sql := fmt.Sprintf(
+			`SELECT '%s'::text AS rtype, t.id, %s AS title, %s AS snippet,
+			        ts_rank_cd(t.search_tsv, websearch_to_tsquery('simple', $%d))::float8 AS score
+			 FROM %s t
+			 WHERE t.search_tsv @@ websearch_to_tsquery('simple', $%d)
+			   AND t.archived_at IS NULL`,
+			branch.entity, branch.title, branch.snippet, qPos, branch.table, qPos)
+		if scope != "" {
+			sql += " AND " + scope
+		}
+		branches = append(branches, sql)
+	}
+	return branches, nil
+}
+
+// scanRankedPage materializes the ranked rows and derives the keyset
+// cursor from the limit+1 overfetch.
+func scanRankedPage(rows pgx.Rows, limit int) (Page, error) {
+	var page Page
+	for rows.Next() {
+		var h Hit
+		var title, snippet *string
+		if err := rows.Scan(&h.Type, &h.ID, &title, &snippet, &h.Score); err != nil {
+			return Page{}, err
+		}
+		if title != nil {
+			h.Title = *title
+		}
+		if snippet != nil {
+			h.Snippet = strings.TrimSpace(*snippet)
+		}
+		page.Hits = append(page.Hits, h)
+	}
+	if err := rows.Err(); err != nil {
+		return Page{}, err
+	}
+	if len(page.Hits) > limit {
+		page.Hits = page.Hits[:limit]
+		page.HasMore = true
+		last := page.Hits[limit-1]
+		page.NextCursor = encodeCursor(rankedCursor{Score: last.Score, Type: last.Type, ID: last.ID})
 	}
 	return page, nil
 }

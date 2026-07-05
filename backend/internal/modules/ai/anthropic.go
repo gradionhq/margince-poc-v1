@@ -55,6 +55,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 	if err != nil {
 		return model.Response{}, err
 	}
+	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
 	defer func() { _ = body.Close() }()
 	var out struct {
 		Content []struct {
@@ -156,6 +157,7 @@ func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bo
 		return nil, fmt.Errorf("ai: anthropic: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
 		return nil, anthropicError(resp)
 	}

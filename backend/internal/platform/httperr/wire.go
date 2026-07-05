@@ -24,6 +24,8 @@ const MaxBodyBytes = 1 << 20
 // on malformed JSON. The body is size-capped and must contain exactly
 // one JSON value — trailing tokens are malformed, not ignored. Returns
 // false when the response has been written.
+//
+//craft:ignore naked-any the JSON deserialization seam: the decode target is whichever contract request struct the handler owns
 func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
 	if err := dec.Decode(into); err != nil {
@@ -45,9 +47,12 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 }
 
 // WriteJSON writes a JSON response with the given status.
+//
+//craft:ignore naked-any the JSON serialization seam: body is whichever contract response struct the handler produced
 func WriteJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	//craft:ignore swallowed-errors WriteHeader already committed the response — nothing can report an encode failure to the client anymore
 	_ = json.NewEncoder(w).Encode(body)
 }
 

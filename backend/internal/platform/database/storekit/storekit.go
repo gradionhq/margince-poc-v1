@@ -67,6 +67,8 @@ func CapturedBy(ctx context.Context) (string, error) {
 // transaction — atomic with the domain write by construction — and
 // returns the row's id so the paired event can carry it as
 // trace.audit_log_id (events.md §2).
+//
+//craft:ignore naked-any the audit seam: before/after images are each entity's own snapshot shape, serialized to jsonb
 func Audit(ctx context.Context, tx pgx.Tx, action, entityType string, entityID ids.UUID, before, after any) (ids.UUID, error) {
 	p, err := Actor(ctx)
 	if err != nil {
@@ -98,6 +100,8 @@ func Audit(ctx context.Context, tx pgx.Tx, action, entityType string, entityID i
 // actor incl. passport/on-behalf-of, and the trace linking this event to
 // its audit row, its request's correlation scope, and (for bus-derived
 // writes) the causing event — so the relay ships it verbatim.
+//
+//craft:ignore naked-any the outbox payload seam: each event type carries its own events.md payload shape, serialized into the envelope
 func Emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityType string, entityID ids.UUID, payload any) error {
 	p, err := Actor(ctx)
 	if err != nil {
@@ -176,6 +180,8 @@ func MustWorkspace(ctx context.Context) ids.UUID {
 }
 
 // JSONArg marshals a map for a jsonb parameter, passing NULL for nil.
+//
+//craft:ignore naked-any a jsonb bind parameter is either SQL NULL (nil) or raw bytes — pgx accepts both only as any
 func JSONArg(m map[string]any) any {
 	if m == nil {
 		return nil
@@ -254,6 +260,8 @@ func NewPatch() *Patch {
 
 // Set records one changed column. oldVal comes from the row read inside
 // the same transaction, so the audit diff is exact.
+//
+//craft:ignore naked-any column values span every SQL type a module owns; they flow to bind parameters and the schemaless audit diff
 func (p *Patch) Set(column string, oldVal, newVal any) {
 	p.args = append(p.args, newVal)
 	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", column, len(p.args)))
@@ -302,6 +310,7 @@ func (p *Patch) Apply(ctx context.Context, tx pgx.Tx, table string, id ids.UUID,
 	return apperrors.ErrNotFound
 }
 
+//craft:ignore naked-any marshals the audit seam's schemaless before/after images (see Audit)
 func marshalOrNil(v any) ([]byte, error) {
 	if v == nil {
 		return nil, nil

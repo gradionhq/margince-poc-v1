@@ -48,11 +48,13 @@ func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver) *Regi
 func (r *Registry) Register(c connector.Connector) {
 	desc := c.Descriptor()
 	if desc.Name == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("capture: registering a connector with no name")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, dup := r.connectors[desc.Name]; dup {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("capture: duplicate connector %s", desc.Name))
 	}
 	r.connectors[desc.Name] = c

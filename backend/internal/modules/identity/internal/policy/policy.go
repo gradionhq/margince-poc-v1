@@ -98,10 +98,10 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 	}
 }
 
-// DefaultJSON returns the seeded policy document for a system role key,
+// MustDefaultJSON returns the seeded policy document for a system role key,
 // ready for the role.permissions column. Unknown keys panic: the caller
 // iterates the compiled-in role list, so a miss is a programming error.
-func DefaultJSON(roleKey string) []byte {
+func MustDefaultJSON(roleKey string) []byte {
 	doc, ok := defaults[roleKey]
 	if !ok {
 		panic(fmt.Sprintf("policy: no default document for role %q", roleKey))

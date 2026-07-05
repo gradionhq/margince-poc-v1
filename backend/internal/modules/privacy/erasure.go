@@ -76,68 +76,12 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			return err
 		}
 
-		if _, err := tx.Exec(ctx, `
-			UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
-			  title = NULL, social = '{}'::jsonb, address = NULL, raw = NULL,
-			  archived_at = coalesce(archived_at, now())
-			WHERE id = $1`, personID, erasedName); err != nil {
+		if err := anonymizeSubjectRows(ctx, tx, personID, emails); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
+		rawPurged, err := purgeDerivedTraces(ctx, tx, personID, emails)
+		if err != nil {
 			return err
-		}
-		if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
-			return err
-		}
-		// The subject may also live in the SEGREGATED lead table: the
-		// lead they were promoted from, and any lead row carrying one of
-		// their addresses. Same anonymize-in-place shape as the person.
-		if _, err := tx.Exec(ctx, `
-			UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
-			  company_name = NULL, candidate_org_key = NULL, raw = NULL,
-			  archived_at = coalesce(archived_at, now())
-			WHERE promoted_person_id = $1
-			   OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
-			   OR (email IS NOT NULL AND lower(email) = ANY($2))`,
-			personID, lowercased(emails)); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
-			return err
-		}
-
-		// Raw capture is purged by identifier match: any stored provider
-		// payload carrying one of the subject's addresses goes. Crude on
-		// purpose — over-deleting evidence is recoverable by re-sync,
-		// under-deleting PII is a violation.
-		var rawPurged int64
-		for _, email := range emails {
-			tag, err := tx.Exec(ctx,
-				`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
-				storekit.EscapeLike(email))
-			if err != nil {
-				return err
-			}
-			rawPurged += tag.RowsAffected()
-		}
-		// Embeddings of activities on the subject's timeline embed text
-		// ABOUT them; the vector store must not keep what a similarity
-		// probe could partially reconstruct.
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM embedding e USING activity_link l
-			WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
-			personID); err != nil {
-			return err
-		}
-
-		for _, email := range emails {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'email', $1)
-				ON CONFLICT DO NOTHING`, storekit.SuppressionHash(email)); err != nil {
-				return err
-			}
 		}
 
 		// The tombstone: action=erase with counts only — proof without
@@ -152,6 +96,77 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			"action": "erase", "reason": reason,
 		})
 	})
+}
+
+// anonymizeSubjectRows wipes the subject's PII in place: the person row
+// keeps its skeleton (business records other subjects appear in still
+// reference it), the email/phone child rows delete outright, the
+// SEGREGATED lead twin — the lead they were promoted from, and any lead
+// row carrying one of their addresses — anonymizes the same way, and
+// the subject's own embeddings drop.
+func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.UUID, emails []string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
+		  title = NULL, social = '{}'::jsonb, address = NULL, raw = NULL,
+		  archived_at = coalesce(archived_at, now())
+		WHERE id = $1`, personID, erasedName); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
+		  company_name = NULL, candidate_org_key = NULL, raw = NULL,
+		  archived_at = coalesce(archived_at, now())
+		WHERE promoted_person_id = $1
+		   OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
+		   OR (email IS NOT NULL AND lower(email) = ANY($2))`,
+		personID, lowercased(emails)); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx,
+		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID)
+	return err
+}
+
+// purgeDerivedTraces removes what the system DERIVED from the subject
+// and arms the suppression list. Raw capture is purged by identifier
+// match: any stored provider payload carrying one of the subject's
+// addresses goes — crude on purpose, over-deleting evidence is
+// recoverable by re-sync, under-deleting PII is a violation. Embeddings
+// of activities on the subject's timeline embed text ABOUT them; the
+// vector store must not keep what a similarity probe could partially
+// reconstruct.
+func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.UUID, emails []string) (int64, error) {
+	var rawPurged int64
+	for _, email := range emails {
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
+			storekit.EscapeLike(email))
+		if err != nil {
+			return 0, err
+		}
+		rawPurged += tag.RowsAffected()
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM embedding e USING activity_link l
+		WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
+		personID); err != nil {
+		return 0, err
+	}
+	for _, email := range emails {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'email', $1)
+			ON CONFLICT DO NOTHING`, storekit.SuppressionHash(email)); err != nil {
+			return 0, err
+		}
+	}
+	return rawPurged, nil
 }
 
 // lowercased normalizes identifiers for SQL ANY matching.

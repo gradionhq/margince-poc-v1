@@ -269,58 +269,70 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// tool's declared scope and either admits, stages an approval,
 		// or default-denies an un-tiered operation.
 		if bearer := bearerToken(r); bearer != "" {
-			agent, err := h.svc.AuthenticateAgent(ctx, bearer)
-			if err != nil {
-				if errors.Is(err, apperrors.ErrNotFound) {
-					httperr.Unauthorized(w, r, "passport expired, revoked or unknown")
-					return
-				}
-				httperr.Write(w, r, err)
-				return
-			}
-			if !isMutating(r.Method) && !agent.Scopes.Has(principal.ScopeRead) {
-				httperr.Write(w, r, apperrors.ErrScopeExceeded)
-				return
-			}
-			next.ServeHTTP(w, r.WithContext(principal.WithActor(ctx, agent.Principal())))
+			h.serveAsAgent(w, r.WithContext(ctx), next, bearer)
 			return
 		}
-
-		cookie, err := r.Cookie(sessionCookie)
-		if err != nil {
-			httperr.Unauthorized(w, r, "missing session cookie")
-			return
-		}
-		id, err := h.svc.Authenticate(ctx, cookie.Value)
-		if err != nil {
-			if errors.Is(err, apperrors.ErrNotFound) {
-				httperr.Unauthorized(w, r, "session expired or revoked")
-				return
-			}
-			httperr.Write(w, r, err)
-			return
-		}
-
-		// The seat ceiling is a licensing cap enforced before RBAC
-		// (A62/ADR-0047): a read seat may read but never mutate over REST,
-		// whatever its role grants. Method-based, matching restScope — the
-		// contract has no mutating GET.
-		if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) {
-			httperr.Write(w, r, apperrors.ErrSeatTierInsufficient)
-			return
-		}
-
-		ctx = withIdentity(ctx, id)
-		ctx = principal.WithActor(ctx, principal.Principal{
-			Type:        principal.PrincipalHuman,
-			ID:          "human:" + id.UserID.String(),
-			UserID:      id.UserID,
-			TeamIDs:     id.Teams,
-			SeatType:    principal.SeatType(id.SeatType),
-			Permissions: id.Permissions,
-		})
-		next.ServeHTTP(w, r.WithContext(ctx))
+		h.serveAsHuman(w, r.WithContext(ctx), next)
 	})
+}
+
+// serveAsAgent admits a passport bearer under the agent principal.
+func (h Handlers) serveAsAgent(w http.ResponseWriter, r *http.Request, next http.Handler, bearer string) {
+	ctx := r.Context()
+	agent, err := h.svc.AuthenticateAgent(ctx, bearer)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			httperr.Unauthorized(w, r, "passport expired, revoked or unknown")
+			return
+		}
+		httperr.Write(w, r, err)
+		return
+	}
+	if !isMutating(r.Method) && !agent.Scopes.Has(principal.ScopeRead) {
+		httperr.Write(w, r, apperrors.ErrScopeExceeded)
+		return
+	}
+	next.ServeHTTP(w, r.WithContext(principal.WithActor(ctx, agent.Principal())))
+}
+
+// serveAsHuman resolves the session cookie to a human principal and
+// enforces the seat ceiling before the request reaches RBAC.
+func (h Handlers) serveAsHuman(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	ctx := r.Context()
+	cookie, err := r.Cookie(sessionCookie)
+	if err != nil {
+		httperr.Unauthorized(w, r, "missing session cookie")
+		return
+	}
+	id, err := h.svc.Authenticate(ctx, cookie.Value)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			httperr.Unauthorized(w, r, "session expired or revoked")
+			return
+		}
+		httperr.Write(w, r, err)
+		return
+	}
+
+	// The seat ceiling is a licensing cap enforced before RBAC
+	// (A62/ADR-0047): a read seat may read but never mutate over REST,
+	// whatever its role grants. Method-based, matching restScope — the
+	// contract has no mutating GET.
+	if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) {
+		httperr.Write(w, r, apperrors.ErrSeatTierInsufficient)
+		return
+	}
+
+	ctx = withIdentity(ctx, id)
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type:        principal.PrincipalHuman,
+		ID:          "human:" + id.UserID.String(),
+		UserID:      id.UserID,
+		TeamIDs:     id.Teams,
+		SeatType:    principal.SeatType(id.SeatType),
+		Permissions: id.Permissions,
+	})
+	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // bearerToken extracts an Authorization: Bearer credential; empty when

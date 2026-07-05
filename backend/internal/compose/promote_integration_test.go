@@ -14,10 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -81,11 +78,7 @@ func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
 
 	// Exactly one lead.promoted with the §5.5 payload, plus the caused
 	// person.created — same correlation, same audit row.
-	owner, err := pgx.Connect(context.Background(), os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = owner.Close(context.Background()) }()
+	owner := ownerConn(t)
 	var payload json.RawMessage
 	var promotedAudit, personAudit string
 	if err := owner.QueryRow(context.Background(),
@@ -152,11 +145,7 @@ func TestPromoteMergesIntoAnExistingPersonNotADuplicate(t *testing.T) {
 		t.Errorf("merge overwrote the human-curated name with %q", person.FullName)
 	}
 
-	owner, err := pgx.Connect(context.Background(), os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = owner.Close(context.Background()) }()
+	owner := ownerConn(t)
 	var people int
 	if err := owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id

@@ -77,27 +77,12 @@ func seedSubject(t *testing.T, e *authzEnv) ids.UUID {
 	return personID
 }
 
-func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
-	e := setupAuthz(t)
-	personID := seedSubject(t, e)
-	admin := e.admin()
-
-	// The SAR sees the full picture BEFORE erasure — Art. 15 assembly.
-	pkg, err := privacy.AssembleSAR(admin, e.pool, personID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pkg.Subject["full_name"] != "Selma Subject" || len(pkg.Emails) != 1 ||
-		len(pkg.Activities) != 1 || len(pkg.RawCapture) != 1 {
-		t.Fatalf("SAR incomplete: subject=%v emails=%d activities=%d raw=%d",
-			pkg.Subject["full_name"], len(pkg.Emails), len(pkg.Activities), len(pkg.RawCapture))
-	}
-
-	if err := privacy.NewEraser(e.pool).ErasePerson(admin, personID, "test"); err != nil {
-		t.Fatal(err)
-	}
-
-	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+// assertSubjectErased verifies every store the subject touched after an
+// erasure: emails, embeddings, search, suppression entry, PII-free
+// tombstone, scrubbed raw capture.
+func assertSubjectErased(t *testing.T, e *authzEnv, personID ids.UUID) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		checks := []struct {
 			what  string
@@ -154,6 +139,29 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
+	e := setupAuthz(t)
+	personID := seedSubject(t, e)
+	admin := e.admin()
+
+	// The SAR sees the full picture BEFORE erasure — Art. 15 assembly.
+	pkg, err := privacy.AssembleSAR(admin, e.pool, personID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Subject["full_name"] != "Selma Subject" || len(pkg.Emails) != 1 ||
+		len(pkg.Activities) != 1 || len(pkg.RawCapture) != 1 {
+		t.Fatalf("SAR incomplete: subject=%v emails=%d activities=%d raw=%d",
+			pkg.Subject["full_name"], len(pkg.Emails), len(pkg.Activities), len(pkg.RawCapture))
+	}
+
+	if err := privacy.NewEraser(e.pool).ErasePerson(admin, personID, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	assertSubjectErased(t, e, personID)
 
 	// Re-capture of the erased address is skipped, not resurrected.
 	sink := capture.NewSink(e.pool)

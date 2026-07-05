@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// The deal read paths: single-row get, the filtered keyset list, and
+// the one column list + scanner every deal read shares.
+
+package deals
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+func (s *Store) GetDeal(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+		return crmcontracts.Deal{}, err
+	}
+	var out crmcontracts.Deal
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
+			return err
+		}
+		out, err = readDeal(ctx, tx, id, archived)
+		return err
+	})
+	return out, err
+}
+
+type ListDealsInput struct {
+	Cursor          *string
+	Limit           *int
+	Query           *string
+	PipelineID      *ids.UUID
+	StageID         *ids.UUID
+	OwnerID         *ids.UUID
+	OrganizationID  *ids.UUID
+	Status          *string
+	Stalled         *bool
+	IncludeArchived bool
+}
+
+func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontracts.Deal, storekit.Page, error) {
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	limit := storekit.ClampLimit(in.Limit)
+
+	where := []string{"1=1"}
+	args := []any{}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+
+	scope, err := auth.ScopeClauseFor(ctx, "deal", "", arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+
+	where, err = appendDealFilters(where, in, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+
+	var deals []crmcontracts.Deal
+	var page storekit.Page
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT `+dealColumns+` FROM deal WHERE `+strings.Join(where, " AND ")+
+				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+			args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			d, err := scanDeal(rows)
+			if err != nil {
+				return err
+			}
+			deals = append(deals, d)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(deals) > limit {
+			deals = deals[:limit]
+			last := deals[len(deals)-1]
+			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+		}
+		return nil
+	})
+	if deals == nil {
+		deals = []crmcontracts.Deal{}
+	}
+	return deals, page, err
+}
+
+// appendDealFilters translates the caller's list filters — archived
+// visibility, full-text query, the column equality filters, the stalled
+// predicate, and the keyset cursor — into WHERE clauses.
+func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) ([]string, error) {
+	if !in.IncludeArchived {
+		where = append(where, "archived_at IS NULL")
+	}
+	if in.Query != nil && *in.Query != "" {
+		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+	}
+	if in.PipelineID != nil {
+		where = append(where, storekit.SQLf("pipeline_id = $%d", arg(*in.PipelineID)))
+	}
+	if in.StageID != nil {
+		where = append(where, storekit.SQLf("stage_id = $%d", arg(*in.StageID)))
+	}
+	if in.OwnerID != nil {
+		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
+	}
+	if in.OrganizationID != nil {
+		where = append(where, storekit.SQLf("organization_id = $%d", arg(*in.OrganizationID)))
+	}
+	if in.Status != nil {
+		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
+	}
+	if in.Stalled != nil {
+		if *in.Stalled {
+			where = append(where, stalledSQL)
+		} else {
+			where = append(where, "NOT "+stalledSQL)
+		}
+	}
+	if in.Cursor != nil && *in.Cursor != "" {
+		c, err := storekit.DecodeCursor(*in.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+	}
+	return where, nil
+}
+
+const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
+	organization_id, owner_id, partner_org_id, status, lost_reason,
+	expected_close_date, closed_at, forecast_category, wait_until, last_activity_at,
+	source, captured_by, version, created_at, updated_at, archived_at`
+
+func readDeal(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
+	q := `SELECT ` + dealColumns + ` FROM deal WHERE id = $1`
+	if archived == storekit.LiveOnly {
+		q += ` AND archived_at IS NULL`
+	}
+	d, err := scanDeal(tx.QueryRow(ctx, q, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return crmcontracts.Deal{}, apperrors.ErrNotFound
+	}
+	return d, err
+}
+
+func scanDeal(row pgx.Row) (crmcontracts.Deal, error) {
+	var d crmcontracts.Deal
+	var id, wsID, pipelineID, stageID ids.UUID
+	var orgID, ownerID, partnerID *ids.UUID
+	var status string
+	var forecastCat *string
+	var expectedClose, waitUntil *time.Time
+	var version int64
+
+	err := row.Scan(&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
+		&orgID, &ownerID, &partnerID, &status, &d.LostReason,
+		&expectedClose, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
+		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt)
+	if err != nil {
+		return d, err
+	}
+	if forecastCat != nil {
+		cat := crmcontracts.DealForecastCategory(*forecastCat)
+		d.ForecastCategory = &cat
+	}
+
+	d.Id = openapi_types.UUID(id)
+	d.WorkspaceId = openapi_types.UUID(wsID)
+	d.PipelineId = openapi_types.UUID(pipelineID)
+	d.StageId = openapi_types.UUID(stageID)
+	d.OrganizationId = uuidPtr(orgID)
+	d.OwnerId = uuidPtr(ownerID)
+	d.PartnerOrgId = uuidPtr(partnerID)
+	d.Status = crmcontracts.DealStatus(status)
+	if expectedClose != nil {
+		d.ExpectedCloseDate = &openapi_types.Date{Time: *expectedClose}
+	}
+	if waitUntil != nil {
+		d.WaitUntil = &openapi_types.Date{Time: *waitUntil}
+	}
+	d.Version = &version
+	stalled := IsStalled(status, d.CreatedAt, d.LastActivityAt, waitUntil, time.Now().UTC())
+	d.Stalled = &stalled
+	return d, nil
+}

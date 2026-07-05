@@ -38,7 +38,7 @@ func wireMessages(system string, msgs []model.Message) []wireMessage {
 // path could bypass. If a stripped secret leaves the JSON malformed the
 // provider rejects the request; a failed call is the acceptable cost of
 // a credential that never left the process.
-func sendablePayload(ctx context.Context, body any, stripper model.SecretStripper) ([]byte, model.StripReport, error) {
+func sendablePayload[T any](ctx context.Context, body T, stripper model.SecretStripper) ([]byte, model.StripReport, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, model.StripReport{}, fmt.Errorf("ai: marshal request: %w", err)

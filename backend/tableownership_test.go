@@ -206,13 +206,11 @@ type tableWrite struct {
 	table string
 }
 
-func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
-	for key, rationale := range crossStoreWrites {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("crossStoreWrites[%s] has no rationale — a cross-store write must say why it cannot go through the owning module", key)
-		}
-	}
-
+// collectTableWrites walks every non-test module/compose source file and
+// records each SQL write target (string literals plus storekit's
+// Patch.Apply table argument) under its owning directory.
+func collectTableWrites(t *testing.T) map[string][]tableWrite {
+	t.Helper()
 	writes := map[string][]tableWrite{} // owning dir → writes
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose"} {
@@ -265,6 +263,17 @@ func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	return writes
+}
+
+func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
+	for key, rationale := range crossStoreWrites {
+		if strings.TrimSpace(rationale) == "" {
+			t.Errorf("crossStoreWrites[%s] has no rationale — a cross-store write must say why it cannot go through the owning module", key)
+		}
+	}
+
+	writes := collectTableWrites(t)
 
 	usedWaivers := map[string]bool{}
 	for owner, ws := range writes {

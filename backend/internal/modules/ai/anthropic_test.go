@@ -34,10 +34,12 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 		received, _ = io.ReadAll(r.Body)
 		gotKey = r.Header.Get("X-Api-Key")
 		gotVersion = r.Header.Get("Anthropic-Version")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"content": []map[string]any{{"type": "text", "text": "hello"}},
 			"usage":   map[string]int{"input_tokens": 12, "output_tokens": 3},
-		})
+		}); err != nil {
+			t.Errorf("encoding fixture response: %v", err)
+		}
 	})
 
 	// Assembled at runtime so secret scanners don't flag the fixture as a
@@ -114,7 +116,11 @@ func TestAnthropicStreamYieldsDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = stream.Close() }()
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
 	var got strings.Builder
 	for {
 		chunk, ok, err := stream.Next(context.Background())

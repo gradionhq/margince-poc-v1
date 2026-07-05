@@ -158,8 +158,9 @@ func (h Handlers) wire(a row) crmcontracts.Approval {
 	return out
 }
 
-func writeJSON(w http.ResponseWriter, status int, body any) {
+func writeJSON[T any](w http.ResponseWriter, status int, body T) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	//craft:ignore swallowed-errors the status line is already written — a failed body encode has no channel left to report on
 	_ = json.NewEncoder(w).Encode(body)
 }

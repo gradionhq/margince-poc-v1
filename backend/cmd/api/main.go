@@ -22,6 +22,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/compose"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
@@ -77,46 +79,21 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	var opts []compose.Option
 
-	// The bus is not optional plumbing: without a relay every committed
-	// write strands its outbox row, so an unreachable Redis fails the
-	// boot the same way an unreachable Postgres does (B-EP04.1).
-	var relay sync.WaitGroup
 	stopRelay := func() {}
 	if *inlineRelay {
-		rdb, err := events.NewClient(ctx, *redisAddr)
+		busReady, stop, err := startInlineRelay(ctx, pool, *redisAddr, logger)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rdb.Close() }()
-		relayCtx, cancel := context.WithCancel(context.Background())
-		stopRelay = cancel
-		relay.Go(func() {
-			events.NewRelay(pool, rdb, logger).Run(relayCtx)
-		})
-		// The inline relay makes the bus a readiness dependency of THIS
-		// process; a split deployment's api is ready on Postgres alone.
-		opts = append(opts, compose.WithBusReady(func(ctx context.Context) error {
-			return rdb.Ping(ctx).Err()
-		}))
+		stopRelay = stop
+		opts = append(opts, busReady)
 	}
 
-	// The cold-start read-back needs a declared model path; without one
-	// the operation stays an explicit 501 (same posture as the worker's
-	// runner lane).
-	switch {
-	case *routingPath != "":
-		cfg, err := ai.LoadRoutingFile(*routingPath)
-		if err != nil {
-			return err
-		}
-		modelPath, err := compose.NewModelPath(cfg, pool)
-		if err != nil {
-			return err
-		}
-		opts = append(opts, compose.WithColdStart(compose.NewWebFetcher(), modelPath.ColdStart))
-	case *fakeBrain:
-		opts = append(opts, compose.WithColdStart(compose.NewWebFetcher(), ai.NewFakeClient()))
+	coldStart, err := coldStartOptions(*routingPath, *fakeBrain, pool)
+	if err != nil {
+		return err
 	}
+	opts = append(opts, coldStart...)
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -135,9 +112,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1); the outbox relay runs in cmd/worker\n", *addr)
 	}
 
-	// The relay stops after the HTTP server so late-committing requests
-	// usually ship before exit; anything still unshipped waits durably in
-	// the outbox for the next boot — shutdown loses no events.
 	stopHTTP := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -145,7 +119,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	stopAll := func(httpErr error) error {
 		stopRelay()
-		relay.Wait()
 		return httpErr
 	}
 
@@ -154,6 +127,61 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return stopAll(err)
 	case <-ctx.Done():
 		return stopAll(stopHTTP())
+	}
+}
+
+// startInlineRelay boots the in-process outbox relay. The bus is not
+// optional plumbing: without a relay every committed write strands its
+// outbox row, so an unreachable Redis fails the boot the same way an
+// unreachable Postgres does (B-EP04.1). The returned compose option makes
+// the bus a readiness dependency of THIS process (a split deployment's
+// api is ready on Postgres alone); the stop function runs after the HTTP
+// server shuts down, so late-committing requests usually ship before
+// exit — anything still unshipped waits durably in the outbox for the
+// next boot, and shutdown loses no events.
+func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr string, logger *slog.Logger) (compose.Option, func(), error) {
+	rdb, err := events.NewClient(ctx, redisAddr)
+	if err != nil {
+		return nil, nil, err
+	}
+	relayCtx, cancel := context.WithCancel(context.Background())
+	var relay sync.WaitGroup
+	relay.Go(func() {
+		events.NewRelay(pool, rdb, logger).Run(relayCtx)
+	})
+	stop := func() {
+		cancel()
+		relay.Wait()
+		if err := rdb.Close(); err != nil {
+			logger.Warn("closing bus client", "err", err)
+		}
+	}
+	busReady := compose.WithBusReady(func(ctx context.Context) error {
+		return rdb.Ping(ctx).Err()
+	})
+	return busReady, stop, nil
+}
+
+// coldStartOptions resolves the cold-start read-back's model wiring: a
+// declared routing file for real deployments, the offline fake behind an
+// explicit dev flag, or nothing — the operation then stays an explicit
+// 501 (same posture as the worker's runner lane).
+func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([]compose.Option, error) {
+	switch {
+	case routingPath != "":
+		cfg, err := ai.LoadRoutingFile(routingPath)
+		if err != nil {
+			return nil, err
+		}
+		modelPath, err := compose.NewModelPath(cfg, pool)
+		if err != nil {
+			return nil, err
+		}
+		return []compose.Option{compose.WithColdStart(compose.NewWebFetcher(), modelPath.ColdStart)}, nil
+	case fakeBrain:
+		return []compose.Option{compose.WithColdStart(compose.NewWebFetcher(), ai.NewFakeClient())}, nil
+	default:
+		return nil, nil
 	}
 }
 

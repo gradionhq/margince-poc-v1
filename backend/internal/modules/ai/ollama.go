@@ -60,6 +60,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req model.Request) (model.R
 	if err != nil {
 		return model.Response{}, err
 	}
+	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
 	defer func() { _ = body.Close() }()
 	var out ollamaChatEvent
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
@@ -93,6 +94,7 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	if err != nil {
 		return model.Embeddings{}, err
 	}
+	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
 	defer func() { _ = body.Close() }()
 	var out struct {
 		Embeddings [][]float32 `json:"embeddings"`
@@ -161,6 +163,7 @@ func (c *ollamaClient) post(ctx context.Context, path string, payload []byte) (i
 		return nil, fmt.Errorf("ai: ollama: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("ai: ollama: http %d: %s", resp.StatusCode, bytes.TrimSpace(raw))

@@ -120,22 +120,7 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 			return err
 		}
 
-		var adminRoleID ids.UUID
-		for _, role := range systemRoles {
-			var roleID ids.UUID
-			err := tx.QueryRow(ctx,
-				`INSERT INTO role (workspace_id, key, name, is_system, permissions) VALUES ($1, $2, $3, true, $4) RETURNING id`,
-				wsID, role.key, role.name, policy.DefaultJSON(role.key)).Scan(&roleID)
-			if err != nil {
-				return err
-			}
-			if role.key == "admin" {
-				adminRoleID = roleID
-			}
-		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-			wsID, adminRoleID, userID); err != nil {
+		if err := seedSystemRoles(ctx, tx, wsID, userID); err != nil {
 			return err
 		}
 
@@ -146,7 +131,7 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 			return err
 		}
 
-		adminDoc, err := policy.Parse(policy.DefaultJSON("admin"))
+		adminDoc, err := policy.Parse(policy.MustDefaultJSON("admin"))
 		if err != nil {
 			return err
 		}
@@ -174,6 +159,29 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 		return Identity{}, "", err
 	}
 	return id, token, nil
+}
+
+// seedSystemRoles lays down the compiled-in role set for a fresh
+// workspace and assigns the admin role to its first user — part of the
+// Bootstrap transaction, so a partial role set can never survive.
+func seedSystemRoles(ctx context.Context, tx pgx.Tx, wsID, adminUserID ids.UUID) error {
+	var adminRoleID ids.UUID
+	for _, role := range systemRoles {
+		var roleID ids.UUID
+		err := tx.QueryRow(ctx,
+			`INSERT INTO role (workspace_id, key, name, is_system, permissions) VALUES ($1, $2, $3, true, $4) RETURNING id`,
+			wsID, role.key, role.name, policy.MustDefaultJSON(role.key)).Scan(&roleID)
+		if err != nil {
+			return err
+		}
+		if role.key == "admin" {
+			adminRoleID = roleID
+		}
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
+		wsID, adminRoleID, adminUserID)
+	return err
 }
 
 // slugTakenError maps to 409 in the handler.
@@ -219,6 +227,7 @@ var decoyHash = func() string {
 func mustRandomSecret() string {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
+		//craft:ignore panic-in-domain runs only during package initialization (the decoyHash var) — a process without crypto/rand cannot mint any credential and must not boot
 		panic(fmt.Sprintf("crmauth: crypto/rand unavailable: %v", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(buf)
@@ -248,6 +257,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 			 WHERE lower(email) = lower($1) AND status = 'active' AND archived_at IS NULL`,
 			email).Scan(&userID, &hash, &displayName, &seatType)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && hash == nil) {
+			//craft:ignore swallowed-errors the decoy verification exists only to equalize timing; its result is meaningless by design
 			_ = password.Verify(plaintext, decoyHash) // equal work on both paths
 			return ErrBadCredentials
 		}

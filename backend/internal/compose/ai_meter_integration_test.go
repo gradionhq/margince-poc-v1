@@ -26,19 +26,24 @@ import (
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
-func TestMeterAccumulatesUnderRLS(t *testing.T) {
+// meterFreshDatabase resets and migrates the schema through the owner
+// role, returning the owner connection and the RLS-bound app DSN.
+func meterFreshDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, string) {
+	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
 	if ownerDSN == "" || appDSN == "" {
 		t.Fatal("MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
-	ctx := context.Background()
-
 	owner, err := pgx.Connect(ctx, ownerDSN)
 	if err != nil {
 		t.Fatalf("connecting as owner: %v", err)
 	}
-	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
 	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
 		t.Fatalf("resetting schema: %v", err)
 	}
@@ -53,22 +58,30 @@ func TestMeterAccumulatesUnderRLS(t *testing.T) {
 	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
+	return owner, appDSN
+}
 
-	newWorkspace := func(slug string) ids.UUID {
-		var raw string
-		if err := owner.QueryRow(ctx,
-			`INSERT INTO workspace (name, slug, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`,
-			slug).Scan(&raw); err != nil {
-			t.Fatalf("workspace insert: %v", err)
-		}
-		wsID, err := ids.Parse(raw)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return wsID
+// meterWorkspace plants one tenant row through the owner connection.
+func meterWorkspace(t *testing.T, ctx context.Context, owner *pgx.Conn, slug string) ids.UUID {
+	t.Helper()
+	var raw string
+	if err := owner.QueryRow(ctx,
+		`INSERT INTO workspace (name, slug, base_currency) VALUES ($1, $1, 'EUR') RETURNING id`,
+		slug).Scan(&raw); err != nil {
+		t.Fatalf("workspace insert: %v", err)
 	}
-	wsA := newWorkspace("meter-a")
-	wsB := newWorkspace("meter-b")
+	wsID, err := ids.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wsID
+}
+
+func TestMeterAccumulatesUnderRLS(t *testing.T) {
+	ctx := context.Background()
+	owner, appDSN := meterFreshDatabase(t, ctx)
+	wsA := meterWorkspace(t, ctx, owner, "meter-a")
+	wsB := meterWorkspace(t, ctx, owner, "meter-b")
 
 	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {

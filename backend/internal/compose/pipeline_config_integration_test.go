@@ -18,17 +18,7 @@ import (
 func TestPipelineStageConfigLifecycle(t *testing.T) {
 	e := setup(t)
 	e.slug = "cfg-e2e"
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Cfg E2E", "admin_email": "cfg@fable.test",
-		"admin_display_name": "Cfg Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "cfg@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Cfg E2E", "cfg@fable.test")
 
 	var second struct {
 		ID        string `json:"id"`

@@ -32,6 +32,7 @@ import (
 func NewClient(ctx context.Context, addr string) (*redis.Client, error) {
 	rdb := redis.NewClient(&redis.Options{Addr: addr})
 	if err := rdb.Ping(ctx).Err(); err != nil {
+		//craft:ignore swallowed-errors best-effort close of a client whose ping already failed — the unreachable-bus error is the one to report
 		_ = rdb.Close()
 		return nil, fmt.Errorf("bus: redis at %s unreachable: %w", addr, err)
 	}

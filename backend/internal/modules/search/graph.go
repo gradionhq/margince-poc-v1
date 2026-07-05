@@ -115,53 +115,10 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 			entityType: anchorType, id: anchorID, summary: title,
 		}}})
 
-		// Hop 1: the anchor's activity timeline, scope-walked and ranked
-		// by recency × trust (§10.7.2 with similarity = 0).
-		var args []any
-		arg := func(v any) int { args = append(args, v); return len(args) }
-		anchorPos := arg(anchorID)
-		scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+		touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now)
 		if err != nil {
 			return err
 		}
-		activitySQL := fmt.Sprintf(`
-			SELECT a.id, coalesce(a.subject, a.kind), a.kind, a.is_done, a.occurred_at, a.source
-			FROM activity a JOIN activity_link l ON l.activity_id = a.id
-			WHERE l.%s = $%d AND a.archived_at IS NULL`, linkCol, anchorPos)
-		if scope != "" {
-			activitySQL += " AND " + scope
-		}
-		activitySQL += fmt.Sprintf(" ORDER BY a.occurred_at DESC LIMIT %d", graphExpansionLimit)
-		rows, err := tx.Query(ctx, activitySQL, args...)
-		if err != nil {
-			return err
-		}
-		var touches, openTasks []graphItem
-		var activityIDs []ids.UUID
-		for rows.Next() {
-			var id ids.UUID
-			var summary, kind, source string
-			var isDone bool
-			var occurredAt time.Time
-			if err := rows.Scan(&id, &summary, &kind, &isDone, &occurredAt, &source); err != nil {
-				rows.Close()
-				return err
-			}
-			activityIDs = append(activityIDs, id)
-			item := graphItem{entityType: "activity", id: id, summary: summary,
-				score: rankScore(0, occurredAt, source, now)}
-			if kind == "task" && !isDone {
-				openTasks = append(openTasks, item)
-				continue
-			}
-			touches = append(touches, item)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		sortAndTrim(&touches, maxItems)
-		sortAndTrim(&openTasks, maxItems)
 		sections = append(sections,
 			graphSection{name: "recent_touches", items: touches},
 			graphSection{name: "open_tasks", items: openTasks})
@@ -180,6 +137,55 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		return nil, err
 	}
 	return sections, nil
+}
+
+// anchorTimeline is hop 1: the anchor's activity timeline, scope-walked
+// and ranked by recency × trust (§10.7.2 with similarity = 0), split
+// into recent touches and open tasks.
+func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time) (touches, openTasks []graphItem, activityIDs []ids.UUID, err error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	anchorPos := arg(anchorID)
+	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	activitySQL := fmt.Sprintf(`
+		SELECT a.id, coalesce(a.subject, a.kind), a.kind, a.is_done, a.occurred_at, a.source
+		FROM activity a JOIN activity_link l ON l.activity_id = a.id
+		WHERE l.%s = $%d AND a.archived_at IS NULL`, linkCol, anchorPos)
+	if scope != "" {
+		activitySQL += " AND " + scope
+	}
+	activitySQL += fmt.Sprintf(" ORDER BY a.occurred_at DESC LIMIT %d", graphExpansionLimit)
+	rows, err := tx.Query(ctx, activitySQL, args...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id ids.UUID
+		var summary, kind, source string
+		var isDone bool
+		var occurredAt time.Time
+		if err := rows.Scan(&id, &summary, &kind, &isDone, &occurredAt, &source); err != nil {
+			return nil, nil, nil, err
+		}
+		activityIDs = append(activityIDs, id)
+		item := graphItem{entityType: "activity", id: id, summary: summary,
+			score: rankScore(0, occurredAt, source, now)}
+		if kind == "task" && !isDone {
+			openTasks = append(openTasks, item)
+			continue
+		}
+		touches = append(touches, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	sortAndTrim(&touches, maxItems)
+	sortAndTrim(&openTasks, maxItems)
+	return touches, openTasks, activityIDs, nil
 }
 
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.UUID, maxItems int) ([]graphSection, error) {

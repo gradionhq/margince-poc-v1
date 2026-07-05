@@ -66,59 +66,23 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		wsID := storekit.MustWorkspace(ctx)
 
-		if in.SourceSystem != nil && in.SourceID != nil {
-			var existing ids.UUID
-			err := tx.QueryRow(ctx,
-				`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
-				*in.SourceSystem, *in.SourceID).Scan(&existing)
-			if err == nil {
-				// The replay path returns a record, so it carries the
-				// read's row scope: re-importing someone else's source key
-				// must not hand over their lead. Out of scope answers the
-				// same 409 the unique-index race does.
-				visible, verr := auth.VisibleTo(ctx, tx, "lead", existing)
-				if verr != nil {
-					return verr
-				}
-				if !visible {
-					return apperrors.ErrConflict
-				}
-				created = false
-				if out, err = readLead(ctx, tx, existing, storekit.IncludeArchived); err != nil {
-					return fmt.Errorf("read replayed lead: %w", err)
-				}
-				return nil
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("probe source-key idempotency: %w", err)
-			}
+		replay, err := replayedLead(ctx, tx, in)
+		if err != nil {
+			return err
 		}
-		if in.Email != nil {
-			var existing ids.UUID
-			err := tx.QueryRow(ctx,
-				`SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL`,
-				*in.Email).Scan(&existing)
-			if err == nil {
-				dup := &DuplicateLeadError{Email: *in.Email}
-				visible, verr := auth.VisibleTo(ctx, tx, "lead", existing)
-				if verr != nil {
-					return verr
-				}
-				if visible {
-					dup.ExistingID = existing
-				}
-				return dup
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("probe email dedupe: %w", err)
-			}
+		if replay != nil {
+			created, out = false, *replay
+			return nil
+		}
+		if err := ensureLeadEmailUnclaimed(ctx, tx, in.Email); err != nil {
+			return err
 		}
 
 		id := ids.NewV7()
 		// The initial score is the §3 fit component — a fresh lead has no
 		// behavioral history yet; signal recompute moves it later.
 		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
-		_, err := tx.Exec(ctx,
+		_, err = tx.Exec(ctx,
 			`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
 			                   status, score, owner_id, source_system, source_id, source, captured_by)
 			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -152,6 +116,67 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		return nil
 	})
 	return out, created, err
+}
+
+// replayedLead resolves the (source_system, source_id) idempotency key:
+// a re-import returns the existing row. The replay path returns a
+// record, so it carries the read's row scope: re-importing someone
+// else's source key must not hand over their lead — out of scope
+// answers the same 409 the unique-index race does.
+func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput) (*crmcontracts.Lead, error) {
+	if in.SourceSystem == nil || in.SourceID == nil {
+		return nil, nil
+	}
+	var existing ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
+		*in.SourceSystem, *in.SourceID).Scan(&existing)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("probe source-key idempotency: %w", err)
+	}
+	visible, err := auth.VisibleTo(ctx, tx, "lead", existing)
+	if err != nil {
+		return nil, err
+	}
+	if !visible {
+		return nil, apperrors.ErrConflict
+	}
+	out, err := readLead(ctx, tx, existing, storekit.IncludeArchived)
+	if err != nil {
+		return nil, fmt.Errorf("read replayed lead: %w", err)
+	}
+	return &out, nil
+}
+
+// ensureLeadEmailUnclaimed answers the live-email dedupe probe with the
+// contract's 409, disclosing the existing id only when the caller could
+// read that row.
+func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) error {
+	if email == nil {
+		return nil
+	}
+	var existing ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL`,
+		*email).Scan(&existing)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("probe email dedupe: %w", err)
+	}
+	dup := &DuplicateLeadError{Email: *email}
+	visible, err := auth.VisibleTo(ctx, tx, "lead", existing)
+	if err != nil {
+		return err
+	}
+	if visible {
+		dup.ExistingID = existing
+	}
+	return dup
 }
 
 func (s *Store) GetLead(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {

@@ -237,22 +237,7 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		}
 
 		capturedAt := s.now().UTC()
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO person_consent (workspace_id, person_id, purpose_id, state, lawful_basis, captured_at, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
-			ON CONFLICT (workspace_id, person_id, purpose_id)
-			DO UPDATE SET state = EXCLUDED.state, lawful_basis = EXCLUDED.lawful_basis,
-			              captured_at = EXCLUDED.captured_at, source = EXCLUDED.source`,
-			in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, capturedAt, in.Source); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, lawful_basis, source,
-			                           policy_text, policy_version, double_opt_in_confirmed_at, captured_at, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, coalesce($5, 'api'), $6, $7, $8, $9, $10)`,
-			in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, in.Source,
-			"recorded via API", "v1", doiConfirmedAt, capturedAt, actor.ID); err != nil {
+		if err := upsertConsentWithProof(ctx, tx, in, doiConfirmedAt, capturedAt, actor.ID); err != nil {
 			return err
 		}
 
@@ -276,6 +261,29 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		return nil
 	})
 	return out, err
+}
+
+// upsertConsentWithProof writes the state row and appends the immutable
+// proof row — one concept: the current state is always backed by an
+// append-only consent_event that says when, how, and by whom.
+func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, doiConfirmedAt *time.Time, capturedAt time.Time, actorID string) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO person_consent (workspace_id, person_id, purpose_id, state, lawful_basis, captured_at, source)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+		ON CONFLICT (workspace_id, person_id, purpose_id)
+		DO UPDATE SET state = EXCLUDED.state, lawful_basis = EXCLUDED.lawful_basis,
+		              captured_at = EXCLUDED.captured_at, source = EXCLUDED.source`,
+		in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, capturedAt, in.Source); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, lawful_basis, source,
+		                           policy_text, policy_version, double_opt_in_confirmed_at, captured_at, captured_by)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		        $1, $2, $3, $4, coalesce($5, 'api'), $6, $7, $8, $9, $10)`,
+		in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, in.Source,
+		"recorded via API", "v1", doiConfirmedAt, capturedAt, actorID)
+	return err
 }
 
 func stateOrUnknown(state string) string {

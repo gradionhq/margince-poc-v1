@@ -74,30 +74,8 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 
 	var out crmcontracts.Person
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		// Dedupe pre-check so the 409 can carry the existing id; the
-		// unique index remains the structural guarantee under races.
-		for _, e := range in.Emails {
-			var existing ids.UUID
-			err := tx.QueryRow(ctx,
-				`SELECT person_id FROM person_email WHERE email = lower($1) AND archived_at IS NULL`,
-				e.Email).Scan(&existing)
-			if err == nil {
-				dup := &DuplicateEmailError{Email: e.Email}
-				// Disclose the existing id only when the caller could
-				// read that row; the conflict itself is still answered
-				// (existence-hiding survives the 409).
-				visible, verr := auth.VisibleTo(ctx, tx, "person", existing)
-				if verr != nil {
-					return verr
-				}
-				if visible {
-					dup.ExistingID = existing
-				}
-				return dup
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
+		if err := ensurePersonEmailsUnclaimed(ctx, tx, in.Emails); err != nil {
+			return err
 		}
 
 		wsID := storekit.MustWorkspace(ctx)
@@ -148,6 +126,36 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		return err
 	})
 	return out, err
+}
+
+// ensurePersonEmailsUnclaimed is the dedupe pre-check, so the 409 can
+// carry the existing id; the unique index remains the structural
+// guarantee under races. The existing id is disclosed only when the
+// caller could read that row; the conflict itself is still answered
+// (existence-hiding survives the 409).
+func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []PersonEmailInput) error {
+	for _, e := range emails {
+		var existing ids.UUID
+		err := tx.QueryRow(ctx,
+			`SELECT person_id FROM person_email WHERE email = lower($1) AND archived_at IS NULL`,
+			e.Email).Scan(&existing)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		dup := &DuplicateEmailError{Email: e.Email}
+		visible, err := auth.VisibleTo(ctx, tx, "person", existing)
+		if err != nil {
+			return err
+		}
+		if visible {
+			dup.ExistingID = existing
+		}
+		return dup
+	}
+	return nil
 }
 
 // GetPerson returns one person with child rows; archived rows resolve

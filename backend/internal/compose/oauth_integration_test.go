@@ -107,7 +107,7 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
+	closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("consent form → %d %s", resp.StatusCode, body)
 	}
@@ -133,7 +133,7 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusFound {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("consent POST → %d %s", resp.StatusCode, body)
@@ -143,6 +143,15 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 		t.Fatalf("redirect malformed: %q", resp.Header.Get("Location"))
 	}
 	return location.Query().Get("code")
+}
+
+// closeBody closes a response body and fails the test on a dirty close —
+// a broken close can hide a truncated read.
+func closeBody(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("closing response body: %v", err)
+	}
 }
 
 // exchange drives POST /oauth/token and returns status + parsed body.
@@ -167,9 +176,11 @@ func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(t, resp)
 	var body map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("token response is not JSON: %v", err)
+	}
 	return resp.StatusCode, body
 }
 
@@ -232,7 +243,7 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = resp.Body.Close()
+	closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Location") != "" {
 		t.Fatalf("GET authorize → %d %q, want the consent form, never a code", resp.StatusCode, resp.Header.Get("Location"))
 	}
@@ -250,7 +261,7 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = resp.Body.Close()
+	closeBody(t, resp)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("forged consent POST → %d, want 403", resp.StatusCode)
 	}
@@ -263,7 +274,7 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = resp.Body.Close()
+	closeBody(t, resp)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-site consent POST → %d, want 403", resp.StatusCode)
 	}
@@ -300,7 +311,7 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_ = resp.Body.Close()
+		closeBody(t, resp)
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s → %d, want 400", name, resp.StatusCode)
 		}
@@ -412,7 +423,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer func() { _ = resp.Body.Close() }()
+		defer closeBody(t, resp)
 		raw, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(raw)
 	}
@@ -442,7 +453,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(resp.Header.Get("WWW-Authenticate"), "oauth-protected-resource") {
 		t.Fatalf("revoked bearer → %d %q, want 401 + RFC 9728 pointer", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 	}

@@ -14,10 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -99,11 +96,7 @@ func TestReopeningAWonDealClearsTerminalFields(t *testing.T) {
 		t.Fatalf("reopening: %v", err)
 	}
 
-	owner, err := pgx.Connect(context.Background(), os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = owner.Close(context.Background()) }()
+	owner := ownerConn(t)
 	var status string
 	var closedAt, lostReason, fxRate, fxDate *string
 	err = owner.QueryRow(context.Background(),
@@ -138,11 +131,7 @@ func TestOwnerReassignmentEmitsOwnerChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	owner, err := pgx.Connect(context.Background(), os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = owner.Close(context.Background()) }()
+	owner := ownerConn(t)
 	rows, err := owner.Query(context.Background(),
 		`SELECT envelope->>'type', envelope->'payload' FROM event_outbox ORDER BY seq`)
 	if err != nil {
@@ -347,11 +336,7 @@ func TestRepricingAClosedDealRefreezesFx(t *testing.T) {
 		t.Fatalf("closing amountless: %v", err)
 	}
 
-	owner, err := pgx.Connect(context.Background(), os.Getenv("MARGINCE_TEST_DSN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = owner.Close(context.Background()) }()
+	owner := ownerConn(t)
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
 		 VALUES ($1, 'USD', 'EUR', 0.9200000000, current_date)`, e.ws); err != nil {

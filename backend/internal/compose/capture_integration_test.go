@@ -89,6 +89,31 @@ func (m *mailFake) Normalize(context.Context, connector.RawRecord) ([]connector.
 
 func (m *mailFake) HealthCheck(context.Context, connector.Auth) error { return nil }
 
+// captureCounts tallies what a connector sync left behind, read inside
+// one workspace-bound transaction.
+type captureCounts struct{ activities, leads, raws, audits int }
+
+func readCaptureCounts(t *testing.T, e *searchEnv) captureCounts {
+	t.Helper()
+	var got captureCounts
+	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'mailfake'`).Scan(&got.activities); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM lead WHERE source_system = 'mailfake'`).Scan(&got.leads); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM raw_capture`).Scan(&got.raws); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE actor_type = 'connector'`).Scan(&got.audits)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
 func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	e := setupSearch(t)
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
@@ -110,23 +135,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	type counts struct{ activities, leads, raws, audits, events int }
-	var got counts
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'mailfake'`).Scan(&got.activities); err != nil {
-			return err
-		}
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM lead WHERE source_system = 'mailfake'`).Scan(&got.leads); err != nil {
-			return err
-		}
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM raw_capture`).Scan(&got.raws); err != nil {
-			return err
-		}
-		return tx.QueryRow(context.Background(), `SELECT count(*) FROM audit_log WHERE actor_type = 'connector'`).Scan(&got.audits)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := readCaptureCounts(t, e)
 	if got.activities != 1 || got.leads != 1 || got.raws != 1 {
 		t.Fatalf("replay duplicated rows: %+v", got)
 	}

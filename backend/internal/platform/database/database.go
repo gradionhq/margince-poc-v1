@@ -79,7 +79,11 @@ func WithWorkspaceTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) er
 	if err != nil {
 		return fmt.Errorf("pg: begin: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }() // no-op after commit
+	// The deferred rollback only matters on the error path; after a
+	// successful Commit it answers ErrTxClosed by design, and on the error
+	// path the fn/commit error is the one the caller must see.
+	//craft:ignore swallowed-errors rollback after commit is a designed no-op; on the error path the fn error supersedes it
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Parameterized set_config, never string-built SET LOCAL.
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
@@ -101,6 +105,9 @@ func WithInfraTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error)
 	if err != nil {
 		return fmt.Errorf("pg: begin: %w", err)
 	}
+	// Error-path safety net only: once Commit succeeded this rollback is
+	// pgx's ErrTxClosed no-op, and a genuine failure already left through fn.
+	//craft:ignore swallowed-errors deferred rollback of a committed infra tx cannot fail meaningfully; real failures surface via fn or Commit
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := fn(tx); err != nil {

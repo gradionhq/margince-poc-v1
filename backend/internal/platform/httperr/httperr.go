@@ -171,5 +171,6 @@ func writeProblem(w http.ResponseWriter, p problem) {
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(p.Status)
+	//craft:ignore swallowed-errors the status line is already on the wire — an encode failure here has no recovery path and no channel back to the client
 	_ = json.NewEncoder(w).Encode(p)
 }

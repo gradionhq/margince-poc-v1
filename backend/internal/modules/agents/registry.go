@@ -51,17 +51,21 @@ var _ mcp.Registry = (*Registry)(nil)
 func (r *Registry) Register(t mcp.Tool) {
 	spec := t.Spec()
 	if spec.Name == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: registering a tool with no name")
 	}
 	if spec.Tier == mcp.TierDynamic && spec.TierResolver == nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s is TierDynamic without a TierResolver", spec.Name))
 	}
 	if spec.Tier != mcp.TierDynamic && spec.TierResolver != nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s carries a TierResolver but is not TierDynamic", spec.Name))
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, dup := r.tools[spec.Name]; dup {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t

@@ -43,7 +43,11 @@ func passportEnv(t *testing.T) (*identity.Service, identity.Identity, *pgx.Conn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
 	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
 		t.Fatal(err)
 	}

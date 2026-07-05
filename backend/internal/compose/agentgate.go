@@ -108,66 +108,75 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				return
 			}
 
-			// 🟡: the identical call is the redemption key — content
-			// hash over operation + concrete path + canonicalized body,
-			// computed the same way at staging and at retry.
-			canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
-			if cErr != nil {
-				httperr.Write(w, r, cErr)
-				return
-			}
-
-			if token := r.Header.Get(approvalTokenHeader); token != "" {
-				approvalID, pErr := ids.Parse(token)
-				if pErr != nil {
-					httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-					return
-				}
-				if rErr := staging.Redeem(ctx, approvalID, pol.Tool, diffHash); rErr != nil {
-					httperr.Write(w, r, rErr)
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Stage only what a human can actually decide: a kind with no
-			// decision-grant mapping would sit undecidable in every inbox
-			// — refuse instead of minting a zombie authority object.
-			if !approvals.KindHasDecisionGrants(pol.Tool) {
-				httperr.Write(w, r, fmt.Errorf(
-					"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
-				return
-			}
-			ifVersion, ok := httperr.IfMatchVersion(w, r)
-			if !ok {
-				return
-			}
-			var targetID ids.UUID
-			if raw := chi.URLParam(r, "id"); raw != "" {
-				if targetID, err = ids.Parse(raw); err != nil {
-					httperr.Write(w, r, apperrors.ErrNotFound)
-					return
-				}
-			}
-			approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
-				Tool:           pol.Tool,
-				ProposedChange: canonical,
-				DiffHash:       diffHash,
-				TargetType:     pol.RecordType,
-				TargetID:       targetID,
-				TargetVersion:  ifVersion,
-				Summary:        fmt.Sprintf("Agent REST %s %s", r.Method, r.URL.Path),
-			})
-			if sErr != nil {
-				httperr.Write(w, r, sErr)
-				return
-			}
-			httperr.Write(w, r, fmt.Errorf(
-				"staged as approval %s — once a human approves it, repeat this exact request with the %s: %s header: %w",
-				approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval))
+			stageOrRedeem(w, r, next, staging, pol, body)
 		})
 	}
+}
+
+// stageOrRedeem handles the 🟡 outcome. The identical call is the
+// redemption key — a content hash over operation + concrete path +
+// canonicalized body, computed the same way at staging and at retry: an
+// X-Approval-Token redeems a previously approved identical call and lets
+// it through; otherwise the call is staged as a new approval and refused
+// with the redemption instructions.
+func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) {
+	ctx := r.Context()
+	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
+	if cErr != nil {
+		httperr.Write(w, r, cErr)
+		return
+	}
+
+	if token := r.Header.Get(approvalTokenHeader); token != "" {
+		approvalID, pErr := ids.Parse(token)
+		if pErr != nil {
+			httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
+			return
+		}
+		if rErr := staging.Redeem(ctx, approvalID, pol.Tool, diffHash); rErr != nil {
+			httperr.Write(w, r, rErr)
+			return
+		}
+		next.ServeHTTP(w, r)
+		return
+	}
+
+	// Stage only what a human can actually decide: a kind with no
+	// decision-grant mapping would sit undecidable in every inbox
+	// — refuse instead of minting a zombie authority object.
+	if !approvals.KindHasDecisionGrants(pol.Tool) {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
+		return
+	}
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	var targetID ids.UUID
+	if raw := chi.URLParam(r, "id"); raw != "" {
+		var err error
+		if targetID, err = ids.Parse(raw); err != nil {
+			httperr.Write(w, r, apperrors.ErrNotFound)
+			return
+		}
+	}
+	approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
+		Tool:           pol.Tool,
+		ProposedChange: canonical,
+		DiffHash:       diffHash,
+		TargetType:     pol.RecordType,
+		TargetID:       targetID,
+		TargetVersion:  ifVersion,
+		Summary:        fmt.Sprintf("Agent REST %s %s", r.Method, r.URL.Path),
+	})
+	if sErr != nil {
+		httperr.Write(w, r, sErr)
+		return
+	}
+	httperr.Write(w, r, fmt.Errorf(
+		"staged as approval %s — once a human approves it, repeat this exact request with the %s: %s header: %w",
+		approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval))
 }
 
 // operationSpec resolves the ToolSpec the gate admits against. The

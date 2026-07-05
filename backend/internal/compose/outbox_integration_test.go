@@ -23,23 +23,47 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
+// stagedEnvelope is one event_outbox row a write staged.
+type stagedEnvelope struct {
+	stream string
+	env    events.Envelope
+}
+
+// stagedPersonCreated reads the person.created rows out of the outbox,
+// asserting the single HTTP mutation staged exactly one. Bootstrap
+// itself stages config events (pipeline.created from the C5 seed); the
+// write-shape assertion is about the PERSON mutation alone.
+func stagedPersonCreated(t *testing.T, owner *pgx.Conn) stagedEnvelope {
+	t.Helper()
+	rows, err := owner.Query(t.Context(),
+		`SELECT stream, envelope FROM event_outbox WHERE envelope->>'type' = 'person.created' ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (stagedEnvelope, error) {
+		var s stagedEnvelope
+		var raw []byte
+		if err := row.Scan(&s.stream, &raw); err != nil {
+			return s, err
+		}
+		return s, json.Unmarshal(raw, &s.env)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("one mutation staged %d person.created rows, want exactly 1", len(all))
+	}
+	return all[0]
+}
+
 func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 	e := setup(t)
+	e.bootstrapWorkspace(t)
 
 	var me anyMap
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Fable E2E",
-		"admin_email":        "ada@example.com",
-		"admin_display_name": "Ada Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, &me); status != http.StatusCreated {
-		t.Fatalf("bootstrap status = %d, body %v", status, me)
-	}
-	var login anyMap
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "ada@example.com", "password": "correct-horse-battery",
-	}, nil, &login); status != http.StatusOK {
-		t.Fatalf("login status = %d, body %v", status, login)
+	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("/me status = %d", status)
 	}
 
 	var person anyMap
@@ -54,35 +78,13 @@ func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = owner.Close(context.Background()) }()
-
-	// Bootstrap itself stages config events (pipeline.created from the
-	// C5 seed); the write-shape assertion is about the PERSON mutation.
-	rows, err := owner.Query(t.Context(),
-		`SELECT stream, envelope FROM event_outbox WHERE envelope->>'type' = 'person.created' ORDER BY seq`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	type staged struct {
-		stream string
-		env    events.Envelope
-	}
-	all, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (staged, error) {
-		var s staged
-		var raw []byte
-		if err := row.Scan(&s.stream, &raw); err != nil {
-			return s, err
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
 		}
-		return s, json.Unmarshal(raw, &s.env)
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all) != 1 {
-		t.Fatalf("one mutation staged %d person.created rows, want exactly 1", len(all))
-	}
 
-	got := all[0]
+	got := stagedPersonCreated(t, owner)
 	if got.stream != "gw:events:crm:person" {
 		t.Errorf("staged on %s, want gw:events:crm:person", got.stream)
 	}
@@ -138,7 +140,11 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = owner.Close(context.Background()) }()
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
 	var failed int
 	if err := owner.QueryRow(t.Context(),
 		`SELECT count(*) FROM audit_log WHERE action = 'login' AND evidence->>'outcome' = 'failed'`).Scan(&failed); err != nil {
