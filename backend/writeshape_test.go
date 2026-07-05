@@ -49,9 +49,19 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/ai:ArchiveProfile":          "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/ai:IngestSource":            "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/ai:UpdateSource":            "voice DNA is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no voice.* type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/deals:CreateProduct":        "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/deals:UpdateProduct":        "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/deals:ArchiveProduct":       "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/deals:UpdateOffer":          "draft-offer edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types (created/sent/accepted/rejected/superseded), no offer.updated",
+	"internal/modules/deals:ArchiveOffer":         "offer archive is ratified audit-only \u2014 events.md \u00a75.3 defines no offer.archived type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/deals:AddOfferLineItem":     "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",
+	"internal/modules/deals:UpdateOfferLineItem":  "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",
+	"internal/modules/deals:RemoveOfferLineItem":  "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",
 	"internal/modules/identity:CreateRecordGrant": "the closed catalog (events.md \u00a75) defines no grant.* type; the closed-verb law forbids inventing one build-side",
 	"internal/modules/identity:RevokeRecordGrant": "the closed catalog (events.md \u00a75) defines no grant.* type; the closed-verb law forbids inventing one build-side",
 	"internal/modules/privacy:AssembleSAR":        "the closed catalog (events.md \u00a75) defines no subject-access-export type; the export is a read whose only write IS the audit row",
+	"internal/compose:SnapshotRun":                "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
+	"internal/compose:markItem":                   "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {

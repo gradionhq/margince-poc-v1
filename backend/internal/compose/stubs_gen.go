@@ -164,6 +164,14 @@ func (stubs) AdvanceDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 	httperr.NotImplemented(w, r, "AdvanceDeal")
 }
 
+func (stubs) ListDealOffers(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealOffersParams) {
+	httperr.NotImplemented(w, r, "ListDealOffers")
+}
+
+func (stubs) CreateOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.CreateOfferParams) {
+	httperr.NotImplemented(w, r, "CreateOffer")
+}
+
 func (stubs) ListDealStakeholders(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListDealStakeholders")
 }
@@ -218,6 +226,46 @@ func (stubs) AddListMember(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 
 func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
+}
+
+func (stubs) ArchiveOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveOffer")
+}
+
+func (stubs) GetOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOffer")
+}
+
+func (stubs) UpdateOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateOfferParams) {
+	httperr.NotImplemented(w, r, "UpdateOffer")
+}
+
+func (stubs) AcceptOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.AcceptOfferParams) {
+	httperr.NotImplemented(w, r, "AcceptOffer")
+}
+
+func (stubs) AddOfferLineItem(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "AddOfferLineItem")
+}
+
+func (stubs) RemoveOfferLineItem(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, lineItemId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "RemoveOfferLineItem")
+}
+
+func (stubs) UpdateOfferLineItem(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, lineItemId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UpdateOfferLineItem")
+}
+
+func (stubs) RegenerateOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RegenerateOfferParams) {
+	httperr.NotImplemented(w, r, "RegenerateOffer")
+}
+
+func (stubs) RejectOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RejectOfferParams) {
+	httperr.NotImplemented(w, r, "RejectOffer")
+}
+
+func (stubs) SendOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendOfferParams) {
+	httperr.NotImplemented(w, r, "SendOffer")
 }
 
 func (stubs) ListOrganizations(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOrganizationsParams) {
@@ -322,6 +370,26 @@ func (stubs) GetPipeline(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) UpdatePipeline(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdatePipelineParams) {
 	httperr.NotImplemented(w, r, "UpdatePipeline")
+}
+
+func (stubs) ListProducts(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListProductsParams) {
+	httperr.NotImplemented(w, r, "ListProducts")
+}
+
+func (stubs) CreateProduct(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateProductParams) {
+	httperr.NotImplemented(w, r, "CreateProduct")
+}
+
+func (stubs) ArchiveProduct(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveProduct")
+}
+
+func (stubs) GetProduct(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetProduct")
+}
+
+func (stubs) UpdateProduct(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateProductParams) {
+	httperr.NotImplemented(w, r, "UpdateProduct")
 }
 
 func (stubs) BookPublicMeeting(w nethttp.ResponseWriter, r *nethttp.Request, hostSlug string, params crmcontracts.BookPublicMeetingParams) {

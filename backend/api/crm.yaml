@@ -3082,6 +3082,385 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ------------------------------ /products ---------------------------------
+  # The optional rate-card (B-E03.16, data-model §12.6): reusable priced
+  # items an offer line SNAPSHOTS from. Data, not a configurator — no
+  # bundles, options or pricing rules (ADR-0037). A workspace may quote
+  # fully free-form and never touch this surface.
+  /products:
+    get:
+      tags: [Offers]
+      operationId: listProducts
+      summary: List rate-card products (live by default; cursor-paginated).
+      x-mcp-tool: { verb: search_records, record_type: product, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: active
+          in: query
+          schema: { type: boolean }
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Case-insensitive name/SKU substring match.
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Offers]
+      operationId: createProduct
+      summary: Create a rate-card product.
+      description: |
+        Price is integer minor-units + ISO-4217 currency (P11, no float money). `sku` is
+        optional; when present it is unique per workspace (409 on a live duplicate).
+      x-mcp-tool: { verb: create_record, record_type: product, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProductRequest' }
+      responses:
+        '201':
+          description: Created product.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /products/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Offers]
+      operationId: getProduct
+      summary: Get a product by id.
+      x-mcp-tool: { verb: read_record, record_type: product, tier: green }
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Offers]
+      operationId: updateProduct
+      summary: Update a product (partial). Existing offer lines keep their price snapshot.
+      x-mcp-tool: { verb: update_record, record_type: product, tier: dynamic }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProductRequest' }
+      responses:
+        '200':
+          description: Updated product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Offers]
+      operationId: archiveProduct
+      summary: Archive (soft-delete) a product. Lines referencing it survive with their snapshot.
+      x-mcp-tool: { verb: archive_record, record_type: product, tier: yellow }
+      responses:
+        '200':
+          description: Archived product.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ------------------------------ offers -------------------------------------
+  # The versioned, deal-bound Angebot (B-E03.17–.20, data-model §12.6).
+  # Totals (line and offer) are SERVER-COMPUTED from the line items (P11);
+  # a client-supplied total is rejected 422. An offer is mutable only while
+  # status=draft; sent is immutable — regenerate mints the next revision.
+  /deals/{id}/offers:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Offers]
+      operationId: listDealOffers
+      summary: List a deal's offers, newest revision first.
+      x-mcp-tool: { verb: search_records, record_type: offer, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, sent, accepted, rejected, expired, superseded] }
+      responses:
+        '200':
+          description: A page of the deal's offers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Offers]
+      operationId: createOffer
+      summary: Create a draft offer under a deal (offer_number minted server-side).
+      description: |
+        Line items may ride the create; each snapshots description/price from its optional
+        `product_id` unless given explicitly. Totals are DERIVED — a body carrying
+        `net_minor`/`gross_minor`/`line_total` (any spelling) is rejected 422.
+      x-mcp-tool: { verb: create_record, record_type: offer, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOfferRequest' }
+      responses:
+        '201':
+          description: Created draft offer with computed totals.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Offers]
+      operationId: getOffer
+      summary: Get an offer with its line items and computed totals.
+      x-mcp-tool: { verb: read_record, record_type: offer, tier: green }
+      responses:
+        '200':
+          description: The offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Offers]
+      operationId: updateOffer
+      summary: Update offer header fields — allowed only while status=draft.
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: dynamic }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOfferRequest' }
+      responses:
+        '200':
+          description: Updated draft offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: Validation error — including any mutation of a non-draft offer (offer_not_draft).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [Offers]
+      operationId: archiveOffer
+      summary: Archive (soft-delete) an offer.
+      x-mcp-tool: { verb: archive_record, record_type: offer, tier: yellow }
+      responses:
+        '200':
+          description: Archived offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /offers/{id}/line-items:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Offers]
+      operationId: addOfferLineItem
+      summary: Add a line item to a draft offer (position defaults to next; totals recomputed).
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: dynamic }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OfferLineItemInput' }
+      responses:
+        '201':
+          description: The offer with the new line and recomputed totals.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}/line-items/{lineItemId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: lineItemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Offers]
+      operationId: updateOfferLineItem
+      summary: Update a draft offer's line item (totals recomputed; totals themselves are not settable).
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: dynamic }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOfferLineItemRequest' }
+      responses:
+        '200':
+          description: The offer with the updated line and recomputed totals.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Offers]
+      operationId: removeOfferLineItem
+      summary: Remove a line item from a draft offer (totals recomputed).
+      x-mcp-tool: { verb: update_record, record_type: offer, tier: dynamic }
+      responses:
+        '200':
+          description: The offer without the line, totals recomputed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}/send:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Offers]
+      operationId: sendOffer
+      summary: Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
+      description: |
+        draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
+        daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
+        emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
+        `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
+        redeems with the X-Approval-Token header (ADR-0036).
+      x-mcp-tool: { verb: send_offer, record_type: offer, tier: yellow }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The sent offer (frozen totals + FX).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Offers]
+      operationId: acceptOffer
+      summary: Record the buyer's acceptance — syncs the deal's amount from the offer's gross.
+      description: |
+        sent → accepted; sets `accepted_at`, syncs `deal.amount_minor`/`currency` from the
+        accepted offer's `gross_minor` (the offer becomes the deal's value source) and emits
+        `offer.accepted`. Recording the buyer's acceptance is a human attestation — an agent
+        principal is rejected outright.
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The accepted offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Offers]
+      operationId: rejectOffer
+      summary: Record the buyer's decline (sent → rejected; emits offer.rejected).
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RejectOfferRequest' }
+      responses:
+        '200':
+          description: The rejected offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Offers]
+      operationId: regenerateOffer
+      summary: Mint the next revision as a fresh draft; the sent original becomes superseded.
+      description: |
+        The `draft_offer` verb (🟢 — a reversible internal write): copies the sent offer's
+        header + lines into revision N+1 as a new `draft`, marks the prior revision
+        `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
+        mutated in place. The produced draft still cannot leave without the 🟡 send gate.
+      x-mcp-tool: { verb: draft_offer, record_type: offer, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: The new draft revision.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # =========================================================================
   # =========================================================================
   # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
@@ -3108,17 +3487,11 @@ paths:
   # join/append tables surfaced through admin/parent endpoints, not standalone CRUD.
   #
   # OFFERS / ANGEBOTE (data-model.md §12.6; A48/ADR-0037) — bounded line-item
-  # quote engine, NOT CPQ. Same resource shape (list/get/create/update If-Match/
-  # archive), schemas drawn 1:1 from the §12.6 DDL, PLUS these non-CRUD actions:
-  #   /products              (rate-card; MCP search_records/create_record, tier green; OPTIONAL — a workspace may quote free-form)
-  #   /offer-templates       (branded DE/EN PDF layouts; admin; one default per locale)
-  #   /deals/{id}/offers     (list/create an offer under a deal; offer.revision versioning)
-  #   /offers/{id}           (get/update — update allowed only while status=draft; If-Match)
-  #   /offers/{id}/line-items (nested CRUD; line totals are SERVER-COMPUTED, not client-set; 422 if client sends line_total)
-  #   POST /offers/{id}/regenerate  (🟢 AI: regenerate-from-signal → new draft revision; x-mcp-tool verb draft_offer, tier green)
-  #   POST /offers/{id}/render      (produce the branded PDF → pdf_asset_ref)
-  #   POST /offers/{id}/send        (🟡 — leaves the workspace: publish to Deal Room / email PDF; x-mcp-tool tier yellow, ErrRequiresApproval; ADR-0036 token)
-  #   POST /offers/{id}/accept      (flip status=accepted, sync deal.amount_minor from gross, emit offer.accepted; in-room action — no e-sign in V1)
+  # quote engine, NOT CPQ. /products, /deals/{id}/offers, /offers/{id}
+  # (+/line-items, /regenerate, /send, /accept, /reject) are now SPECIFIED
+  # above (B-E03.16–.20). Still pattern-only until their work packages land:
+  #   /offer-templates       (branded DE/EN PDF layouts; admin; one default per locale — B-E03.22/WP7)
+  #   POST /offers/{id}/render      (produce the branded PDF → pdf_asset_ref — B-E03.22/WP7)
   # Money totals (net/tax/gross) are DERIVED server-side from line items (P11
   # integer minor-units); a client-supplied total is rejected. Multi-currency
   # offers roll up to base via fx_rate (RT-PR-C2). Offer drafting obeys evidence-
@@ -4951,6 +5324,201 @@ components:
           description: Word totals per register (spoken/written/casual/formal mix).
           additionalProperties: { type: integer }
         source_count: { type: integer }
+
+    # ---- Offers / Angebote (B-E03.16–.20; data-model §12.6) ----
+    Product:
+      type: object
+      description: A rate-card entry. Mirrors the `product` table — data an offer line snapshots from, never a configurator.
+      required: [id, workspace_id, name, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        sku: { type: [string, 'null'], description: Optional; unique per workspace while live. }
+        description: { type: [string, 'null'] }
+        unit: { type: string, description: "'unit' | 'hour' | 'day' | … — display only, free text." }
+        unit_price_minor: { type: integer, format: int64, description: Integer minor units (P11); no float money. }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        default_tax_rate: { type: number, format: double, description: 'Percent, e.g. 19.00 (DE USt.); per-line override allowed.' }
+        active: { type: boolean }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true, description: Server-stamped from the authenticated principal; never client-supplied. }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    ProductListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    CreateProductRequest:
+      type: object
+      required: [name, unit_price_minor, currency, source]
+      properties:
+        name: { type: string }
+        sku: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        unit: { type: [string, 'null'], description: Defaults to 'unit'. }
+        unit_price_minor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        default_tax_rate: { type: [number, 'null'], format: double, minimum: 0, description: Percent; defaults to 0. }
+        active: { type: [boolean, 'null'], description: Defaults to true. }
+        source: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateProductRequest:
+      type: object
+      description: Any subset; omit a field to leave it unchanged. A price change never re-prices existing offer lines (they hold snapshots).
+      properties:
+        name: { type: string }
+        sku: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        unit: { type: string }
+        unit_price_minor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        default_tax_rate: { type: number, format: double, minimum: 0 }
+        active: { type: boolean }
+      additionalProperties: true
+      x-extension: true
+
+    OfferLineItem:
+      type: object
+      description: |
+        A typed offer line. `description`/`unit_price_minor` are SNAPSHOTS (copied from the
+        optional product at line creation); `line_net_minor`/`line_tax_minor`/`line_total_minor`
+        are DERIVED server-side (formulas §12.6) and never stored or client-settable.
+      required: [id, position, description, unit, quantity, unit_price_minor, discount_pct, tax_rate, line_net_minor, line_tax_minor, line_total_minor, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        position: { type: integer, description: Display order, unique per offer. }
+        product_id: { type: [string, 'null'], format: uuid, description: Optional rate-card ref; the line survives the product. }
+        description: { type: string }
+        unit: { type: string }
+        quantity: { type: number, format: double, description: 'Up to 3 decimal places (numeric 14,3); must be > 0.' }
+        unit_price_minor: { type: integer, format: int64, description: Snapshot — never re-read from product after creation. }
+        discount_pct: { type: number, format: double, description: '0–100, up to 2 decimal places.' }
+        tax_rate: { type: number, format: double, description: 'Percent, up to 2 decimal places.' }
+        line_net_minor: { type: integer, format: int64, readOnly: true, description: 'round(qty × unit_price × (1 − discount_pct/100)) — server-computed.' }
+        line_tax_minor: { type: integer, format: int64, readOnly: true, description: 'round(line_net × tax_rate/100) — server-computed.' }
+        line_total_minor: { type: integer, format: int64, readOnly: true, description: line_net + line_tax — server-computed. }
+        evidence: { type: [object, 'null'], additionalProperties: true, description: '{snippet, source_id} when AI-drafted (evidence-or-omit, features/07).' }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Offer:
+      type: object
+      description: A versioned Angebot bound to one deal. Mirrors the `offer` table; totals are derived from the nested line items.
+      required: [id, workspace_id, deal_id, offer_number, revision, status, currency, net_minor, tax_minor, gross_minor, line_items, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        deal_id: { type: string, format: uuid }
+        offer_number: { type: string, readOnly: true, description: Human-facing Angebot number, minted server-side, unique per workspace (with revision). }
+        revision: { type: integer, readOnly: true, description: Bumped when a sent offer is regenerated; the prior revision becomes superseded. }
+        status: { type: string, enum: [draft, sent, accepted, rejected, expired, superseded] }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        buyer_org_id: { type: [string, 'null'], format: uuid }
+        buyer_snapshot: { type: [object, 'null'], additionalProperties: true, readOnly: true, description: Buyer legal block captured at send time. }
+        issuer_snapshot: { type: [object, 'null'], additionalProperties: true, readOnly: true, description: Seller legal block captured at send time. }
+        valid_until: { type: [string, 'null'], format: date }
+        intro_text: { type: [string, 'null'] }
+        terms_text: { type: [string, 'null'] }
+        net_minor: { type: integer, format: int64, readOnly: true, description: Σ line nets — derived, never client-set. }
+        tax_minor: { type: integer, format: int64, readOnly: true, description: Σ line taxes — derived, never client-set. }
+        gross_minor: { type: integer, format: int64, readOnly: true, description: net + tax — derived, never client-set. }
+        fx_rate_to_base: { type: [string, 'null'], readOnly: true, description: 'Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding.' }
+        fx_rate_date: { type: [string, 'null'], format: date, readOnly: true }
+        pdf_asset_ref: { type: [string, 'null'], description: Rendered PDF ref (render is the WP7 slice). }
+        accepted_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        line_items:
+          type: array
+          readOnly: true
+          items: { $ref: '#/components/schemas/OfferLineItem' }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true, description: Server-stamped from the authenticated principal; never client-supplied. }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    OfferListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Offer' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    OfferLineItemInput:
+      type: object
+      description: |
+        One line to add. With `product_id`, description/unit/unit_price_minor/tax_rate default
+        from the product (a SNAPSHOT — later product edits never touch the line); without it,
+        description and unit_price_minor are required. Totals are never accepted here (422).
+      required: [quantity]
+      properties:
+        position: { type: [integer, 'null'], minimum: 1, description: Defaults to the next free position. }
+        product_id: { type: [string, 'null'], format: uuid }
+        description: { type: [string, 'null'] }
+        unit: { type: [string, 'null'] }
+        quantity: { type: number, format: double, description: '> 0, up to 3 decimal places.' }
+        unit_price_minor: { type: [integer, 'null'], format: int64, minimum: 0 }
+        discount_pct: { type: [number, 'null'], format: double, minimum: 0, maximum: 100 }
+        tax_rate: { type: [number, 'null'], format: double, minimum: 0 }
+
+    UpdateOfferLineItemRequest:
+      type: object
+      description: Any subset; omit a field to leave it unchanged. Totals are derived and not settable (422).
+      properties:
+        position: { type: integer, minimum: 1 }
+        description: { type: string }
+        unit: { type: string }
+        quantity: { type: number, format: double }
+        unit_price_minor: { type: integer, format: int64, minimum: 0 }
+        discount_pct: { type: number, format: double, minimum: 0, maximum: 100 }
+        tax_rate: { type: number, format: double, minimum: 0 }
+
+    CreateOfferRequest:
+      type: object
+      required: [currency, source]
+      properties:
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        buyer_org_id: { type: [string, 'null'], format: uuid, description: Defaults to the deal's organization. }
+        valid_until: { type: [string, 'null'], format: date }
+        intro_text: { type: [string, 'null'] }
+        terms_text: { type: [string, 'null'] }
+        line_items:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/OfferLineItemInput' }
+        source: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateOfferRequest:
+      type: object
+      description: Header-field patch; allowed only while status=draft (422 offer_not_draft otherwise). Totals are derived and not settable (422).
+      properties:
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        buyer_org_id: { type: [string, 'null'], format: uuid }
+        valid_until: { type: [string, 'null'], format: date }
+        intro_text: { type: [string, 'null'] }
+        terms_text: { type: [string, 'null'] }
+      additionalProperties: true
+      x-extension: true
+
+    RejectOfferRequest:
+      type: object
+      properties:
+        reason: { type: [string, 'null'], description: Optional buyer-given decline reason (rides offer.rejected). }
 
     # ---- Agent Seat Passport issuance (ADR-0013; the local/A1 path) ----
     IssuePassportRequest:

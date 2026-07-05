@@ -79,7 +79,9 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var missingFx *MissingFxRateError
 	if errors.As(err, &missingFx) {
-		httperr.Write(w, r, httperr.Validation("fx_rate_to_base", "fx_rate_missing", missingFx.Error()))
+		// The spec-named code (formulas §6.1, RT-CT-23): a roll-up or freeze
+		// that needs a rate it doesn't have hard-fails — never rate=1.
+		httperr.Write(w, r, httperr.Validation("fx_rate_to_base", "fx_rate_unavailable", missingFx.Error()))
 		return
 	}
 	var terminalStage *TerminalStageOnCreateError
@@ -90,6 +92,31 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	var pastClose *PastCloseDateError
 	if errors.As(err, &pastClose) {
 		httperr.Write(w, r, httperr.Validation("expected_close_date", "close_date_past", pastClose.Error()))
+		return
+	}
+	var notDraft *OfferNotDraftError
+	if errors.As(err, &notDraft) {
+		httperr.Write(w, r, httperr.Validation("status", "offer_not_draft", notDraft.Error()))
+		return
+	}
+	var notSent *OfferNotSentError
+	if errors.As(err, &notSent) {
+		httperr.Write(w, r, httperr.Validation("status", "offer_not_sent", notSent.Error()))
+		return
+	}
+	var emptyOffer *OfferEmptyError
+	if errors.As(err, &emptyOffer) {
+		httperr.Write(w, r, httperr.Validation("line_items", "offer_empty", emptyOffer.Error()))
+		return
+	}
+	var currencyMismatch *ProductCurrencyMismatchError
+	if errors.As(err, &currencyMismatch) {
+		httperr.Write(w, r, httperr.Validation("unit_price_minor", "product_currency_mismatch", currencyMismatch.Error()))
+		return
+	}
+	var badDecimal *DecimalFieldError
+	if errors.As(err, &badDecimal) {
+		httperr.Write(w, r, httperr.Validation(badDecimal.Field, "invalid_decimal", badDecimal.Error()))
 		return
 	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a

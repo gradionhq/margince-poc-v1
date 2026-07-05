@@ -5,6 +5,39 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## Last session: the overnight backlog sweep, batches 2–3 (2026-07-05 night → 06)
+
+The autonomous run continued past batch 1 (below), same discipline — every
+slice spec-formula-exact, gate-green, craft + security red-team reviewed
+with all findings remediated in-batch:
+
+- **Batch 2 (pushed 1b4f6b6..43ad260 + e4e8fc4):** close-date hygiene
+  B-E09.18/19/20 (migration 0041: §11 assessment, INV-CLOSE-PAST write
+  reject, the forecast's honest `slipped` bucket, the A6 nightly
+  corrector — 🟢 auto-roll / 🟡 provisional+`close_date_correction`
+  staging / 🔻 quiet-deal downgrade — via worker `--close-date-interval`)
+  and voice DNA B-E07.4/5a (migration 0042: voice_profile +
+  voice_corpus_source, `/voice-profiles` human-only, the §B1.2 speaker
+  filter hardened so conversational kinds refuse unattributable input,
+  and — post-commit security findings — a personal profile's content is
+  OWNER-only: no team/admin row scope writes in someone else's voice).
+- **Batch 3 (this checkpoint):** the Offers chain B-E03.16→20
+  (migrations 0043/0044: product rate-card + offer/offer_line_item; the
+  exact big.Rat totals engine — totals derived server-side everywhere,
+  422 `totals_derived` on any client spelling incl. nested-on-create;
+  draft-only mutability, send freezes FX + snapshots + 🟡 `send_offer`,
+  accept/reject human-only, accept syncs the deal amount, regenerate
+  mints revision N+1; offer mutations serialize on the offer row lock)
+  and the Morning-Brief deterministic spine B-E05.1/.3b/.12/.13
+  (migration 0045: brief_run/brief_item; the §10.1 composite EXACT with
+  worked examples pinned, honest-short top-7, evidence-or-omit gate,
+  acted/dismissed exclusion with material-change re-eligibility,
+  owner-only marks). feedback/23 + feedback/24 file the spec gaps.
+
+Migrations now at **0045**; contract gained /products, /offers*, and
+/voice-profiles surfaces. Full `make check` + `make test-integration`
+green at every push point.
+
 ## Last session: the overnight backlog sweep, batch 1 (2026-07-05 night → 06)
 
 An autonomous overnight run working the 687-leaf backlog ticket by ticket

@@ -201,6 +201,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"organization.merged_into_id":   "server-derived: stamped by MergeOrganization",
 		"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
 		"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
+		"brief_item.deal_id":            "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
 		// Client-supplied edge endpoints — every one probed at the store:
 		"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 		"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
@@ -208,6 +209,8 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 		"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
 		"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
+		"offer.deal_id":                              "gated: auth.EnsureLinkTarget in CreateOffer; every later offer read/write re-probes the deal (H1)",
+		"offer.buyer_org_id":                         "gated: auth.EnsureLinkTarget in CreateOffer/UpdateOffer (H1)",
 	}
 
 	ownerDSN, _ := dsns(t)

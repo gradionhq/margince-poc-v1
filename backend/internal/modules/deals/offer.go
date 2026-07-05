@@ -1,0 +1,587 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// The offer aggregate's write paths (B-E03.17): a versioned Angebot
+// bound to one deal, with typed line items whose price/description are
+// SNAPSHOTS and whose money totals are derived by the offer_totals
+// engine inside every mutating transaction. An offer is mutable only
+// while status=draft (B-E03.19); the lifecycle transitions live in
+// offer_lifecycle.go.
+//
+// Row scope: an offer carries no owner_id — it belongs to its deal, so
+// every offer read/write derives visibility from the DEAL's row scope
+// (a row-scope miss answers 404, existence-hiding).
+
+package deals
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// OfferNotDraftError maps to 422: only a draft offer is editable — a
+// sent/accepted/rejected/superseded offer is a fixed record (B-E03.19).
+type OfferNotDraftError struct{ Status string }
+
+func (e *OfferNotDraftError) Error() string {
+	return "the offer is " + e.Status + "; only a draft offer can be edited"
+}
+
+// OfferEmptyError maps to 422: an offer with no line items has nothing
+// to send.
+type OfferEmptyError struct{}
+
+func (e *OfferEmptyError) Error() string { return "the offer has no line items to send" }
+
+// ProductCurrencyMismatchError maps to 422: a line snapshots its price
+// from a product priced in another currency — converting silently would
+// fabricate a number (P11).
+type ProductCurrencyMismatchError struct{ Product, Offer string }
+
+func (e *ProductCurrencyMismatchError) Error() string {
+	return "product is priced in " + e.Product + " but the offer is in " + e.Offer +
+		"; give the line an explicit unit_price_minor in the offer currency"
+}
+
+// OfferLineInputRow is one line as the store consumes it: decimals as
+// exact strings (formatted once at the transport edge), price in minor
+// units, with product-snapshot defaults resolved here.
+type OfferLineInputRow struct {
+	Position       *int
+	ProductID      *ids.UUID
+	Description    *string
+	Unit           *string
+	Quantity       string
+	UnitPriceMinor *int64
+	DiscountPct    *string
+	TaxRate        *string
+}
+
+type CreateOfferInput struct {
+	Currency   string
+	BuyerOrgID *ids.UUID
+	ValidUntil *string // ISO date
+	IntroText  *string
+	TermsText  *string
+	LineItems  []OfferLineInputRow
+	Source     string
+}
+
+func (s *Store) CreateOffer(ctx context.Context, dealID ids.UUID, in CreateOfferInput) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionCreate); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return crmcontracts.Offer{}, err
+	}
+
+	var out crmcontracts.Offer
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		wsID := storekit.MustWorkspace(ctx)
+		// The deal anchors the offer's visibility: it must exist, be live
+		// and sit inside the caller's row scope (miss = 404).
+		if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID); err != nil {
+			return err
+		}
+
+		buyerOrg := in.BuyerOrgID
+		if buyerOrg == nil {
+			var dealOrg *ids.UUID
+			if err := tx.QueryRow(ctx,
+				`SELECT organization_id FROM deal WHERE id = $1`, dealID).Scan(&dealOrg); err != nil {
+				return fmt.Errorf("read deal organization: %w", err)
+			}
+			buyerOrg = dealOrg
+		} else if err := auth.EnsureLinkTarget(ctx, tx, "organization", *buyerOrg); err != nil {
+			return err
+		}
+
+		number, err := nextOfferNumber(ctx, tx, wsID)
+		if err != nil {
+			return err
+		}
+
+		id := ids.NewV7()
+		_, err = tx.Exec(ctx,
+			`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
+			                    buyer_org_id, valid_until, intro_text, terms_text, source, captured_by)
+			 VALUES ($1, $2, $3, $4, 1, 'draft', $5, $6, $7, $8, $9, $10, $11)`,
+			id, wsID, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText, in.Source, by)
+		if err != nil {
+			return fmt.Errorf("insert offer: %w", err)
+		}
+
+		for i, line := range in.LineItems {
+			if err := insertOfferLine(ctx, tx, wsID, id, in.Currency, line); err != nil {
+				return fmt.Errorf("line %d: %w", i+1, err)
+			}
+		}
+		if err := recomputeOfferTotals(ctx, tx, id); err != nil {
+			return err
+		}
+
+		auditID, err := storekit.Audit(ctx, tx, "create", "offer", id,
+			nil, map[string]any{"offer_number": number, "deal_id": dealID, "currency": in.Currency})
+		if err != nil {
+			return fmt.Errorf("audit offer create: %w", err)
+		}
+		if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", id, map[string]any{
+			"offer_id": id, "deal_id": dealID, "revision": 1,
+			"currency": in.Currency, "source": in.Source, "captured_by": by,
+		}); err != nil {
+			return fmt.Errorf("emit offer.created: %w", err)
+		}
+		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read created offer: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// nextOfferNumber mints the workspace's next human-facing Angebot number
+// under a transaction-scoped advisory lock — two concurrent creates
+// serialize on the mint instead of racing into offer_number_rev_unique.
+func nextOfferNumber(ctx context.Context, tx pgx.Tx, wsID ids.UUID) (string, error) {
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('offer_number:' || $1::text, 0))`, wsID); err != nil {
+		return "", fmt.Errorf("acquire offer-number lock: %w", err)
+	}
+	var next int
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(substring(offer_number FROM '^A-([0-9]+)$')::int), 1000) + 1
+		 FROM offer WHERE workspace_id = $1`, wsID).Scan(&next); err != nil {
+		return "", fmt.Errorf("mint offer number: %w", err)
+	}
+	return fmt.Sprintf("A-%d", next), nil
+}
+
+// insertOfferLine resolves the product snapshot (description, unit,
+// price, tax default) and validates the resulting line before it lands.
+// The snapshot is copied ONCE, here — a later product edit never touches
+// the line (B-E03.17).
+func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, offerCurrency string, in OfferLineInputRow) error {
+	description := in.Description
+	unit := in.Unit
+	price := in.UnitPriceMinor
+	taxRate := in.TaxRate
+
+	if in.ProductID != nil {
+		var pName, pUnit, pCurrency, pTax string
+		var pPrice int64
+		err := tx.QueryRow(ctx,
+			`SELECT name, unit, currency, default_tax_rate::text, unit_price_minor
+			 FROM product WHERE id = $1 AND archived_at IS NULL`, *in.ProductID).
+			Scan(&pName, &pUnit, &pCurrency, &pTax, &pPrice)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return apperrors.ErrNotFound
+			}
+			return fmt.Errorf("read product for snapshot: %w", err)
+		}
+		if description == nil {
+			description = &pName
+		}
+		if unit == nil {
+			unit = &pUnit
+		}
+		if price == nil {
+			// The rate-card price only carries over when the currencies
+			// agree — a silent conversion would fabricate a number.
+			if pCurrency != offerCurrency {
+				return &ProductCurrencyMismatchError{Product: pCurrency, Offer: offerCurrency}
+			}
+			price = &pPrice
+		}
+		if taxRate == nil {
+			taxRate = &pTax
+		}
+	}
+
+	if description == nil || *description == "" {
+		return &RequiredFieldError{Field: "description"}
+	}
+	if price == nil {
+		return &RequiredFieldError{Field: "unit_price_minor"}
+	}
+	unitVal := "unit"
+	if unit != nil && *unit != "" {
+		unitVal = *unit
+	}
+	discount := "0.00"
+	if in.DiscountPct != nil {
+		discount = *in.DiscountPct
+	}
+	tax := "0.00"
+	if taxRate != nil {
+		tax = *taxRate
+	}
+	// Validate the money math before the row lands: a malformed decimal
+	// or a nonsense quantity answers 422 here, not a CHECK 500 later.
+	if _, err := LineTotals(OfferLineInput{
+		Quantity: in.Quantity, UnitPriceMinor: *price, DiscountPct: discount, TaxRate: tax,
+	}); err != nil {
+		return err
+	}
+
+	position := in.Position
+	if position == nil {
+		var next int
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(MAX(position), 0) + 1 FROM offer_line_item WHERE offer_id = $1`, offerID).
+			Scan(&next); err != nil {
+			return fmt.Errorf("next line position: %w", err)
+		}
+		position = &next
+	}
+
+	_, err := tx.Exec(ctx,
+		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
+		                              unit, quantity, unit_price_minor, discount_pct, tax_rate)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		ids.NewV7(), wsID, offerID, *position, in.ProductID, *description,
+		unitVal, in.Quantity, *price, discount, tax)
+	if err != nil {
+		if storekit.IsUniqueViolation(err) {
+			return fmt.Errorf("position %d is already taken on this offer: %w", *position, apperrors.ErrConflict)
+		}
+		return fmt.Errorf("insert offer line: %w", err)
+	}
+	return nil
+}
+
+// recomputeOfferTotals re-derives net/tax/gross from the offer's live
+// lines through the totals engine — the ONE writer of the stored totals,
+// called inside every transaction that touches a line.
+func recomputeOfferTotals(ctx context.Context, tx pgx.Tx, offerID ids.UUID) error {
+	rows, err := tx.Query(ctx,
+		`SELECT quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
+		 FROM offer_line_item WHERE offer_id = $1`, offerID)
+	if err != nil {
+		return fmt.Errorf("read lines for totals: %w", err)
+	}
+	defer rows.Close()
+	var lines []OfferLineInput
+	for rows.Next() {
+		var l OfferLineInput
+		if err := rows.Scan(&l.Quantity, &l.UnitPriceMinor, &l.DiscountPct, &l.TaxRate); err != nil {
+			return err
+		}
+		lines = append(lines, l)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+
+	totals, err := OfferTotals(lines)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE offer SET net_minor = $2, tax_minor = $3, gross_minor = $4 WHERE id = $1`,
+		offerID, totals.NetMinor, totals.TaxMinor, totals.GrossMinor); err != nil {
+		return fmt.Errorf("store recomputed totals: %w", err)
+	}
+	return nil
+}
+
+// visibleOffer loads one offer and applies the deal-derived row scope:
+// the caller sees the offer iff they can see its deal (miss = 404).
+func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+	offer, err := readOffer(ctx, tx, id, archived)
+	if err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	if err := auth.EnsureVisible(ctx, tx, "deal", ids.UUID(offer.DealId)); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	return offer, nil
+}
+
+// visibleOfferLocked is the MUTATION spelling of visibleOffer: it takes
+// the offer's row lock before the status/visibility reads, so two
+// concurrent editors — or an edit racing a send — linearize and the
+// stored totals can never miss a committed line.
+func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM offer WHERE id = $1 FOR UPDATE`, id); err != nil {
+		return crmcontracts.Offer{}, fmt.Errorf("lock offer for mutation: %w", err)
+	}
+	return visibleOffer(ctx, tx, id, archived)
+}
+
+// ensureDraft gates every offer/line edit: mutable only while draft.
+func ensureDraft(offer crmcontracts.Offer) error {
+	if offer.Status != "draft" {
+		return &OfferNotDraftError{Status: string(offer.Status)}
+	}
+	return nil
+}
+
+type UpdateOfferInput struct {
+	Currency   *string
+	BuyerOrgID *ids.UUID
+	ValidUntil *string // ISO date
+	IntroText  *string
+	TermsText  *string
+	IfVersion  *int64
+}
+
+func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInput) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	var out crmcontracts.Offer
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
+		if err != nil {
+			return err
+		}
+		if err := ensureDraft(current); err != nil {
+			return err
+		}
+
+		p := storekit.NewPatch()
+		if in.Currency != nil {
+			p.Set("currency", current.Currency, *in.Currency)
+		}
+		if in.BuyerOrgID != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.BuyerOrgID); err != nil {
+				return err
+			}
+			p.Set("buyer_org_id", current.BuyerOrgId, *in.BuyerOrgID)
+		}
+		if in.ValidUntil != nil {
+			p.Set("valid_until", current.ValidUntil, *in.ValidUntil)
+		}
+		if in.IntroText != nil {
+			p.Set("intro_text", current.IntroText, *in.IntroText)
+		}
+		if in.TermsText != nil {
+			p.Set("terms_text", current.TermsText, *in.TermsText)
+		}
+		if p.Empty() {
+			out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly)
+			return err
+		}
+		if err := p.Apply(ctx, tx, "offer", id, in.IfVersion); err != nil {
+			return fmt.Errorf("apply offer patch: %w", err)
+		}
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", id, p.Before(), p.After()); err != nil {
+			return fmt.Errorf("audit offer update: %w", err)
+		}
+		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read updated offer: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (s *Store) ArchiveOffer(ctx context.Context, id ids.UUID) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionDelete); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	var out crmcontracts.Offer
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE offer SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id); err != nil {
+			return fmt.Errorf("archive offer: %w", err)
+		}
+		if _, err := storekit.Audit(ctx, tx, "archive", "offer", id, nil, nil); err != nil {
+			return fmt.Errorf("audit offer archive: %w", err)
+		}
+		var err error
+		if out, err = readOfferWithLines(ctx, tx, id, storekit.IncludeArchived); err != nil {
+			return fmt.Errorf("read archived offer: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.UUID, in OfferLineInputRow) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	var out crmcontracts.Offer
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		if err != nil {
+			return err
+		}
+		if err := ensureDraft(current); err != nil {
+			return err
+		}
+		if err := insertOfferLine(ctx, tx, storekit.MustWorkspace(ctx), offerID, current.Currency, in); err != nil {
+			return err
+		}
+		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
+			return err
+		}
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID,
+			nil, map[string]any{"line_added": true}); err != nil {
+			return fmt.Errorf("audit line add: %w", err)
+		}
+		if out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read offer after line add: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
+type UpdateOfferLineInput struct {
+	Position       *int
+	Description    *string
+	Unit           *string
+	Quantity       *string
+	UnitPriceMinor *int64
+	DiscountPct    *string
+	TaxRate        *string
+}
+
+func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUID, in UpdateOfferLineInput) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	var out crmcontracts.Offer
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		if err != nil {
+			return err
+		}
+		if err := ensureDraft(current); err != nil {
+			return err
+		}
+
+		var line OfferLineInput
+		var curPosition int
+		var curDescription, curUnit string
+		err = tx.QueryRow(ctx,
+			`SELECT position, description, unit, quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
+			 FROM offer_line_item WHERE id = $1 AND offer_id = $2`, lineID, offerID).
+			Scan(&curPosition, &curDescription, &curUnit, &line.Quantity, &line.UnitPriceMinor, &line.DiscountPct, &line.TaxRate)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return apperrors.ErrNotFound
+			}
+			return fmt.Errorf("read offer line: %w", err)
+		}
+
+		// A hand-built patch: storekit's Patch targets archivable rows
+		// (its WHERE carries archived_at IS NULL) and a line lives or
+		// dies with its offer instead — the draft gate above is the
+		// mutability rule here.
+		before, after := map[string]any{}, map[string]any{}
+		sets, args := []string{}, []any{lineID}
+		set := func(column string, oldVal, newVal any) {
+			args = append(args, newVal)
+			sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
+			before[column], after[column] = oldVal, newVal
+		}
+		if in.Position != nil {
+			set("position", curPosition, *in.Position)
+		}
+		if in.Description != nil {
+			set("description", curDescription, *in.Description)
+		}
+		if in.Unit != nil {
+			set("unit", curUnit, *in.Unit)
+		}
+		if in.Quantity != nil {
+			set("quantity", line.Quantity, *in.Quantity)
+			line.Quantity = *in.Quantity
+		}
+		if in.UnitPriceMinor != nil {
+			set("unit_price_minor", line.UnitPriceMinor, *in.UnitPriceMinor)
+			line.UnitPriceMinor = *in.UnitPriceMinor
+		}
+		if in.DiscountPct != nil {
+			set("discount_pct", line.DiscountPct, *in.DiscountPct)
+			line.DiscountPct = *in.DiscountPct
+		}
+		if in.TaxRate != nil {
+			set("tax_rate", line.TaxRate, *in.TaxRate)
+			line.TaxRate = *in.TaxRate
+		}
+		// Validate the resulting line's math up front (422, not a CHECK 500).
+		if _, err := LineTotals(line); err != nil {
+			return err
+		}
+		if len(sets) == 0 {
+			out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly)
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			fmt.Sprintf(`UPDATE offer_line_item SET %s WHERE id = $1`, strings.Join(sets, ", ")),
+			args...); err != nil {
+			if storekit.IsUniqueViolation(err) {
+				return fmt.Errorf("position is already taken on this offer: %w", apperrors.ErrConflict)
+			}
+			return fmt.Errorf("apply line patch: %w", err)
+		}
+		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
+			return err
+		}
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID, before, after); err != nil {
+			return fmt.Errorf("audit line update: %w", err)
+		}
+		if out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read offer after line update: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
+func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID, lineID ids.UUID) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	var out crmcontracts.Offer
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		if err != nil {
+			return err
+		}
+		if err := ensureDraft(current); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM offer_line_item WHERE id = $1 AND offer_id = $2`, lineID, offerID)
+		if err != nil {
+			return fmt.Errorf("delete offer line: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return apperrors.ErrNotFound
+		}
+		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
+			return err
+		}
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID,
+			map[string]any{"line_id": lineID}, map[string]any{"line_removed": true}); err != nil {
+			return fmt.Errorf("audit line remove: %w", err)
+		}
+		if out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read offer after line remove: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}

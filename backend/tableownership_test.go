@@ -61,12 +61,15 @@ var tableOwners = map[string]string{
 	"partner":                    "internal/modules/people",
 	"lead":                       "internal/modules/people",
 	"organization_profile_field": "internal/modules/people",
-	// deals
+	// deals (incl. the E03 offer engine: rate-card + versioned offers)
 	"deal":               "internal/modules/deals",
 	"pipeline":           "internal/modules/deals",
 	"stage":              "internal/modules/deals",
 	"deal_stage_history": "internal/modules/deals",
 	"fx_rate":            "internal/modules/deals",
+	"product":            "internal/modules/deals",
+	"offer":              "internal/modules/deals",
+	"offer_line_item":    "internal/modules/deals",
 	// activities
 	"activity":      "internal/modules/activities",
 	"activity_link": "internal/modules/activities",
@@ -105,8 +108,12 @@ var tableOwners = map[string]string{
 	// privacy (the erasure suppression list is the module's own state;
 	// its other writes are ratified waivers below)
 	"erasure_suppression": "internal/modules/privacy",
-	// compose (HTTP replay protection is transport plumbing, not domain)
+	// compose (HTTP replay protection is transport plumbing, not domain;
+	// the brief read model is the cross-module ranker's own snapshot —
+	// deals + people strength + activities compose only here)
 	"idempotency_key": "internal/compose",
+	"brief_run":       "internal/compose",
+	"brief_item":      "internal/compose",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it
 	"audit_log":        storekitOwned,

@@ -16,6 +16,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -39,6 +40,10 @@ var decisionGrants = map[string][]struct {
 	// the handler regardless of who approved.
 	"send_email":   {{"activity", principal.ActionCreate}},
 	"book_meeting": {{"activity", principal.ActionCreate}},
+	// Sending an offer releases the draft→sent transition (B-E03.19) —
+	// an offer write; deciding it needs the same grant the send itself
+	// requires.
+	"send_offer": {{"offer", principal.ActionUpdate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.
@@ -83,6 +88,31 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 	switch *a.TargetType {
 	case "person", "organization", "deal", "lead":
 		return auth.VisibleTo(ctx, tx, *a.TargetType, *a.TargetID)
+	case "offer":
+		// An offer carries no owner_id — it is visible exactly when its
+		// DEAL is (the same anchoring the deals store applies), so the
+		// approval surface discloses nothing the record itself would not.
+		var dealID ids.UUID
+		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, *a.TargetID).Scan(&dealID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return auth.VisibleTo(ctx, tx, "deal", dealID)
+	case "product":
+		// Rate-card products are workspace-shared config (no row scope) —
+		// the decision-grant check above is the authority question, but a
+		// staging against a product that does not exist is still not
+		// decidable: existence is the floor every target type shares.
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`,
+			*a.TargetID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
 	case "activity":
 		err := auth.EnsureActivityVisible(ctx, tx, *a.TargetID)
 		switch {
