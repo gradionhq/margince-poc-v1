@@ -5,12 +5,74 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-**Last updated: 2026-07-05 (overnight build, closed out).** Roughly **30 %**
-of the 687-leaf-ticket V1 backlog
+**Last updated: 2026-07-05 (craftsmanship hardening, closed out).** Roughly
+**30 %** of the 687-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is implemented and
 gate-verified; every `crm.yaml` operation is implemented.
 
-## Last session: the overnight autonomous build (2026-07-04 → 05) — read this first
+## Last session: the craftsmanship red-team + full remediation (2026-07-05)
+
+A full red-team against the spec's craftsmanship dossier
+(`../margince/specs/research/craftsmanship-loved-and-anti-patterns.md`,
+sections A–R) ran seven parallel review passes, then EVERY finding — bad
+and okay-ish alike — was fixed (commits `ba713dc`, `7849581`, `e4fb216`).
+The interim review file was addressed in full and deleted per instruction;
+this list is the durable record:
+
+- **Contract integrity**: `Idempotency-Key` is now implemented per the
+  contract (migration 0033, insert-first claim, replay, 409 on digest
+  mismatch, integration-tested) instead of silently ignored.
+- **Security**: consent double-opt-in tokens are minted server-side,
+  hashed at rest, verified + consumed single-use (0034); the MCP tool
+  surface no longer leaks raw internal error text (generic message +
+  server-side slog); the hosted MCP listener got full timeouts + a body
+  cap; SECURITY.md added.
+- **Approvals**: clock injected (`now func()`); the pending→expired and
+  redemption-window transitions are unit- AND integration-proven via
+  backdated timestamps (no sleeps anywhere in the suite now).
+- **Structure**: erasure/SAR/retention moved out of compose into
+  `modules/privacy`; compose is wiring again. New root fitness gates:
+  table-ownership (AST-parsed SQL writes vs a declared ownership map,
+  waivers need rationale), errmatch (no `err.Error()` string matching),
+  FORCE-RLS coverage (schema-derived), writeshape widened to compose and
+  waivers re-keyed by package path.
+- **Errors/API**: malformed cursors 4xx centrally; constraint sniffing by
+  message text replaced with `storekit` SQLSTATE/constraint-name helpers;
+  httperr suppresses infrastructure error text on the wire; multi-statement
+  tx bodies wrap errors uniformly across deals/people.
+- **Operability**: `/readyz` (pg+redis), `/metrics` (hand-rolled Prometheus
+  text: outbox backlog, relay published, pool stats), access log +
+  correlation_id-aware slog (one shared `LogHandler` for api/worker/mcp),
+  `--log-level`/`--log-format` flags, worker WaitGroup drain, DSN pool
+  params no longer clobbered.
+- **Tooling/docs**: gen-stubs ported python3→Go (host requirement dropped);
+  codegen tooling split to `backend/tools` module (app go.mod lost the YAML
+  zoo); depguard collapsed to tree-derived enforcement; jurisdiction ports
+  shrunk to `Retention()`; docs/ Diátaxis tree, CHANGELOG.md, .editorconfig,
+  .tool-versions, renovate.json, pre-commit hook; decisions/ + feedback/
+  re-tracked; AGENTS.md/CLAUDE.md now name all 13 modules + both spine
+  shapes.
+- **craft gate**: `cli/craft static --strict` is clean over the FULL repo
+  (was 83 blockers / 70 majors — every finding fixed or reason-waived
+  inline); the LLM arm (`craft review`, five slices over the session diff)
+  returned PASS on all slices and its nine findings are closed.
+
+Not done, deliberately: GitHub CI (owner is adding it; the five failing
+`cli/craft/wiring` tests that expect `.github/workflows/ci.yml`,
+CONTRIBUTING.md and branch-protection.json will go green with it).
+
+**Incident, recorded honestly**: mid-session a subagent's `git stash`
+verification collided with the parallel frontend session's commits and
+briefly wiped the uncommitted backend work from the tree; everything was
+recovered from the dropped stash's unreachable commit (`63532ff`) and both
+gates re-verified before the checkpoint commit. Lesson: agents in a shared
+tree must never touch git state; commit checkpoints early.
+
+All gates green at session close: `make check`, `make test-integration`
+(serialized real-PG lane), `craft static --strict` (0/0/0), five-slice
+`craft review` PASS.
+
+## Previous session: the overnight autonomous build (2026-07-04 → 05)
 
 One agent session built and merged, slice by slice (each gate-green, pushed
 immediately). **Every contract operation in `crm.yaml` is now implemented** —
