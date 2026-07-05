@@ -162,12 +162,21 @@ colours, Lucide-only glyphs, SW discipline) · 09.21 axe WCAG 2.2 AA ·
 09.22 e2e harness (AC-named tests, 390px sweep, PERF-1 <300ms) — 27/27
 e2e green, 76 unit tests green.
 
-**Open:**
-- **B-EP09.15 automations editor — BLOCKED**: no automations CRUD in the
-  contract (feedback/14, with the public-booking consent gap).
-- Spec-side follow-ups filed: feedback/13 (audit read + passport list for
-  Settings), feedback/15 (Ledger-Green greys fail AA — a derived
-  --textMeta shade carries small text meanwhile; canon stays pinned).
+**Open (updated 2026-07-05 after the spec resolved feedback 04–15,
+spec commit 667c355):**
+- The spec now DEFINES everything that was missing: `/automations*`
+  CRUD, `/public/booking/{host_slug}` + `CaptureConsent`, `GET
+  /audit-log`, `GET /passports`, `issueDoubleOptIn`. The build repo's
+  `backend/api/crm.yaml` has NOT been synced yet (a sync forces the
+  handler implementations — the 501/drift gate). Once backend lands
+  the sync: `pnpm gen:api`, then build B-EP09.15 (automations editor),
+  the Settings audit-log + passport-list cards, and the public booking
+  consent passthrough.
+- Follow-ups from the resolution are DONE build-side: writeshape
+  waivers re-pointed to events.md §5.3c / the §5 closed-verb law (no
+  more feedback-file citations); textMeta is canon (ADR-0040
+  amendment) and pinned in tokens.test.ts; foundation design-system
+  synced.
 - Deviations recorded: no Storybook (the #/design screen + tests are the
   showcase); e2e runs over a network-edge seed mock by default (BASE_URL
   points the same suite at a live backend); auth/login screen not yet
