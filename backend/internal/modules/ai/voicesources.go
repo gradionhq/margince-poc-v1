@@ -182,7 +182,11 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 		summary CorpusSummary
 	)
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
+		p, err := s.visibleProfile(ctx, tx, profileID)
+		if err != nil {
+			return err
+		}
+		if err := ownerOnly(ctx, p); err != nil {
 			return err
 		}
 		var inserted bool
@@ -218,7 +222,6 @@ func (s *VoiceStore) IngestSource(ctx context.Context, profileID ids.UUID, in In
 		}); err != nil {
 			return err
 		}
-		var err error
 		summary, err = corpusSummary(ctx, tx, profileID)
 		return err
 	})
@@ -239,7 +242,11 @@ func (s *VoiceStore) ListSources(ctx context.Context, profileID ids.UUID) ([]Voi
 		summary CorpusSummary
 	)
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
+		p, err := s.visibleProfile(ctx, tx, profileID)
+		if err != nil {
+			return err
+		}
+		if err := ownerOnly(ctx, p); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, storekit.SQLf(
@@ -281,7 +288,11 @@ func (s *VoiceStore) UpdateSource(ctx context.Context, profileID, sourceID ids.U
 		summary CorpusSummary
 	)
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := s.visibleProfile(ctx, tx, profileID); err != nil {
+		p, err := s.visibleProfile(ctx, tx, profileID)
+		if err != nil {
+			return err
+		}
+		if err := ownerOnly(ctx, p); err != nil {
 			return err
 		}
 		before, err := scanVoiceSource(tx.QueryRow(ctx, storekit.SQLf(

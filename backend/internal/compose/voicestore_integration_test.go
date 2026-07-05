@@ -14,6 +14,7 @@ package compose
 // survives untouched (the split that makes rebuilds safe).
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -72,6 +73,29 @@ func TestVoiceProfileRowScopeFollowsTeamVisibility(t *testing.T) {
 		Kind: "post", SourceLabel: "poison", Content: "not my voice",
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("outsider ingest → %v, want ErrNotFound", err)
+	}
+
+	// A personal profile's CONTENT is owner-only: a teammate — and even
+	// an unbounded admin — may see it exists but can neither write in the
+	// owner's voice nor browse their corpus manifest (403, not absence).
+	for who, ctx := range map[string]context.Context{"teammate": teammate, "admin": e.admin()} {
+		if _, _, err := voice.IngestSource(ctx, created.ID, ai.IngestSourceInput{
+			Kind: "post", SourceLabel: "poison", Content: "words in another's mouth",
+		}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Fatalf("%s ingest into a personal profile → %v, want ErrPermissionDenied", who, err)
+		}
+		if _, err := voice.UpdateProfile(ctx, created.ID, "not their identity", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Fatalf("%s personality edit → %v, want ErrPermissionDenied", who, err)
+		}
+		if _, _, err := voice.ListSources(ctx, created.ID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Fatalf("%s manifest browse → %v, want ErrPermissionDenied", who, err)
+		}
+	}
+	// The owner's own path is untouched.
+	if _, _, err := voice.IngestSource(owner, created.ID, ai.IngestSourceInput{
+		Kind: "post", SourceLabel: "mine", Content: "my own words, my own voice",
+	}); err != nil {
+		t.Fatalf("owner ingest: %v", err)
 	}
 }
 

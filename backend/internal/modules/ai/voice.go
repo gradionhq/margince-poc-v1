@@ -178,6 +178,24 @@ func (s *VoiceStore) visibleProfile(ctx context.Context, tx pgx.Tx, id ids.UUID)
 	return p, err
 }
 
+// ownerOnly guards the personal-content surface of a user-scope
+// profile — every content mutation AND the corpus manifest read: the
+// corpus is the owner's consented writing, and no row scope — team or
+// unbounded — licenses writing in someone else's voice or browsing
+// their source list. Team/workspace-scope profiles stay governed by
+// grants + row scope alone; profile reads (existence, status, artifact)
+// and archive (an admin cleanup act) stay row-scoped.
+func ownerOnly(ctx context.Context, p VoiceProfile) error {
+	if p.Scope != "user" || p.OwnerID == nil {
+		return nil
+	}
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.UserID != *p.OwnerID {
+		return fmt.Errorf("a personal voice profile is written only by its owner: %w", apperrors.ErrPermissionDenied)
+	}
+	return nil
+}
+
 // CreateProfile opens a voice profile in status=building with an empty
 // derived artifact. A user-scope profile is owned by the caller — the
 // partial unique index makes a second live one a conflict, so onboarding
@@ -241,6 +259,9 @@ func (s *VoiceStore) UpdateProfile(ctx context.Context, id ids.UUID, personality
 		if err != nil {
 			return err
 		}
+		if err := ownerOnly(ctx, before); err != nil {
+			return err
+		}
 		if ifVersion != nil && *ifVersion != before.Version {
 			return apperrors.ErrVersionSkew
 		}
@@ -280,6 +301,9 @@ func (s *VoiceStore) SetDerivedProfile(ctx context.Context, id ids.UUID, voicePr
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		before, err := s.visibleProfile(ctx, tx, id)
 		if err != nil {
+			return err
+		}
+		if err := ownerOnly(ctx, before); err != nil {
 			return err
 		}
 		p, err = scanVoiceProfile(tx.QueryRow(ctx, storekit.SQLf(`
