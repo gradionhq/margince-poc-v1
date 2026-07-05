@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-drift craft-sync hooks
+.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-drift craft-sync hooks
 
 check: craft-drift
 
@@ -14,7 +14,7 @@ check: craft-drift
 dev-tls:
 	./dev/dev.sh
 
-check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev clean:
+check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev clean:
 	$(MAKE) -C backend $@
 
 ## eval — run the golden-dataset gates verbosely (they also run, quietly,
