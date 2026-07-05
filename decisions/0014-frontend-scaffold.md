@@ -50,3 +50,18 @@ embedded static assets vs. separately served (filed spec-side as a gap).
   lane only.
 - Fonts load from Google Fonts in `index.html` for now; self-hosting is a
   follow-up before any offline/PWA ticket (B-EP09.8).
+
+## Close-out (2026-07-05, end of the EP09 session)
+
+EP09 landed 29/30 leaf tickets in one session (see STATUS.md for the
+full list). Standing facts for future sessions:
+
+- `--textMeta` is canon (ADR-0040 amendment via feedback/15) and pinned
+  in tokens.test.ts alongside the §2 values.
+- The api client mounts the contract paths under `/v1`
+  (`${origin}/v1`) — the harness caught the unprefixed version.
+- The e2e harness (Playwright) blocks the service worker and mocks /v1
+  at the network edge; BASE_URL runs the identical suite live.
+- Remaining: backend syncs crm.yaml (automations, public booking +
+  CaptureConsent, audit-log, passports list, DOI issuance) → gen:api →
+  B-EP09.15 + Settings audit/passport cards + booking consent.
