@@ -193,6 +193,14 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.UUID) (i
 		personID); err != nil {
 		return 0, err
 	}
+	// The redacted rows' field-level provenance goes with the fields it
+	// annotated — origin metadata must not outlive the erased text.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM field_provenance
+		WHERE object_type = 'activity' AND object_id IN (`+subjectOnlyActivities+`)`,
+		personID); err != nil {
+		return 0, err
+	}
 	return tag.RowsAffected(), nil
 }
 

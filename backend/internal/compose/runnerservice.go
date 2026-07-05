@@ -156,10 +156,21 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	}
 
 	var payload struct {
-		Verdict string `json:"verdict"`
+		Verdict      string          `json:"verdict"`
+		Edited       bool            `json:"edited"`
+		EditedChange json.RawMessage `json:"edited_change"`
 	}
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("runner: approval.decided payload: %w", err)
+	}
+	// Modify-then-approve (ADR-0036 §4): the authority now binds to the
+	// HUMAN's version of the call, so the resumed run must re-present
+	// exactly that — the originally staged args no longer redeem.
+	if payload.Verdict == "approved" && payload.Edited {
+		if len(payload.EditedChange) == 0 {
+			return s.store.MarkFailed(wsCtx, suspended.RunID, "approval was edited but the decision event carries no edited_change")
+		}
+		suspended.Pending.Args = payload.EditedChange
 	}
 
 	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, suspended.PassportID)

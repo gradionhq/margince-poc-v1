@@ -242,9 +242,11 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.
 		var stamps []storekit.FieldStamp
-		for field, value := range map[string]string{"subject": fields.Subject, "body": fields.Body, "direction": fields.Direction} {
-			if value != "" {
-				stamps = append(stamps, storekit.FieldStamp{Field: field})
+		for _, f := range []struct{ field, value string }{
+			{"subject", fields.Subject}, {"body", fields.Body}, {"direction", fields.Direction},
+		} {
+			if f.value != "" {
+				stamps = append(stamps, storekit.FieldStamp{Field: f.field})
 			}
 		}
 		if err := storekit.StampFields(ctx, tx, "activity", id, captureSource(rec), rec.CapturedBy, stamps); err != nil {
@@ -281,12 +283,12 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy).Scan(&id)
 	if err == nil {
 		var stamps []storekit.FieldStamp
-		for field, value := range map[string]string{
-			"full_name": fields.FullName, "email": fields.Email,
-			"company_name": fields.CompanyName, "title": fields.Title,
+		for _, f := range []struct{ field, value string }{
+			{"full_name", fields.FullName}, {"email", fields.Email},
+			{"company_name", fields.CompanyName}, {"title", fields.Title},
 		} {
-			if value != "" {
-				stamps = append(stamps, storekit.FieldStamp{Field: field})
+			if f.value != "" {
+				stamps = append(stamps, storekit.FieldStamp{Field: f.field})
 			}
 		}
 		if err := storekit.StampFields(ctx, tx, "lead", id, captureSource(rec), rec.CapturedBy, stamps); err != nil {

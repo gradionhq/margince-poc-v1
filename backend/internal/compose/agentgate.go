@@ -249,9 +249,14 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 func updateRecordTierInput(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
 	raw := chi.URLParam(r, "id")
 	if raw == "" {
-		// Action-shaped twins (applyTag, addListMember) patch no audited
-		// field on the routed record; nothing human-typed is at stake.
-		return mcp.TierResolverInput{Args: body}, nil
+		// Every dynamic update_record twin routes with {id} today (the
+		// action-shaped twins — applyTag, addListMember — stay green in
+		// the contract because their bodies are not field patches). A
+		// future dynamic route without an id cannot answer the ownership
+		// question, so it is refused, never admitted unprobed.
+		return mcp.TierResolverInput{}, fmt.Errorf(
+			"agent gate: %s routes update_record without a target id — the ownership probe cannot run: %w",
+			pol.Op, apperrors.ErrPermissionDenied)
 	}
 	targetID, err := ids.Parse(raw)
 	if err != nil {

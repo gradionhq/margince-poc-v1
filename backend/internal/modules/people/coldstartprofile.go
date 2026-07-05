@@ -162,10 +162,12 @@ func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, s
 				// filled COLUMN's origin; the profile-field evidence row
 				// below keeps the full snippet either way.
 				confidence := f.Confidence
-				evidenceRef := f.SourceURL
-				if err := storekit.StampFields(ctx, tx, "organization", orgID, source, by, []storekit.FieldStamp{
-					{Field: column, Confidence: &confidence, EvidenceRef: &evidenceRef},
-				}); err != nil {
+				stamp := storekit.FieldStamp{Field: column, Confidence: &confidence}
+				if f.SourceURL != "" {
+					// A missing source link reads as NULL, never as ''.
+					stamp.EvidenceRef = &f.SourceURL
+				}
+				if err := storekit.StampFields(ctx, tx, "organization", orgID, source, by, []storekit.FieldStamp{stamp}); err != nil {
 					return nil, err
 				}
 			}

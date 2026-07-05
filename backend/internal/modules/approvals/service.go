@@ -243,6 +243,10 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 			auditEvidence["edited_diff_hash"] = editedHash
 			decidedPayload["edited"] = true
 			decidedPayload["diff_hash"] = editedHash
+			// The decided event carries the human's version: a suspended
+			// agent run resumes with THIS call — the original one no
+			// longer matches any authority.
+			decidedPayload["edited_change"] = json.RawMessage(canonical)
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE approval SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4
