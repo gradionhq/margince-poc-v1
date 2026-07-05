@@ -4,7 +4,7 @@ module github.com/gradionhq/margince/backend
 // `ON DELETE SET NULL (column_list)` semantics and current-toolchain
 // tooling. Contributors/operators need the 1.26 toolchain; this is a PoC
 // choice, revisit if broader portability becomes a goal.
-go 1.26.0
+go 1.26.4
 
 toolchain go1.26.4
 
