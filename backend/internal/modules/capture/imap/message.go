@@ -225,13 +225,13 @@ func orDash(s string) string {
 	return s
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
 	// Back off to a rune boundary so the stored excerpt is never a broken
 	// UTF-8 sequence.
-	cut := max
+	cut := limit
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}

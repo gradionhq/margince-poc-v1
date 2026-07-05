@@ -233,6 +233,7 @@ func (c *Connector) Close() error {
 	}
 	conn := c.conn
 	c.conn = nil
+	c.netConn = nil // drop the dangling reference along with the session
 	//craft:ignore swallowed-errors best-effort polite logout before the close that actually frees the fd + reader goroutine
 	_ = conn.Logout().Wait()
 	return conn.Close()
