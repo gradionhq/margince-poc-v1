@@ -26,7 +26,7 @@
 }
 .btn-ghost {
   background: transparent;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   border: 1px solid var(--borderSubtle);
 }
 .btn-ghost:hover {
@@ -46,5 +46,5 @@
 
 .t-small {
   font-size: 12px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }

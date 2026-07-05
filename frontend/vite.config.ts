@@ -19,5 +19,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Playwright owns e2e/ — vitest must not collect its specs
+    exclude: ["**/node_modules/**", "e2e/**"],
   },
 });

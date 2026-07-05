@@ -14,7 +14,7 @@
 .brief-item .brief-rank {
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   flex: none;
 }
 .brief-item .brief-title {
@@ -71,13 +71,13 @@
 .board-col-head .prob {
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 .board-col-sub {
   display: flex;
   gap: 8px;
   font-size: 11.5px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   padding: 0 4px 4px;
 }
 
@@ -109,14 +109,14 @@
 }
 .deal-card .deal-org {
   font-size: 12px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
 }
 .deal-card .deal-meta {
   display: flex;
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
 }
 .deal-card .deal-value {
   font-family: var(--f-mono);
@@ -141,7 +141,7 @@
 }
 .record-head .record-sub {
   font-size: 13px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
 }
 .record-badges {
   display: flex;
@@ -172,7 +172,7 @@
   background: var(--bgCard);
   display: grid;
   place-items: center;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   flex: none;
 }
 .timeline .tl-icon svg {
@@ -194,7 +194,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 /* Lead segregation (§3.5): the lead surface is visibly apart from the
@@ -222,7 +222,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 .firmo dd {
   font-size: 13.5px;
@@ -239,7 +239,7 @@
 .stepper .step {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   background: var(--bgCard);
   border-radius: var(--r-full);
   padding: 4px 12px;

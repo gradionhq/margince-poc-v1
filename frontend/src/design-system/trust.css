@@ -25,7 +25,7 @@
   gap: 6px;
   font-family: var(--f-mono);
   font-size: 12px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   background: var(--bgCard);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
@@ -44,7 +44,7 @@ button.evidence-chip:hover {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
 }
 .confidence-high .dot {
   background: var(--online);

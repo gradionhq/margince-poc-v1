@@ -48,6 +48,10 @@
   --railIconActive: #fff;
   --railHover: rgba(255, 255, 255, 0.1);
   --railActive: rgba(255, 255, 255, 0.16);
+  /* AA-safe meta text: the canonical textSecondary/textTertiary greys fall
+   * under 4.5:1 on tinted grounds (bgCard/aiLight) — filed spec-side
+   * (feedback/15); this derived shade keeps small text ≥4.5:1 everywhere. */
+  --textMeta: #5e6c65;
 
   --ai: #5b61d6;
   --aiLight: rgba(91, 97, 214, 0.08);
@@ -105,6 +109,7 @@
   --borderStrong: #31463d;
 
   --aiText: #9ba0f0;
+  --textMeta: #8fa099;
 
   --success: #4ade80;
   --warn: #fbbf24;

@@ -1,0 +1,272 @@
+import type { Page } from "@playwright/test";
+
+// The coherent seed (mirrors design/seed-fixtures.md entities: Anna Weber,
+// Brandt Automotive, the fleet-retrofit deal) mocked at the network edge so
+// the harness is hermetic and the explainer arithmetic reconciles across
+// screens. BASE_URL mode skips this and hits a live backend instead.
+
+export const stages = [
+  {
+    id: "s1",
+    workspace_id: "w",
+    pipeline_id: "pl",
+    name: "Qualify",
+    position: 1,
+    semantic: "open",
+    win_probability: 20,
+  },
+  {
+    id: "s2",
+    workspace_id: "w",
+    pipeline_id: "pl",
+    name: "Proposal",
+    position: 2,
+    semantic: "open",
+    win_probability: 40,
+  },
+  {
+    id: "s3",
+    workspace_id: "w",
+    pipeline_id: "pl",
+    name: "Negotiation",
+    position: 3,
+    semantic: "open",
+    win_probability: 60,
+  },
+  {
+    id: "s4",
+    workspace_id: "w",
+    pipeline_id: "pl",
+    name: "Won",
+    position: 4,
+    semantic: "won",
+    win_probability: 100,
+  },
+  {
+    id: "s5",
+    workspace_id: "w",
+    pipeline_id: "pl",
+    name: "Lost",
+    position: 5,
+    semantic: "lost",
+    win_probability: 0,
+  },
+];
+
+export const anna = {
+  id: "p-anna",
+  workspace_id: "w",
+  full_name: "Anna Weber",
+  title: "Head of Procurement",
+  emails: [{ id: "e1", email: "anna.weber@brandt.example", is_primary: true }],
+  captured_by: "connector:gmail",
+  source: "gmail",
+  version: 1,
+  created_at: "2026-06-01T08:00:00Z",
+  updated_at: "2026-06-20T08:00:00Z",
+};
+
+export const brandt = {
+  id: "o-brandt",
+  workspace_id: "w",
+  display_name: "Brandt Automotive GmbH",
+  industry: "Automotive",
+  size_band: "201-500",
+  classification: "customer",
+  captured_by: "human:u1",
+  source: "manual",
+  version: 1,
+  created_at: "2026-06-01T08:00:00Z",
+  updated_at: "2026-06-01T08:00:00Z",
+};
+
+export const deals = [
+  {
+    id: "d-fleet",
+    workspace_id: "w",
+    name: "Fleet retrofit",
+    amount_minor: 4_800_000,
+    currency: "EUR",
+    pipeline_id: "pl",
+    stage_id: "s2",
+    organization_id: "o-brandt",
+    status: "open",
+    stalled: true,
+    source: "manual",
+    captured_by: "human:u1",
+    created_at: "2026-05-01T08:00:00Z",
+    updated_at: "2026-06-01T08:00:00Z",
+    last_activity_at: "2026-05-01T08:00:00Z",
+  },
+  {
+    id: "d-service",
+    workspace_id: "w",
+    name: "Service contract",
+    amount_minor: 1_250_000,
+    currency: "EUR",
+    pipeline_id: "pl",
+    stage_id: "s1",
+    organization_id: "o-brandt",
+    status: "open",
+    stalled: false,
+    source: "manual",
+    captured_by: "human:u1",
+    created_at: "2026-06-15T08:00:00Z",
+    updated_at: "2026-06-20T08:00:00Z",
+    last_activity_at: "2026-06-28T08:00:00Z",
+  },
+];
+
+export const approval = {
+  id: "ap-1",
+  workspace_id: "w",
+  kind: "send_email",
+  status: "pending",
+  proposed_by: "agent:runner",
+  summary: "Send the follow-up to Anna Weber",
+  proposed_change: { subject: "Follow-up", body: "Hi Anna" },
+  confidence: 0.62,
+  evidence: [
+    { evidence_snippet: "shall we sync next week?", source_type: "activity" },
+  ],
+  created_at: "2026-07-05T05:00:00Z",
+};
+
+function page(data: unknown[]) {
+  return { data, page: { next_cursor: null } };
+}
+
+export async function mockApi(target: Page): Promise<void> {
+  if (process.env.BASE_URL) {
+    return; // live-backend mode: no mocking
+  }
+  // hermetic runs: no external font fetches
+  await target.route("https://fonts.googleapis.com/**", (route) =>
+    route.abort(),
+  );
+  await target.route("https://fonts.gstatic.com/**", (route) => route.abort());
+
+  await target.route(/\/v1\//, async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname.replace(/^\/v1/, "");
+    const method = route.request().method();
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+
+    if (path === "/me") {
+      return json({
+        user: { id: "u1", email: "lars@brandt.example", locale: "de-DE" },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (path === "/people" && method === "GET") {
+      return json(page([anna]));
+    }
+    if (path === "/people/p-anna") {
+      return json(anna);
+    }
+    if (path === "/organizations" && method === "GET") {
+      return json(page([brandt]));
+    }
+    if (path === "/organizations/o-brandt") {
+      return json(brandt);
+    }
+    if (path === "/leads" && method === "GET") {
+      return json(page([]));
+    }
+    if (path === "/pipelines") {
+      return json(
+        page([
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages,
+          },
+        ]),
+      );
+    }
+    if (path === "/deals" && method === "GET") {
+      return json(page(deals));
+    }
+    if (path.startsWith("/deals/") && path.endsWith("/advance")) {
+      return json({ ...deals[0], stage_id: "s4", status: "won" });
+    }
+    if (path.startsWith("/deals/") && path.endsWith("/stakeholders")) {
+      return json(page([]));
+    }
+    if (path.startsWith("/deals/")) {
+      return json(deals.find((deal) => path.endsWith(deal.id)) ?? deals[0]);
+    }
+    if (path === "/approvals") {
+      return json(page([approval]));
+    }
+    if (path.startsWith("/approvals/") && method === "POST") {
+      return json({ ...approval, status: "approved" });
+    }
+    if (path === "/activities") {
+      return json(page([]));
+    }
+    if (path === "/consent-purposes") {
+      return json(
+        page([
+          {
+            id: "cp1",
+            workspace_id: "w",
+            key: "marketing_email",
+            label: "Marketing",
+            requires_double_opt_in: true,
+            created_at: "2026-06-01T00:00:00Z",
+          },
+        ]),
+      );
+    }
+    if (path === "/data-subject-requests") {
+      return json(page([]));
+    }
+    if (path === "/availability") {
+      return json({
+        slots: [
+          { start: "2026-07-06T09:00:00Z", end: "2026-07-06T09:30:00Z" },
+          { start: "2026-07-06T10:00:00Z", end: "2026-07-06T10:30:00Z" },
+        ],
+      });
+    }
+    if (path === "/search") {
+      return json(
+        page([
+          { type: "person", id: "p-anna", title: "Anna Weber", score: 0.9 },
+        ]),
+      );
+    }
+    if (path.startsWith("/reports/")) {
+      return json({
+        report: "deals-by-stage",
+        plan: { group_by: ["stage_id"] },
+        columns: ["stage_id", "raw_minor", "deal_count"],
+        rows: [
+          {
+            stage_id: "s1",
+            raw_minor: 1_250_000,
+            deal_count: 1,
+            currency: "EUR",
+          },
+          {
+            stage_id: "s2",
+            raw_minor: 4_800_000,
+            deal_count: 1,
+            currency: "EUR",
+          },
+        ],
+      });
+    }
+    return json(page([]));
+  });
+}

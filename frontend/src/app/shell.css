@@ -145,7 +145,7 @@
   gap: 10px;
 }
 .topbar .crumb {
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-size: 13px;
 }
 .topbar .crumb b {
@@ -165,7 +165,7 @@
   place-items: center;
   border: 0;
   background: transparent;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   border-radius: var(--r-sm);
   cursor: pointer;
 }
@@ -200,7 +200,7 @@
 .palette-input svg {
   width: 16px;
   height: 16px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   flex: none;
 }
 .palette-input input {
@@ -235,7 +235,7 @@
 .palette-row svg {
   width: 14px;
   height: 14px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   flex: none;
 }
 .palette-row.selected,
@@ -250,7 +250,7 @@
   white-space: nowrap;
 }
 .palette-row .sub {
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-size: 12px;
 }
 .palette-row .type {
@@ -258,7 +258,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   background: var(--bgCard);
   border-radius: var(--r-full);
   padding: 1px 7px;
@@ -309,7 +309,7 @@
   place-items: center;
   border: 0;
   background: transparent;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   border-radius: var(--r-sm);
   cursor: pointer;
 }

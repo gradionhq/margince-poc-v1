@@ -10,7 +10,8 @@
     "test": "vitest run",
     "lint": "biome check src index.html",
     "check": "pnpm lint && pnpm test && pnpm build",
-    "gen:api": "openapi-typescript ../backend/api/crm.yaml -o src/api/schema.d.ts"
+    "gen:api": "openapi-typescript ../backend/api/crm.yaml -o src/api/schema.d.ts",
+    "e2e": "vite build && playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
@@ -20,7 +21,9 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "^2.0.0",
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.1.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

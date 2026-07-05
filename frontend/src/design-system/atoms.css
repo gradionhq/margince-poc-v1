@@ -10,7 +10,7 @@
   padding: 2px 9px;
   border-radius: var(--r-full);
   background: var(--bgCard);
-  color: var(--textSecondary);
+  color: var(--textMeta);
 }
 .badge-success {
   background: var(--successBg);
@@ -55,7 +55,7 @@
   text-align: left;
   font-size: 12px;
   font-weight: 600;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   padding: 8px 12px;
   border-bottom: 1px solid var(--borderStrong);
   text-transform: uppercase;
@@ -108,7 +108,7 @@
 .empty {
   text-align: center;
   padding: 36px 20px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-size: 13px;
 }
 
@@ -171,7 +171,7 @@
   font-weight: 600;
   border: 0;
   background: transparent;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   padding: 5px 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -185,7 +185,7 @@
 .kbd {
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   background: var(--bgCard);
   border: 1px solid var(--borderStrong);
   border-bottom-width: 2px;
@@ -206,7 +206,7 @@
 }
 .section-header .sub {
   font-size: 13px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 
 .input-icon {
@@ -219,7 +219,7 @@
   left: 9px;
   width: 15px;
   height: 15px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   pointer-events: none;
 }
 .input-icon .input {
@@ -255,7 +255,7 @@
   place-items: center;
   border: 0;
   background: transparent;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   border-radius: var(--r-sm);
   cursor: pointer;
 }
