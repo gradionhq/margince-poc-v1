@@ -14,12 +14,17 @@ import (
 	"syscall"
 )
 
-// reservedNets are the non-public ranges the stdlib predicates miss: CGNAT,
-// benchmark, documentation, protocol-assignment and broadcast.
+// reservedNets are the non-public ranges the stdlib predicates miss: the
+// "this-network" 0.0.0.0/8 (only the exact 0.0.0.0 is IsUnspecified, but the
+// whole block routes to loopback on Linux), CGNAT, benchmark, documentation,
+// protocol-assignment and broadcast, plus the IPv6 ranges that translate to
+// IPv4 internals — NAT64 (64:ff9b::/96, e.g. 64:ff9b::a9fe:a9fe → link-local
+// metadata) and IPv4-compatible ::/96 — which To4()/IsPrivate() do not catch.
 var reservedNets = func() []*net.IPNet {
 	cidrs := []string{
-		"100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15",
-		"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "2001:db8::/32",
+		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
+		"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+		"2001:db8::/32", "64:ff9b::/96", "::/96",
 	}
 	nets := make([]*net.IPNet, len(cidrs))
 	for i, c := range cidrs {
@@ -37,8 +42,9 @@ var reservedNets = func() []*net.IPNet {
 // private, link-local, multicast, unspecified and the reserved ranges above
 // are all rejected.
 func PublicIP(ip net.IP) bool {
+	// IsMulticast already covers link-local multicast, so it is not repeated.
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		ip.IsMulticast() || ip.IsUnspecified() {
 		return false
 	}
 	for _, n := range reservedNets {

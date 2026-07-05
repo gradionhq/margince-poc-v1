@@ -74,14 +74,13 @@ func (h imapConnectHandlers) ConnectImap(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// The connector is the single source of truth for which mailbox was read
+	// (it resolves the default and trims), so report its resolved value rather
+	// than re-deriving it here.
 	stats := conn.Stats()
-	mailbox := "INBOX"
-	if req.Mailbox != nil && *req.Mailbox != "" {
-		mailbox = *req.Mailbox
-	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ImapConnectResult{
 		Connected: true,
-		Mailbox:   mailbox,
+		Mailbox:   stats.Mailbox,
 		Captured:  stats.Captured,
 		Skipped:   stats.Skipped,
 		Contacts:  stats.Contacts,

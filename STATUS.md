@@ -52,16 +52,27 @@ browser, rebuild it to the design source of truth, and connect a real mailbox.
   cold-start entry accelerator (client-side Web Speech API; distinct from the
   Voice-DNA writing-tone step). Founder-requested.
 
-- **Post-commit review remediation** (craft + security red-team on the IMAP
-  diff): fixed a Sync goroutine-deadlock on a mid-stream Sink error (drain the
-  channel before the deferred Logout, which shares the one connection); bounded
-  the per-message read (`readCapped`, 2 MiB cap → skip oversized, closing a
-  memory/storage-amplification vector from a hostile server); added an egress
-  SSRF guard on the IMAP dial via a new shared `platform/netguard`
-  (`RefusePrivate` dialer Control blocking internal/reserved IPs at connect
-  time) — coldstart's fetcher now shares the same single-source guard (its
-  duplicate `publicIP`/`reservedNets` removed). The credential/isolation/write-
-  shape core was confirmed sound by both reviewers.
+- **Post-commit review remediation, two rounds** (craft + security red-team):
+  - Round 1: fixed a Sync goroutine-deadlock on a mid-stream Sink error; added
+    an egress SSRF guard on the IMAP dial via a new shared `platform/netguard`
+    (`RefusePrivate` dialer Control blocking internal/reserved IPs at connect
+    time) — coldstart's fetcher now shares that single-source guard (its
+    duplicate `publicIP`/`reservedNets` removed).
+  - Round 2: the round-1 `readCapped` did NOT actually bound memory — go-imap
+    **v1** buffers the whole server-declared literal up front (`make([]byte, n)`)
+    with no reachable size limit, so a hostile mailbox could OOM the api. Fixed
+    by migrating the connector to **go-imap v2**, which streams body sections;
+    `readCapped` on the stream is now a real 2 MiB bound (no upfront alloc).
+    The v2 rewrite also owns its own dialed conn (SSRF guard + a read-deadline
+    command timeout v2 otherwise lacks) and drops the v1 goroutine/channel loop
+    (the deadlock class is gone). Also: `netguard` now blocks NAT64
+    (`64:ff9b::/96`), `0.0.0.0/8` and IPv4-compatible `::/96` (metadata-bypass
+    ranges the stdlib predicates miss); the connect result reports the
+    connector-resolved mailbox (single source of truth); `Connector.capture`
+    gained direct unit coverage. Smoke-tested live: bad creds → 422, unreachable
+    → 502, and a private host (127.0.0.1) → blocked at dial → 502.
+  The credential/isolation/write-shape core was confirmed sound across both
+  reviews.
 
 Gates at close: `make frontend-check` (lint + 89 unit + build) · `make
 frontend-e2e` (AC suite) · backend `make build vet lint arch-lint test`

@@ -203,3 +203,59 @@ func TestReadCappedRejectsOversizedMessages(t *testing.T) {
 		t.Fatalf("over-cap read should be errMessageTooLarge, got %v", err)
 	}
 }
+
+// fakeSink records Upserts and can be told to skip or fail, so capture's
+// accounting (the production pull path, not just Normalize) is proven directly.
+type fakeSink struct {
+	calls int
+	skip  bool
+	err   error
+}
+
+func (f *fakeSink) Upsert(_ context.Context, _ connector.NormalizedRecord) (datasource.EntityRef, error) {
+	f.calls++
+	if f.skip {
+		return datasource.EntityRef{}, connector.ErrSkip
+	}
+	return datasource.EntityRef{}, f.err
+}
+
+func TestCaptureAccountsForOutcomes(t *testing.T) {
+	contacts := map[string]struct{}{}
+
+	// A normal inbound message lands and tallies the counterparty.
+	c := &Connector{owner: "me@myco.com"}
+	sink := &fakeSink{}
+	if err := c.capture(context.Background(), inboundFixture(), sink, contacts); err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if c.stats.Captured != 1 || c.stats.Skipped != 0 || len(contacts) != 1 {
+		t.Fatalf("captured=%d skipped=%d contacts=%d, want 1/0/1", c.stats.Captured, c.stats.Skipped, len(contacts))
+	}
+
+	// A Sink ErrSkip is a deliberate drop, counted as skipped, never fatal.
+	c = &Connector{owner: "me@myco.com"}
+	if err := c.capture(context.Background(), inboundFixture(), &fakeSink{skip: true}, contacts); err != nil {
+		t.Fatalf("ErrSkip must not surface as an error: %v", err)
+	}
+	if c.stats.Captured != 0 || c.stats.Skipped != 1 {
+		t.Fatalf("captured=%d skipped=%d, want 0/1", c.stats.Captured, c.stats.Skipped)
+	}
+
+	// An unparseable body is dropped without touching the Sink.
+	c = &Connector{owner: "me@myco.com"}
+	unusable := &fakeSink{}
+	if err := c.capture(context.Background(), []byte("not a message"), unusable, contacts); err != nil {
+		t.Fatalf("unparseable must not error: %v", err)
+	}
+	if c.stats.Skipped != 1 || unusable.calls != 0 {
+		t.Fatalf("skipped=%d sinkCalls=%d, want 1/0", c.stats.Skipped, unusable.calls)
+	}
+
+	// A real write fault propagates (Sync uses it to stop the pull).
+	c = &Connector{owner: "me@myco.com"}
+	wantErr := errors.New("db down")
+	if err := c.capture(context.Background(), inboundFixture(), &fakeSink{err: wantErr}, contacts); !errors.Is(err, wantErr) {
+		t.Fatalf("write fault should propagate, got %v", err)
+	}
+}
