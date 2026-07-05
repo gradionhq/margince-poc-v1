@@ -42,7 +42,16 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 | Target | What it does |
 |---|---|
 | `frontend-check` | `pnpm install --frozen-lockfile && pnpm check` in `frontend/` (needs node + pnpm) |
+| `frontend-e2e` | The screen-acceptance harness: AC-named tests + 390px sweep + axe WCAG 2.2 AA + perceived-perf budgets, against the built app over the seed mock (`BASE_URL=…` targets a live backend) |
 | `frontend-dev` | `pnpm install && pnpm dev` in `frontend/` |
+
+## Root-only (craftsmanship gate)
+
+| Target | What it does |
+|---|---|
+| `craft-static` | Full deterministic craftsmanship sweep of `backend/` (the pre-push hook runs the diff-scoped subset) |
+| `craft-drift` | Verify the vendored `cli/craft` matches the foundation's `craft-manifest.sha256` — runs as a `check` prerequisite; a local gate edit fails it |
+| `craft-sync` | Pull the current gate (source + manifest) from `../margince/skeleton/cli/craft` over the vendored copy |
 
 ## Variables
 
