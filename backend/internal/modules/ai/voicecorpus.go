@@ -1,0 +1,349 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package ai
+
+// Multi-source corpus ingest mechanics (B-E07.5a, features/09 §B1): the
+// pure text pipeline the voice store runs before a corpus row persists —
+// format normalization (.txt/.md pass through; .vtt/.srt/transcript-JSON
+// are parsed as turns), transcript SPEAKER-FILTERING (only the owner's
+// own turns are modeled, never the other side — §B1.2, the epic's
+// privacy + quality invariant), register tagging with per-kind defaults,
+// word counting, and the word-count/quality-band meter (§B1.4).
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// CorpusMeterVersion versions the meter thresholds below: the quality
+// bands are an eval artifact (B-E07.4 reusable-artifact DoD), so their
+// one source of truth carries an explicit version a regression test can
+// pin against.
+const CorpusMeterVersion = 1
+
+// CorpusTargetWords is the ~30k-word corpus the meter fills toward
+// (features/09 §B1.4); reaching it lands the sharp band (§B2 exit gate).
+const CorpusTargetWords = 30000
+
+// Quality bands over the non-excluded corpus word total (features/09
+// §B1.4). The thin/good boundary at 8k and good/rich at 20k mirror the
+// onboarding funnel's meter; rich/sharp sits at the 30k target.
+const (
+	BandThin  = "thin"
+	BandGood  = "good"
+	BandRich  = "rich"
+	BandSharp = "sharp"
+)
+
+// QualityBand places a corpus word total in its §B1.4 band.
+func QualityBand(totalWords int) string {
+	switch {
+	case totalWords < 8000:
+		return BandThin
+	case totalWords < 20000:
+		return BandGood
+	case totalWords < CorpusTargetWords:
+		return BandRich
+	default:
+		return BandSharp
+	}
+}
+
+// CorpusIngestError reports an unusable ingest input; the transport maps
+// it to a 422 with the field and reason intact.
+type CorpusIngestError struct {
+	Field  string
+	Reason string
+}
+
+func (e *CorpusIngestError) Error() string {
+	return fmt.Sprintf("voice corpus %s: %s", e.Field, e.Reason)
+}
+
+// DefaultRegister tags a source kind with its natural register
+// (features/09 §B1.1): transcripts and voice memos are spoken word, chat
+// is casual, and posts/long-form/email are written prose. An explicit
+// register from the caller overrides.
+func DefaultRegister(kind string) string {
+	switch kind {
+	case "transcript", "voice_memo":
+		return "spoken"
+	case "chat":
+		return "casual"
+	default:
+		return "written"
+	}
+}
+
+// WordCount counts whitespace-delimited words — the meter's unit.
+func WordCount(text string) int {
+	return len(strings.Fields(text))
+}
+
+// SourceRefForContent derives a stable natural key for sources that have
+// none (pasted text): idempotency then binds on the content itself.
+func SourceRefForContent(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// speakerTurn is one attributed stretch of transcript text; Speaker is
+// empty when the format carries no attribution.
+type speakerTurn struct {
+	Speaker string
+	Text    string
+}
+
+// conversationalKinds are the source kinds that record a CONVERSATION —
+// where a counterparty's (a data subject's) words could ride in. Their
+// ingest demands a speaker-attributed format + label so the §B1.2
+// filter can actually run; this table's Art. 17 posture rests on it.
+var conversationalKinds = map[string]bool{
+	"transcript": true, "voice_memo": true, "chat": true,
+}
+
+// NormalizeCorpusText turns one raw source in the declared format into
+// the plain text that enters the corpus. Transcript formats (vtt, srt,
+// json) are parsed into speaker turns and filtered: when any turn is
+// speaker-labelled — or requireAttribution says the kind is
+// conversational — speakerLabel is REQUIRED and only that speaker's
+// turns survive; the other side of a conversation is never ingested,
+// even by omission (features/09 §B1.2). Unlabelled input passes whole
+// only when attribution is not required (a pasted memo, a
+// single-speaker dictation).
+func NormalizeCorpusText(format, content, speakerLabel string, requireAttribution bool) (string, error) {
+	var turns []speakerTurn
+	switch format {
+	case "txt", "md":
+		return content, nil
+	case "vtt":
+		turns = parseVTT(content)
+	case "srt":
+		turns = parseSRT(content)
+	case "json":
+		parsed, err := parseTranscriptJSON(content)
+		if err != nil {
+			return "", err
+		}
+		turns = parsed
+	default:
+		return "", &CorpusIngestError{Field: "format", Reason: "must be one of txt, md, vtt, srt, json"}
+	}
+	return filterOwnTurns(turns, speakerLabel, requireAttribution)
+}
+
+// filterOwnTurns applies the §B1.2 speaker filter over parsed turns.
+func filterOwnTurns(turns []speakerTurn, speakerLabel string, requireAttribution bool) (string, error) {
+	labelled := false
+	for _, turn := range turns {
+		if turn.Speaker != "" {
+			labelled = true
+			break
+		}
+	}
+	var kept []string
+	if !labelled {
+		if requireAttribution {
+			return "", &CorpusIngestError{
+				Field:  "content",
+				Reason: "a conversational source needs speaker-attributed turns; an unlabelled transcript cannot be filtered to the owner's own words",
+			}
+		}
+		for _, turn := range turns {
+			kept = append(kept, turn.Text)
+		}
+		return strings.Join(kept, "\n"), nil
+	}
+	if strings.TrimSpace(speakerLabel) == "" {
+		return "", &CorpusIngestError{
+			Field:  "speaker_label",
+			Reason: "this transcript attributes its turns to speakers; name the owner's label so only their own words are modeled",
+		}
+	}
+	want := normalizeSpeaker(speakerLabel)
+	for _, turn := range turns {
+		if normalizeSpeaker(turn.Speaker) == want {
+			kept = append(kept, turn.Text)
+		}
+	}
+	return strings.Join(kept, "\n"), nil
+}
+
+func normalizeSpeaker(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// parseVTT reads WebVTT cue text: header/NOTE/STYLE blocks and timing
+// lines are dropped, `<v Speaker>` voice tags and `Speaker:` prefixes
+// attribute turns, and attribution persists across a cue's wrapped lines.
+func parseVTT(content string) []speakerTurn {
+	var turns []speakerTurn
+	current := ""
+	inBlockComment := false
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimRight(line, "\r")
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			inBlockComment = false
+			continue
+		case strings.HasPrefix(trimmed, "WEBVTT"):
+			continue
+		case strings.HasPrefix(trimmed, "NOTE") || strings.HasPrefix(trimmed, "STYLE") || strings.HasPrefix(trimmed, "REGION"):
+			inBlockComment = true
+			continue
+		case inBlockComment:
+			continue
+		case strings.Contains(trimmed, "-->"):
+			// A new cue: attribution resets until the cue text names one.
+			current = ""
+			continue
+		case isCueIdentifier(trimmed):
+			continue
+		}
+		speaker, text := splitSpeakerLine(trimmed)
+		if speaker != "" {
+			current = speaker
+		}
+		if text != "" {
+			turns = append(turns, speakerTurn{Speaker: current, Text: text})
+		}
+	}
+	return turns
+}
+
+// isCueIdentifier recognizes the bare numeric cue counters both VTT and
+// SRT interleave with text; named VTT identifiers are indistinguishable
+// from dialogue, so only the numeric convention is dropped.
+func isCueIdentifier(line string) bool {
+	if line == "" {
+		return false
+	}
+	for _, r := range line {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// parseSRT reads SubRip blocks: index + timing lines dropped,
+// `Speaker:` prefixes attribute turns across wrapped lines.
+func parseSRT(content string) []speakerTurn {
+	var turns []speakerTurn
+	current := ""
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(strings.TrimRight(line, "\r"))
+		switch {
+		case trimmed == "":
+			current = ""
+			continue
+		case strings.Contains(trimmed, "-->") || isCueIdentifier(trimmed):
+			continue
+		}
+		speaker, text := splitSpeakerLine(trimmed)
+		if speaker != "" {
+			current = speaker
+		}
+		if text != "" {
+			turns = append(turns, speakerTurn{Speaker: current, Text: text})
+		}
+	}
+	return turns
+}
+
+// splitSpeakerLine extracts attribution from one cue line: a WebVTT
+// `<v Name>text</v>` voice tag, or the `Name: text` convention (a short,
+// digitless prefix — a URL or clock time is not a speaker).
+func splitSpeakerLine(line string) (speaker, text string) {
+	if strings.HasPrefix(line, "<v ") {
+		if end := strings.Index(line, ">"); end > 3 {
+			speaker = strings.TrimSpace(line[3:end])
+			text = strings.TrimSpace(strings.ReplaceAll(line[end+1:], "</v>", ""))
+			return speaker, text
+		}
+	}
+	if idx := strings.Index(line, ":"); idx > 0 && idx <= 40 {
+		candidate := line[:idx]
+		if !strings.ContainsAny(candidate, "0123456789/<>") {
+			return strings.TrimSpace(candidate), strings.TrimSpace(line[idx+1:])
+		}
+	}
+	return "", strings.TrimSpace(line)
+}
+
+// transcriptItem is the common shape of one turn across the JSON
+// transcript exports in the wild; alternate key spellings are folded in
+// UnmarshalJSON below.
+type transcriptItem struct {
+	Speaker string
+	Text    string
+}
+
+func (item *transcriptItem) UnmarshalJSON(raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	firstString := func(keys ...string) string {
+		for _, key := range keys {
+			if v, ok := fields[key]; ok {
+				var s string
+				if err := json.Unmarshal(v, &s); err == nil {
+					return s
+				}
+			}
+		}
+		return ""
+	}
+	item.Speaker = firstString("speaker", "name", "who")
+	item.Text = firstString("text", "content", "message")
+	return nil
+}
+
+// parseTranscriptJSON auto-detects the two transcript JSON shapes the
+// funnel accepts (features/09 §B1.1): a top-level array of turns, or an
+// object wrapping that array under segments/turns/messages/entries.
+func parseTranscriptJSON(content string) ([]speakerTurn, error) {
+	items, err := decodeTranscriptItems(content)
+	if err != nil {
+		return nil, err
+	}
+	turns := make([]speakerTurn, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		turns = append(turns, speakerTurn{Speaker: item.Speaker, Text: strings.TrimSpace(item.Text)})
+	}
+	if len(turns) == 0 {
+		return nil, &CorpusIngestError{Field: "content", Reason: "no transcript turns found — expected an array of {speaker, text} objects, optionally under segments/turns/messages/entries"}
+	}
+	return turns, nil
+}
+
+func decodeTranscriptItems(content string) ([]transcriptItem, error) {
+	var items []transcriptItem
+	if err := json.Unmarshal([]byte(content), &items); err == nil {
+		return items, nil
+	}
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &wrapper); err != nil {
+		return nil, &CorpusIngestError{Field: "content", Reason: "not valid JSON"}
+	}
+	for _, key := range []string{"segments", "turns", "messages", "entries"} {
+		raw, ok := wrapper[key]
+		if !ok {
+			continue
+		}
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil, &CorpusIngestError{Field: "content", Reason: fmt.Sprintf("%q is not an array of transcript turns", key)}
+		}
+		return items, nil
+	}
+	return nil, &CorpusIngestError{Field: "content", Reason: "no transcript turns found — expected an array of {speaker, text} objects, optionally under segments/turns/messages/entries"}
+}

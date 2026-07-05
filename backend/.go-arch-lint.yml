@@ -64,8 +64,8 @@ deps:
     mayDependOn: [identity, contracts, platform]
     canUse: [pgx, oapi, xcrypto]
   ai:
-    mayDependOn: [platform]
-    canUse: [pgx, yaml]
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, yaml, oapi]
   search:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

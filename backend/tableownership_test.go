@@ -88,8 +88,10 @@ var tableOwners = map[string]string{
 	"connector_connection": "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
-	// ai
-	"ai_usage": "internal/modules/ai",
+	// ai (voice DNA: the derived profile artifact + corpus manifest)
+	"ai_usage":            "internal/modules/ai",
+	"voice_profile":       "internal/modules/ai",
+	"voice_corpus_source": "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":    "internal/modules/agents",
 	"runner_job":   "internal/modules/agents",

@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -51,6 +52,7 @@ type (
 	collectionsHandlers = collections.Handlers
 	privacyHandlers     = privacy.Handlers
 	agentsHandlers      = agents.Handlers
+	voiceHandlers       = ai.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding the module
@@ -69,6 +71,7 @@ type Server struct {
 	collectionsHandlers
 	privacyHandlers
 	agentsHandlers
+	voiceHandlers
 	reportHandlers
 	coldstartHandlers
 	scrapeHandlers
@@ -172,6 +175,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		collectionsHandlers: collections.NewHandlers(pool),
 		privacyHandlers:     privacy.NewHandlers(pool),
 		agentsHandlers:      agents.NewHandlers(pool),
+		voiceHandlers:       ai.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
 		// The one-shot IMAP pull shares the capture registry (Sink + the
 		// live-authority principal swap); credentials arrive per request and

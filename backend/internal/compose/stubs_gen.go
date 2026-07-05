@@ -404,6 +404,38 @@ func (stubs) ApplyTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontra
 	httperr.NotImplemented(w, r, "ApplyTag")
 }
 
+func (stubs) ListVoiceProfiles(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListVoiceProfilesParams) {
+	httperr.NotImplemented(w, r, "ListVoiceProfiles")
+}
+
+func (stubs) CreateVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateVoiceProfile")
+}
+
+func (stubs) DeleteVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteVoiceProfile")
+}
+
+func (stubs) GetVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetVoiceProfile")
+}
+
+func (stubs) UpdateVoiceProfile(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateVoiceProfileParams) {
+	httperr.NotImplemented(w, r, "UpdateVoiceProfile")
+}
+
+func (stubs) ListVoiceCorpusSources(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListVoiceCorpusSources")
+}
+
+func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "IngestVoiceCorpusSource")
+}
+
+func (stubs) UpdateVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UpdateVoiceCorpusSource")
+}
+
 func (stubs) BootstrapWorkspace(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "BootstrapWorkspace")
 }

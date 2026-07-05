@@ -13,5 +13,8 @@
 // ladder (A8 revised), so nothing here pseudonymizes PII.
 //
 // Tables owned: ai_usage (per-workspace metering; feeds the budget
-// guardrail). Imports shared + platform only; never a sibling module.
+// guardrail), voice_profile and voice_corpus_source (Voice DNA,
+// B-E07.4/.5a — the derived artifact + corpus manifest are
+// model-adjacent assets, so they live beside the runtime that consumes
+// them). Imports shared + platform only; never a sibling module.
 package ai

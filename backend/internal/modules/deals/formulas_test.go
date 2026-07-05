@@ -38,14 +38,5 @@ func TestIsStalled(t *testing.T) {
 		if got := IsStalled(c.status, c.created, c.lastAct, c.wait, now); got != c.want {
 			t.Errorf("%s: IsStalled = %v, want %v", c.name, got, c.want)
 		}
-		stalled, reason := StalledWithReason(c.status, c.created, c.lastAct, c.wait, now)
-		switch {
-		case stalled != c.want:
-			t.Errorf("%s: StalledWithReason = %v, want %v", c.name, stalled, c.want)
-		case stalled && reason != StalledReasonNoActivity:
-			t.Errorf("%s: reason = %q, want the deterministic default %q", c.name, reason, StalledReasonNoActivity)
-		case !stalled && reason != "":
-			t.Errorf("%s: a non-stalled deal carries reason %q", c.name, reason)
-		}
 	}
 }

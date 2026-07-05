@@ -21,7 +21,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -55,18 +55,20 @@ var (
 // records).
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
 		// Reps create and work records but never delete them — except
 		// leads, where disqualify IS the delete and is routine rep work.
 		// Lists and tags are everyday organizational surfaces: reps
-		// create and use them; archiving stays manager/admin.
+		// create and use them; archiving stays manager/admin. A voice
+		// profile is the rep's own working material: create/maintain
+		// yes, delete stays manager/admin.
 		Objects: objects(
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
@@ -78,27 +80,28 @@ var defaults = map[string]Document{
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
 			readOnly,
-			readOnly),
+			readOnly,
+			grant{Create: true, Read: true, Update: true}),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
-// per role instead of eleven repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation grant) map[string]grant {
+// per role instead of twelve repeated map literals.
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
 		"list": list, "tag": tag, "relationship": relationship, "partner": partner,
-		"automation": automation,
+		"automation": automation, "voice_profile": voiceProfile,
 	}
 }
 
