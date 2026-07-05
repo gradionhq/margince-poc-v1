@@ -352,3 +352,53 @@
   border-top: 1px solid var(--borderSubtle);
   padding-top: 12px;
 }
+
+/* ===== responsive (B-EP09.7): at phone width the rail becomes a bottom
+ * nav and content reflows — the BODY never scrolls horizontally; wide
+ * content scrolls inside its own container. ===== */
+@media (max-width: 700px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .rail {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 8px;
+    gap: 2px;
+    order: 2;
+    overflow-x: auto;
+  }
+  .rail .ws {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 0;
+    margin-right: 4px;
+    flex: none;
+  }
+  .rail .navitem {
+    width: 40px;
+    height: 38px;
+    flex: none;
+  }
+  .rail .navitem.active::before {
+    left: 50%;
+    top: auto;
+    bottom: -6px;
+    transform: translateX(-50%);
+    width: 22px;
+    height: 4px;
+  }
+  .rail .grow {
+    flex: 1;
+  }
+  .wrap {
+    padding: 16px 14px 90px;
+  }
+  .topbar {
+    padding: 0 12px;
+  }
+  .askfab-root {
+    bottom: 76px;
+  }
+}

@@ -210,27 +210,29 @@ export function DataTable<Row>({
   onRowClick?: (row: Row) => void;
 }) {
   return (
-    <table className="table">
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th key={column.key}>{column.header}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr
-            key={rowKey(row)}
-            className={onRowClick ? "rowlink" : undefined}
-            onClick={onRowClick ? () => onRowClick(row) : undefined}
-          >
+    <div className="table-scroll">
+      <table className="table">
+        <thead>
+          <tr>
             {columns.map((column) => (
-              <td key={column.key}>{column.render(row)}</td>
+              <th key={column.key}>{column.header}</th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={rowKey(row)}
+              className={onRowClick ? "rowlink" : undefined}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
+              {columns.map((column) => (
+                <td key={column.key}>{column.render(row)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

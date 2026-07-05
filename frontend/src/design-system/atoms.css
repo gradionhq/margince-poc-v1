@@ -287,3 +287,7 @@
   gap: 8px;
   justify-content: space-between;
 }
+
+.table-scroll {
+  overflow-x: auto;
+}

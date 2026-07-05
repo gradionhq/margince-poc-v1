@@ -115,11 +115,74 @@ describe("design-system conformance gates (B-EP09.1)", () => {
     expect(violations, violations.join("\n")).toEqual([]);
   });
 
+  // B-EP09.20 (Lucide-only glyphs) + B-EP09.8 (offline honesty): UI glyphs
+  // come from lucide-react — the sanctioned 🟢/🟡 autonomy semantics render
+  // through the .dot token component, so NO emoji may appear in any source
+  // string or JSX text. The service worker never caches or fabricates /v1.
+  it("uses no emoji glyphs in source strings — Lucide only (§2b)", () => {
+    const emoji = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+    const violations: string[] = [];
+    for (const file of files) {
+      if (
+        !/\.(tsx|ts)$/.test(file) ||
+        /\.test\.tsx?$/.test(file) ||
+        file.endsWith(".d.ts")
+      ) {
+        continue;
+      }
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.ES2022,
+        true,
+        file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      const visit = (node: ts.Node) => {
+        const isText =
+          ts.isStringLiteral(node) ||
+          ts.isNoSubstitutionTemplateLiteral(node) ||
+          ts.isJsxText(node);
+        if (isText && emoji.test(node.text)) {
+          violations.push(
+            `${relative(frontendRoot, file)}: "${node.text.trim()}"`,
+          );
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+
+  it("the service worker never caches or fabricates API responses (§4.7)", () => {
+    const sw = readFileSync(join(frontendRoot, "public", "sw.js"), "utf8");
+    expect(sw).toMatch(/pathname\.startsWith\("\/v1"\)/);
+    expect(sw).not.toMatch(/new Response\(/);
+  });
+
+  it("the web-app manifest is valid and complete for installability", () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        join(frontendRoot, "public", "manifest.webmanifest"),
+        "utf8",
+      ),
+    );
+    expect(manifest.name).toBe("Margince");
+    expect(manifest.start_url).toBe("/");
+    expect(manifest.display).toBe("standalone");
+    expect(manifest.icons.length).toBeGreaterThanOrEqual(1);
+  });
+
   it("keeps literal colours in tokens.css only — everything else reads a token", () => {
     const literalColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch)\(/;
     for (const file of files) {
-      // tokens.css is where literals live; the tests pin those literals.
-      if (file.endsWith("tokens.css") || /\.test\.tsx?$/.test(file)) {
+      // tokens.css is where literals live (tests pin them); index.html's
+      // meta theme-color cannot read a CSS custom property.
+      if (
+        file.endsWith("tokens.css") ||
+        file.endsWith("index.html") ||
+        /\.test\.tsx?$/.test(file)
+      ) {
         continue;
       }
       const text = readFileSync(file, "utf8");
