@@ -7,8 +7,8 @@ and the spec disagree, the spec wins).
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
 session-pickup point; update it at the end of every working session.
 Route findings as you work: implementation decisions →
-decisions/; spec/ticket defects → a numbered file in
-`feedback/` + a row in its README table.
+decisions/; spec/ticket defects → a local note in
+`feedback/` (git-ignored session scratch — see [feedback/README.md](feedback/README.md)).
 
 ## Build / test / seed
 
@@ -221,6 +221,6 @@ the short form:
    gate — including replay, conflict, and error paths.
 4. **No build-process residue in comments** — no review-ticket numbers or
    fix narration; state the invariant so it stands alone. History belongs
-   to git and `feedback/`, not the source. Same for test names.
+   to git, not the source. Same for test names.
 5. **Never rationalize a known gap in a comment** — restructure it away
    or gate it with a test.

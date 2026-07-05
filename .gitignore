@@ -8,5 +8,10 @@ coverage.out
 # Session working notes — local only, not part of the published repo
 /review_*.md
 
+# Spec-defect findings are local session scratch: keep the dir + its README
+# (so sessions know where to file), ignore every note dropped inside it.
+/feedback/*
+!/feedback/README.md
+
 # Local secrets — never commit
 .env.local

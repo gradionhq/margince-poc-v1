@@ -111,7 +111,7 @@ func TestActivityUpdateArchiveRelink(t *testing.T) {
 	}, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("invisible relink target → %d, want 404", status)
 	}
-	// The contract admits lead here; the schema does not (feedback) —
+	// The contract admits lead here; the activity_link schema does not —
 	// refused as validation, not silently dropped.
 	if status := e.call(t, "POST", "/v1/activities/"+taskID+"/relink", anyMap{
 		"entity_type": "lead", "entity_id": personID,

@@ -258,13 +258,13 @@ routed, not lost:
   decisions/, so a reviewer can separate "the spec says"
   from "we chose".
 - **Spec/ticket defects** — a contradiction, an omission, a vocabulary
-  gap, an unimplementable acceptance criterion found while building —
-  get a numbered markdown file in `feedback/` **plus a row
-  in its README table**, each naming the spec
-  section and a suggested fix. These are the input for improving the
-  tickets/spec upstream; when a defect forces a local workaround, the
-  feedback file records what was applied here so the two can be
-  reconciled later.
+  gap, an unimplementable acceptance criterion found while building — get
+  a local note in `feedback/`, each naming the spec section and a
+  suggested fix. Notes in `feedback/` are git-ignored — local session
+  scratch for reconciling defects upstream (only its
+  [README](feedback/README.md) is tracked). Once a defect is resolved in
+  the spec, its note is deleted — the durable record is the spec's own
+  amendment (ADR/DECISIONS), not this folder.
 - **Session state** — progress, in-flight work, pickup point — goes in
   [STATUS.md](STATUS.md), updated at the end of every working session.
 
@@ -293,8 +293,8 @@ future work in this repo (mirrored in [AGENTS.md](AGENTS.md)):
 4. **Comments carry no build-process residue.** No review-ticket numbers,
    no "fixed per finding #N", no changelog narration — a comment states
    the invariant or trade-off so it reads true standing alone, years
-   later, to someone who never saw the review. The history lives in git
-   and in `feedback/`, not in the source. (Same for test names:
+   later, to someone who never saw the review. The history lives in git,
+   not in the source. (Same for test names:
    name the invariant pinned, not the review that demanded it.)
 5. **Don't rationalize a known gap — close it or gate it.** Pass 1's
    dedupe crash-window was answered with a comment arguing it was safe;

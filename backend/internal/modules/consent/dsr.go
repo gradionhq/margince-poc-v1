@@ -8,7 +8,7 @@ package consent
 // the transport (x-agent-access); status transitions demand a
 // resolution before a request closes. No dsr.* family exists in the
 // events.md closed catalog, so these ride the audit-only lane
-// (feedback/07) like the other compliance-config surfaces.
+// ratified in events.md §5.3c, like the other compliance-config surfaces.
 
 import (
 	"context"

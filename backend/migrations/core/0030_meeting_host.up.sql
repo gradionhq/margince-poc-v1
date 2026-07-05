@@ -1,8 +1,8 @@
 -- The scheduling contract (getAvailability/bookMeeting) names a meeting
--- host, but data-model.md §activity reserves assignee_id for tasks
--- (activity_task_fields) and gives the host no column — filed as
--- feedback/09. Additive column, meeting-only by CHECK, so free/busy can
--- be answered from the record.
+-- host, but data-model.md §activity reserved assignee_id for tasks
+-- (activity_task_fields) and gave the host no column; data-model.md
+-- §activity now defines host_user_id (meeting-only). Additive column,
+-- meeting-only by CHECK, so free/busy can be answered from the record.
 ALTER TABLE activity
   ADD COLUMN host_user_id uuid NULL;
 

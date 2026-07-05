@@ -118,8 +118,8 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		return grantRow{}, &InvalidScopeError{Scope: "record_type " + in.RecordType}
 	}
 	// Sharing widens who sees the record — the grantor needs the
-	// record's own write grant (the spec's manage_sharing permission is
-	// not yet in the policy vocabulary; feedback/08).
+	// record's own write grant (the spec's manage_sharing permission,
+	// ADR-0039, is not yet in this build's policy vocabulary).
 	if err := auth.Require(ctx, in.RecordType, principal.ActionUpdate); err != nil {
 		return grantRow{}, err
 	}
