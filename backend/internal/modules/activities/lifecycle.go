@@ -133,11 +133,9 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.UUID, in RelinkActivi
 		return crmcontracts.Activity{}, err
 	}
 	column, ok := map[string]string{
-		"person": "person_id", "organization": "organization_id", "deal": "deal_id",
+		"person": "person_id", "organization": "organization_id", "deal": "deal_id", "lead": "lead_id",
 	}[in.EntityType]
 	if !ok {
-		// The contract admits 'lead' here, but the activity_link schema
-		// carries no lead column (filed as feedback) — refused honestly.
 		return crmcontracts.Activity{}, &InvalidLinkTypeError{EntityType: in.EntityType}
 	}
 	var out crmcontracts.Activity
@@ -161,7 +159,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.UUID, in RelinkActivi
 		tag, err := tx.Exec(ctx, storekit.SQLf(`
 			INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
-			ON CONFLICT (activity_id, entity_type, coalesce(person_id, organization_id, deal_id)) DO NOTHING`, column),
+			ON CONFLICT (activity_id, entity_type, coalesce(person_id, organization_id, deal_id, lead_id)) DO NOTHING`, column),
 			id, in.EntityType, in.EntityID)
 		if err != nil {
 			return err

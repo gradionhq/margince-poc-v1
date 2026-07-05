@@ -147,7 +147,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID, activityID ids.UUID, links []ActivityLinkInput, occurredAt time.Time) error {
 	for _, link := range links {
 		column := map[string]string{
-			"person": "person_id", "organization": "organization_id", "deal": "deal_id",
+			"person": "person_id", "organization": "organization_id", "deal": "deal_id", "lead": "lead_id",
 		}[link.EntityType]
 		if column == "" {
 			return &InvalidLinkTypeError{EntityType: link.EntityType}

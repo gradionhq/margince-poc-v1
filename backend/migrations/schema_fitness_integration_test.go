@@ -184,6 +184,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"activity_link.person_id":       "gated: auth.EnsureLinkTarget in LogActivity",
 		"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
 		"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+		"activity_link.lead_id":         "gated: auth.EnsureLinkTarget in LogActivity",
 		// Owned child rows: the row is an attribute of its visible parent,
 		// written only through the parent's own gated paths.
 		"activity_link.activity_id":           "child row: written only inside LogActivity for the new activity",
@@ -201,11 +202,12 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
 		"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
 		// Client-supplied edge endpoints — every one probed at the store:
-		"relationship.person_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"relationship.counterparty_org_id": "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"relationship.organization_id":     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"relationship.deal_id":             "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"partner.organization_id":          "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
+		"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"relationship.organization_id":               "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+		"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
+		"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
 	}
 
 	ownerDSN, _ := dsns(t)

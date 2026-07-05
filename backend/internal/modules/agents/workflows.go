@@ -37,7 +37,12 @@ import (
 type WorkflowEngine struct {
 	mu       sync.RWMutex
 	handlers []workflow.Handler
-	pool     *pgxpool.Pool
+	// system handlers are formula/invariant executors (lead-score
+	// recompute): always on, never instance-gated — they are not user
+	// automations, so the catalog and the paused/enabled surface do not
+	// apply to them.
+	system []workflow.Handler
+	pool   *pgxpool.Pool
 }
 
 func NewWorkflowEngine(pool *pgxpool.Pool) *WorkflowEngine {
@@ -67,6 +72,21 @@ func (e *WorkflowEngine) RegisterWorkflow(h workflow.Handler) {
 	sort.Slice(e.handlers, func(i, j int) bool { return e.handlers[i].Spec().Name < e.handlers[j].Spec().Name })
 }
 
+// RegisterSystemWorkflow adds an always-on invariant handler: it fires
+// on every matching event with no automation instance behind it. The
+// run row still claims (handler, key), so redelivery stays exactly-once.
+func (e *WorkflowEngine) RegisterSystemWorkflow(h workflow.Handler) {
+	spec := h.Spec()
+	if spec.Name == "" || spec.Trigger.EventType == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: system workflow needs a name and an event trigger")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.system = append(e.system, h)
+	sort.Slice(e.system, func(i, j int) bool { return e.system[i].Spec().Name < e.system[j].Spec().Name })
+}
+
 // HandleEvent is the cg:workflows consumer: every registered handler
 // whose trigger names this event type runs once per ENABLED automation
 // instance of its type in the event's workspace (B-E15.4) — a paused,
@@ -77,6 +97,7 @@ func (e *WorkflowEngine) RegisterWorkflow(h workflow.Handler) {
 func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) error {
 	e.mu.RLock()
 	handlers := append([]workflow.Handler(nil), e.handlers...)
+	system := append([]workflow.Handler(nil), e.system...)
 	e.mu.RUnlock()
 
 	ev := workflow.Event{
@@ -100,6 +121,14 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 	}
 
 	var firstErr error
+	for _, h := range system {
+		if h.Spec().Trigger.EventType != env.Type {
+			continue
+		}
+		if err := e.runOne(runCtx, h, ev); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("workflow %s: %w", h.Spec().Name, err)
+		}
+	}
 	for _, h := range handlers {
 		if h.Spec().Trigger.EventType != env.Type {
 			continue

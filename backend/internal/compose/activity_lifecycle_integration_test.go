@@ -111,12 +111,23 @@ func TestActivityUpdateArchiveRelink(t *testing.T) {
 	}, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("invisible relink target → %d, want 404", status)
 	}
-	// The contract admits lead here; the activity_link schema does not —
-	// refused as validation, not silently dropped.
+	// The lead arm (0038): relinking onto a real lead lands on the lead's
+	// timeline; a guessed lead id reads as absent like any other target.
+	var lead anyMap
+	if status := e.call(t, "POST", "/v1/leads", anyMap{
+		"full_name": "Relink Lead", "email": "relink@lead.test", "source": "manual",
+	}, nil, &lead); status != http.StatusCreated {
+		t.Fatalf("create lead → %d", status)
+	}
 	if status := e.call(t, "POST", "/v1/activities/"+taskID+"/relink", anyMap{
-		"entity_type": "lead", "entity_id": personID,
-	}, nil, nil); status != 422 {
-		t.Fatalf("lead relink → %d, want 422", status)
+		"entity_type": "lead", "entity_id": lead["id"],
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("lead relink → %d, want 200", status)
+	}
+	if status := e.call(t, "POST", "/v1/activities/"+taskID+"/relink", anyMap{
+		"entity_type": "lead", "entity_id": "00000000-0000-7000-8000-00000000dead",
+	}, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("guessed lead relink → %d, want 404", status)
 	}
 
 	// Archive is the soft flag (same semantics as every entity): the
