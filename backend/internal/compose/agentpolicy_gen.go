@@ -58,6 +58,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/lists":                             {Op: "createList", Access: "tool", Tool: "create_record", RecordType: "list", Tier: "green"},
 	"POST /v1/lists/{id}/members":                {Op: "addListMember", Access: "tool", Tool: "update_record", RecordType: "list", Tier: "green"},
 	"POST /v1/organizations":                     {Op: "createOrganization", Access: "tool", Tool: "create_record", RecordType: "organization", Tier: "green"},
+	"POST /v1/organizations/{id}/enrich":         {Op: "scrapeCompany", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
 	"POST /v1/organizations/{id}/merge":          {Op: "mergeOrganization", Access: "tool", Tool: "merge_records", RecordType: "organization", Tier: "yellow"},
 	"POST /v1/passports":                         {Op: "issuePassport", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/people":                            {Op: "createPerson", Access: "tool", Tool: "create_record", RecordType: "person", Tier: "green"},

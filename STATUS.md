@@ -5,6 +5,68 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## Last session: EP05 scrapeCompany + first-run auth + two pre-existing fixes (2026-07-05)
+
+A working session that shipped the enrichment surface, closed a real
+first-run gap, and repaired two pre-existing integration failures:
+
+- **EP05 `scrapeCompany` (B-EP05.13a/b)** — the `enrich` verb on an
+  EXISTING org: `POST /organizations/{id}/enrich`, x-mcp-tool
+  `enrich`/yellow. Reuses the cold-start fetch + no-guess evidence gate,
+  now extracted into ONE shared `evidenceExtractor`
+  (`internal/compose/enrichextract.go`) that BOTH coldstart and scrape
+  call — no duplicated fetch/extract/gate. Resolves the URL from the
+  org's domain (or a `url` override), row-scoped (a hidden org is a 404
+  before any egress), stages a 🟡 approval bound to the org, and on
+  accept fills only the org's EMPTY fields as `agent:scrape`
+  (`people.ApplyEnrichment`, sharing `applyEvidenceFields` with the
+  read-back). Integration-tested (stage-bound-to-org, existence-hiding
+  404, honest 422 on unreadable / no-domain, accept fills-empty-only +
+  exactly-once + reject-writes-nothing) and driven end-to-end against a
+  real model (stripe.com → evidence-backed staged proposal).
+- **Fixed a pre-existing coldstart-accept breakage** (from last
+  session's L8 fix): `approvals.Redeem`'s `PassportID == nil` refusal
+  correctly blocks an AGENT from redeeming an unbound authority, but it
+  also blocked the HUMAN inbox accept-effect (human-staged coldstart has
+  no passport). Redeem now scopes the passport-binding checks to AGENT
+  actors; a human reached it through `Decide` (human-only +
+  decide-authority + pending→approved once), so an unbound approval is
+  theirs to consume. Heals coldstart AND enrich accept; agent-path L8
+  protection intact (agent e2e green).
+- **Fixed two pre-existing retention/GoBD failures** (from decisions/0017
+  M5): the commercial-correspondence floor was broadened to `kind <>
+  'task'`, which over-shielded internal `note` and note-kind
+  `transcript` bodies from erasure. GoBD §147 correspondence is EXTERNAL
+  comms (email/call/meeting/whatsapp/telegram), never an internal note;
+  the floor clause is now single-sourced
+  (`commercialCorrespondenceFloor`) and excludes `('task','note')`.
+- **First-run auth screen (frontend)** — the app had no login/signup UI
+  (STATUS's known gap), so a first-time user couldn't start a session in
+  the browser. Built `frontend/src/screens/auth.tsx` (signup →
+  `POST /v1/workspaces`, login → `/v1/auth/login`) + an auth gate in
+  `App.tsx` that probes `/v1/me`. i18n DE/EN, a slug-derive parity test
+  (mirrors the server `slugify`), `make frontend-check` green (89 tests).
+  Verified the full first-run in a browser: signup → workspace → onboarding
+  wizard → coldstart evidence-backed staged proposal (real model).
+
+**Local-run notes (also in memory `margince-local-run.md`):** two dev
+gotchas cost real time — the api needs `MARGINCE_ENV=dev` or the
+`X-Workspace-Slug` header is ignored (every request 401s "unknown
+workspace"), and the session cookie is `Secure` so the SPA must be served
+from an HTTPS origin (a dev TLS front door on :8080 → api :8081 + Vite
+:5173 gives one secure origin, prod-like). `make dev` sets neither. These
+are spec/impl discrepancies worth a `feedback/` note.
+
+Gates at session close: full `make test-integration` green (incl. the two
+repaired retention tests + the new scrape suite), `make build vet lint
+arch-lint test` green, `make frontend-check` green. `make gen` was run;
+the regenerated contract files are UNCOMMITTED (the only reason `drift`
+is red) — commit `crm.yaml` + `internal/contracts/`, `stubs_gen.go`,
+`agentpolicy_gen.go` together. Frontend `pnpm gen:api` NOT yet run (no
+scrape UI built yet); run it before wiring an enrich button.
+
+## Prior status
+
 **Last updated: 2026-07-05 (contract-sync batch closed).** Roughly a
 **third-plus** of the 687-leaf-ticket V1 backlog
 (`../margince/specs/spec/product/build-backlog/`) is implemented and

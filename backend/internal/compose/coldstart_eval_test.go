@@ -129,12 +129,12 @@ func TestColdStartGoldenDataset(t *testing.T) {
 				t.Fatalf("shape gate accepted a malformed reply\nrubric: %s", c.Rubric)
 			}
 
-			survivors := evidencedFields(c.Inputs.ModelOutput, c.Inputs.PageText, c.Inputs.SourceURL)
+			survivors := gateEvidence(c.Inputs.ModelOutput, c.Inputs.PageText, c.Inputs.SourceURL, coldStartFieldValid)
 			got := map[string]string{}
 			for _, f := range survivors {
-				got[string(f.Field)] = f.Value
-				if f.EvidenceSnippet == "" || f.SourceUrl != c.Inputs.SourceURL {
-					t.Errorf("survivor %s lost its provenance (snippet=%q url=%q)", f.Field, f.EvidenceSnippet, f.SourceUrl)
+				got[f.Field] = f.Value
+				if f.EvidenceSnippet == "" || f.SourceURL != c.Inputs.SourceURL {
+					t.Errorf("survivor %s lost its provenance (snippet=%q url=%q)", f.Field, f.EvidenceSnippet, f.SourceURL)
 				}
 			}
 			if len(got) != len(c.Expected.Survivors) {

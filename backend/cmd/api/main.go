@@ -177,9 +177,20 @@ func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([
 		if err != nil {
 			return nil, err
 		}
-		return []compose.Option{compose.WithColdStart(compose.NewWebFetcher(), modelPath.ColdStart)}, nil
+		// The read-back and per-org enrichment share the fetch + extraction
+		// seam, so both light up together on the one declared model path.
+		fetch := compose.NewWebFetcher()
+		return []compose.Option{
+			compose.WithColdStart(fetch, modelPath.ColdStart),
+			compose.WithScrape(fetch, modelPath.ColdStart),
+		}, nil
 	case fakeBrain:
-		return []compose.Option{compose.WithColdStart(compose.NewWebFetcher(), ai.NewFakeClient())}, nil
+		fetch := compose.NewWebFetcher()
+		fake := ai.NewFakeClient()
+		return []compose.Option{
+			compose.WithColdStart(fetch, fake),
+			compose.WithScrape(fetch, fake),
+		}, nil
 	default:
 		return nil, nil
 	}

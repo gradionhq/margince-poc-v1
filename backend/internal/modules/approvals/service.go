@@ -272,12 +272,15 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 			return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
 		case a.DiffHash != diffHash:
 			return fmt.Errorf("call differs from the approved change: %w", apperrors.ErrApprovalTokenInvalid)
-		case a.PassportID == nil:
-			// Redemption is an agent-only path (ADR-0055): a staging with no
-			// passport binds to no agent, so nothing may redeem it. Refuse
-			// rather than let any passport consume an unbound authority.
+		case !p.PassportID.IsZero() && a.PassportID == nil:
+			// AGENT token redemption (ADR-0055): a staging with no passport
+			// binds to no agent, so no agent may consume it. A HUMAN inbox
+			// decision is the other redeemer — it reached here through Decide
+			// (human-only, decide-authority, pending→approved once), so an
+			// unbound, human-staged approval is theirs to consume below.
 			return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
-		case p.PassportID.IsZero() || *a.PassportID != p.PassportID:
+		case !p.PassportID.IsZero() && *a.PassportID != p.PassportID:
+			// An agent may only redeem the passport that staged the approval.
 			return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
 		}
 

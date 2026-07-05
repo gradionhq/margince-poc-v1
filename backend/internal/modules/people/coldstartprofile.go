@@ -103,34 +103,9 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 			return fmt.Errorf("resolve organization by domain: %w", err)
 		}
 
-		applied := map[string]any{}
-		for _, f := range in.Fields {
-			if column, backed := columnBackedColdStartFields[f.Field]; backed {
-				filled, err := fillEmptyOrgColumn(ctx, tx, orgID, column, f.Value)
-				if err != nil {
-					return err
-				}
-				if filled {
-					applied[f.Field] = f.Value
-				}
-			} else {
-				applied[f.Field] = f.Value
-			}
-			// The evidence row lands for every accepted field; a re-accept
-			// refreshes an agent-captured row and never touches one a
-			// human has since claimed.
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO organization_profile_field
-				  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-				ON CONFLICT (workspace_id, organization_id, field)
-				DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
-				              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
-				              captured_by = EXCLUDED.captured_by, captured_at = now()
-				WHERE organization_profile_field.captured_by NOT LIKE 'human:%'`,
-				wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, by); err != nil {
-				return fmt.Errorf("upsert profile field %s: %w", f.Field, err)
-			}
+		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, by, in.Fields)
+		if err != nil {
+			return err
 		}
 
 		action, eventType := "update", "organization.updated"
@@ -165,6 +140,45 @@ var coldStartColumns = map[string]string{
 	"legal_name": `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
 	"industry":   `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
 	"address":    `UPDATE organization SET address = jsonb_build_object('formatted', $2::text) WHERE id = $1 AND address IS NULL`,
+}
+
+// applyEvidenceFields fills the column-backed fields (only when empty) and
+// upserts the evidence row for EVERY field, returning what was applied. Shared
+// by the cold-start read-back and per-org enrichment so both write provenance
+// identically; the caller supplies the executing principal (by) and owns the
+// audit source. A re-accept refreshes an agent-captured row and never touches
+// one a human has since claimed.
+func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, by string, fields []ColdStartFieldInput) (map[string]any, error) {
+	applied := map[string]any{}
+	for _, f := range fields {
+		if column, backed := columnBackedColdStartFields[f.Field]; backed {
+			filled, err := fillEmptyOrgColumn(ctx, tx, orgID, column, f.Value)
+			if err != nil {
+				return nil, err
+			}
+			if filled {
+				applied[f.Field] = f.Value
+			}
+		} else {
+			applied[f.Field] = f.Value
+		}
+		// The evidence row lands for every accepted field; a re-accept
+		// refreshes an agent-captured row and never touches one a human has
+		// since claimed.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO organization_profile_field
+			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			ON CONFLICT (workspace_id, organization_id, field)
+			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
+			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
+			              captured_by = EXCLUDED.captured_by, captured_at = now()
+			WHERE organization_profile_field.captured_by NOT LIKE 'human:%'`,
+			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, by); err != nil {
+			return nil, fmt.Errorf("upsert profile field %s: %w", f.Field, err)
+		}
+	}
+	return applied, nil
 }
 
 func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.UUID, column, value string) (bool, error) {

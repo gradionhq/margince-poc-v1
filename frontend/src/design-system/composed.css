@@ -248,3 +248,34 @@
   background: var(--accent);
   color: var(--textOnAccent);
 }
+
+/* First-run auth (signup / login) — a single narrow card, rail-less. */
+.auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 4px 0 14px;
+}
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.auth-switch {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.auth-error {
+  margin-bottom: 12px;
+}

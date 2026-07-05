@@ -422,13 +422,13 @@ func (e ColdStartFieldField) Valid() bool {
 
 // Defines values for ColdStartProposalStatus.
 const (
-	Staged ColdStartProposalStatus = "staged"
+	ColdStartProposalStatusStaged ColdStartProposalStatus = "staged"
 )
 
 // Valid indicates whether the value is a known member of the ColdStartProposalStatus enum.
 func (e ColdStartProposalStatus) Valid() bool {
 	switch e {
-	case Staged:
+	case ColdStartProposalStatusStaged:
 		return true
 	default:
 		return false
@@ -942,6 +942,21 @@ func (e DealStatus) Valid() bool {
 	case DealStatusOpen:
 		return true
 	case DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for EnrichmentProposalStatus.
+const (
+	EnrichmentProposalStatusStaged EnrichmentProposalStatus = "staged"
+)
+
+// Valid indicates whether the value is a known member of the EnrichmentProposalStatus enum.
+func (e EnrichmentProposalStatus) Valid() bool {
+	switch e {
+	case EnrichmentProposalStatusStaged:
 		return true
 	default:
 		return false
@@ -2836,6 +2851,29 @@ type EmailDraft struct {
 	Subject             string                 `json:"subject"`
 	To                  *[]openapi_types.Email `json:"to,omitempty"`
 }
+
+// EnrichCompanyRequest Optional override. With no body the org's own domain is read.
+type EnrichCompanyRequest struct {
+	// Url Company URL to read instead of the org's domain.
+	Url *string `json:"url,omitempty"`
+}
+
+// EnrichmentProposal A staged enrichment of one organization. Field shape is the read-back's (evidence-or-omit); NOTHING is written until accepted via /approvals, which fills only the org's empty fields.
+type EnrichmentProposal struct {
+	CreatedAt *time.Time       `json:"created_at,omitempty"`
+	Fields    []ColdStartField `json:"fields"`
+
+	// OrganizationId The org this proposal enriches — the accept executor writes only here.
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+	ProposalId     openapi_types.UUID `json:"proposal_id"`
+	SourceUrl      string             `json:"source_url"`
+
+	// Status Always staged — accept via the approval inbox.
+	Status EnrichmentProposalStatus `json:"status"`
+}
+
+// EnrichmentProposalStatus Always staged — accept via the approval inbox.
+type EnrichmentProposalStatus string
 
 // IssuePassportRequest defines model for IssuePassportRequest.
 type IssuePassportRequest struct {
@@ -4815,6 +4853,9 @@ type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
 
 // UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
 type UpdateOrganizationJSONRequestBody = UpdateOrganizationRequest
+
+// ScrapeCompanyJSONRequestBody defines body for ScrapeCompany for application/json ContentType.
+type ScrapeCompanyJSONRequestBody = EnrichCompanyRequest
 
 // MergeOrganizationJSONRequestBody defines body for MergeOrganization for application/json ContentType.
 type MergeOrganizationJSONRequestBody MergeOrganizationJSONBody
@@ -7441,6 +7482,9 @@ type ServerInterface interface {
 	// Update an organization (partial).
 	// (PATCH /organizations/{id})
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, id Id, params UpdateOrganizationParams)
+	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
+	// (POST /organizations/{id}/enrich)
+	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this organization into a target (non-lossy).
 	// (POST /organizations/{id}/merge)
 	MergeOrganization(w http.ResponseWriter, r *http.Request, id Id, params MergeOrganizationParams)
@@ -7888,6 +7932,12 @@ func (_ Unimplemented) GetOrganization(w http.ResponseWriter, r *http.Request, i
 // Update an organization (partial).
 // (PATCH /organizations/{id})
 func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request, id Id, params UpdateOrganizationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
+// (POST /organizations/{id}/enrich)
+func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -11083,6 +11133,40 @@ func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// ScrapeCompany operation middleware
+func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ScrapeCompany(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergeOrganization operation middleware
 func (siw *ServerInterfaceWrapper) MergeOrganization(w http.ResponseWriter, r *http.Request) {
 
@@ -13452,6 +13536,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/organizations/{id}", wrapper.UpdateOrganization)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/merge", wrapper.MergeOrganization)

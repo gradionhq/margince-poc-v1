@@ -1,4 +1,6 @@
-import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { type ReactNode, useCallback, useState } from "react";
+import { api, workspaceSlug } from "./api/client";
 import { AskFab } from "./app/fab";
 import {
   CommandPalette,
@@ -9,6 +11,7 @@ import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { AskAiScreen } from "./screens/ai";
+import { AuthScreen } from "./screens/auth";
 import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
 import { ClientSurfaceScreen } from "./screens/client";
@@ -75,11 +78,62 @@ function ScreenView({ screen, id }: { screen: string; id?: string }) {
   }
 }
 
+// The anonymous public surfaces render without a session — their slug in the
+// path is the whole address (security: [] in the contract).
+const PUBLIC_SCREENS = new Set(["book"]);
+
 export function App() {
   const route = useRoute();
+  if (PUBLIC_SCREENS.has(route.screen)) {
+    return (
+      <Shell onOpenSearch={() => undefined}>
+        <ScreenView screen={route.screen} id={route.id} />
+      </Shell>
+    );
+  }
+  return <AuthedApp route={route} />;
+}
+
+// AuthGate: everything behind the session probes GET /v1/me. A first-time user
+// has no session (and maybe no workspace slug) — either way /me is not 200, so
+// we show the signup/login screen. On success the screen refetches and the app
+// renders. No redirect races: the gate owns the authenticated/not decision.
+function AuthedApp({ route }: { route: ReturnType<typeof useRoute> }) {
+  const me = useQuery({
+    queryKey: ["me"],
+    retry: false,
+    queryFn: async () => {
+      if (!workspaceSlug()) {
+        // No workspace resolved yet — treat as unauthenticated without a
+        // guaranteed-401 round-trip.
+        throw new Error("no workspace");
+      }
+      const { data, error } = await api.GET("/me");
+      if (error) {
+        throw new Error("unauthenticated");
+      }
+      return data;
+    },
+  });
+
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commands = useBuiltinCommands();
   usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
+
+  if (me.isPending) {
+    return (
+      <RaillessFrame>
+        <AuthSplash />
+      </RaillessFrame>
+    );
+  }
+  if (me.isError) {
+    return (
+      <RaillessFrame>
+        <AuthScreen onAuthed={() => me.refetch()} />
+      </RaillessFrame>
+    );
+  }
 
   return (
     <>
@@ -93,5 +147,26 @@ export function App() {
       />
       <AskFab route={route} />
     </>
+  );
+}
+
+// The rail-less page frame (same shape Shell renders for onboarding/booking),
+// so the pre-session screens get the app background and scroll container.
+function RaillessFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="app railless">
+      <main className="main">
+        <div className="scroll">{children}</div>
+      </main>
+    </div>
+  );
+}
+
+function AuthSplash() {
+  const t = useT();
+  return (
+    <div className="wrap narrow ob-top">
+      <EmptyState>{t("auth.checking")}</EmptyState>
+    </div>
   );
 }

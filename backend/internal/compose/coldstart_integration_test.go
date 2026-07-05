@@ -40,7 +40,7 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"this text is NOT on the page","confidence":0.9},
 		{"field":"industry","value":"Software","evidence_snippet":"Acme GmbH","confidence":1.7},
 		{"field":"made_up_field","value":"x","evidence_snippet":"Acme GmbH","confidence":0.5}]}`)
-	engine := &coldStartEngine{fetch: acmePage, brain: brain, approvals: approvals.NewService(e.pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.pool)}
 
 	ctx := e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms)
 	proposal, err := engine.Propose(ctx, "https://acme.example")
@@ -96,7 +96,7 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 	brain := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`,
 		`not even JSON`)
-	engine := &coldStartEngine{fetch: acmePage, brain: brain, approvals: approvals.NewService(e.pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.pool)}
 	ctx := e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms)
 
 	var unreadable *unreadableError
@@ -107,7 +107,7 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 		t.Fatalf("unparseable model output → %v, want unreadable", err)
 	}
 	// A page below the readable floor never reaches the model.
-	tiny := &coldStartEngine{fetch: fixturePage("hi"), brain: brain, approvals: approvals.NewService(e.pool)}
+	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.pool)}
 	if _, err := tiny.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
 		t.Fatalf("tiny page → %v, want unreadable", err)
 	}
@@ -146,7 +146,7 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 
 	svc := approvals.NewService(e.pool)
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.pool)))
-	engine := &coldStartEngine{fetch: acmePage, brain: brain, approvals: svc}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: svc}
 
 	proposal, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms), "https://www.acme.example/about")
 	if err != nil {

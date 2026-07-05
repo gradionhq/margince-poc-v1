@@ -735,6 +735,52 @@ paths:
               schema: { $ref: '#/components/schemas/Partner' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /organizations/{id}/enrich:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations, AI]
+      operationId: scrapeCompany
+      summary: Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
+      description: |
+        The `enrich` verb applied to an existing organization (EP05 / ADR-0006 scrape seam). Fetches
+        the company's website — the `url` override, else the org's own domain — parses it, and returns a
+        staged read-back of firmographic / value / Impressum fields. Shares the cold-start read-back's
+        fetch + evidence gate: EVERY returned field carries a non-empty `evidence_snippet` + `source_url`
+        + `confidence`, or it is ABSENT (the no-guess gate). NOTHING is written to the org until a human
+        accepts via /approvals — on accept it fills only the org's EMPTY fields, never overwriting a
+        human-set value. A blocked or thin page degrades to 422, zero fabricated fields.
+      x-mcp-tool: { verb: enrich, tier: yellow }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrichCompanyRequest' }
+            examples:
+              override:
+                value: { url: 'https://acme.com/about' }
+      responses:
+        '200':
+          description: A staged enrichment proposal with per-field evidence (nothing written yet).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrichmentProposal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: No URL to read (no override, org has no domain) / page unreadable — honest degradation, zero fabricated fields.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                unreadable:
+                  value:
+                    type: 'https://errors.gradion.com/company_unreadable'
+                    title: Could not read enough
+                    status: 422
+                    code: company_unreadable
+                    detail: Couldn't read enough from this company's site. Retry or add a URL.
+
   /partners:
     get:
       tags: [Partners]
@@ -2292,7 +2338,6 @@ paths:
                     status: 422
                     code: coldstart_unreadable
                     detail: Couldn't read enough from this page. Retry or paste text.
-                    details: { populated_fields: 0 }
 
   # ---------------------------- /approvals ----------------------------------
   /approvals:
@@ -4140,6 +4185,26 @@ components:
       required: [proposal_id, source_url, status, fields]
       properties:
         proposal_id: { type: string, format: uuid }
+        source_url: { type: string, format: uri }
+        status: { type: string, enum: [staged], description: Always staged — accept via the approval inbox. }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/ColdStartField' }
+        created_at: { type: string, format: date-time }
+
+    EnrichCompanyRequest:
+      type: object
+      description: Optional override. With no body the org's own domain is read.
+      properties:
+        url: { type: string, format: uri, description: Company URL to read instead of the org's domain. }
+
+    EnrichmentProposal:
+      type: object
+      description: A staged enrichment of one organization. Field shape is the read-back's (evidence-or-omit); NOTHING is written until accepted via /approvals, which fills only the org's empty fields.
+      required: [proposal_id, organization_id, source_url, status, fields]
+      properties:
+        proposal_id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid, description: The org this proposal enriches — the accept executor writes only here. }
         source_url: { type: string, format: uri }
         status: { type: string, enum: [staged], description: Always staged — accept via the approval inbox. }
         fields:

@@ -42,15 +42,23 @@ func NewRetentionService(pool *pgxpool.Pool, log *slog.Logger) *RetentionService
 	return &RetentionService{pool: pool, eraser: NewEraser(pool), log: log}
 }
 
+// commercialCorrespondenceFloor is the WHERE fragment that shields commercial
+// correspondence younger than the jurisdiction floor ($3) from a destructive
+// action — spelled once, applied by every activity selector. Correspondence
+// under GoBD §147 AO is a Handelsbrief: EXTERNAL business communication (email,
+// call, meeting, whatsapp, telegram). An internal note and a task are not
+// correspondence and carry no statutory floor, so their bodies fall to the
+// workspace policy like any other record. That boundary is not just prose:
+// TestStatutoryFloorShieldsCorrespondenceFromDestruction pins it (a 400-day
+// email survives, a same-age note is erased), so flipping the classification
+// fails the build. Archive passes floor 0 because archiving RETAINS.
+const commercialCorrespondenceFloor = `AND NOT (a.kind NOT IN ('task','note') AND a.occurred_at > now() - make_interval(days => $3))`
+
 // selectors name the records a (object_type, category) policy governs.
 // The closed map is deliberate: a policy row with a scope the engine
 // does not understand is skipped LOUDLY (logged every pass), never
 // half-applied. Every query filters the hold column — and for
-// activities, the holds of every linked record plus the jurisdiction
-// packs' statutory floor ($3): a destructive action must not touch any
-// commercial correspondence — every non-task activity kind (email, call,
-// meeting, whatsapp, telegram, note), not email alone — younger than the
-// floor; archive passes floor 0 because archiving RETAINS.
+// activities, the holds of every linked record plus the statutory floor.
 var retentionSelectors = map[string]string{
 	"lead/unconverted": `SELECT id FROM lead
 		WHERE status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
@@ -59,7 +67,7 @@ var retentionSelectors = map[string]string{
 	"activity/": `SELECT a.id FROM activity a
 		WHERE a.archived_at IS NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
-		  AND NOT (a.kind <> 'task' AND a.occurred_at > now() - make_interval(days => $3))
+		  ` + commercialCorrespondenceFloor + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
@@ -70,7 +78,7 @@ var retentionSelectors = map[string]string{
 	"activity/transcript": `SELECT a.id FROM activity a
 		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
-		  AND NOT (a.kind <> 'task' AND a.occurred_at > now() - make_interval(days => $3))
+		  ` + commercialCorrespondenceFloor + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id

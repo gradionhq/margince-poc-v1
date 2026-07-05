@@ -28,7 +28,9 @@ import (
 // share one service so a released effect can redeem what it decides on.
 func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
 	svc := approvals.NewService(pool)
-	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(pool)))
+	store := people.NewStore(pool)
+	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, store))
+	svc.WithEffect("enrich", scrapeAcceptEffect(svc, store))
 	return approvals.NewHandlers(svc)
 }
 

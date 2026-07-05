@@ -71,6 +71,7 @@ type Server struct {
 	agentsHandlers
 	reportHandlers
 	coldstartHandlers
+	scrapeHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -97,8 +98,21 @@ func WithBusReady(check func(context.Context) error) Option {
 func WithColdStart(fetch PageFetcher, brain runner.Brain) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.coldstartHandlers = coldstartHandlers{engine: &coldStartEngine{
-			fetch:     fetch,
-			brain:     brain,
+			extract:   evidenceExtractor{fetch: fetch, brain: brain},
+			approvals: approvals.NewService(pool),
+		}}
+	}
+}
+
+// WithScrape enables per-organization enrichment (scrapeCompany) over the same
+// fetch and model seams as the read-back. Without it the operation stays an
+// explicit 501 — the api role must DECLARE its model path, never pick one
+// silently.
+func WithScrape(fetch PageFetcher, brain runner.Brain) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.scrapeHandlers = scrapeHandlers{engine: &scrapeEngine{
+			extract:   evidenceExtractor{fetch: fetch, brain: brain},
+			people:    people.NewStore(pool),
 			approvals: approvals.NewService(pool),
 		}}
 	}
