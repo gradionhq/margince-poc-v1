@@ -44,7 +44,7 @@ test-integration: ## Integration lane: real Postgres, fails loudly without it (n
 # The integration lane above runs the same harness on the SMB tier as a
 # standing canary; this target is the tier the PERF-7 SLO binds at.
 bench-perf: ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
-	MARGINCE_BENCH_TIER=mid_market $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/modules/search
+	MARGINCE_BENCH_TIER=mid_market $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose
 
 lint: ## golangci-lint (depguard, gosec, misspell, revive, gofmt)
 	golangci-lint run ./...

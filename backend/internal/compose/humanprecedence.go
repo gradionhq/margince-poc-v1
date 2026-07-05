@@ -56,7 +56,7 @@ func (f fieldOwnership) HumanOwnedConflicts(ctx context.Context, entityType stri
 			  FROM proposed p
 			  JOIN audit_log a
 			    ON a.entity_type = $1 AND a.entity_id = $2 AND a.after ? p.key
-			  ORDER BY p.key, a.created_at DESC, a.id DESC
+			  ORDER BY p.key, a.occurred_at DESC, a.id DESC
 			)
 			SELECT key FROM latest
 			WHERE actor_type = 'human' AND proposed_value IS DISTINCT FROM current_value

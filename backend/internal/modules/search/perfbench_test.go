@@ -38,7 +38,7 @@ func TestMeasureQueryRefusesAnEmptyRun(t *testing.T) {
 // The gate is real, not advisory: a seeded breach turns it red
 // (B-EP05.21a acceptance).
 func TestGateRedsOnASeededBreach(t *testing.T) {
-	over, err := MeasureQuery(graphQueryName, Perf7Budget, []time.Duration{ms(400), ms(410), ms(420)})
+	over, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{ms(400), ms(410), ms(420)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestGateRedsOnASeededBreach(t *testing.T) {
 	if gateErr == nil {
 		t.Fatal("a p95 over budget must fail the gate")
 	}
-	if !strings.Contains(gateErr.Error(), graphQueryName) || !strings.Contains(gateErr.Error(), "300ms") {
+	if !strings.Contains(gateErr.Error(), GraphQueryName) || !strings.Contains(gateErr.Error(), "300ms") {
 		t.Fatalf("breach error must name the query and budget: %v", gateErr)
 	}
 
@@ -61,7 +61,7 @@ func TestGateRedsOnASeededBreach(t *testing.T) {
 }
 
 func TestTriggerEvidenceFiresAtMidMarketBreach(t *testing.T) {
-	over, err := MeasureQuery(graphQueryName, Perf7Budget, []time.Duration{ms(400)})
+	over, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{ms(400)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestTriggerEvidenceFiresAtMidMarketBreach(t *testing.T) {
 // A breach on a small tier is a red gate but NOT a graph-store trigger:
 // the ADR-0021 SLO binds at mid-market volume.
 func TestTriggerEvidenceHoldsBelowMidMarket(t *testing.T) {
-	over, err := MeasureQuery(graphQueryName, Perf7Budget, []time.Duration{ms(400)})
+	over, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{ms(400)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestTriggerEvidenceHoldsBelowMidMarket(t *testing.T) {
 // Edge volume past an ADR-0021 threshold with p95 over budget is its
 // own named trigger, tier-independent.
 func TestTriggerEvidenceFiresOnEdgeVolume(t *testing.T) {
-	over, err := MeasureQuery(graphQueryName, Perf7Budget, []time.Duration{ms(400)})
+	over, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{ms(400)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestTriggerEvidenceFiresOnEdgeVolume(t *testing.T) {
 		t.Fatalf("edge-volume breach must fire the named trigger: %+v", ev)
 	}
 
-	inBudget, err := MeasureQuery(graphQueryName, Perf7Budget, []time.Duration{ms(100)})
+	inBudget, err := MeasureQuery(GraphQueryName, Perf7Budget, []time.Duration{ms(100)})
 	if err != nil {
 		t.Fatal(err)
 	}

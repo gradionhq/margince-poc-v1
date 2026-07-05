@@ -55,19 +55,29 @@ func TestModifyThenApproveRebindsTheAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	editedCanonical, editedHash, err := diffhash.Canonical(edited)
+	_, editedHash, err := diffhash.Canonical(edited)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decided.DiffHash != editedHash || decided.DiffHash == originalHash {
 		t.Fatalf("decision must rebind to the edited hash: got %s", decided.DiffHash)
 	}
-	if string(decided.ProposedChange) != string(editedCanonical) {
+	// jsonb re-renders the stored bytes, so the assertion is on content.
+	var storedChange map[string]any
+	if err := json.Unmarshal(decided.ProposedChange, &storedChange); err != nil {
+		t.Fatal(err)
+	}
+	if storedChange["note"] != "human version" {
 		t.Fatalf("proposed_change must be the human's version: %s", decided.ProposedChange)
 	}
 
-	// The follow-on effect executed the HUMAN-edited change.
-	if string(effectPayload) != string(editedCanonical) || effectHash != editedHash {
+	// The follow-on effect executed the HUMAN-edited change (jsonb
+	// re-renders the stored bytes, so the payload assertion is on content).
+	var effectChange map[string]any
+	if err := json.Unmarshal(effectPayload, &effectChange); err != nil {
+		t.Fatal(err)
+	}
+	if effectChange["note"] != "human version" || effectHash != editedHash {
 		t.Fatalf("effect ran %s under %s, want the edited payload", effectPayload, effectHash)
 	}
 

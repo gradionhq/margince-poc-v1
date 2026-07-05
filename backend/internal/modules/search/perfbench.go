@@ -116,9 +116,9 @@ type TriggerEvidence struct {
 	Trigger           string // the named ADR-0021 §4 trigger; empty when none fired
 }
 
-// graphQueryName is the canonical-query id the trigger evidence reads
+// GraphQueryName is the canonical-query id the trigger evidence reads
 // its p95 from — the context-graph assembly PERF-7 measures.
-const graphQueryName = "context_graph"
+const GraphQueryName = "context_graph"
 
 // TriggerEvidence computes the trigger record from this run.
 func (r BenchReport) TriggerEvidence() TriggerEvidence {
@@ -128,7 +128,7 @@ func (r BenchReport) TriggerEvidence() TriggerEvidence {
 		ActivityLinkEdges: r.ActivityLinkEdges,
 	}
 	for _, q := range r.Queries {
-		if q.Query == graphQueryName {
+		if q.Query == GraphQueryName {
 			ev.GraphAssemblyP95 = q.P95
 		}
 	}

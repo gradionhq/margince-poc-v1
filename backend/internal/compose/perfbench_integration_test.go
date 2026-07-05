@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package search
+package compose_test
 
 // The PERF-3 / PERF-7 benchmark harness (B-EP05.21): seeds a §6.7
 // volume tier, runs the canonical queries, records p50/p95/p99, gates
@@ -21,17 +21,20 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // benchTierSpec sizes one §6.7 volume tier. Mid-market is the
 // 250k–1M-contact band; the SLO binds at its floor.
 type benchTierSpec struct {
-	tier            BenchTier
+	tier            search.BenchTier
 	persons         int
 	organizations   int
 	bulkActivities  int // background timeline volume, linked cyclically to persons
@@ -40,21 +43,21 @@ type benchTierSpec struct {
 	warmups, sample int
 }
 
-var benchTiers = map[BenchTier]benchTierSpec{
-	BenchTierSMB: {
-		tier: BenchTierSMB, persons: 10_000, organizations: 1_000,
+var benchTiers = map[search.BenchTier]benchTierSpec{
+	search.BenchTierSMB: {
+		tier: search.BenchTierSMB, persons: 10_000, organizations: 1_000,
 		bulkActivities: 20_000, anchorTouches: 200, relationships: 5_000,
 		warmups: 3, sample: 20,
 	},
-	BenchTierMidMarket: {
-		tier: BenchTierMidMarket, persons: 250_000, organizations: 10_000,
+	search.BenchTierMidMarket: {
+		tier: search.BenchTierMidMarket, persons: 250_000, organizations: 10_000,
 		bulkActivities: 500_000, anchorTouches: 500, relationships: 50_000,
 		warmups: 3, sample: 20,
 	},
 }
 
 func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
-	spec, ok := benchTiers[BenchTier(envOr("MARGINCE_BENCH_TIER", string(BenchTierSMB)))]
+	spec, ok := benchTiers[search.BenchTier(envOr("MARGINCE_BENCH_TIER", string(search.BenchTierSMB)))]
 	if !ok {
 		t.Fatalf("MARGINCE_BENCH_TIER must be one of smb, mid_market")
 	}
@@ -97,11 +100,12 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	store := NewStore(pool)
+	store := search.NewStore(pool)
+	retriever := search.NewRetriever(store, nil)
 
 	actx := benchAdminCtx(ws)
 
-	report := BenchReport{Tier: spec.tier}
+	report := search.BenchReport{Tier: spec.tier}
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM relationship`).Scan(&report.RelationshipEdges); err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +114,8 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 	}
 
 	// Canonical query 1 (PERF-3): ranked cross-object full-text search.
-	ftsStats, err := benchRuns("search_fts", Perf3Budget, spec, func() error {
-		page, err := store.Search(actx, Input{Query: "hamburg"})
+	ftsStats, err := benchRuns("search_fts", search.Perf3Budget, spec, func() error {
+		page, err := store.Search(actx, search.Input{Query: "hamburg"})
 		if err != nil {
 			return err
 		}
@@ -126,13 +130,15 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 
 	// Canonical query 2 (PERF-7): the fixed-depth context-graph
 	// assembly over the anchor's hot 360.
-	graphStats, err := benchRuns(graphQueryName, Perf7Budget, spec, func() error {
-		sections, err := store.assembleGraph(actx, "person", anchor, 5)
+	graphStats, err := benchRuns(search.GraphQueryName, search.Perf7Budget, spec, func() error {
+		assembled, err := retriever.AssembleContext(actx,
+			datasource.EntityRef{Type: datasource.EntityPerson, ID: anchor},
+			retrieval.AssembleOptions{MaxItems: 5})
 		if err != nil {
 			return err
 		}
-		if len(sections) < 2 {
-			return fmt.Errorf("graph assembly returned %d sections — the fixture is wrong", len(sections))
+		if len(assembled.Sections) < 2 {
+			return fmt.Errorf("graph assembly returned %d sections — the fixture is wrong", len(assembled.Sections))
 		}
 		return nil
 	})
@@ -140,7 +146,7 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report.Queries = []QueryStats{ftsStats, graphStats}
+	report.Queries = []search.QueryStats{ftsStats, graphStats}
 	for _, q := range report.Queries {
 		t.Logf("perfbench [%s]: %s p50=%s p95=%s p99=%s (budget %s, %d samples)",
 			report.Tier, q.Query, q.P50, q.P95, q.P99, q.Budget, q.Samples)
@@ -169,21 +175,21 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func benchRuns(name string, budget time.Duration, spec benchTierSpec, run func() error) (QueryStats, error) {
+func benchRuns(name string, budget time.Duration, spec benchTierSpec, run func() error) (search.QueryStats, error) {
 	for i := 0; i < spec.warmups; i++ {
 		if err := run(); err != nil {
-			return QueryStats{}, fmt.Errorf("%s warmup: %w", name, err)
+			return search.QueryStats{}, fmt.Errorf("%s warmup: %w", name, err)
 		}
 	}
 	durations := make([]time.Duration, 0, spec.sample)
 	for i := 0; i < spec.sample; i++ {
 		start := time.Now()
 		if err := run(); err != nil {
-			return QueryStats{}, fmt.Errorf("%s run %d: %w", name, i, err)
+			return search.QueryStats{}, fmt.Errorf("%s run %d: %w", name, i, err)
 		}
 		durations = append(durations, time.Since(start))
 	}
-	return MeasureQuery(name, budget, durations)
+	return search.MeasureQuery(name, budget, durations)
 }
 
 func benchAdminCtx(ws ids.UUID) context.Context {
