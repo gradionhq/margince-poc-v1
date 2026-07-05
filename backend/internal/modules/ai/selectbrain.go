@@ -25,6 +25,15 @@ type ProviderConfig struct {
 const (
 	defaultAnthropicBaseURL = "https://api.anthropic.com"
 	defaultOllamaBaseURL    = "http://localhost:11434"
+	defaultVLLMBaseURL      = "http://localhost:8000"
+)
+
+// Local default models are Gemma-class per ADR-0012/A23: the unbound
+// local path must land on a non-Chinese model (Gemma default, Mistral
+// as the EU alternative an operator picks explicitly in config).
+const (
+	defaultOllamaModel = "gemma3"
+	defaultVLLMModel   = "google/gemma-3-12b-it"
 )
 
 // requestTimeout bounds a single model call. Generous because premium
@@ -58,14 +67,32 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		if baseURL == "" {
 			baseURL = defaultOllamaBaseURL
 		}
+		defaultModel := cfg.Model
+		if defaultModel == "" {
+			defaultModel = defaultOllamaModel
+		}
 		return &ollamaClient{
 			http:         &http.Client{Timeout: requestTimeout},
 			baseURL:      baseURL,
-			defaultModel: cfg.Model,
+			defaultModel: defaultModel,
+		}, nil
+	case "vllm":
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = defaultVLLMBaseURL
+		}
+		defaultModel := cfg.Model
+		if defaultModel == "" {
+			defaultModel = defaultVLLMModel
+		}
+		return &vllmClient{
+			http:         &http.Client{Timeout: requestTimeout},
+			baseURL:      baseURL,
+			defaultModel: defaultModel,
 		}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
 	default:
-		return nil, fmt.Errorf("ai: unknown provider %q (have: fake, anthropic, ollama)", cfg.Provider)
+		return nil, fmt.Errorf("ai: unknown provider %q (have: fake, anthropic, ollama, vllm)", cfg.Provider)
 	}
 }

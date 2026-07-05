@@ -61,7 +61,7 @@ var knownTiers = map[Tier]bool{
 }
 
 // localProviders can serve the sovereign zero-egress profile.
-var localProviders = map[string]bool{"ollama": true, "fake": true}
+var localProviders = map[string]bool{"ollama": true, "vllm": true, "fake": true}
 
 func (cfg RoutingConfig) validate() error {
 	switch cfg.Profile {
