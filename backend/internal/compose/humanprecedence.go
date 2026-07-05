@@ -44,6 +44,12 @@ func (f fieldOwnership) HumanOwnedConflicts(ctx context.Context, entityType stri
 	if len(probe) == 0 {
 		return nil, nil
 	}
+	// The partner extension audits on its organization row (the table is
+	// keyed by organization_id and the route's {id} IS the org) — the
+	// ownership question reads the trail where those writes actually land.
+	if entityType == "partner" {
+		entityType = "organization"
+	}
 	var conflicts []string
 	err := database.WithWorkspaceTx(ctx, f.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `

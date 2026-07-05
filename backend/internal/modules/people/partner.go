@@ -113,9 +113,15 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 			in.OrganizationID); err != nil {
 			return err
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID, nil, map[string]any{
-			"partner": map[string]any{"role": in.PartnerRole, "cert_status": out.CertStatus},
-		})
+		// Per-field keys, matching the upsert request's field names: the
+		// human-edit-precedence probe derives field ownership from this
+		// image, so a nested blob would make partner fields unownable.
+		auditImage := map[string]any{
+			"partner_role": in.PartnerRole, "cert_status": out.CertStatus,
+			"margin_tier": in.MarginTier, "certified_staff": in.CertifiedStaff,
+			"retention_rate": in.RetentionRate,
+		}
+		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID, nil, auditImage)
 		if err != nil {
 			return err
 		}

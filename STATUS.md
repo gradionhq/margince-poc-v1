@@ -5,7 +5,71 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## Last session: the onboarding funnel made real + runnable + a real IMAP connector (2026-07-05)
+## Last session: the overnight backlog sweep, batch 1 (2026-07-05 night → 06)
+
+An autonomous overnight run working the 687-leaf backlog ticket by ticket
+(three coverage-audit agents first mapped every epic: ~241 leaves done /
+105 partial / 373 missing before this batch). Ten slices shipped in batch
+1, each gate-green, spec-formula-exact, and reviewed (craft + security
+red-team, two rounds — every confirmed finding remediated in-batch):
+
+- **B-EP06.3 vLLM adapter** — second local `Client` (OpenAI-compatible
+  wire, `LocalOnly`, sovereign-profile admissible), A23 Gemma-class
+  defaults for the unbound local path on BOTH local providers.
+- **B-EP05.21a/b PERF-3/PERF-7 benchmark harness** — percentile
+  machinery + red gate + ADR-0021 trigger evidence in `modules/search`;
+  the integration lane runs the SMB tier as a standing canary and `make
+  bench-perf` runs the mid-market SLO tier (measured: fts p95 150ms/200,
+  graph assembly p95 3.6ms/300 — substrate confirmed). Seeding uses
+  precomputed cyclic ordinals: expression joins over row_number went
+  nested-loop-pathological at 250k contacts.
+- **B-EP07.8 approvals modify-then-approve** — `edited_payload` lands:
+  the edited change replaces the staging under a fresh diff_hash via the
+  new `shared/kernel/diffhash` (ONE canonicalization for staging,
+  redemption, and edits), audit keeps both sides of the delta, the old
+  hash redeems nothing, and `approval.decided` carries `edited_change`
+  so a suspended runner resumes with the HUMAN's call. Closes the
+  frontend edit-then-send seam gap.
+- **B-EP06.14 human-edit precedence** — `update_record` is TierDynamic
+  on both transports: a patch overwriting a field whose current value a
+  human last wrote resolves 🟡 (audit-trail ownership via compose
+  `fieldOwnership`; the action-shaped twins applyTag/addListMember are
+  named green-by-design in the REST resolver). Whole-patch staging
+  deviation from §2.1's per-field split → feedback/20; contract-tier lag
+  → feedback/19.
+- **B-E16.1 remind_at** — migration 0039 widens `activity_task_fields`,
+  contract + store wiring, partial reminder-scan index for B-E16.6.
+- **B-E13.16 relationship strength** — §4-exact recency × frequency ×
+  reciprocity in `modules/people/strength.go`, factor-decomposed,
+  lead-excluded (ADR-0008), org roll-up = max employee. Worked example
+  (47/moderate) pinned in unit + seeded integration tests. No contract
+  surface exists to display it → feedback/21.
+- **B-E02.12 field_provenance** — migration 0040: ONE shared RLS-forced
+  child table, spelled once in `storekit` (StampFields/FieldOrigins with
+  row-level fallback); capture sink + enrich/coldstart stamp it; Art. 17
+  erasure deletes it (person, lead twins, redacted subject-only
+  activities), SAR exports it; PII + table-ownership registries extended.
+- **B-EP06.16a/b intent tools** — `whats_slipping_this_week` (ranked,
+  evidence-complete, honest bounds), `qualify_lead` (A15 gap-only,
+  fill-empty-only), `progress_deal` (advance_deal's dynamic tier + linked
+  note), `draft_follow_ups_for` (drafts only, never sends).
+- **B-E09.15/16/17 deal health** — §10.5-exact weighted model in
+  `modules/deals/health.go` with per-factor evidence ids (AC-S7/S8) and
+  the P12 advisory guard (computing health mutates nothing, pinned).
+- **B-E09.10 + B-E09.9 forecast + Explain-This-Number** — forecast rides
+  the report engine (deal⋈stage, per-deal half-up weighted rounding →
+  exact reconciliation, multi-stakeholder deals count once); every
+  aggregate row mints a `derivation_url` resolved by the new
+  `GET /reports/{report}/derivation` to a plain-language definition +
+  row-scoped drill-through that sums exactly to the cell.
+
+Coverage audits, ranked queues, and the night's gotchas live in the
+session scratchpad ledger; migrations now at **0040**; feedback/19–21
+filed. Gates at checkpoint: `make check` green, full
+`make test-integration` green (26 packages), craft static 0 findings,
+two review rounds clean after remediation.
+
+## Prior session: the onboarding funnel made real + runnable + a real IMAP connector (2026-07-05)
 
 A product-facing session: make the onboarding funnel genuinely testable in a
 browser, rebuild it to the design source of truth, and connect a real mailbox.
