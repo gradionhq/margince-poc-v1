@@ -5,11 +5,14 @@
 // module so the codegen tool chain's dependencies stay out of the product
 // module's go.mod. cli/craft is the code-craftsmanship gate (ADR-0045),
 // copied from the foundation repo (github.com/gradionhq/margince/cli/craft);
-// stdlib-only, run pre-push via .githooks/pre-push.
+// stdlib-only, run pre-push via .githooks/pre-push. dev/ is the local-dev
+// HTTPS front door (stdlib-only, never shipped) that gives the SPA a single
+// Secure-cookie origin — see dev/dev.sh and `make dev-tls`.
 go 1.26.0
 
 use (
 	./backend
 	./backend/tools
 	./cli/craft
+	./dev
 )

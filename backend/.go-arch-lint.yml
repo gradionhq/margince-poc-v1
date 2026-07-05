@@ -22,6 +22,7 @@ vendors:
   redis:  { in: github.com/redis/** }
   xcrypto: { in: golang.org/x/crypto/** }
   yaml:   { in: gopkg.in/** }
+  emersion: { in: github.com/emersion/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -30,7 +31,7 @@ components:
   identity:    { in: [internal/modules/identity, internal/modules/identity/**] }
   ai:          { in: internal/modules/ai }
   search:      { in: internal/modules/search }
-  capture:     { in: internal/modules/capture }
+  capture:     { in: [internal/modules/capture, internal/modules/capture/**] }
   consent:     { in: internal/modules/consent }
   collections: { in: internal/modules/collections }
   people:      { in: internal/modules/people }
@@ -69,8 +70,8 @@ deps:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   capture:
-    mayDependOn: [platform]
-    canUse: [pgx]
+    mayDependOn: [capture, platform]
+    canUse: [pgx, emersion]
   consent:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

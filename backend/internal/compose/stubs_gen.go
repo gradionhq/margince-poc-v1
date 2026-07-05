@@ -116,6 +116,10 @@ func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartReadback")
 }
 
+func (stubs) ConnectImap(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ConnectImap")
+}
+
 func (stubs) ListConsentPurposes(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListConsentPurposesParams) {
 	httperr.NotImplemented(w, r, "ListConsentPurposes")
 }

@@ -2875,6 +2875,45 @@ type EnrichmentProposal struct {
 // EnrichmentProposalStatus Always staged — accept via the approval inbox.
 type EnrichmentProposalStatus string
 
+// ImapConnectRequest defines model for ImapConnectRequest.
+type ImapConnectRequest struct {
+	// Email Mailbox login / address.
+	Email openapi_types.Email `json:"email"`
+
+	// Host IMAP server hostname (e.g. imap.gmail.com).
+	Host string `json:"host"`
+
+	// Mailbox Folder to pull from; defaults to INBOX.
+	Mailbox *string `json:"mailbox,omitempty"`
+
+	// MaxMessages Most-recent messages to pull; capped at 200.
+	MaxMessages *int `json:"max_messages,omitempty"`
+
+	// Password Mailbox password (used for this call only — never stored
+	Password string `json:"password"`
+
+	// Port IMAPS port; defaults to 993.
+	Port *int `json:"port,omitempty"`
+}
+
+// ImapConnectResult The outcome of a one-shot IMAP pull.
+type ImapConnectResult struct {
+	// Captured Messages that landed as email activities.
+	Captured int `json:"captured"`
+
+	// Connected True when the mailbox was reached and read.
+	Connected bool `json:"connected"`
+
+	// Contacts Distinct counterparties seen across the captured messages.
+	Contacts int `json:"contacts"`
+
+	// Mailbox The folder that was pulled.
+	Mailbox string `json:"mailbox"`
+
+	// Skipped Messages intentionally dropped (automated/system mail
+	Skipped int `json:"skipped"`
+}
+
 // IssuePassportRequest defines model for IssuePassportRequest.
 type IssuePassportRequest struct {
 	// Label Which agent this binds, e.g. "Claude Desktop".
@@ -4814,6 +4853,9 @@ type BookMeetingJSONRequestBody BookMeetingJSONBody
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
+
+// ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
+type ConnectImapJSONRequestBody = ImapConnectRequest
 
 // CreateConsentPurposeJSONRequestBody defines body for CreateConsentPurpose for application/json ContentType.
 type CreateConsentPurposeJSONRequestBody = CreateConsentPurposeRequest
@@ -7392,6 +7434,9 @@ type ServerInterface interface {
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
+	// One-shot IMAP pull — capture the most recent mailbox messages as email activities.
+	// (POST /connectors/imap/connect)
+	ConnectImap(w http.ResponseWriter, r *http.Request)
 	// List the workspace's consent purposes (e.g. transactional, marketing_email, profiling).
 	// (GET /consent-purposes)
 	ListConsentPurposes(w http.ResponseWriter, r *http.Request, params ListConsentPurposesParams)
@@ -7752,6 +7797,12 @@ func (_ Unimplemented) BookMeeting(w http.ResponseWriter, r *http.Request, param
 // Website cold-start read-back — returns a staged proposal with evidence.
 // (POST /coldstart)
 func (_ Unimplemented) ColdStartReadback(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One-shot IMAP pull — capture the most recent mailbox messages as email activities.
+// (POST /connectors/imap/connect)
+func (_ Unimplemented) ConnectImap(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -9443,6 +9494,26 @@ func (siw *ServerInterfaceWrapper) ColdStartReadback(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ColdStartReadback(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectImap operation middleware
+func (siw *ServerInterfaceWrapper) ConnectImap(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectImap(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13446,6 +13517,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/connectors/imap/connect", wrapper.ConnectImap)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/consent-purposes", wrapper.ListConsentPurposes)

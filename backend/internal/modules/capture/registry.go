@@ -111,6 +111,33 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	return id, nil
 }
 
+// RunTransient runs ONE sync of an already-authenticated connector under
+// the CALLING human's live authority, WITHOUT persisting a connection: no
+// connector_connection row, no stored credentials, no cursor. It is the
+// one-shot pull path — the connector holds its live provider session and
+// its own credentials; the registry contributes the run-time connector
+// principal built from the human's LIVE RBAC. Authority is capped exactly
+// where every capture write is: the Sink's per-entry RBAC gate against that
+// principal (a human lacking activity:create cannot land a row), and the
+// REST admission layer already refused a read-seat human on this POST. The
+// write lands through the same Sink, so audit + outbox hold.
+func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth connector.Auth) error {
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.Type != principal.PrincipalHuman {
+		return errors.New("capture: only a human runs a one-shot connector pull")
+	}
+	runCtx, err := r.connectorContext(ctx, c.Descriptor().Name, actor.UserID)
+	if err != nil {
+		return err
+	}
+	// A one-shot pull has no persisted cursor to advance; the connector
+	// bounds the pull itself (last N messages).
+	if _, err := c.Sync(runCtx, auth, nil, r.sink); err != nil {
+		return err
+	}
+	return nil
+}
+
 // SyncOnce runs one incremental sync for a connection: builds the
 // connector principal from the granting human's live authority, hands
 // the connector the sink, and advances the stored cursor only when the

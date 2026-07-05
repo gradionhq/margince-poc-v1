@@ -321,6 +321,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/enrich": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
+         * @description The `enrich` verb applied to an existing organization (EP05 / ADR-0006 scrape seam). Fetches
+         *     the company's website — the `url` override, else the org's own domain — parses it, and returns a
+         *     staged read-back of firmographic / value / Impressum fields. Shares the cold-start read-back's
+         *     fetch + evidence gate: EVERY returned field carries a non-empty `evidence_snippet` + `source_url`
+         *     + `confidence`, or it is ABSENT (the no-guess gate). NOTHING is written to the org until a human
+         *     accepts via /approvals — on accept it fills only the org's EMPTY fields, never overwriting a
+         *     human-set value. A blocked or thin page degrades to 422, zero fabricated fields.
+         */
+        post: operations["scrapeCompany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/partners": {
         parameters: {
             query?: never;
@@ -1108,6 +1137,32 @@ export interface paths {
          *     to real records — this is a 🟡 staging surface; the user accepts via /approvals.
          */
         post: operations["coldStartReadback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/imap/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * One-shot IMAP pull — capture the most recent mailbox messages as email activities.
+         * @description Dials a user's mailbox over IMAPS with the supplied credentials, pulls the most recent
+         *     `max_messages` messages from `mailbox`, and captures each as an email activity on the
+         *     timeline. This is a ONE-SHOT pull: the credentials are used for this call only — they are
+         *     NEVER persisted (no stored connection, no background sync) and NEVER logged. Automated /
+         *     system mail (no-reply, bounces, auto-submitted) is skipped. The write lands through the
+         *     capture Sink, so every captured row carries its audit + outbox entry in one transaction.
+         *     Human-only: an agent Passport is not an accepted credential here.
+         */
+        post: operations["connectImap"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2641,6 +2696,45 @@ export interface components {
             data: components["schemas"]["SearchResult"][];
             page: components["schemas"]["PageInfo"];
         };
+        ImapConnectRequest: {
+            /** @description IMAP server hostname (e.g. imap.gmail.com). */
+            host: string;
+            /**
+             * @description IMAPS port; defaults to 993.
+             * @default 993
+             */
+            port: number;
+            /**
+             * Format: email
+             * @description Mailbox login / address.
+             */
+            email: string;
+            /** @description Mailbox password (used for this call only — never stored */
+            password: string;
+            /**
+             * @description Folder to pull from; defaults to INBOX.
+             * @default INBOX
+             */
+            mailbox: string;
+            /**
+             * @description Most-recent messages to pull; capped at 200.
+             * @default 50
+             */
+            max_messages: number;
+        };
+        /** @description The outcome of a one-shot IMAP pull. */
+        ImapConnectResult: {
+            /** @description True when the mailbox was reached and read. */
+            connected: boolean;
+            /** @description The folder that was pulled. */
+            mailbox: string;
+            /** @description Messages that landed as email activities. */
+            captured: number;
+            /** @description Messages intentionally dropped (automated/system mail */
+            skipped: number;
+            /** @description Distinct counterparties seen across the captured messages. */
+            contacts: number;
+        };
         ColdStartRequest: {
             /**
              * Format: uri
@@ -2663,6 +2757,34 @@ export interface components {
         ColdStartProposal: {
             /** Format: uuid */
             proposal_id: string;
+            /** Format: uri */
+            source_url: string;
+            /**
+             * @description Always staged — accept via the approval inbox.
+             * @enum {string}
+             */
+            status: "staged";
+            fields: components["schemas"]["ColdStartField"][];
+            /** Format: date-time */
+            created_at?: string;
+        };
+        /** @description Optional override. With no body the org's own domain is read. */
+        EnrichCompanyRequest: {
+            /**
+             * Format: uri
+             * @description Company URL to read instead of the org's domain.
+             */
+            url?: string;
+        };
+        /** @description A staged enrichment of one organization. Field shape is the read-back's (evidence-or-omit); NOTHING is written until accepted via /approvals, which fills only the org's empty fields. */
+        EnrichmentProposal: {
+            /** Format: uuid */
+            proposal_id: string;
+            /**
+             * Format: uuid
+             * @description The org this proposal enriches — the accept executor writes only here.
+             */
+            organization_id: string;
             /** Format: uri */
             source_url: string;
             /**
@@ -4036,6 +4158,44 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    scrapeCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnrichCompanyRequest"];
+            };
+        };
+        responses: {
+            /** @description A staged enrichment proposal with per-field evidence (nothing written yet). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentProposal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description No URL to read (no override, org has no domain) / page unreadable — honest degradation, zero fabricated fields. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listPartners: {
@@ -6114,6 +6274,49 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description URL unfetchable / read too little — honest degradation, zero fabricated fields. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    connectImap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImapConnectRequest"];
+            };
+        };
+        responses: {
+            /** @description The pull completed; the summary reports what was captured. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImapConnectResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The mailbox rejected the credentials, or the request was malformed — no internals leaked. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The mail server could not be reached (DNS / TCP / TLS / timeout) — the raw cause stays server-side. */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

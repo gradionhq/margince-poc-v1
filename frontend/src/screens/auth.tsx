@@ -1,16 +1,20 @@
 import { useMutation } from "@tanstack/react-query";
+import { FileCheck2, Lock, ShieldCheck } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api, setWorkspaceSlug } from "../api/client";
 import { navigate } from "../app/router";
-import { Button, SectionHeader, TextInput } from "../design-system/atoms";
+import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage } from "./common";
+import "./auth.css";
 
-// First-run auth (signup + login). The product has no subdomain in local dev,
-// so the workspace is resolved from the X-Workspace-Slug header the API client
-// sends — signup derives it from the workspace name, login collects it. Both
-// endpoints are the contract's public paths (POST /workspaces, /auth/login);
-// success sets the httpOnly session cookie the rest of the app rides.
+// First-run auth (signup + login). A split hero on the funnel's design language:
+// the value proposition beside the form. The product has no subdomain in local
+// dev, so the workspace is resolved from the X-Workspace-Slug header the API
+// client sends — signup derives it from the workspace name, login collects it.
+// Both endpoints are the contract's public paths (POST /workspaces,
+// /auth/login); success sets the httpOnly session cookie the rest of the app
+// rides.
 
 // Mirror of the server's identity.slugify (lowercase; keep [a-z0-9]; map
 // space/-/_ to '-'; trim leading/trailing '-'). Pinned against the Go rule in
@@ -37,13 +41,43 @@ export function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [mode, setMode] = useState<Mode>("signup");
 
   return (
-    <div className="wrap narrow ob-top">
-      <SectionHeader title={t("auth.title")} sub={t("auth.sub")} />
-      {mode === "signup" ? (
-        <SignupForm onAuthed={onAuthed} onToLogin={() => setMode("login")} />
-      ) : (
-        <LoginForm onAuthed={onAuthed} onToSignup={() => setMode("signup")} />
-      )}
+    <div className="auth-page">
+      <div className="auth-shell">
+        <div className="auth-hero">
+          <span className="ob-wordmark">
+            <span className="mk">M</span>
+            {t("auth.title")}
+          </span>
+          <h1>{t("auth.heroTitle")}</h1>
+          <p className="lede">{t("auth.heroSub")}</p>
+          <ul className="auth-bullets">
+            <li>
+              <span className="bi">
+                <FileCheck2 aria-hidden />
+              </span>
+              {t("auth.bulletEvidence")}
+            </li>
+            <li>
+              <span className="bi">
+                <ShieldCheck aria-hidden />
+              </span>
+              {t("auth.bulletConfirm")}
+            </li>
+            <li>
+              <span className="bi">
+                <Lock aria-hidden />
+              </span>
+              {t("auth.bulletOwn")}
+            </li>
+          </ul>
+        </div>
+
+        {mode === "signup" ? (
+          <SignupForm onAuthed={onAuthed} onToLogin={() => setMode("login")} />
+        ) : (
+          <LoginForm onAuthed={onAuthed} onToSignup={() => setMode("signup")} />
+        )}
+      </div>
     </div>
   );
 }
@@ -99,26 +133,30 @@ function SignupForm({
     password.length >= MIN_PASSWORD;
 
   return (
-    <section className="card">
-      <SectionHeader title={t("auth.signupTitle")} sub={t("auth.signupSub")} />
+    <section className="auth-card">
+      <h2>{t("auth.signupTitle")}</h2>
+      <p className="card-sub">{t("auth.signupSub")}</p>
       <div className="auth-fields">
         <Field id={nameId} label={t("auth.workspaceName")}>
-          <TextInput
+          <input
             id={nameId}
+            className="auth-input"
             value={workspaceName}
             onChange={(event) => setWorkspaceName(event.target.value)}
           />
         </Field>
         <Field id={displayId} label={t("auth.displayName")}>
-          <TextInput
+          <input
             id={displayId}
+            className="auth-input"
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
           />
         </Field>
         <Field id={emailId} label={t("auth.email")}>
-          <TextInput
+          <input
             id={emailId}
+            className="auth-input"
             type="email"
             autoComplete="email"
             value={email}
@@ -130,8 +168,9 @@ function SignupForm({
           label={t("auth.password")}
           hint={t("auth.passwordHint")}
         >
-          <TextInput
+          <input
             id={passwordId}
+            className="auth-input"
             type="password"
             autoComplete="new-password"
             value={password}
@@ -197,19 +236,22 @@ function LoginForm({
   const ready = slug.trim() !== "" && email.trim() !== "" && password !== "";
 
   return (
-    <section className="card">
-      <SectionHeader title={t("auth.loginTitle")} sub={t("auth.loginSub")} />
+    <section className="auth-card">
+      <h2>{t("auth.loginTitle")}</h2>
+      <p className="card-sub">{t("auth.loginSub")}</p>
       <div className="auth-fields">
         <Field id={slugId} label={t("auth.workspaceSlug")}>
-          <TextInput
+          <input
             id={slugId}
+            className="auth-input"
             value={slug}
             onChange={(event) => setSlug(event.target.value)}
           />
         </Field>
         <Field id={emailId} label={t("auth.email")}>
-          <TextInput
+          <input
             id={emailId}
+            className="auth-input"
             type="email"
             autoComplete="email"
             value={email}
@@ -217,8 +259,9 @@ function LoginForm({
           />
         </Field>
         <Field id={passwordId} label={t("auth.password")}>
-          <TextInput
+          <input
             id={passwordId}
+            className="auth-input"
             type="password"
             autoComplete="current-password"
             value={password}
@@ -258,20 +301,13 @@ function Field({
   hint?: string;
   children: ReactNode;
 }) {
-  // The <label> wraps only the label text, so the input's accessible name is
-  // exactly the label — the hint is a sibling, described-by, not part of it.
-  const hintId = `${id}-hint`;
+  // The <label> names only the label text, so the input's accessible name is
+  // exactly the label — the hint is a sibling below the input, not part of it.
   return (
     <div className="auth-field">
-      <label className="t-label" htmlFor={id}>
-        {label}
-      </label>
+      <label htmlFor={id}>{label}</label>
       {children}
-      {hint && (
-        <span className="t-caption" id={hintId}>
-          {hint}
-        </span>
-      )}
+      {hint && <span className="auth-hint">{hint}</span>}
     </div>
   );
 }
@@ -279,13 +315,9 @@ function Field({
 function ErrorNote({ message }: { message: string | null }) {
   const t = useT();
   return (
-    <div className="card card-inset auth-error">
-      <p className="t-label">{t("auth.failed")}</p>
-      {message && (
-        <p className="t-caption" style={{ marginTop: 4 }}>
-          {message}
-        </p>
-      )}
+    <div className="auth-error">
+      <p className="ae-t">{t("auth.failed")}</p>
+      {message && <p className="ae-m">{message}</p>}
     </div>
   );
 }

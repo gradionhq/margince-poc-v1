@@ -72,6 +72,7 @@ type Server struct {
 	reportHandlers
 	coldstartHandlers
 	scrapeHandlers
+	imapConnectHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -172,6 +173,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		privacyHandlers:     privacy.NewHandlers(pool),
 		agentsHandlers:      agents.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
+		// The one-shot IMAP pull shares the capture registry (Sink + the
+		// live-authority principal swap); credentials arrive per request and
+		// are never persisted, so no standing connection is registered.
+		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool)},
 	}
 	for _, opt := range opts {
 		opt(&srv, pool)

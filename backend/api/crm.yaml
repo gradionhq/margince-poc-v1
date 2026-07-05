@@ -114,6 +114,8 @@ tags:
     description: Cross-object search.
   - name: AI
     description: AI-native moments — cold-start read-back and proposals.
+  - name: Connectors
+    description: Inbound capture connectors — one-shot and standing pulls that land as CRM records.
   - name: Approvals
     description: The 🟡 confirm-first approval inbox (approve/reject staged agent actions).
   - name: Identity
@@ -2339,6 +2341,73 @@ paths:
                     code: coldstart_unreadable
                     detail: Couldn't read enough from this page. Retry or paste text.
 
+  # -------------------------- /connectors/imap ------------------------------
+  /connectors/imap/connect:
+    post:
+      tags: [Connectors]
+      operationId: connectImap
+      summary: One-shot IMAP pull — capture the most recent mailbox messages as email activities.
+      description: |
+        Dials a user's mailbox over IMAPS with the supplied credentials, pulls the most recent
+        `max_messages` messages from `mailbox`, and captures each as an email activity on the
+        timeline. This is a ONE-SHOT pull: the credentials are used for this call only — they are
+        NEVER persisted (no stored connection, no background sync) and NEVER logged. Automated /
+        system mail (no-reply, bounces, auto-submitted) is skipped. The write lands through the
+        capture Sink, so every captured row carries its audit + outbox entry in one transaction.
+        Human-only: an agent Passport is not an accepted credential here.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImapConnectRequest' }
+            examples:
+              inbox:
+                value:
+                  host: imap.example.com
+                  port: 993
+                  email: alice@example.com
+                  password: app-specific-password
+                  mailbox: INBOX
+                  max_messages: 50
+      responses:
+        '200':
+          description: The pull completed; the summary reports what was captured.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImapConnectResult' }
+              examples:
+                captured:
+                  value: { connected: true, mailbox: INBOX, captured: 37, skipped: 13, contacts: 21 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: The mailbox rejected the credentials, or the request was malformed — no internals leaked.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                loginRejected:
+                  value:
+                    type: 'https://errors.gradion.com/imap_login_rejected'
+                    title: Mailbox rejected the credentials
+                    status: 422
+                    code: imap_login_rejected
+                    detail: The mail server rejected these credentials. Check the host, email and password.
+        '502':
+          description: The mail server could not be reached (DNS / TCP / TLS / timeout) — the raw cause stays server-side.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                unreachable:
+                  value:
+                    type: 'https://errors.gradion.com/imap_unreachable'
+                    title: Could not reach the mail server
+                    status: 502
+                    code: imap_unreachable
+                    detail: Couldn't reach that mail server. Check the host and port, then retry.
+
   # ---------------------------- /approvals ----------------------------------
   /approvals:
     get:
@@ -4160,6 +4229,29 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Connectors: IMAP one-shot capture ----
+    ImapConnectRequest:
+      type: object
+      required: [host, email, password]
+      properties:
+        host: { type: string, minLength: 1, description: IMAP server hostname (e.g. imap.gmail.com). }
+        port: { type: integer, minimum: 1, maximum: 65535, default: 993, description: IMAPS port; defaults to 993. }
+        email: { type: string, format: email, description: Mailbox login / address. }
+        password: { type: string, minLength: 1, description: Mailbox password (used for this call only — never stored, never logged). }
+        mailbox: { type: string, default: INBOX, description: Folder to pull from; defaults to INBOX. }
+        max_messages: { type: integer, minimum: 1, maximum: 200, default: 50, description: Most-recent messages to pull; capped at 200. }
+
+    ImapConnectResult:
+      type: object
+      description: The outcome of a one-shot IMAP pull.
+      required: [connected, mailbox, captured, skipped, contacts]
+      properties:
+        connected: { type: boolean, description: True when the mailbox was reached and read. }
+        mailbox: { type: string, description: The folder that was pulled. }
+        captured: { type: integer, description: Messages that landed as email activities. }
+        skipped: { type: integer, description: Messages intentionally dropped (automated/system mail, unparseable). }
+        contacts: { type: integer, description: Distinct counterparties seen across the captured messages. }
 
     # ---- AI: cold-start ----
     ColdStartRequest:

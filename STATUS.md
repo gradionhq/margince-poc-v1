@@ -5,7 +5,60 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## Last session: EP05 scrapeCompany + first-run auth + two pre-existing fixes (2026-07-05)
+## Last session: the onboarding funnel made real + runnable + a real IMAP connector (2026-07-05)
+
+A product-facing session: make the onboarding funnel genuinely testable in a
+browser, rebuild it to the design source of truth, and connect a real mailbox.
+
+- **One-command runnable stack (`make dev-tls`)** — kills the curl friction that
+  made a browser session impossible. `dev/dev.sh` boots db + migrate + api
+  (:8081) + a stdlib Go **HTTPS front door** (`dev/frontdoor`, :8080,
+  in-memory self-signed cert) + Vite (:5173), and injects the `.env.local`
+  Anthropic key into a scratch routing file. Single Secure-cookie origin at
+  `https://localhost:8080`, prod-like. `dev/` is its own go.work module, out of
+  the product module. Memory `margince-local-run` updated.
+- **The 5-step onboarding funnel rebuilt to the mockup** (`spec design/mockups/
+  index.html`) on the Ledger-Green tokens: Read · Confirm · Voice · Results ·
+  Connect, rail-less, DE/EN i18n (no-inline-copy + token conformance gates
+  green). Step 1 drives the **real** `/coldstart` read-back (verified in-browser
+  against stripe.com: grounded fields, evidence snippets, confidence dots, the
+  honest omit card for the ungrounded buyer). Step 3 is the Voice-DNA corpus
+  builder (opt-in gate, source tiles with the locked sent-email tile, word
+  meter + quality bands, starter-voice card). New `onboarding.css` ports the
+  mockup verbatim onto tokens. `frontend/src/screens/onboarding.tsx` fully
+  rewritten.
+- **Auth screen redesigned** (`auth.tsx` + `auth.css`) — a split hero (brand +
+  three product promises) beside the form card, replacing the bare centered
+  card. `auth.test.tsx` (8) still green.
+- **A real IMAP connector** (built by a scoped subagent, reviewed + integrated):
+  `POST /v1/connectors/imap/connect` (human-only, cookie-authed) dials a
+  mailbox over TLS 1.2+, captures the last N messages as email activities
+  through the existing capture Sink (audit + outbox in one tx), returns
+  `{connected, mailbox, captured, skipped, contacts}`. Credentials are
+  transient — used for the one call, never persisted, never logged. Errors map
+  to clean RFC 7807 (login→422 `imap_login_rejected`, unreachable→502
+  `imap_unreachable`) with the cause logged server-side, never leaked.
+  `capture/imap/` (connector + pure RFC822→activity mapping + unit tests),
+  `compose/imapconnect.go` (handler), `capture.Registry.RunTransient` (one-shot
+  pull under the caller's live authority). Smoke-tested live against
+  imap.gmail.com (bad creds → 422, unreachable → 502). Connect step (step 5)
+  wired to it; enter a real email + app-password to pull your inbox.
+- **Fixed a pre-existing e2e break**: the auth gate (added the prior session)
+  short-circuits to signup without a workspace slug, so every authed-screen e2e
+  rendered auth — 24 red. The seed now seeds the slug in localStorage
+  (`e2e/seed.ts`); full AC suite green again (AC-onboarding-1 now verifies the
+  new funnel).
+- **Backlogged** (feedback/18, git-ignored): real speech-to-text as an optional
+  cold-start entry accelerator (client-side Web Speech API; distinct from the
+  Voice-DNA writing-tone step). Founder-requested.
+
+Gates at close: `make frontend-check` (lint + 89 unit + build) · `make
+frontend-e2e` (AC suite) · backend `make build vet lint arch-lint test`
+(lint 0 issues) · `make test-integration` (real-PG RLS + HTTP e2e) — all green.
+`make drift` passes once the contract + generated files are committed together
+(this commit). Deps added: `emersion/go-imap` + `emersion/go-message`.
+
+## Prior session: EP05 scrapeCompany + first-run auth + two pre-existing fixes (2026-07-05)
 
 A working session that shipped the enrichment surface, closed a real
 first-run gap, and repaired two pre-existing integration failures:

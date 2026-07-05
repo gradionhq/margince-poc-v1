@@ -3,9 +3,16 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev clean eval frontend-check frontend-dev frontend-e2e craft-static craft-drift craft-sync hooks
+.PHONY: check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-drift craft-sync hooks
 
 check: craft-drift
+
+## dev-tls — the full local stack in a real browser: an HTTPS front door on
+## :8080 fronts the api (:8081) and the Vite dev server (:5173), so the SPA
+## gets a single Secure-cookie origin. Reads the Anthropic BYOK key from
+## .env.local for the live cold-start read-back. Open https://localhost:8080.
+dev-tls:
+	./dev/dev.sh
 
 check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev clean:
 	$(MAKE) -C backend $@

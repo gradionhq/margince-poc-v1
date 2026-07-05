@@ -248,6 +248,13 @@ export async function mockApi(target: Page): Promise<void> {
   if (process.env.BASE_URL) {
     return; // live-backend mode: no mocking
   }
+  // The auth gate (App.tsx) short-circuits to the signup screen when no
+  // workspace slug is resolved, before it ever probes /me — so a hermetic run
+  // must seed a slug in localStorage or every authed screen renders auth. The
+  // value is a dev-side setting, not tenant authority (the mocked /me is).
+  await target.addInitScript(() => {
+    window.localStorage.setItem("margince.workspaceSlug", "seed");
+  });
   // hermetic runs: no external font fetches
   await target.route("https://fonts.googleapis.com/**", (route) =>
     route.abort(),

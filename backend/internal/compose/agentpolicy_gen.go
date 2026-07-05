@@ -49,6 +49,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/automations":                       {Op: "createAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/bookings":                          {Op: "bookMeeting", Access: "tool", Tool: "book_meeting", RecordType: "activity", Tier: "yellow"},
 	"POST /v1/coldstart":                         {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
+	"POST /v1/connectors/imap/connect":           {Op: "connectImap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/consent-purposes":                  {Op: "createConsentPurpose", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/data-subject-requests":             {Op: "createDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/deals":                             {Op: "createDeal", Access: "tool", Tool: "create_record", RecordType: "deal", Tier: "green"},
