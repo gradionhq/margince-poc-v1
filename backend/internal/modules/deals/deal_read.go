@@ -152,7 +152,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) ([]
 
 const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
 	organization_id, owner_id, partner_org_id, status, lost_reason,
-	expected_close_date, closed_at, forecast_category, wait_until, last_activity_at,
+	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
 func readDeal(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
@@ -174,11 +174,12 @@ func scanDeal(row pgx.Row) (crmcontracts.Deal, error) {
 	var status string
 	var forecastCat *string
 	var expectedClose, waitUntil *time.Time
+	var closeDateProvisional bool
 	var version int64
 
 	err := row.Scan(&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
 		&orgID, &ownerID, &partnerID, &status, &d.LostReason,
-		&expectedClose, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
+		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
 		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt)
 	if err != nil {
 		return d, err
@@ -199,6 +200,7 @@ func scanDeal(row pgx.Row) (crmcontracts.Deal, error) {
 	if expectedClose != nil {
 		d.ExpectedCloseDate = &openapi_types.Date{Time: *expectedClose}
 	}
+	d.CloseDateProvisional = &closeDateProvisional
 	if waitUntil != nil {
 		d.WaitUntil = &openapi_types.Date{Time: *waitUntil}
 	}

@@ -68,6 +68,21 @@ type reportSpec struct {
 	defaultAggs  []reportAggregate
 }
 
+// forecastCategoryExpr is the forecast's effective-category dimension
+// (formulas §11, AC-F9): a claimed commit/best_case deal whose close
+// date is past, missing, or still a provisional machine guess is NOT
+// counted in those totals — it groups under 'slipped' until a human
+// confirms a real date. The exclusion lives in the dimension itself, so
+// the aggregate, its filter, and the drill-through all read the same
+// row set and keep reconciling exactly (no post-hoc subtraction).
+// "Today" buckets in the workspace reporting zone (data-semantics §2 r4)
+// via the spec's fixed workspace join.
+const forecastCategoryExpr = `(CASE WHEN t.forecast_category IN ('commit','best_case')
+		AND (t.expected_close_date IS NULL
+			OR t.expected_close_date < (timezone(w.timezone, now()))::date
+			OR t.close_date_provisional)
+	THEN 'slipped' ELSE t.forecast_category END)`
+
 // prebuiltReports is the report catalog (data-model §13 shape): keys
 // are never UUIDs, so saved-report ids cannot collide.
 var prebuiltReports = map[string]reportSpec{
@@ -123,14 +138,14 @@ var prebuiltReports = map[string]reportSpec{
 	"forecast": {
 		entity:    datasource.EntityDeal,
 		table:     "deal",
-		joins:     []string{"JOIN stage s ON s.id = t.stage_id"},
+		joins:     []string{"JOIN stage s ON s.id = t.stage_id", "JOIN workspace w ON w.id = t.workspace_id"},
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
-		basePlain: "open, unarchived deals (win probability read live from the deal's current stage)",
+		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{
 			"owner_id":          "t.owner_id",
 			"stage_id":          "t.stage_id",
 			"pipeline_id":       "t.pipeline_id",
-			"forecast_category": "t.forecast_category",
+			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
 			"win_probability":   "s.win_probability",
 		},
@@ -142,7 +157,7 @@ var prebuiltReports = map[string]reportSpec{
 			"owner_id":          "t.owner_id",
 			"stage_id":          "t.stage_id",
 			"pipeline_id":       "t.pipeline_id",
-			"forecast_category": "t.forecast_category",
+			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
 		},
 		defaultBy: []string{"forecast_category"},

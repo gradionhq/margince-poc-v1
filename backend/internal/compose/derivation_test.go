@@ -27,7 +27,8 @@ func TestRenderDefinitionReadsAsPlainLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `Over open, unarchived deals (win probability read live from the deal's current stage), ` +
+	want := `Over open, unarchived deals (win probability read live from the deal's current stage; ` +
+		`a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11), ` +
 		`filtered to pipeline_id = "018f-pipe", within the group where owner_id = "018f-owner": ` +
 		`the number of matching records as deals; the sum of amount_minor as unweighted_minor; ` +
 		`the sum of weighted_amount_minor as weighted_minor.`
@@ -43,7 +44,8 @@ func TestRenderDefinitionSpellsOutTheNullGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `Over open, unarchived deals (win probability read live from the deal's current stage), ` +
+	want := `Over open, unarchived deals (win probability read live from the deal's current stage; ` +
+		`a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11), ` +
 		`within the group where owner_id is not set: the number of matching records.`
 	if got != want {
 		t.Errorf("definition:\n got %q\nwant %q", got, want)
@@ -158,7 +160,9 @@ func TestForecastSpecShape(t *testing.T) {
 	if !ok {
 		t.Fatal("forecast report missing from the prebuilt catalog")
 	}
-	if got := spec.fromClause(); got != "deal t JOIN stage s ON s.id = t.stage_id" {
+	// Both joins are to-one lookups (the stage for win_probability, the
+	// workspace for the §11 reporting-zone "today"), never row multipliers.
+	if got := spec.fromClause(); got != "deal t JOIN stage s ON s.id = t.stage_id JOIN workspace w ON w.id = t.workspace_id" {
 		t.Errorf("fromClause = %q", got)
 	}
 	if spec.measures["weighted_amount_minor"] != "round((t.amount_minor * s.win_probability) / 100.0)::bigint" {

@@ -31,6 +31,7 @@ import (
 	// DE-first deployment (ADR-0042: composition by require-set).
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -57,6 +58,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fakeBrain := fs.Bool("ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	runnerInterval := fs.Duration("runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
 	retentionInterval := fs.Duration("retention-interval", 24*time.Hour, "retention evaluator pass interval")
+	closeDateInterval := fs.Duration("close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -114,6 +116,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	retention := privacy.NewRetentionService(pool, logger)
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", *retentionInterval)
 	background.Go(func() { privacy.RunRetention(ctx, retention, *retentionInterval, logger) })
+
+	corrector := compose.NewCloseDateCorrector(pool, logger)
+	_, _ = fmt.Fprintf(stdout, "worker sweeping close-date hygiene every %s\n", *closeDateInterval)
+	background.Go(func() { deals.RunCloseDateSweep(ctx, corrector, *closeDateInterval, logger) })
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")

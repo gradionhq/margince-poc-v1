@@ -45,22 +45,15 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		wsID := storekit.MustWorkspace(ctx)
 
-		// Deals are born open: AdvanceDeal is the ONE path that derives
-		// won/lost and maintains the closed_at/lost_reason/FX invariants.
-		// Creating straight onto a terminal stage would put an "open" deal
-		// on a won column — silent forecast corruption, no CHECK trips.
-		var semantic string
-		err := tx.QueryRow(ctx,
-			`SELECT semantic FROM stage WHERE id = $1 AND pipeline_id = $2 AND archived_at IS NULL`,
-			in.StageID, in.PipelineID).Scan(&semantic)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
+		if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
+			return err
 		}
-		if err != nil {
-			return fmt.Errorf("resolve target stage: %w", err)
-		}
-		if semantic == "won" || semantic == "lost" {
-			return &TerminalStageOnCreateError{Semantic: semantic}
+
+		// INV-CLOSE-PAST (formulas §11): deals are born open, and an open
+		// deal never claims a past close date — reject at source rather
+		// than let the nightly corrector inherit a knowingly-invalid row.
+		if err := rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
+			return err
 		}
 
 		// An FK argument that names a row-scoped business record is a read
@@ -112,6 +105,28 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 		return nil
 	})
 	return out, err
+}
+
+// ensureOpenBirthStage guards create: deals are born open — AdvanceDeal
+// is the ONE path that derives won/lost and maintains the
+// closed_at/lost_reason/FX invariants. Creating straight onto a terminal
+// stage would put an "open" deal on a won column — silent forecast
+// corruption, no CHECK trips.
+func ensureOpenBirthStage(ctx context.Context, tx pgx.Tx, stageID, pipelineID ids.UUID) error {
+	var semantic string
+	err := tx.QueryRow(ctx,
+		`SELECT semantic FROM stage WHERE id = $1 AND pipeline_id = $2 AND archived_at IS NULL`,
+		stageID, pipelineID).Scan(&semantic)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("resolve target stage: %w", err)
+	}
+	if semantic == "won" || semantic == "lost" {
+		return &TerminalStageOnCreateError{Semantic: semantic}
+	}
+	return nil
 }
 
 type UpdateDealInput struct {
@@ -227,7 +242,19 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 		p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)
 	}
 	if in.ExpectedClose != nil {
+		// INV-CLOSE-PAST (formulas §11): an open deal never claims a past
+		// close date. Closed deals keep their historical dates editable.
+		if string(current.Status) == "open" {
+			if err := rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
+				return nil, err
+			}
+		}
 		p.Set("expected_close_date", current.ExpectedCloseDate, *in.ExpectedClose)
+		// A human setting the date IS the §11 confirmation — the machine's
+		// provisional guess stops excluding the deal from Commit.
+		if current.CloseDateProvisional != nil && *current.CloseDateProvisional {
+			p.Set("close_date_provisional", true, false)
+		}
 	}
 	if in.ForecastCategory != nil {
 		p.Set("forecast_category", current.ForecastCategory, *in.ForecastCategory)
@@ -271,6 +298,47 @@ func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 		p.Set("fx_rate_date", nil, rateDate)
 	}
 	return nil
+}
+
+// rejectPastCloseDate is the write-layer half of INV-CLOSE-PAST: saving
+// expected_close_date earlier than today (in the workspace zone,
+// data-semantics §2 r4) on an open deal is an invalid state, not a
+// hygiene warning. The nightly corrector is the other half — it clears
+// rows that age into the past.
+func rejectPastCloseDate(ctx context.Context, tx pgx.Tx, expectedClose *time.Time) error {
+	if expectedClose == nil {
+		return nil
+	}
+	today, err := workspaceToday(ctx, tx)
+	if err != nil {
+		return err
+	}
+	y, m, d := expectedClose.Date()
+	if time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Before(today) {
+		return &PastCloseDateError{}
+	}
+	return nil
+}
+
+// workspaceToday reads "today" as the workspace's reporting zone sees it
+// (data-semantics §2 r4), returned as UTC midnight like every scanned
+// date column.
+func workspaceToday(ctx context.Context, tx pgx.Tx) (time.Time, error) {
+	var today time.Time
+	err := tx.QueryRow(ctx,
+		`SELECT (timezone(timezone, now()))::date FROM workspace WHERE id = $1`,
+		storekit.MustWorkspace(ctx)).Scan(&today)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("resolve workspace-zone today: %w", err)
+	}
+	return dateOnly(today), nil
+}
+
+// PastCloseDateError maps to 422 close_date_past (INV-CLOSE-PAST).
+type PastCloseDateError struct{}
+
+func (e *PastCloseDateError) Error() string {
+	return "an open deal cannot claim a close date in the past; pick today or later"
 }
 
 // AmountCurrencyPairError maps to 422: amount_minor and currency come

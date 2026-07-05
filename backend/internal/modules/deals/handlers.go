@@ -87,6 +87,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation("stage_id", "terminal_stage_on_create", terminalStage.Error()))
 		return
 	}
+	var pastClose *PastCloseDateError
+	if errors.As(err, &pastClose) {
+		httperr.Write(w, r, httperr.Validation("expected_close_date", "close_date_past", pastClose.Error()))
+		return
+	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a
 	// breach that slipped past the per-path validations still answers a
 	// typed 422 naming the rule — never an opaque 500.

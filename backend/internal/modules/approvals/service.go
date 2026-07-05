@@ -151,6 +151,23 @@ func (s *Service) HasPendingFor(ctx context.Context, kind string, targetID ids.U
 	return exists, err
 }
 
+// HasPendingKind reports whether a live pending staging of this kind
+// sits against the target at all, whatever its proposed change. Nightly
+// sweeps whose proposal moves with "today" consult it — a diff-hash
+// identity check (HasPendingFor) would let every pass stack a fresh
+// staging on one still awaiting decision.
+func (s *Service) HasPendingKind(ctx context.Context, kind string, targetID ids.UUID) (bool, error) {
+	var exists bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM approval
+			  WHERE kind = $1 AND target_entity_id = $2
+			    AND status = 'pending' AND expires_at > now())`,
+			kind, targetID).Scan(&exists)
+	})
+	return exists, err
+}
+
 // AlreadyDecidedError maps to 409.
 type AlreadyDecidedError struct{ Status string }
 
