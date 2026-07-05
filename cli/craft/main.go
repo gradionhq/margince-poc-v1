@@ -56,7 +56,7 @@ func cmdUpstream(args []string) int {
 	logPath := fs.String("log", "", "path to a verdict-log JSONL (upstream.Record per line)")
 	topN := fs.Int("top", 3, "how many blocker categories to propose")
 	windows := fs.Int("windows", 4, "block-rate trend windows")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 	if *logPath == "" {
 		return fail("upstream: --log is required")
 	}
@@ -81,11 +81,13 @@ func cmdUpstream(args []string) int {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(map[string]any{
+	if err := enc.Encode(map[string]any{
 		"proposals":        upstream.Propose(records, *topN, r),
 		"block_rate":       upstream.BlockRate(records),
 		"block_rate_trend": upstream.BlockRateTrend(records, *windows),
-	})
+	}); err != nil {
+		return fail("encode proposals: %v", err)
+	}
 	return 0
 }
 
@@ -139,7 +141,7 @@ func usage() {
 func cmdDispute(args []string) int {
 	fs := flag.NewFlagSet("dispute", flag.ExitOnError)
 	root := fs.String("root", ".", "repo root")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 	markers, err := gate.Collect(*root, gate.CraftToolDir)
 	if err != nil {
 		return fail("scan disputes: %v", err)
@@ -161,7 +163,7 @@ func cmdEval(args []string) int {
 	fs := flag.NewFlagSet("eval", flag.ExitOnError)
 	minPrecision := fs.Float64("min-precision", 1.0, "minimum acceptable BLOCK precision")
 	gvFlag := fs.String("gate-version", "", "pinned gate version (defaults to the pinned tuple)")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 
 	r, err := rubric.Load()
 	if err != nil {
@@ -184,7 +186,9 @@ func cmdEval(args []string) int {
 	report := golden.Evaluate(outcomes, *minPrecision)
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(report)
+	if err := enc.Encode(report); err != nil {
+		return fail("encode report: %v", err)
+	}
 	if !report.Pass {
 		fmt.Fprintf(os.Stderr, "eval: FAIL — BLOCK precision %.3f (min %.3f), %d regressed case(s)\n",
 			report.Metrics.BlockPrecision, *minPrecision, len(report.Mismatches))
@@ -200,7 +204,7 @@ func cmdEval(args []string) int {
 func cmdResidue(args []string) int {
 	fs := flag.NewFlagSet("residue", flag.ExitOnError)
 	root := fs.String("root", ".", "repo root")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 	markers, err := gate.Residue(*root)
 	if err != nil {
 		return fail("residue scan: %v", err)
@@ -222,7 +226,7 @@ func cmdAnnotate(args []string) int {
 	fs := flag.NewFlagSet("annotate", flag.ExitOnError)
 	path := fs.String("result", "", "path to the review result JSON")
 	root := fs.String("root", ".", "repo root")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 	if *path == "" {
 		return fail("annotate: --result is required")
 	}
@@ -252,7 +256,7 @@ func cmdAnnotate(args []string) int {
 func cmdVerdict(args []string) int {
 	fs := flag.NewFlagSet("verdict", flag.ExitOnError)
 	path := fs.String("result", "", "path to the review result JSON")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 	if *path == "" {
 		return fail("verdict: --result is required")
 	}
@@ -280,7 +284,7 @@ func cmdReview(args []string) int {
 	head := fs.String("head", "HEAD", "head ref")
 	root := fs.String("root", ".", "repo root")
 	gvFlag := fs.String("gate-version", "", "pinned gate version (defaults to the pinned tuple)")
-	_ = fs.Parse(args)
+	_ = fs.Parse(args) //craft:ignore swallowed-errors ExitOnError flagsets exit(2) inside Parse; it never returns an error
 
 	r, err := rubric.Load()
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -37,19 +38,19 @@ func ref(t datasource.EntityType, id openapi_types.UUID) datasource.EntityRef {
 func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource.Record, error) {
 	switch r.Type {
 	case datasource.EntityPerson:
-		v, err := p.store.GetPerson(ctx, r.ID, false)
+		v, err := p.store.GetPerson(ctx, r.ID, storekit.LiveOnly)
 		if err != nil {
 			return datasource.Record{}, err
 		}
 		return datasource.NewRecord(r, v, v.Version)
 	case datasource.EntityOrganization:
-		v, err := p.store.GetOrganization(ctx, r.ID, false)
+		v, err := p.store.GetOrganization(ctx, r.ID, storekit.LiveOnly)
 		if err != nil {
 			return datasource.Record{}, err
 		}
 		return datasource.NewRecord(r, v, v.Version)
 	case datasource.EntityLead:
-		v, err := p.store.GetLead(ctx, r.ID, false)
+		v, err := p.store.GetLead(ctx, r.ID, storekit.LiveOnly)
 		if err != nil {
 			return datasource.Record{}, err
 		}

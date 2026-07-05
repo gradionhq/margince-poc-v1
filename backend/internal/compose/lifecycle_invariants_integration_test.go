@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -221,10 +222,10 @@ func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 	rep := e.as(e.rep1, []ids.UUID{e.team1}, repPermsWithActivity())
 
 	// Get: the activity attached to another team's person answers 404.
-	if _, err := e.activities.GetActivity(rep, ids.UUID(secret.Id), false); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.activities.GetActivity(rep, ids.UUID(secret.Id), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("foreign-linked activity → %v, want ErrNotFound", err)
 	}
-	if _, err := e.activities.GetActivity(rep, ids.UUID(visible.Id), false); err != nil {
+	if _, err := e.activities.GetActivity(rep, ids.UUID(visible.Id), storekit.LiveOnly); err != nil {
 		t.Errorf("team-linked activity → %v, want success", err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -30,8 +31,11 @@ func (h Handlers) ListLists(w http.ResponseWriter, r *http.Request, params crmco
 		v := string(*params.EntityType)
 		entityType = &v
 	}
-	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
-	lists, err := h.store.ListLists(r.Context(), entityType, includeArchived)
+	archived := storekit.LiveOnly
+	if params.IncludeArchived != nil && *params.IncludeArchived {
+		archived = storekit.IncludeArchived
+	}
+	lists, truncated, err := h.store.ListLists(r.Context(), entityType, archived)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -40,7 +44,7 @@ func (h Handlers) ListLists(w http.ResponseWriter, r *http.Request, params crmco
 	for _, l := range lists {
 		data = append(data, wireList(l))
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ListListResponse{Data: data, Page: crmcontracts.PageInfo{}})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ListListResponse{Data: data, Page: crmcontracts.PageInfo{HasMore: truncated}})
 }
 
 func (h Handlers) CreateList(w http.ResponseWriter, r *http.Request) {
@@ -128,8 +132,11 @@ func (h Handlers) AddListMember(w http.ResponseWriter, r *http.Request, id crmco
 }
 
 func (h Handlers) ListTags(w http.ResponseWriter, r *http.Request, params crmcontracts.ListTagsParams) {
-	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
-	tags, err := h.store.ListTags(r.Context(), includeArchived)
+	archived := storekit.LiveOnly
+	if params.IncludeArchived != nil && *params.IncludeArchived {
+		archived = storekit.IncludeArchived
+	}
+	tags, truncated, err := h.store.ListTags(r.Context(), archived)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -138,7 +145,7 @@ func (h Handlers) ListTags(w http.ResponseWriter, r *http.Request, params crmcon
 	for _, t := range tags {
 		data = append(data, wireTag(t))
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.TagListResponse{Data: data, Page: crmcontracts.PageInfo{}})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.TagListResponse{Data: data, Page: crmcontracts.PageInfo{HasMore: truncated}})
 }
 
 func (h Handlers) CreateTag(w http.ResponseWriter, r *http.Request) {

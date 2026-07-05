@@ -73,13 +73,19 @@ func (s *Store) Append(sig Signal) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
 	line, err := json.Marshal(sig)
 	if err != nil {
+		//craft:ignore swallowed-errors nothing was written yet; the marshal error is the one to report
+		_ = f.Close()
 		return err
 	}
-	_, err = fmt.Fprintln(f, string(line))
-	return err
+	if _, err := fmt.Fprintln(f, string(line)); err != nil {
+		//craft:ignore swallowed-errors the write already failed; its error supersedes the close
+		_ = f.Close()
+		return err
+	}
+	// Close is the last step that can lose the appended line — report it.
+	return f.Close()
 }
 
 // All reads back every captured signal.
@@ -91,6 +97,7 @@ func (s *Store) All() ([]Signal, error) {
 		}
 		return nil, err
 	}
+	//craft:ignore swallowed-errors read-only close cannot lose data; scanner errors carry the read failure
 	defer func() { _ = f.Close() }()
 	var out []Signal
 	sc := bufio.NewScanner(f)

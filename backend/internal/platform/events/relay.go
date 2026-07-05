@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,23 @@ func NewClient(ctx context.Context, addr string) (*redis.Client, error) {
 		return nil, fmt.Errorf("bus: redis at %s unreachable: %w", addr, err)
 	}
 	return rdb, nil
+}
+
+// publishedTotal counts rows shipped since process start — process-wide,
+// not per-Relay, so the metrics endpoint reads it without holding the
+// relay instance (which may live in this process or in cmd/worker).
+var publishedTotal atomic.Uint64
+
+// PublishedTotal reports how many outbox rows this process has shipped.
+func PublishedTotal() uint64 { return publishedTotal.Load() }
+
+// OutboxBacklog counts committed-but-unshipped outbox rows — the one
+// number that says whether the relay is keeping up. event_outbox is a
+// global infra table (no RLS), so the plain pool reads it.
+func OutboxBacklog(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	var n int64
+	err := pool.QueryRow(ctx, `SELECT count(*) FROM event_outbox WHERE published_at IS NULL`).Scan(&n)
+	return n, err
 }
 
 // Relay is the events.md §4.2 outbox relay: it polls unpublished
@@ -156,6 +174,7 @@ func (r *Relay) relayBatch(ctx context.Context) (int, error) {
 				break
 			}
 			shipped = append(shipped, row.id)
+			publishedTotal.Add(1)
 		}
 		if len(shipped) == 0 {
 			return xaddErr

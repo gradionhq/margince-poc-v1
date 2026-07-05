@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -70,7 +71,7 @@ func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
 
 	// The lead is graduated: promoted, stamped with the outcome, archived
 	// off the lead list — but still resolvable by id for the audit trail.
-	lead, err := e.people.GetLead(admin, leadID, true)
+	lead, err := e.people.GetLead(admin, leadID, storekit.IncludeArchived)
 	if err != nil {
 		t.Fatal(err)
 	}

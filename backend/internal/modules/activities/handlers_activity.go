@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -61,7 +62,7 @@ func (h Handlers) LogActivity(w http.ResponseWriter, r *http.Request, _ crmcontr
 }
 
 func (h Handlers) GetActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	activity, err := h.store.GetActivity(r.Context(), ids.UUID(id), true)
+	activity, err := h.store.GetActivity(r.Context(), ids.UUID(id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

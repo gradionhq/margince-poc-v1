@@ -198,28 +198,44 @@ func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	return spec, true
 }
 
-// tierInput supplies the lazy TierResolverInput for dynamic specs. The
-// REST body shapes are per-tool; a dynamic tool this table doesn't know
-// cannot be resolved and must fail closed at the caller.
+// dynamicTierInputs maps each dynamic tool onto the resolver that reads
+// its tier decision out of the tool's REST body shape. The invariant: a
+// dynamic tool without an entry here has no REST twin the gate knows how
+// to interpret — its tier question cannot be answered, so tierInput
+// reports a miss and the caller refuses the request (fail-closed).
+var dynamicTierInputs = map[string]func(ctx context.Context, stages agents.StageResolver, body []byte) (mcp.TierResolverInput, error){
+	"advance_deal": advanceDealTierInput,
+}
+
+// advanceDealTierInput: 🟢/🟡 turns on whether the destination stage is a
+// closing stage, so the resolver needs the concrete stage's semantic.
+func advanceDealTierInput(ctx context.Context, stages agents.StageResolver, body []byte) (mcp.TierResolverInput, error) {
+	var args struct {
+		ToStageID ids.UUID `json:"to_stage_id"`
+	}
+	if err := json.Unmarshal(body, &args); err != nil || args.ToStageID.IsZero() {
+		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "required", "to_stage_id must be a stage UUID")
+	}
+	semantic, pipelineID, err := stages.StageSemantic(ctx, args.ToStageID)
+	if err != nil {
+		return mcp.TierResolverInput{}, err
+	}
+	return mcp.TierResolverInput{Args: body, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+}
+
+// tierInput supplies the lazy TierResolverInput for the admitted spec:
+// static tiers pass the body through; dynamic tiers dispatch through
+// dynamicTierInputs and report a miss for the caller to refuse.
 func tierInput(ctx context.Context, spec mcp.ToolSpec, pol agentPolicy, stages agents.StageResolver, body []byte) (func() (mcp.TierResolverInput, error), bool) {
 	if spec.Tier != mcp.TierDynamic {
 		return func() (mcp.TierResolverInput, error) { return mcp.TierResolverInput{Args: body}, nil }, true
 	}
-	if pol.Tool != "advance_deal" {
+	resolve, known := dynamicTierInputs[pol.Tool]
+	if !known {
 		return nil, false
 	}
 	return func() (mcp.TierResolverInput, error) {
-		var args struct {
-			ToStageID ids.UUID `json:"to_stage_id"`
-		}
-		if err := json.Unmarshal(body, &args); err != nil || args.ToStageID.IsZero() {
-			return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "required", "to_stage_id must be a stage UUID")
-		}
-		semantic, pipelineID, err := stages.StageSemantic(ctx, args.ToStageID)
-		if err != nil {
-			return mcp.TierResolverInput{}, err
-		}
-		return mcp.TierResolverInput{Args: body, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
+		return resolve(ctx, stages, body)
 	}, true
 }
 

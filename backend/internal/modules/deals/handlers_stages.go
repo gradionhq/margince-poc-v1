@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -36,8 +37,11 @@ func (h Handlers) ListStages(w http.ResponseWriter, r *http.Request, params crmc
 		id := ids.UUID(*params.PipelineId)
 		pipelineID = &id
 	}
-	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
-	stages, err := h.store.ListStages(r.Context(), pipelineID, includeArchived)
+	archived := storekit.LiveOnly
+	if params.IncludeArchived != nil && *params.IncludeArchived {
+		archived = storekit.IncludeArchived
+	}
+	stages, err := h.store.ListStages(r.Context(), pipelineID, archived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

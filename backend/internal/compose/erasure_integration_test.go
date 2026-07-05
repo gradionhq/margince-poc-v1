@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -82,7 +83,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	admin := e.admin()
 
 	// The SAR sees the full picture BEFORE erasure — Art. 15 assembly.
-	pkg, err := AssembleSAR(admin, e.pool, personID)
+	pkg, err := privacy.AssembleSAR(admin, e.pool, personID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +93,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 			pkg.Subject["full_name"], len(pkg.Emails), len(pkg.Activities), len(pkg.RawCapture))
 	}
 
-	if err := NewEraser(e.pool).ErasePerson(admin, personID, "test"); err != nil {
+	if err := privacy.NewEraser(e.pool).ErasePerson(admin, personID, "test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -185,7 +186,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := NewEraser(e.pool).ErasePerson(admin, held, "test"); !errors.Is(err, apperrors.ErrConflict) {
+	if err := privacy.NewEraser(e.pool).ErasePerson(admin, held, "test"); !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("erasing a held subject → %v, want ErrConflict", err)
 	}
 }

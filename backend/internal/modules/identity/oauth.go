@@ -23,6 +23,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -188,7 +189,7 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 		if err != nil {
 			return err
 		}
-		if !containsExact(uris, req.RedirectURI) {
+		if !slices.Contains(uris, req.RedirectURI) {
 			return errRedirectMismatch
 		}
 		return nil
@@ -463,15 +464,6 @@ func validRedirectURI(raw string) bool {
 	default:
 		return false
 	}
-}
-
-func containsExact(list []string, v string) bool {
-	for _, item := range list {
-		if item == v {
-			return true
-		}
-	}
-	return false
 }
 
 func hashOAuthCode(code string) string {

@@ -3,5 +3,5 @@
 
 package compose
 
-//go:generate python3 ../../tools/gen-stubs/gen.py
-//go:generate go run ../../tools/gen-agentpolicy -in ../../api/crm.yaml -out agentpolicy_gen.go
+//go:generate go run github.com/gradionhq/margince/backend/tools/gen-stubs -src ../contracts/api_gen.go -out stubs_gen.go
+//go:generate go run github.com/gradionhq/margince/backend/tools/gen-agentpolicy -in ../../api/crm.yaml -out agentpolicy_gen.go

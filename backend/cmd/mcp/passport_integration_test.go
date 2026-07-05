@@ -28,8 +28,9 @@ import (
 )
 
 // passportEnv migrates a fresh schema and bootstraps one workspace,
-// returning the service and the admin identity.
-func passportEnv(t *testing.T) (*identity.Service, identity.Identity) {
+// returning the service, the admin identity, and the owner connection
+// (tests use it to shift timestamps the app role may not touch).
+func passportEnv(t *testing.T) (*identity.Service, identity.Identity, *pgx.Conn) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
@@ -73,7 +74,7 @@ func passportEnv(t *testing.T) (*identity.Service, identity.Identity) {
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	return svc, admin
+	return svc, admin, owner
 }
 
 func wsCtx(id identity.Identity) context.Context {
@@ -81,7 +82,7 @@ func wsCtx(id identity.Identity) context.Context {
 }
 
 func TestPassportLifecycle(t *testing.T) {
-	svc, admin := passportEnv(t)
+	svc, admin, _ := passportEnv(t)
 	ctx := wsCtx(admin)
 
 	label := "Claude Desktop"
@@ -131,7 +132,7 @@ func TestPassportLifecycle(t *testing.T) {
 // seed that fails must roll the whole tenant back — no workspace row, no
 // admin, nothing to collide with on retry.
 func TestBootstrapSeedFailureRollsBackTenant(t *testing.T) {
-	svc, _ := passportEnv(t)
+	svc, _, _ := passportEnv(t)
 	ctx := context.Background()
 
 	boom := errors.New("seed blew up")
@@ -160,7 +161,7 @@ func TestBootstrapSeedFailureRollsBackTenant(t *testing.T) {
 }
 
 func TestPassportRefusesBadScopesAndExpiry(t *testing.T) {
-	svc, admin := passportEnv(t)
+	svc, admin, owner := passportEnv(t)
 	ctx := wsCtx(admin)
 
 	var badScope *identity.InvalidScopeError
@@ -175,13 +176,17 @@ func TestPassportRefusesBadScopesAndExpiry(t *testing.T) {
 		t.Fatalf("ttl over the 90-day cap → %v", err)
 	}
 
-	// An expired passport reads as absent.
-	short := time.Second
-	issued, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{Scopes: []string{"read"}, TTL: &short})
+	// An expired passport reads as absent. Expiry is a property of the
+	// stored timestamp, so the test moves the timestamp instead of the
+	// clock — backdated through the owner connection.
+	issued, err := svc.IssuePassport(ctx, admin, identity.IssuePassportInput{Scopes: []string{"read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1100 * time.Millisecond)
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE passport SET expires_at = now() - interval '1 second' WHERE id = $1`, issued.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.AuthenticateAgent(ctx, issued.Token); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("expired token authenticated: %v", err)
 	}

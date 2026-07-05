@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,9 +31,11 @@ import (
 	// DE-first deployment (ADR-0042: composition by require-set).
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -54,12 +57,20 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fakeBrain := fs.Bool("ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	runnerInterval := fs.Duration("runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
 	retentionInterval := fs.Duration("retention-interval", 24*time.Hour, "retention evaluator pass interval")
+	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
+	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *dsn == "" {
 		return errors.New("worker: --dsn or MARGINCE_DSN required")
 	}
+
+	handler, err := newLogHandler(stdout, *logLevel, *logFormat)
+	if err != nil {
+		return err
+	}
+	logger := slog.New(httpserver.WithCorrelation(handler))
 
 	pool, err := database.NewPool(ctx, *dsn)
 	if err != nil {
@@ -73,38 +84,71 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer func() { _ = rdb.Close() }()
 
-	logger := slog.New(slog.NewTextHandler(stdout, nil))
-
 	modelPath, err := selectModelPath(*routingPath, *fakeBrain, pool)
 	if err != nil {
 		return err
 	}
+
+	// Every background lane joins the WaitGroup so run() returns only
+	// after in-flight handlers finish their ack — the same shape as
+	// cmd/api's relay group; a bare goroutine would be killed mid-handler
+	// when the relay returns.
+	var background sync.WaitGroup
 	if modelPath.Agent != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
 		svc := compose.NewRunnerService(pool, modelPath.Agent, grounding, logger)
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", *runnerInterval)
-		go runScheduler(ctx, svc, *runnerInterval, logger)
-		go runResumeSubscriber(ctx, rdb, svc, logger)
+		background.Go(func() { runScheduler(ctx, svc, *runnerInterval, logger) })
+		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
 	}
 	if modelPath.Embedder != nil {
 		gen := search.NewEmbedGen(search.NewStore(pool), modelPath.Embedder)
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
-		go runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger)
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger) })
 	}
 
-	retention := compose.NewRetentionService(pool, logger)
+	retention := privacy.NewRetentionService(pool, logger)
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", *retentionInterval)
-	go compose.RunRetention(ctx, retention, *retentionInterval, logger)
+	background.Go(func() { privacy.RunRetention(ctx, retention, *retentionInterval, logger) })
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
-	go runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger)
+	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
 
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", *redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
 	// the next boot — shutdown loses no events.
 	events.NewRelay(pool, rdb, logger).Run(ctx)
+	background.Wait()
 	return nil
+}
+
+// newLogHandler builds the slog backend from the operator's level and
+// format choices; a typo in either is a boot error, never a silent
+// fallback to defaults.
+func newLogHandler(w io.Writer, level, format string) (slog.Handler, error) {
+	var lv slog.LevelVar
+	switch level {
+	case "debug":
+		lv.Set(slog.LevelDebug)
+	case "info":
+		lv.Set(slog.LevelInfo)
+	case "warn":
+		lv.Set(slog.LevelWarn)
+	case "error":
+		lv.Set(slog.LevelError)
+	default:
+		return nil, fmt.Errorf("--log-level %q: want debug, info, warn, or error", level)
+	}
+	opts := &slog.HandlerOptions{Level: &lv}
+	switch format {
+	case "text":
+		return slog.NewTextHandler(w, opts), nil
+	case "json":
+		return slog.NewJSONHandler(w, opts), nil
+	default:
+		return nil, fmt.Errorf("--log-format %q: want text or json", format)
+	}
 }
 
 // selectModelPath resolves the model path: a routing config for real

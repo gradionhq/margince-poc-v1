@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -37,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -56,12 +58,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	workspace := fs.String("workspace", os.Getenv("MARGINCE_WORKSPACE"), "workspace slug the passport belongs to")
 	listen := fs.String("listen", "", "serve the hosted A2 transport on this address instead of stdio")
+	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "diagnostic verbosity: debug|info|warn|error")
+	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "diagnostic encoding: text|json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *dsn == "" {
 		return errors.New("mcp: --dsn or MARGINCE_DSN required")
 	}
+
+	// Diagnostics go to stderr on BOTH transports: stdout is the stdio
+	// protocol channel, and the hosted transport keeps the same habit.
+	logger, err := newLogger(os.Stderr, *logLevel, *logFormat)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
 
 	pool, err := database.NewPool(ctx, *dsn)
 	if err != nil {
@@ -73,7 +85,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	registry := compose.NewRegistry(pool)
 
 	if *listen != "" {
-		return serveHosted(ctx, *listen, auth, registry, *workspace)
+		return serveHosted(ctx, *listen, auth, registry, *workspace, logger)
 	}
 
 	if *workspace == "" {
@@ -104,17 +116,43 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("mcp: passport check failed: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "mcp: serving %d tools for workspace %q over stdio\n",
-		len(registry.Specs()), *workspace)
+	logger.Info("mcp: serving over stdio", "tools", len(registry.Specs()), "workspace", *workspace)
 	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
+		WithLogger(logger).
 		Serve(ctx, os.Stdin, stdout)
+}
+
+// envOr keeps the flag defaults env-backed without cluttering run.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// newLogger builds the diagnostic logger the flags describe; an unknown
+// level or format is a boot error, not a silent default.
+func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(level)); err != nil {
+		return nil, fmt.Errorf("mcp: --log-level %q is not debug|info|warn|error", level)
+	}
+	opts := &slog.HandlerOptions{Level: lvl}
+	switch format {
+	case "text":
+		return slog.New(slog.NewTextHandler(w, opts)), nil
+	case "json":
+		return slog.New(slog.NewJSONHandler(w, opts)), nil
+	default:
+		return nil, fmt.Errorf("mcp: --log-format %q is not text|json", format)
+	}
 }
 
 // serveHosted is the A2 transport: POST /mcp with a Bearer passport
 // token (minted by the /oauth flow or POST /passports). The workspace
 // resolves from the X-Workspace-Slug header in dev, the --workspace
 // default otherwise — production fronts this with per-tenant hosts.
-func serveHosted(ctx context.Context, addr string, auth *identity.Service, registry *agents.Registry, defaultWorkspace string) error {
+func serveHosted(ctx context.Context, addr string, auth *identity.Service, registry *agents.Registry, defaultWorkspace string, logger *slog.Logger) error {
 	authenticate := func(r *http.Request) (context.Context, error) {
 		slug := r.Header.Get("X-Workspace-Slug")
 		if slug == "" {
@@ -148,10 +186,22 @@ func serveHosted(ctx context.Context, addr string, auth *identity.Service, regis
 	})
 	mux.Handle("/mcp", agents.NewHTTPHandler(registry, authenticate, "margince-crm", "0.1.0"))
 
-	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{
+		Addr: addr,
+		// One JSON-RPC exchange per POST, bodies capped by LimitBodies.
+		Handler:           httpserver.LimitBodies(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// A dynamic tool call can block on a model call, which
+		// modules/ai budgets at 120s per request — the write timeout
+		// must outlast that budget or the slowest legitimate call dies
+		// mid-response.
+		WriteTimeout: 150 * time.Second,
+		IdleTimeout:  2 * time.Minute,
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- server.ListenAndServe() }()
-	fmt.Fprintf(os.Stderr, "mcp: hosted A2 transport on %s (%d tools)\n", addr, len(registry.Specs()))
+	logger.Info("mcp: hosted A2 transport up", "addr", addr, "tools", len(registry.Specs()))
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

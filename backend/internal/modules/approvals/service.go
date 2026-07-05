@@ -41,10 +41,14 @@ const redemptionTTL = 15 * time.Minute
 
 type Service struct {
 	pool *pgxpool.Pool
+	// now is the service's clock: both expiry windows (staging TTL,
+	// redemption TTL) are judged against it, so tests can prove the
+	// pending→expired and approved→dead transitions without sleeping.
+	now func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
 }
 
 // StageInput describes one refused 🟡 call to hold for decision.
@@ -101,7 +105,7 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
 			"summary":            in.Summary,
 			"target_entity_type": in.TargetType,
 			"target_entity_id":   nullUUID(in.TargetID),
-			"expires_at":         time.Now().UTC().Add(stagingTTL),
+			"expires_at":         s.now().UTC().Add(stagingTTL),
 		}); err != nil {
 			return err
 		}
@@ -167,8 +171,8 @@ func scan(r pgx.Row) (row, error) {
 
 // effectiveStatus folds lazy expiry in: a pending row past its expiry
 // reads as expired everywhere without a sweeper process.
-func (a row) effectiveStatus() string {
-	if a.Status == "pending" && time.Now().After(a.ExpiresAt) {
+func (a row) effectiveStatus(now time.Time) string {
+	if a.Status == "pending" && now.After(a.ExpiresAt) {
 		return "expired"
 	}
 	return a.Status
@@ -350,7 +354,7 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		if !visible {
 			return apperrors.ErrNotFound
 		}
-		if st := a.effectiveStatus(); st != "pending" {
+		if st := a.effectiveStatus(s.now()); st != "pending" {
 			return &AlreadyDecidedError{Status: st}
 		}
 
@@ -410,10 +414,10 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 		}
 		switch {
 		case a.Status != "approved":
-			return fmt.Errorf("approval is %s: %w", a.effectiveStatus(), apperrors.ErrApprovalTokenInvalid)
+			return fmt.Errorf("approval is %s: %w", a.effectiveStatus(s.now()), apperrors.ErrApprovalTokenInvalid)
 		case a.ConsumedAt != nil:
 			return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
-		case a.DecidedAt != nil && time.Since(*a.DecidedAt) > redemptionTTL:
+		case a.DecidedAt != nil && s.now().Sub(*a.DecidedAt) > redemptionTTL:
 			return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
 		case a.Kind != tool:
 			return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
@@ -625,7 +629,7 @@ func (s *Service) emit(ctx context.Context, tx pgx.Tx, p principal.Principal, au
 		Type:        eventType,
 		Version:     events.VersionOf(eventType),
 		WorkspaceID: wsID,
-		OccurredAt:  time.Now().UTC(),
+		OccurredAt:  s.now().UTC(),
 		Actor: events.Actor{
 			Type: string(p.Type), ID: p.ID,
 			PassportID: nullUUID(p.PassportID), OnBehalfOf: nullUUID(p.OnBehalfOf),

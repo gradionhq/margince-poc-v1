@@ -6,6 +6,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -83,11 +84,13 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 					return apperrors.ErrConflict
 				}
 				created = false
-				out, err = readLead(ctx, tx, existing, true)
-				return err
+				if out, err = readLead(ctx, tx, existing, storekit.IncludeArchived); err != nil {
+					return fmt.Errorf("read replayed lead: %w", err)
+				}
+				return nil
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
-				return err
+				return fmt.Errorf("probe source-key idempotency: %w", err)
 			}
 		}
 		if in.Email != nil {
@@ -107,7 +110,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 				return dup
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
-				return err
+				return fmt.Errorf("probe email dedupe: %w", err)
 			}
 		}
 
@@ -133,23 +136,25 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 				}
 				return apperrors.ErrConflict
 			}
-			return err
+			return fmt.Errorf("insert lead: %w", err)
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "lead", id, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit lead create: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id, nil); err != nil {
-			return err
+			return fmt.Errorf("emit lead.created: %w", err)
 		}
-		out, err = readLead(ctx, tx, id, false)
-		return err
+		if out, err = readLead(ctx, tx, id, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read created lead: %w", err)
+		}
+		return nil
 	})
 	return out, created, err
 }
 
-func (s *Store) GetLead(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Lead, error) {
+func (s *Store) GetLead(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
 		return crmcontracts.Lead{}, err
 	}
@@ -158,7 +163,7 @@ func (s *Store) GetLead(ctx context.Context, id ids.UUID, includeArchived bool) 
 		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
 			return err
 		}
-		out, err = readLead(ctx, tx, id, includeArchived)
+		out, err = readLead(ctx, tx, id, archived)
 		return err
 	})
 	return out, err
@@ -266,7 +271,7 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
 			return err
 		}
-		current, err := readLead(ctx, tx, id, false)
+		current, err := readLead(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -317,7 +322,7 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 		if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", id, p.After()); err != nil {
 			return err
 		}
-		out, err = readLead(ctx, tx, id, false)
+		out, err = readLead(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
@@ -334,7 +339,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.L
 		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
 			return err
 		}
-		current, err := readLead(ctx, tx, id, false)
+		current, err := readLead(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -351,7 +356,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.L
 		if err := storekit.Emit(ctx, tx, auditID, "lead.disqualified", "lead", id, nil); err != nil {
 			return err
 		}
-		out, err = readLead(ctx, tx, id, true)
+		out, err = readLead(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
@@ -361,9 +366,9 @@ const leadColumns = `id, workspace_id, full_name, email, title, company_name, ca
 	status, score, owner_id, source_system, source_id, promoted_person_id, promoted_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
-func readLead(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool) (crmcontracts.Lead, error) {
+func readLead(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
 	q := `SELECT ` + leadColumns + ` FROM lead WHERE id = $1`
-	if !includeArchived {
+	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
 	l, err := scanLead(tx.QueryRow(ctx, q, id))

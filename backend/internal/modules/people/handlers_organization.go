@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -69,7 +70,7 @@ func (h Handlers) CreateOrganization(w http.ResponseWriter, r *http.Request, _ c
 }
 
 func (h Handlers) GetOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	org, err := h.store.GetOrganization(r.Context(), ids.UUID(id), true)
+	org, err := h.store.GetOrganization(r.Context(), ids.UUID(id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

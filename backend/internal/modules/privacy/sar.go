@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package compose
+package privacy
 
 // GDPR Art. 15 subject-access assembly (admin-mediated in V1): one
 // operation gathers everything held about a person — the normalized

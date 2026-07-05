@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -51,7 +52,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc := NewRetentionService(e.pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.Evaluate(context.Background()); err != nil {
 		t.Fatal(err)
 	}

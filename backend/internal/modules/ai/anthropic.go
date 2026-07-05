@@ -51,7 +51,7 @@ type anthropicToolWire struct {
 }
 
 func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
-	body, err := c.post(ctx, req, false)
+	body, err := c.post(ctx, req)
 	if err != nil {
 		return model.Response{}, err
 	}
@@ -92,7 +92,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 }
 
 func (c *anthropicClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
-	body, err := c.post(ctx, req, true)
+	body, err := c.postStream(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,18 @@ func (c *anthropicClient) Caps() model.Capabilities {
 	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false}
 }
 
-func (c *anthropicClient) post(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
+// post sends one non-streaming Messages call; postStream opens the SSE
+// variant of the same call. Two names so a call site says which wire
+// mode it gets instead of passing a bare boolean.
+func (c *anthropicClient) post(ctx context.Context, req model.Request) (io.ReadCloser, error) {
+	return c.send(ctx, req, false)
+}
+
+func (c *anthropicClient) postStream(ctx context.Context, req model.Request) (io.ReadCloser, error) {
+	return c.send(ctx, req, true)
+}
+
+func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
 	wire := anthropicWire{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,

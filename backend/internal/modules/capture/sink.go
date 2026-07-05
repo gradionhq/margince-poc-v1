@@ -105,79 +105,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 
 		switch fields := rec.Fields.(type) {
 		case ActivityFields:
-			id, created, err := s.upsertActivity(ctx, tx, rec, fields)
-			if err != nil {
-				return err
-			}
-			ref = datasource.EntityRef{Type: datasource.EntityActivity, ID: id}
-			if !created {
-				return nil
-			}
-			if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
-				return err
-			}
-			auditID, err := storekit.Audit(ctx, tx, "create", "activity", id, nil, fields)
-			if err != nil {
-				return err
-			}
-			return storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{
-				"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
-			})
+			var err error
+			ref, err = s.captureActivity(ctx, tx, rec, fields)
+			return err
 		case LeadFields:
-			// Provider payloads carry whitespace; every downstream email
-			// comparison (suppression, dedupe, the DB lower()) assumes a
-			// trimmed address.
-			fields.Email = strings.TrimSpace(fields.Email)
-			// The A13 resurrection guard: an erased subject's address
-			// refuses re-capture — deletion sticks. The natural key, not
-			// the address, names the skip (the log must not re-store PII).
-			if fields.Email != "" {
-				suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
-				if err != nil {
-					return err
-				}
-				if suppressed {
-					return fmt.Errorf("capture: %s/%s matches the erasure suppression list: %w",
-						rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, connector.ErrSkip)
-				}
-				// Dedupe: an email already on a LIVE lead from a DIFFERENT
-				// source is a collision, not a second row — remember it and
-				// stage the merge after this transaction commits (a replay
-				// of the same natural key is the idempotent path below).
-				var existing ids.UUID
-				err = tx.QueryRow(ctx, `
-					SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
-					  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
-					fields.Email, rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&existing)
-				if err == nil {
-					captured, err := json.Marshal(fields)
-					if err != nil {
-						return err
-					}
-					dedupeHit = &existing
-					dedupeFields = captured
-					ref = datasource.EntityRef{Type: datasource.EntityLead, ID: existing}
-					return nil
-				}
-				if !errors.Is(err, pgx.ErrNoRows) {
-					return err
-				}
-			}
-			id, created, err := s.upsertLead(ctx, tx, rec, fields)
-			if err != nil {
-				return err
-			}
-			ref = datasource.EntityRef{Type: datasource.EntityLead, ID: id}
-			if !created {
-				return nil
-			}
-			auditID, err := storekit.Audit(ctx, tx, "create", "lead", id, nil, fields)
-			if err != nil {
-				return err
-			}
-			return storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id, map[string]any{
-				"source_system": rec.NaturalKey.SourceSystem,
-			})
+			var err error
+			ref, dedupeHit, dedupeFields, err = s.captureLead(ctx, tx, rec, fields)
+			return err
 		default:
 			return fmt.Errorf("capture: unmapped Fields type %T for %s", rec.Fields, rec.EntityType)
 		}
@@ -201,14 +135,98 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	return ref, nil
 }
 
+// captureActivity lands one activity: upsert on the natural key, links,
+// audit and event only when the row is new — a replay writes nothing.
+func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, error) {
+	id, created, err := s.upsertActivity(ctx, tx, rec, fields)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	ref := datasource.EntityRef{Type: datasource.EntityActivity, ID: id}
+	if !created {
+		return ref, nil
+	}
+	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id, nil, fields)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{
+		"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
+	}); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	return ref, nil
+}
+
+// captureLead lands one lead behind the suppression and dedupe guards.
+// A collision with a live lead from another source writes nothing in
+// this transaction: it returns the incumbent's ref plus the collision
+// (dedupeHit, dedupeFields) for the caller to stage after commit.
+func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (ref datasource.EntityRef, dedupeHit *ids.UUID, dedupeFields json.RawMessage, err error) {
+	// Provider payloads carry whitespace; every downstream email
+	// comparison (suppression, dedupe, the DB lower()) assumes a
+	// trimmed address.
+	fields.Email = strings.TrimSpace(fields.Email)
+	// The A13 resurrection guard: an erased subject's address
+	// refuses re-capture — deletion sticks. The natural key, not
+	// the address, names the skip (the log must not re-store PII).
+	if fields.Email != "" {
+		suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
+		if err != nil {
+			return datasource.EntityRef{}, nil, nil, err
+		}
+		if suppressed {
+			return datasource.EntityRef{}, nil, nil, fmt.Errorf("capture: %s/%s matches the erasure suppression list: %w",
+				rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, connector.ErrSkip)
+		}
+		// Dedupe: an email already on a LIVE lead from a DIFFERENT
+		// source is a collision, not a second row — remember it and
+		// stage the merge after this transaction commits (a replay
+		// of the same natural key is the idempotent path below).
+		var existing ids.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
+			  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
+			fields.Email, rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&existing)
+		if err == nil {
+			captured, err := json.Marshal(fields)
+			if err != nil {
+				return datasource.EntityRef{}, nil, nil, err
+			}
+			return datasource.EntityRef{Type: datasource.EntityLead, ID: existing}, &existing, captured, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return datasource.EntityRef{}, nil, nil, err
+		}
+	}
+	id, created, err := s.upsertLead(ctx, tx, rec, fields)
+	if err != nil {
+		return datasource.EntityRef{}, nil, nil, err
+	}
+	ref = datasource.EntityRef{Type: datasource.EntityLead, ID: id}
+	if !created {
+		return ref, nil, nil, nil
+	}
+	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id, nil, fields)
+	if err != nil {
+		return datasource.EntityRef{}, nil, nil, err
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id, map[string]any{
+		"source_system": rec.NaturalKey.SourceSystem,
+	}); err != nil {
+		return datasource.EntityRef{}, nil, nil, err
+	}
+	return ref, nil, nil, nil
+}
+
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.UUID, bool, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return ids.Nil, false, err
 	}
-	occurredAt := fields.OccurredAt
-	if occurredAt.IsZero() {
-		occurredAt = time.Now().UTC()
-	}
+	occurredAt := defaultOccurredAt(fields.OccurredAt)
 	var id ids.UUID
 	err := tx.QueryRow(ctx, `
 		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by)
@@ -289,6 +307,16 @@ func (s *Sink) linkActivity(ctx context.Context, tx pgx.Tx, activityID ids.UUID,
 		}
 	}
 	return nil
+}
+
+// defaultOccurredAt fills a provider payload that carried no timestamp:
+// capture time is the honest fallback — better a coarse "when we saw
+// it" than a zero time sorting the record to the beginning of history.
+func defaultOccurredAt(occurredAt time.Time) time.Time {
+	if occurredAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return occurredAt
 }
 
 // captureSource is the provenance channel column value; the natural

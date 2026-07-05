@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -133,7 +132,7 @@ func (s *Service) VerifyApprovalToken(ctx context.Context, token string) (Approv
 	if err := json.Unmarshal(payloadRaw, &claims); err != nil {
 		return ApprovalTokenClaims{}, badToken(err)
 	}
-	if time.Now().Unix() >= claims.ExpiresAt {
+	if s.now().Unix() >= claims.ExpiresAt {
 		return ApprovalTokenClaims{}, fmt.Errorf("token expired: %w", apperrors.ErrApprovalTokenInvalid)
 	}
 	return claims, nil

@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+// fakeClock makes window expiry a value the test controls: advancing it
+// is deterministic where sleeping against a real window is a race.
+type fakeClock struct{ t time.Time }
+
+func newFakeClock() *fakeClock { return &fakeClock{t: time.Unix(1_700_000_000, 0)} }
+
+func (c *fakeClock) Now() time.Time          { return c.t }
+func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
 func TestAllowCountsPerKeyWithinTheWindow(t *testing.T) {
 	l := New(3, time.Hour)
 	for i := 1; i <= 3; i++ {
@@ -24,25 +33,44 @@ func TestAllowCountsPerKeyWithinTheWindow(t *testing.T) {
 }
 
 func TestWindowExpiryResetsTheCount(t *testing.T) {
-	l := New(1, 20*time.Millisecond)
+	clock := newFakeClock()
+	l := NewWithClock(1, time.Minute, clock.Now)
 	if !l.Allow("k") {
 		t.Fatal("first attempt")
 	}
 	if l.Allow("k") {
 		t.Fatal("second attempt inside the window should be rejected")
 	}
-	time.Sleep(25 * time.Millisecond)
+	clock.advance(time.Minute)
 	if !l.Allow("k") {
 		t.Error("a fresh window should admit again")
 	}
 }
 
+func TestBlockedReportsWithoutCounting(t *testing.T) {
+	clock := newFakeClock()
+	l := NewWithClock(2, time.Minute, clock.Now)
+	if l.Blocked("k") {
+		t.Fatal("an unseen key is not blocked")
+	}
+	l.Record("k")
+	l.Record("k")
+	if !l.Blocked("k") {
+		t.Fatal("the limit is reached; Blocked must say so")
+	}
+	clock.advance(time.Minute)
+	if l.Blocked("k") {
+		t.Error("an expired window no longer blocks")
+	}
+}
+
 func TestSweepDropsAbandonedKeys(t *testing.T) {
-	l := New(1, 10*time.Millisecond)
+	clock := newFakeClock()
+	l := NewWithClock(1, time.Minute, clock.Now)
 	for i := 0; i < 100; i++ {
 		l.Allow(string(rune('a' + i%26)))
 	}
-	time.Sleep(15 * time.Millisecond)
+	clock.advance(time.Minute + time.Second)
 	l.Allow("fresh") // triggers the amortized sweep
 	l.mu.Lock()
 	defer l.mu.Unlock()

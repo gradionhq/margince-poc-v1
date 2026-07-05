@@ -1,0 +1,19 @@
+#!/bin/sh
+# Repo pre-commit hook (install with `make -C backend hooks`): gofmt on
+# staged Go files + the license-header fitness test. Fast checks only —
+# `make -C backend check` remains the merge gate.
+set -eu
+
+root="$(git rev-parse --show-toplevel)"
+
+staged_go="$(git diff --cached --name-only --diff-filter=ACMR -- '*.go' || true)"
+if [ -n "$staged_go" ]; then
+	unformatted="$(cd "$root" && gofmt -l $staged_go)"
+	if [ -n "$unformatted" ]; then
+		echo "pre-commit: gofmt needed on:" >&2
+		echo "$unformatted" >&2
+		exit 1
+	fi
+fi
+
+cd "$root/backend" && go test -run TestEveryHandWrittenGoFileCarriesTheLicenseHeader -count=1 .

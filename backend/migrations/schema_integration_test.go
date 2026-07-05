@@ -452,6 +452,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"person_email.person_id":              "child row: written through the person's own gated paths",
 		"person_phone.person_id":              "child row: written through the person's own gated paths",
 		"person_consent.person_id":            "child row: written through the person's own gated paths",
+		"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
 		// Server-derived pointers: stamped from an operation's outcome,
 		// never accepted from the request body.
 		"lead.promoted_person_id":       "server-derived: stamped by PromoteLead",

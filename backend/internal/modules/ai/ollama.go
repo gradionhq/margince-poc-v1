@@ -56,7 +56,7 @@ type ollamaChatEvent struct {
 }
 
 func (c *ollamaClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
-	body, err := c.chat(ctx, req, false)
+	body, err := c.chat(ctx, req)
 	if err != nil {
 		return model.Response{}, err
 	}
@@ -73,7 +73,7 @@ func (c *ollamaClient) Complete(ctx context.Context, req model.Request) (model.R
 }
 
 func (c *ollamaClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
-	body, err := c.chat(ctx, req, true)
+	body, err := c.chatStream(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,18 @@ func (c *ollamaClient) Caps() model.Capabilities {
 	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true}
 }
 
-func (c *ollamaClient) chat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
+// chat sends one non-streaming /api/chat call; chatStream requests the
+// JSON-lines stream of the same call. Two names so a call site says
+// which wire mode it gets instead of passing a bare boolean.
+func (c *ollamaClient) chat(ctx context.Context, req model.Request) (io.ReadCloser, error) {
+	return c.sendChat(ctx, req, false)
+}
+
+func (c *ollamaClient) chatStream(ctx context.Context, req model.Request) (io.ReadCloser, error) {
+	return c.sendChat(ctx, req, true)
+}
+
+func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
 	wire := ollamaWire{Model: req.Model, Stream: stream}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel

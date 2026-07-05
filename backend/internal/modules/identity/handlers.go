@@ -102,7 +102,7 @@ func (h Handlers) BootstrapWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	writeJSON(w, http.StatusCreated, meResponse(id))
+	httperr.WriteJSON(w, http.StatusCreated, meResponse(id))
 }
 
 // Login implements (POST /auth/login). The route is public; the workspace
@@ -137,7 +137,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	writeJSON(w, http.StatusOK, meResponse(id))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id))
 }
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
@@ -159,7 +159,7 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 		httperr.Unauthorized(w, r, "no session")
 		return
 	}
-	writeJSON(w, http.StatusOK, meResponse(id))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id))
 }
 
 // IssuePassport implements (POST /passports): the session user mints an
@@ -197,7 +197,7 @@ func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, crmcontracts.IssuePassportResponse{
+	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.IssuePassportResponse{
 		PassportId: openapi_types.UUID(issued.ID),
 		Token:      issued.Token,
 		Scopes:     issued.Scopes,
@@ -411,12 +411,6 @@ func meResponse(id Identity) crmcontracts.MeResponse {
 		Roles: roles,
 		Teams: teams,
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
 }
 
 func slugify(name string) string {

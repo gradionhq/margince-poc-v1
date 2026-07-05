@@ -33,12 +33,15 @@ import (
 // Business-hours envelope for proposed slots and the assumed length of
 // a meeting whose end the record does not carry (activity has only
 // occurred_at). Both refine when a real calendar connector lands.
+// defaultSlotDuration applies inside Availability when the caller
+// names no duration, so the REST and MCP transports cannot drift.
 const (
 	businessDayStartHour   = 9
 	businessDayEndHour     = 17
 	assumedMeetingDuration = time.Hour
 	maxProposedSlots       = 20
 	maxAvailabilityWindow  = 31 * 24 * time.Hour
+	defaultSlotDuration    = 30 * time.Minute
 	minSlotDuration        = 15 * time.Minute
 	maxSlotDuration        = 8 * time.Hour
 )
@@ -49,10 +52,15 @@ type slot struct {
 }
 
 // Availability computes free slots for one host inside the window:
-// business-hour candidates minus the host's existing meetings.
+// business-hour candidates minus the host's existing meetings. A
+// non-positive duration means the caller named none and takes the
+// default.
 func (s *Store) Availability(ctx context.Context, host ids.UUID, from, to time.Time, duration time.Duration) ([]slot, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, err
+	}
+	if duration <= 0 {
+		duration = defaultSlotDuration
 	}
 	if !to.After(from) {
 		return nil, &RequiredFieldError{Field: "to (must follow from)"}
@@ -235,8 +243,8 @@ func (h Handlers) GetAvailability(w http.ResponseWriter, r *http.Request, params
 	if params.HostUserId != nil {
 		host = ids.UUID(*params.HostUserId)
 	}
-	duration := 30 * time.Minute
-	if params.DurationMinutes != nil && *params.DurationMinutes > 0 {
+	var duration time.Duration
+	if params.DurationMinutes != nil {
 		duration = time.Duration(*params.DurationMinutes) * time.Minute
 	}
 	slots, err := h.store.Availability(r.Context(), host, params.From, params.To, duration)

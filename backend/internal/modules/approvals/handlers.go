@@ -39,7 +39,7 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 	}
 	data := make([]crmcontracts.Approval, 0, len(rows))
 	for _, a := range rows {
-		data = append(data, wire(a))
+		data = append(data, h.wire(a))
 	}
 	writeJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
 		Data: data,
@@ -53,7 +53,7 @@ func (h Handlers) GetApproval(w http.ResponseWriter, r *http.Request, id crmcont
 		writeErr(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, wire(a))
+	writeJSON(w, http.StatusOK, h.wire(a))
 }
 
 func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ApproveApprovalParams) {
@@ -73,7 +73,7 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 		writeErr(w, r, err)
 		return
 	}
-	out := wire(a)
+	out := h.wire(a)
 	// The approve response carries the ADR-0036 compact JWS so a remote
 	// redeemer can present a signed, effect-bound proof; the row remains
 	// the single-use authority either way.
@@ -101,7 +101,7 @@ func (h Handlers) RejectApproval(w http.ResponseWriter, r *http.Request, id crmc
 		writeErr(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, wire(a))
+	writeJSON(w, http.StatusOK, h.wire(a))
 }
 
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {
@@ -122,11 +122,11 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 
 // wire maps the store row onto the contract shape; effectiveStatus folds
 // lazy expiry in so a stale pending row never reads as approvable.
-func wire(a row) crmcontracts.Approval {
+func (h Handlers) wire(a row) crmcontracts.Approval {
 	out := crmcontracts.Approval{
 		Id:         openapi_types.UUID(a.ID),
 		Kind:       a.Kind,
-		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus()),
+		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus(h.svc.now())),
 		ProposedBy: a.ProposedBy,
 		CreatedAt:  a.CreatedAt,
 		DiffHash:   &a.DiffHash,

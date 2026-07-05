@@ -82,7 +82,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 					return verr
 				}
 				created = false
-				out, err = readActivity(ctx, tx, existing, true)
+				out, err = readActivity(ctx, tx, existing, storekit.IncludeArchived)
 				return err
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -140,7 +140,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 		if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{"kind": in.Kind}); err != nil {
 			return err
 		}
-		out, err = readActivity(ctx, tx, id, false)
+		out, err = readActivity(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, created, err
@@ -153,7 +153,7 @@ func (e *InvalidLinkTypeError) Error() string {
 	return "activity link entity_type " + e.EntityType + " is not person|organization|deal"
 }
 
-func (s *Store) GetActivity(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Activity, error) {
+func (s *Store) GetActivity(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -162,7 +162,7 @@ func (s *Store) GetActivity(ctx context.Context, id ids.UUID, includeArchived bo
 		if err := auth.EnsureActivityVisible(ctx, tx, id); err != nil {
 			return err
 		}
-		out, err = readActivity(ctx, tx, id, includeArchived)
+		out, err = readActivity(ctx, tx, id, archived)
 		return err
 	})
 	return out, err
@@ -263,9 +263,9 @@ const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occu
 	a.due_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at`
 
-func readActivity(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool) (crmcontracts.Activity, error) {
+func readActivity(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
 	q := `SELECT ` + activityColumns + ` FROM activity a WHERE a.id = $1`
-	if !includeArchived {
+	if archived == storekit.LiveOnly {
 		q += ` AND a.archived_at IS NULL`
 	}
 	a, err := scanActivity(tx.QueryRow(ctx, q, id))

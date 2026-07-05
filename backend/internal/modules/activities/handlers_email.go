@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -39,7 +40,7 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 	if r.ContentLength > 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	activity, err := h.store.GetActivity(r.Context(), ids.UUID(id), false)
+	activity, err := h.store.GetActivity(r.Context(), ids.UUID(id), storekit.LiveOnly)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

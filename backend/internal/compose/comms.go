@@ -16,6 +16,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -31,7 +32,7 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	// The deterministic draft over the anchor's own context — the same
 	// rule the HTTP handler applies; the model-backed voice draft rides
 	// the router once the drafting lane is wired.
-	activity, err := c.store.GetActivity(ctx, anchor, false)
+	activity, err := c.store.GetActivity(ctx, anchor, storekit.LiveOnly)
 	if err != nil {
 		return "", "", err
 	}
@@ -72,11 +73,8 @@ func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to
 	if err != nil {
 		return nil, err
 	}
-	duration := 30 * time.Minute
-	if durationMinutes > 0 {
-		duration = time.Duration(durationMinutes) * time.Minute
-	}
-	slots, err := c.store.Availability(ctx, hostID, from, to, duration)
+	// The store applies its default slot duration when none is named.
+	slots, err := c.store.Availability(ctx, hostID, from, to, time.Duration(durationMinutes)*time.Minute)
 	if err != nil {
 		return nil, err
 	}

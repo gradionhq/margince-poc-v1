@@ -16,6 +16,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -37,7 +38,7 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 	if r.Type != datasource.EntityActivity {
 		return datasource.Record{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.GetActivity(ctx, r.ID, false)
+	v, err := p.store.GetActivity(ctx, r.ID, storekit.LiveOnly)
 	if err != nil {
 		return datasource.Record{}, err
 	}

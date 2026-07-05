@@ -144,15 +144,15 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return err
 		}
 
-		out, err = readPerson(ctx, tx, id, false)
+		out, err = readPerson(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
 }
 
 // GetPerson returns one person with child rows; archived rows resolve
-// only when includeArchived (they stay fetchable by id after merge).
-func (s *Store) GetPerson(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Person, error) {
+// only under IncludeArchived (they stay fetchable by id after merge).
+func (s *Store) GetPerson(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.Person{}, err
 	}
@@ -161,7 +161,7 @@ func (s *Store) GetPerson(ctx context.Context, id ids.UUID, includeArchived bool
 		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
 			return err
 		}
-		out, err = readPerson(ctx, tx, id, includeArchived)
+		out, err = readPerson(ctx, tx, id, archived)
 		return err
 	})
 	return out, err
@@ -266,7 +266,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
 			return err
 		}
-		current, err := readPerson(ctx, tx, id, false)
+		current, err := readPerson(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -305,7 +305,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id, p.After()); err != nil {
 			return err
 		}
-		out, err = readPerson(ctx, tx, id, false)
+		out, err = readPerson(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
@@ -322,7 +322,7 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Pe
 		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
 			return err
 		}
-		if _, err := readPerson(ctx, tx, id, false); err != nil {
+		if _, err := readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 
@@ -355,7 +355,7 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Pe
 		if err := storekit.Emit(ctx, tx, auditID, "person.archived", "person", id, nil); err != nil {
 			return err
 		}
-		out, err = readPerson(ctx, tx, id, true)
+		out, err = readPerson(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
@@ -365,9 +365,9 @@ const personColumns = `id, workspace_id, full_name, first_name, last_name, title
 	social, merged_into_id, converted_from_lead_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
-func readPerson(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool) (crmcontracts.Person, error) {
+func readPerson(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
 	q := `SELECT ` + personColumns + ` FROM person WHERE id = $1`
-	if !includeArchived {
+	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
 	row := tx.QueryRow(ctx, q, id)

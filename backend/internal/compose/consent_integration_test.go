@@ -12,9 +12,16 @@ package compose_test
 // withdrawal re-blocks, and the German double-opt-in norm holds.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type consentEnv struct {
@@ -168,16 +175,84 @@ func TestConsentDoubleOptInNorm(t *testing.T) {
 	if status != 422 {
 		t.Fatalf("DOI-less marketing grant → %d, want 422", status)
 	}
-	// With the confirmed round-trip it lands, and the send flows.
+	// A fabricated token proves nothing: only a server-issued one confirms.
 	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
-		"double_opt_in_token": "doi-token-1",
+		"double_opt_in_token": "doi-token-forged",
+	}, nil, nil); status != 422 {
+		t.Fatalf("forged DOI grant → %d, want 422", status)
+	}
+
+	// The real round-trip: the server mints the token (the contract has
+	// no mint/delivery endpoint yet, so issuance rides the store seam),
+	// the confirming grant presents it, and the send flows.
+	token := c.issueDOIToken(t, c.purposes["marketing_email"])
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
+		"double_opt_in_token": token,
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("DOI grant → %d", status)
 	}
 	if status, code := c.send(t, "marketing_email"); status != http.StatusAccepted {
 		t.Fatalf("DOI-granted send → %d %q, want 202", status, code)
 	}
+
+	// The token is single-use: after a withdrawal the consumed token
+	// cannot resurrect the grant.
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+		"purpose_id": c.purposes["marketing_email"], "new_state": "withdrawn",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("withdraw → %d", status)
+	}
+	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
+		"double_opt_in_token": token,
+	}, nil, nil); status != 422 {
+		t.Fatalf("re-grant with the consumed token → %d, want 422", status)
+	}
+}
+
+// issueDOIToken mints a confirmation token through the store seam under
+// a principal allowed to update the person — the server-side act the
+// (missing) mint endpoint would perform before mailing the link out.
+func (c *consentEnv) issueDOIToken(t *testing.T, purposeID string) string {
+	t.Helper()
+	ctx := context.Background()
+	pool, err := database.NewPool(ctx, os.Getenv("MARGINCE_TEST_APP_DSN"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	var wsRaw string
+	if err := c.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, c.slug).Scan(&wsRaw); err != nil {
+		t.Fatalf("workspace lookup: %v", err)
+	}
+	ws, err := ids.Parse(wsRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	personID, err := ids.Parse(c.personID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purpose, err := ids.Parse(purposeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sctx := principal.WithWorkspaceID(ctx, ws)
+	sctx = principal.WithCorrelationID(sctx, ids.NewV7())
+	sctx = principal.WithActor(sctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:doi-mint",
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"person": {Read: true, Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	token, err := consent.NewStore(pool).IssueDoubleOptIn(sctx, personID, purpose)
+	if err != nil {
+		t.Fatalf("issuing the DOI token: %v", err)
+	}
+	return token
 }
 
 func TestConsentProofLogIsAppendOnlyAndIdempotent(t *testing.T) {

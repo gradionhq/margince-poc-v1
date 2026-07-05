@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package compose
+package privacy
 
 // The retention engine (data-model §3.4, ADR-0011): a nightly pass
 // evaluates each workspace's enabled policies and applies the policy's
@@ -90,7 +90,9 @@ var retentionSelectors = map[string]string{
 		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
 }
 
-// Evaluate is one nightly pass over every live workspace.
+// Evaluate is one nightly pass over every live workspace. The unbounded
+// workspace list is fine here: it is bounded by fleet size (tenants per
+// install), not by tenant data volume.
 func (s *RetentionService) Evaluate(ctx context.Context) error {
 	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {

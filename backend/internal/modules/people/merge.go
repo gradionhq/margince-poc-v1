@@ -6,6 +6,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -86,7 +87,7 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		source, target, err := mergePair(ctx, tx, "person", sourceID, targetID, readPersonMergeState)
+		src, tgt, err := mergePair(ctx, tx, "person", sourceID, targetID, readPersonMergeState)
 		if err != nil {
 			return err
 		}
@@ -99,7 +100,7 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 			    WHERE b.person_id = $2 AND b.email_type = a.email_type
 			      AND b.is_primary AND b.archived_at IS NULL)
 			WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("relink emails: %w", err)
 		}
 		if counts.Phones, err = relinkDemotingPrimary(ctx, tx, `
 			UPDATE person_phone a SET person_id = $2,
@@ -108,34 +109,33 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 			    WHERE b.person_id = $2 AND b.phone_type = a.phone_type
 			      AND b.is_primary AND b.archived_at IS NULL)
 			WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("relink phones: %w", err)
 		}
 		if counts.Relationships, err = relinkPersonEdges(ctx, tx, sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("relink relationships: %w", err)
 		}
 		if counts.ActivityLinks, err = relinkLinkRows(ctx, tx, "person", sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("relink activity/list/tag rows: %w", err)
 		}
 		if err := mergeConsent(ctx, tx, sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("merge consent: %w", err)
 		}
 		// The promotion outcome pointer follows the survivor so a
 		// re-promote 409 names a live person.
 		if _, err := tx.Exec(ctx,
 			`UPDATE lead SET promoted_person_id = $2 WHERE promoted_person_id = $1`,
 			sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("repoint lead promotions: %w", err)
 		}
 		// Earlier merged-away rows repoint too: the redirect chain stays
 		// one hop deep, so following merged_into_id always lands live.
 		if _, err := tx.Exec(ctx,
 			`UPDATE person SET merged_into_id = $2 WHERE merged_into_id = $1`,
 			sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("repoint earlier merges: %w", err)
 		}
 
 		// Survivorship is fill-only: A never overwrites what B has.
-		src, tgt := source.(crmcontracts.Person), target.(crmcontracts.Person)
 		p := storekit.NewPatch()
 		fillString(p, "first_name", tgt.FirstName, src.FirstName)
 		fillString(p, "last_name", tgt.LastName, src.LastName)
@@ -148,19 +148,19 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 		}
 		if !p.Empty() {
 			if err := p.Apply(ctx, tx, "person", targetID, nil); err != nil {
-				return err
+				return fmt.Errorf("apply survivorship fill: %w", err)
 			}
 		}
 
 		if err := archiveMergedAway(ctx, tx, "person", sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("retire merged-away person: %w", err)
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID,
 			map[string]any{"merged_into_id": nil},
 			map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit person merge: %w", err)
 		}
 		// One event, its own verb: the context graph collapses two nodes,
 		// which neither person.updated nor person.archived can say.
@@ -169,11 +169,13 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 			"merged_into_id": targetID,
 			"relinked":       counts,
 		}); err != nil {
-			return err
+			return fmt.Errorf("emit person.merged: %w", err)
 		}
 
-		out, err = readPerson(ctx, tx, targetID, false)
-		return err
+		if out, err = readPerson(ctx, tx, targetID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read surviving person: %w", err)
+		}
+		return nil
 	})
 	return out, err
 }
@@ -191,7 +193,7 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		source, target, err := mergePair(ctx, tx, "organization", sourceID, targetID, readOrgMergeState)
+		src, tgt, err := mergePair(ctx, tx, "organization", sourceID, targetID, readOrgMergeState)
 		if err != nil {
 			return err
 		}
@@ -202,61 +204,20 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 			    SELECT 1 FROM organization_domain b
 			    WHERE b.organization_id = $2 AND b.is_primary AND b.archived_at IS NULL)
 			WHERE a.organization_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("relink domains: %w", err)
 		}
 		if err := relinkOrgEdges(ctx, tx, sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("relink relationships: %w", err)
 		}
 		if _, err := relinkLinkRows(ctx, tx, "organization", sourceID, targetID); err != nil {
-			return err
-		}
-		for _, stmt := range []string{
-			`UPDATE deal SET organization_id = $2 WHERE organization_id = $1`,
-			`UPDATE deal SET partner_org_id = $2 WHERE partner_org_id = $1`,
-		} {
-			if _, err := tx.Exec(ctx, stmt, sourceID, targetID); err != nil {
-				return err
-			}
+			return fmt.Errorf("relink activity/list/tag rows: %w", err)
 		}
 
-		// Hierarchy: if the survivor sits under the source, lift it to the
-		// source's parent first — otherwise absorbing the source's
-		// children would make B its own ancestor.
-		if _, err := tx.Exec(ctx, `
-			UPDATE organization SET parent_org_id =
-			  (SELECT parent_org_id FROM organization WHERE id = $1)
-			WHERE id = $2 AND parent_org_id = $1`, sourceID, targetID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE organization SET parent_org_id = $2 WHERE parent_org_id = $1`,
-			sourceID, targetID); err != nil {
+		targetIsPartner, err := absorbOrgReferences(ctx, tx, sourceID, targetID)
+		if err != nil {
 			return err
 		}
 
-		// The 1:1 partner extension moves only into a vacancy; when both
-		// records carry program state the survivor's stands and the
-		// source's rides its archived org untouched (recoverable, never
-		// silently blended).
-		var targetIsPartner bool
-		if err := tx.QueryRow(ctx, `
-			WITH moved AS (
-			  UPDATE partner SET organization_id = $2
-			  WHERE organization_id = $1
-			    AND NOT EXISTS (SELECT 1 FROM partner WHERE organization_id = $2)
-			  RETURNING 1)
-			SELECT EXISTS (SELECT 1 FROM moved)
-			    OR EXISTS (SELECT 1 FROM partner WHERE organization_id = $2)`,
-			sourceID, targetID).Scan(&targetIsPartner); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE organization SET merged_into_id = $2 WHERE merged_into_id = $1`,
-			sourceID, targetID); err != nil {
-			return err
-		}
-
-		src, tgt := source.(crmcontracts.Organization), target.(crmcontracts.Organization)
 		p := storekit.NewPatch()
 		fillString(p, "legal_name", tgt.LegalName, src.LegalName)
 		fillString(p, "industry", tgt.Industry, src.Industry)
@@ -267,56 +228,114 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 		}
 		if !p.Empty() {
 			if err := p.Apply(ctx, tx, "organization", targetID, nil); err != nil {
-				return err
+				return fmt.Errorf("apply survivorship fill: %w", err)
 			}
 		}
 
 		if err := archiveMergedAway(ctx, tx, "organization", sourceID, targetID); err != nil {
-			return err
+			return fmt.Errorf("retire merged-away organization: %w", err)
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "merge", "organization", sourceID,
 			map[string]any{"merged_into_id": nil},
 			map[string]any{"merged_into_id": targetID, "filled": p.After()})
 		if err != nil {
-			return err
+			return fmt.Errorf("audit organization merge: %w", err)
 		}
 		if err := storekit.Emit(ctx, tx, auditID, "organization.merged", "organization", sourceID, map[string]any{
 			"merged_from_id": sourceID,
 			"merged_into_id": targetID,
 		}); err != nil {
-			return err
+			return fmt.Errorf("emit organization.merged: %w", err)
 		}
 
-		out, err = readOrganization(ctx, tx, targetID, false)
-		return err
+		if out, err = readOrganization(ctx, tx, targetID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read surviving organization: %w", err)
+		}
+		return nil
 	})
 	return out, err
+}
+
+// absorbOrgReferences re-homes everything beyond the relationship and
+// link tables that points at the source org — deal attributions, the
+// org hierarchy, the 1:1 partner extension, and the merge redirect
+// chain — and reports whether the survivor ends up holding a partner
+// row (the A41 classification invariant needs to know).
+func absorbOrgReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (bool, error) {
+	for _, stmt := range []string{
+		`UPDATE deal SET organization_id = $2 WHERE organization_id = $1`,
+		`UPDATE deal SET partner_org_id = $2 WHERE partner_org_id = $1`,
+	} {
+		if _, err := tx.Exec(ctx, stmt, sourceID, targetID); err != nil {
+			return false, fmt.Errorf("repoint deal attributions: %w", err)
+		}
+	}
+
+	// Hierarchy: if the survivor sits under the source, lift it to the
+	// source's parent first — otherwise absorbing the source's
+	// children would make B its own ancestor.
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization SET parent_org_id =
+		  (SELECT parent_org_id FROM organization WHERE id = $1)
+		WHERE id = $2 AND parent_org_id = $1`, sourceID, targetID); err != nil {
+		return false, fmt.Errorf("lift survivor out of source hierarchy: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE organization SET parent_org_id = $2 WHERE parent_org_id = $1`,
+		sourceID, targetID); err != nil {
+		return false, fmt.Errorf("re-parent child organizations: %w", err)
+	}
+
+	// The 1:1 partner extension moves only into a vacancy; when both
+	// records carry program state the survivor's stands and the
+	// source's rides its archived org untouched (recoverable, never
+	// silently blended).
+	var targetIsPartner bool
+	if err := tx.QueryRow(ctx, `
+		WITH moved AS (
+		  UPDATE partner SET organization_id = $2
+		  WHERE organization_id = $1
+		    AND NOT EXISTS (SELECT 1 FROM partner WHERE organization_id = $2)
+		  RETURNING 1)
+		SELECT EXISTS (SELECT 1 FROM moved)
+		    OR EXISTS (SELECT 1 FROM partner WHERE organization_id = $2)`,
+		sourceID, targetID).Scan(&targetIsPartner); err != nil {
+		return false, fmt.Errorf("move partner extension: %w", err)
+	}
+	// Earlier merged-away rows repoint too: the redirect chain stays
+	// one hop deep, so following merged_into_id always lands live.
+	if _, err := tx.Exec(ctx,
+		`UPDATE organization SET merged_into_id = $2 WHERE merged_into_id = $1`,
+		sourceID, targetID); err != nil {
+		return false, fmt.Errorf("repoint earlier merges: %w", err)
+	}
+	return targetIsPartner, nil
 }
 
 // readPersonMergeState / readOrgMergeState load one end of a merge: a
 // live row returns itself; an archived one returns its redirect pointer
 // (nil when it was plain-archived, not merged).
-func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *ids.UUID, error) {
-	p, err := readPerson(ctx, tx, id, true)
+func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Person, *ids.UUID, error) {
+	p, err := readPerson(ctx, tx, id, storekit.IncludeArchived)
 	if err != nil {
-		return nil, nil, err
+		return crmcontracts.Person{}, nil, err
 	}
 	if p.ArchivedAt == nil {
 		return p, nil, nil
 	}
-	return nil, (*ids.UUID)(p.MergedIntoId), apperrors.ErrNotFound
+	return crmcontracts.Person{}, (*ids.UUID)(p.MergedIntoId), apperrors.ErrNotFound
 }
 
-func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *ids.UUID, error) {
-	o, err := readOrganization(ctx, tx, id, true)
+func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Organization, *ids.UUID, error) {
+	o, err := readOrganization(ctx, tx, id, storekit.IncludeArchived)
 	if err != nil {
-		return nil, nil, err
+		return crmcontracts.Organization{}, nil, err
 	}
 	if o.ArchivedAt == nil {
 		return o, nil, nil
 	}
-	return nil, (*ids.UUID)(o.MergedIntoId), apperrors.ErrNotFound
+	return crmcontracts.Organization{}, (*ids.UUID)(o.MergedIntoId), apperrors.ErrNotFound
 }
 
 // mergePair resolves and validates both ends. The source must be live and
@@ -326,32 +345,33 @@ func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (any, *ids.U
 // target must be live too: merging is a read of the survivor it returns,
 // so an out-of-scope target answers a bare conflict, and an archived one
 // can survive nothing.
-func mergePair(ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.UUID,
-	read func(context.Context, pgx.Tx, ids.UUID) (any, *ids.UUID, error)) (source, target any, err error) {
+func mergePair[T any](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.UUID,
+	read func(context.Context, pgx.Tx, ids.UUID) (T, *ids.UUID, error)) (source, target T, err error) {
+	var zero T
 	if err := auth.EnsureVisible(ctx, tx, kind, sourceID); err != nil {
-		return nil, nil, err
+		return zero, zero, err
 	}
 	source, mergedInto, err := read(ctx, tx, sourceID)
 	if err != nil {
 		if mergedInto != nil && !mergedInto.IsZero() {
-			return nil, nil, &AlreadyMergedError{Kind: kind, IntoID: *mergedInto}
+			return zero, zero, &AlreadyMergedError{Kind: kind, IntoID: *mergedInto}
 		}
-		return nil, nil, err
+		return zero, zero, err
 	}
 
 	visible, err := auth.VisibleTo(ctx, tx, kind, targetID)
 	if err != nil {
-		return nil, nil, err
+		return zero, zero, err
 	}
 	if !visible {
-		return nil, nil, apperrors.ErrConflict
+		return zero, zero, apperrors.ErrConflict
 	}
 	target, _, err = read(ctx, tx, targetID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, nil, &MergedTargetError{Kind: kind}
+			return zero, zero, &MergedTargetError{Kind: kind}
 		}
-		return nil, nil, err
+		return zero, zero, err
 	}
 	return source, target, nil
 }

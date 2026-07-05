@@ -12,35 +12,22 @@
 package jurisdiction
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"sync"
 )
 
-// Pack is one jurisdiction's compiled-in behavior set.
+// Pack is one jurisdiction's compiled-in behavior set. Retention is the
+// only obligation packs carry today; the further ADR-0042 contributions
+// (FiscalFormatter, ConformityRegime, …) return when a work package pays
+// for them.
 type Pack interface {
 	// Code is the ISO 3166-1 alpha-2 code, lower-case ("de").
 	Code() string
 
-	// Fiscal returns the pack's fiscal document behavior (e-invoice
-	// formats, export profiles). Nil-safe: a pack without fiscal behavior
-	// returns nil.
-	Fiscal() Fiscal
-
 	// Retention returns the pack's statutory retention classes (GoBD in
 	// the DE pack); nil when the pack adds none.
 	Retention() Retention
-
-	// Conformity returns the pack's regulatory conformity regime (the CRA
-	// DoC regime moved pack-side per A57); nil when none.
-	Conformity() Conformity
-}
-
-// Fiscal renders and validates jurisdiction-specific fiscal documents.
-type Fiscal interface {
-	Formats() []string // e.g. "xrechnung", "zugferd"
-	Render(ctx context.Context, format string, doc []byte) ([]byte, error)
 }
 
 // Retention exposes statutory retention classes the core retention engine
@@ -52,13 +39,6 @@ type Retention interface {
 type RetentionClass struct {
 	Name  string
 	Years int
-}
-
-// Conformity produces the pack's conformity artifacts (e.g. the CRA
-// Declaration of Conformity regime).
-type Conformity interface {
-	Regime() string
-	Artifacts(ctx context.Context) ([][]byte, error)
 }
 
 var (

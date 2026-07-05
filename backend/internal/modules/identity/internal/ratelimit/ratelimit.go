@@ -19,6 +19,7 @@ import (
 type Limiter struct {
 	limit  int
 	window time.Duration
+	now    func() time.Time
 
 	mu      sync.Mutex
 	starts  map[string]time.Time
@@ -27,12 +28,19 @@ type Limiter struct {
 }
 
 func New(limit int, window time.Duration) *Limiter {
+	return NewWithClock(limit, window, time.Now)
+}
+
+// NewWithClock takes the clock as a dependency so window expiry is a
+// property tests assert by advancing time, not by sleeping against it.
+func NewWithClock(limit int, window time.Duration, now func() time.Time) *Limiter {
 	return &Limiter{
 		limit:   limit,
 		window:  window,
+		now:     now,
 		starts:  make(map[string]time.Time),
 		counts:  make(map[string]int),
-		sweepAt: time.Now().Add(window),
+		sweepAt: now().Add(window),
 	}
 }
 
@@ -52,7 +60,7 @@ func (l *Limiter) Record(key string) { l.count(key) }
 // Blocked reports whether key has already reached the limit in its
 // current window, without counting the probe.
 func (l *Limiter) Blocked(key string) bool {
-	now := time.Now()
+	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	start, ok := l.starts[key]
@@ -63,7 +71,7 @@ func (l *Limiter) Blocked(key string) bool {
 }
 
 func (l *Limiter) count(key string) int {
-	now := time.Now()
+	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 

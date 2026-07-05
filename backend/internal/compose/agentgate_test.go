@@ -41,10 +41,10 @@ func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 	}
 }
 
-// The self-approval class (red-team finding 1) and the config surface the
-// advance_deal floor reads (finding 9) must stay human-only in the
-// contract: an agent may stage a 🟡 action but never approve one — its
-// own least of all — and must not move which stages count as won/lost.
+// The self-approval class and the config surface the advance_deal floor
+// reads must stay human-only in the contract: an agent may stage a 🟡
+// action but never approve one — its own least of all — and must not
+// move which stages count as won/lost.
 func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 	humanOnly := map[string]bool{
 		"approveApproval": true, "rejectApproval": true,

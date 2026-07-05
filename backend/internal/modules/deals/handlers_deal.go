@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -72,7 +73,7 @@ func (h Handlers) CreateDeal(w http.ResponseWriter, r *http.Request, _ crmcontra
 }
 
 func (h Handlers) GetDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	deal, err := h.store.GetDeal(r.Context(), ids.UUID(id), true)
+	deal, err := h.store.GetDeal(r.Context(), ids.UUID(id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

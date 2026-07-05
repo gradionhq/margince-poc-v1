@@ -6,6 +6,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -75,9 +76,9 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		// Archived leads resolve here so a re-promote answers 409 with
 		// the outcome pointer instead of a misleading 404; a disqualified
 		// (archived, unpromoted) lead stays 404 like any archived row.
-		lead, err := readLead(ctx, tx, id, true)
+		lead, err := readLead(ctx, tx, id, storekit.IncludeArchived)
 		if err != nil {
-			return err
+			return fmt.Errorf("read lead before promote: %w", err)
 		}
 		if lead.Status == crmcontracts.LeadStatusPromoted {
 			e := &AlreadyPromotedError{}
@@ -110,7 +111,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 			`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
 			 WHERE id = $1 AND archived_at IS NULL`,
 			id, personID, now); err != nil {
-			return err
+			return fmt.Errorf("mark lead promoted: %w", err)
 		}
 
 		outcome := "created"
@@ -130,12 +131,12 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id,
 			map[string]any{"status": lead.Status}, after)
 		if err != nil {
-			return err
+			return fmt.Errorf("audit lead promote: %w", err)
 		}
 
-		person, err = readPerson(ctx, tx, personID, false)
+		person, err = readPerson(ctx, tx, personID, storekit.LiveOnly)
 		if err != nil {
-			return err
+			return fmt.Errorf("read promoted person: %w", err)
 		}
 
 		// lead.promoted is the first-class verb (events.md §5.5) — the
@@ -146,13 +147,16 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 			"trigger":            in.Trigger,
 			"evidence_ref":       in.EvidenceActivityID,
 		}); err != nil {
-			return err
+			return fmt.Errorf("emit lead.promoted: %w", err)
 		}
 		personEvent, personPayload := "person.created", map[string]any{"full_name": person.FullName}
 		if merged {
 			personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
 		}
-		return storekit.Emit(ctx, tx, auditID, personEvent, "person", personID, personPayload)
+		if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID, personPayload); err != nil {
+			return fmt.Errorf("emit %s: %w", personEvent, err)
+		}
+		return nil
 	})
 	return person, merged, err
 }
@@ -180,7 +184,7 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 			*merged = true
 			return existing, s.mergeLeadIntoPerson(ctx, tx, lead, existing)
 		case !errors.Is(err, pgx.ErrNoRows):
-			return ids.Nil, err
+			return ids.Nil, fmt.Errorf("probe person email dedupe: %w", err)
 		}
 	}
 
@@ -196,14 +200,14 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		`INSERT INTO person (id, workspace_id, full_name, title, owner_id, source, captured_by, converted_from_lead_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, wsID, name, lead.Title, uuidPtrToIDs(lead.OwnerId), lead.Source, by, ids.UUID(lead.Id)); err != nil {
-		return ids.Nil, err
+		return ids.Nil, fmt.Errorf("insert promoted person: %w", err)
 	}
 	if lead.Email != nil {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
 			 VALUES ($1, $2, lower($3), 'work', true, 1, $4, $5)`,
 			wsID, id, string(*lead.Email), lead.Source, by); err != nil {
-			return ids.Nil, err
+			return ids.Nil, fmt.Errorf("insert promoted person email: %w", err)
 		}
 	}
 	return id, nil
@@ -213,9 +217,9 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 // origin pointer and any identity the lead has that the person lacks
 // (fill-only — a promotion never overwrites human-curated contact data).
 func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, personID ids.UUID) error {
-	current, err := readPerson(ctx, tx, personID, false)
+	current, err := readPerson(ctx, tx, personID, storekit.LiveOnly)
 	if err != nil {
-		return err
+		return fmt.Errorf("read merge-target person: %w", err)
 	}
 	p := storekit.NewPatch()
 	if current.ConvertedFromLeadId == nil {

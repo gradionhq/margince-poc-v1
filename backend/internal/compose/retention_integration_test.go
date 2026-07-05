@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -45,13 +46,15 @@ func seedRetentionPolicies(t *testing.T, e *authzEnv) {
 	}
 }
 
-func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
-	e := setupAuthz(t)
-	seedRetentionPolicies(t, e)
-
-	staleLead, heldLead := ids.NewV7(), ids.NewV7()
-	staleDeal := ids.NewV7()
-	transcript := ids.NewV7()
+// seedOverAgeRecords plants one record per policy branch the engine must
+// act on — a stale unconverted lead, its legal-held twin, an aged
+// transcript activity, and a long-lost deal (with the pipeline/stage
+// pair that carries it).
+func seedOverAgeRecords(t *testing.T, e *authzEnv) (staleLead, heldLead, staleDeal, transcript ids.UUID) {
+	t.Helper()
+	staleLead, heldLead = ids.NewV7(), ids.NewV7()
+	staleDeal = ids.NewV7()
+	transcript = ids.NewV7()
 	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		for _, stmt := range []struct {
@@ -100,8 +103,15 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return staleLead, heldLead, staleDeal, transcript
+}
 
-	svc := NewRetentionService(e.pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
+	e := setupAuthz(t)
+	seedRetentionPolicies(t, e)
+	staleLead, heldLead, staleDeal, transcript := seedOverAgeRecords(t, e)
+
+	svc := privacy.NewRetentionService(e.pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.Evaluate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +120,7 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	var heldName string
 	var dealArchived, transcriptBodyGone bool
 	var retentionAudits int
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(), `SELECT full_name FROM lead WHERE id = $1`, staleLead).Scan(&leadName); err != nil {
 			return err
 		}

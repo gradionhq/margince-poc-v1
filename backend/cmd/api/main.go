@@ -30,6 +30,7 @@ import (
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 )
 
 func main() {
@@ -53,6 +54,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	inlineRelay := fs.Bool("inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
 	routingPath := fs.String("ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the cold-start read-back")
 	fakeBrain := fs.Bool("ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
+	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
+	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -60,13 +63,19 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New("api: --dsn or MARGINCE_DSN required")
 	}
 
+	handler, err := newLogHandler(stdout, *logLevel, *logFormat)
+	if err != nil {
+		return err
+	}
+	logger := slog.New(httpserver.WithCorrelation(handler))
+
 	pool, err := database.NewPool(ctx, *dsn)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	logger := slog.New(slog.NewTextHandler(stdout, nil))
+	var opts []compose.Option
 
 	// The bus is not optional plumbing: without a relay every committed
 	// write strands its outbox row, so an unreachable Redis fails the
@@ -84,12 +93,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		relay.Go(func() {
 			events.NewRelay(pool, rdb, logger).Run(relayCtx)
 		})
+		// The inline relay makes the bus a readiness dependency of THIS
+		// process; a split deployment's api is ready on Postgres alone.
+		opts = append(opts, compose.WithBusReady(func(ctx context.Context) error {
+			return rdb.Ping(ctx).Err()
+		}))
 	}
 
 	// The cold-start read-back needs a declared model path; without one
 	// the operation stays an explicit 501 (same posture as the worker's
 	// runner lane).
-	var opts []compose.Option
 	switch {
 	case *routingPath != "":
 		cfg, err := ai.LoadRoutingFile(*routingPath)
@@ -141,6 +154,34 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return stopAll(err)
 	case <-ctx.Done():
 		return stopAll(stopHTTP())
+	}
+}
+
+// newLogHandler builds the slog backend from the operator's level and
+// format choices; a typo in either is a boot error, never a silent
+// fallback to defaults.
+func newLogHandler(w io.Writer, level, format string) (slog.Handler, error) {
+	var lv slog.LevelVar
+	switch level {
+	case "debug":
+		lv.Set(slog.LevelDebug)
+	case "info":
+		lv.Set(slog.LevelInfo)
+	case "warn":
+		lv.Set(slog.LevelWarn)
+	case "error":
+		lv.Set(slog.LevelError)
+	default:
+		return nil, fmt.Errorf("--log-level %q: want debug, info, warn, or error", level)
+	}
+	opts := &slog.HandlerOptions{Level: &lv}
+	switch format {
+	case "text":
+		return slog.NewTextHandler(w, opts), nil
+	case "json":
+		return slog.NewJSONHandler(w, opts), nil
+	default:
+		return nil, fmt.Errorf("--log-format %q: want text or json", format)
 	}
 }
 

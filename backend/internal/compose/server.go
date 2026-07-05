@@ -3,9 +3,9 @@
 
 package compose
 
-// The contract HTTP surface: module transport handlers (identity,
-// people, deals, activities, approvals) shadow the generated-interface
-// stubs by embedding depth, so every one of the contract's operations
+// The contract HTTP surface: module transport handlers shadow the
+// generated-interface stubs by embedding depth (the Server struct below
+// is the inventory), so every one of the contract's operations
 // either runs real module code or answers an explicit 501 — never a
 // silent 404. The chassis (headers, correlation, panic recovery) is
 // platform/httpserver; what lives here is the wiring.
@@ -27,8 +27,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/web"
 )
@@ -62,6 +64,11 @@ type Server struct {
 	collectionsHandlers
 	reportHandlers
 	coldstartHandlers
+
+	// busReady is the /readyz bus probe, injected only by the process
+	// role that runs the inline relay — a split deployment's api answers
+	// ready on Postgres alone.
+	busReady func(context.Context) error
 }
 
 var _ crmcontracts.ServerInterface = Server{}
@@ -69,6 +76,13 @@ var _ crmcontracts.ServerInterface = Server{}
 // Option customizes the wiring for one process role; everything not
 // optioned keeps its safe default.
 type Option func(*Server, *pgxpool.Pool)
+
+// WithBusReady adds the event-bus probe to /readyz. The api role passes
+// it when it runs the inline relay: a process that must ship events is
+// not ready while the bus is unreachable.
+func WithBusReady(check func(context.Context) error) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.busReady = check }
+}
 
 // WithColdStart enables the cold-start read-back over the given fetch
 // and model seams. Without it the operation stays an explicit 501 —
@@ -106,13 +120,15 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	authH := identity.NewHandlers(identitySvc, seedDefaults)
 
 	srv := Server{
-		authHandlers:        authH,
-		peopleHandlers:      people.NewHandlers(pool),
-		dealsHandlers:       dealsH,
-		activitiesHandlers:  activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
-		approvalsHandlers:   approvals.NewHandlers(approvals.NewService(pool)),
-		searchHandlers:      search.NewHandlers(pool),
-		consentHandlers:     consent.NewHandlers(pool).WithEraser(NewEraser(pool)),
+		authHandlers:       authH,
+		peopleHandlers:     people.NewHandlers(pool),
+		dealsHandlers:      dealsH,
+		activitiesHandlers: activities.NewHandlers(pool).WithConsent(consent.NewGate(consent.NewStore(pool))),
+		approvalsHandlers:  approvals.NewHandlers(approvals.NewService(pool)),
+		searchHandlers:     search.NewHandlers(pool),
+		// DSR fulfillment executes privacy's erase path — injected here so
+		// consent never imports its sibling.
+		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
 		collectionsHandlers: collections.NewHandlers(pool),
 		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
 	}
@@ -128,9 +144,17 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	registry := newRegistry(pool, gate)
 	provider := NewProvider(pool)
 	staging := approvalsAdapter{svc: approvals.NewService(pool)}
+	// Wrap order: the generated router applies the slice left-to-right
+	// around the handler, so the LAST entry is outermost — idempotency
+	// must sit outside the agent gate so a staged-approval refusal is
+	// never recorded as "the" response for a key (the approved retry is
+	// the same request under the same key).
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
-		BaseURL:     "/v1",
-		Middlewares: []crmcontracts.MiddlewareFunc{agentGate(registry, staging, provider, gate)},
+		BaseURL: "/v1",
+		Middlewares: []crmcontracts.MiddlewareFunc{
+			agentGate(registry, staging, provider, gate),
+			idempotency(pool),
+		},
 	})
 
 	// Only /v1 rides the session middleware; the embedded SPA and the
@@ -138,11 +162,19 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// access goes back through /v1 — it holds no privileged path).
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	mux.Handle("/v1/", httpserver.Correlate(authH.Middleware(api)))
+	readiness := []httpserver.ReadyCheck{{Name: "postgres", Check: pool.Ping}}
+	if srv.busReady != nil {
+		readiness = append(readiness, httpserver.ReadyCheck{Name: "redis", Check: srv.busReady})
+	}
+	mux.HandleFunc("/readyz", httpserver.Readyz(readiness...))
+	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
+		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
+		events.PublishedTotal))
+	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(api))))
 	// The A2 authorization server (ADR-0013): AS endpoints live outside
 	// the generated resource surface but behind the same workspace and
 	// session middleware; the discovery documents are static.
-	mux.Handle("/oauth/", httpserver.Correlate(authH.Middleware(authH.OAuthRouter())))
+	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
 	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
 	mux.Handle("/", web.Handler())

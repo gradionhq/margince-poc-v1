@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -184,7 +185,7 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 		t.Errorf("read_only archive → %v, want ErrPermissionDenied", err)
 	}
 	// …but reading is granted, and row_scope=all sees the foreign-owned row.
-	if _, err := e.people.GetPerson(reader, target, false); err != nil {
+	if _, err := e.people.GetPerson(reader, target, storekit.LiveOnly); err != nil {
 		t.Errorf("read_only get → %v, want success", err)
 	}
 
@@ -221,7 +222,7 @@ func TestRowScopeTeamNeverShowsAnotherTeamsRecord(t *testing.T) {
 
 	// Single fetch: the foreign row answers 404 — never the row, and
 	// never a 403 that would disclose its existence.
-	if _, err := e.people.GetPerson(rep, foreign, false); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.people.GetPerson(rep, foreign, storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("get another team's record → %v, want ErrNotFound", err)
 	}
 	// Nor can it be mutated blind by id.

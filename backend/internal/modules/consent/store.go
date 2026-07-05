@@ -105,7 +105,7 @@ func (s *Store) CreatePurpose(ctx context.Context, key, label string, requiresDO
 			RETURNING id, workspace_id, key, label, requires_double_opt_in, created_at`,
 			key, label, requiresDOI).
 			Scan(&p.ID, &p.WorkspaceID, &p.Key, &p.Label, &p.RequiresDoubleOptIn, &p.CreatedAt)
-		if err != nil && strings.Contains(err.Error(), "consent_purpose_key_unique") {
+		if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "consent_purpose_key_unique" {
 			return fmt.Errorf("purpose %q: %w", key, apperrors.ErrConflict)
 		}
 		return err
@@ -207,18 +207,6 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		if err != nil {
 			return err
 		}
-		// The German email norm: a DOI purpose's grant is only effective
-		// once the double-opt-in round-trip confirmed. Without the token
-		// the grant is refused outright rather than stored half-true.
-		var doiConfirmedAt *time.Time
-		if in.NewState == "granted" && requiresDOI {
-			if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
-				return &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}
-			}
-			confirmed := s.now().UTC()
-			doiConfirmedAt = &confirmed
-		}
-
 		var current string
 		err = tx.QueryRow(ctx,
 			`SELECT state FROM person_consent WHERE person_id = $1 AND purpose_id = $2`,
@@ -228,7 +216,24 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		}
 		if current == in.NewState {
 			out = State{PurposeID: in.PurposeID, PurposeKey: purposeKey, State: current, LawfulBasis: in.LawfulBasis}
-			return nil // idempotent re-assertion: no proof row, no event
+			return nil // idempotent re-assertion: no proof row, no event, no fresh token demanded
+		}
+
+		// The German email norm: a DOI purpose's grant is only effective
+		// once the double-opt-in round-trip confirmed. The token must be
+		// one this server issued (hash-matched, unconsumed, unexpired) —
+		// consuming it here makes the confirmation single-use and
+		// unfabricatable rather than stored half-true.
+		var doiConfirmedAt *time.Time
+		if in.NewState == "granted" && requiresDOI {
+			if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
+				return &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}
+			}
+			confirmed, err := s.consumeDOIToken(ctx, tx, in.PersonID, in.PurposeID, *in.DoubleOptInToken)
+			if err != nil {
+				return err
+			}
+			doiConfirmedAt = &confirmed
 		}
 
 		capturedAt := s.now().UTC()

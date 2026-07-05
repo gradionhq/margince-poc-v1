@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -38,10 +39,23 @@ type StdioServer struct {
 	bind     Binder
 	name     string
 	version  string
+	// log receives the true cause of failures the tool client only sees
+	// generically — the client is an untrusted agent, so infrastructure
+	// detail (DSNs, hosts, wrap chains) stays server-side.
+	log *slog.Logger
 }
 
 func NewStdioServer(registry *Registry, bind Binder, name, version string) *StdioServer {
-	return &StdioServer{registry: registry, bind: bind, name: name, version: version}
+	return &StdioServer{registry: registry, bind: bind, name: name, version: version, log: slog.Default()}
+}
+
+// WithLogger routes server-side diagnostics to log (protocol traffic
+// owns stdout, so callers point this at stderr or a file).
+func (s *StdioServer) WithLogger(log *slog.Logger) *StdioServer {
+	if log != nil {
+		s.log = log
+	}
+	return s
 }
 
 type rpcRequest struct {
@@ -155,11 +169,17 @@ func (s *StdioServer) call(ctx context.Context, params json.RawMessage) map[stri
 
 	callCtx, err := s.bind(ctx)
 	if err != nil {
-		return toolError("authentication failed: " + err.Error())
+		// The bind failure's cause (revoked vs expired vs infrastructure)
+		// is server-side knowledge; the client only learns that its
+		// credential no longer works.
+		s.log.Warn("mcp: authentication failed", "tool", p.Name, "err", err)
+		return toolError("authentication failed: the passport for this session was not accepted " +
+			"(it may be revoked, expired, or bound to another workspace). Nothing was changed — " +
+			"mint a new passport or contact the workspace admin.")
 	}
 	out, err := s.registry.Invoke(callCtx, p.Name, p.Arguments)
 	if err != nil {
-		return toolError(explain(err))
+		return toolError(s.explain(p.Name, err))
 	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(out)}}}
 }
@@ -173,8 +193,11 @@ func toolError(msg string) map[string]any {
 
 // explain turns the sentinel taxonomy into messages an agent can act on —
 // the distinction between "you may never" and "a human must say yes"
-// changes what the agent should do next.
-func explain(err error) string {
+// changes what the agent should do next. Anything outside the taxonomy
+// is an internal failure whose text (driver errors, hosts, wrap chains)
+// must not cross the trust boundary to the tool client: it surfaces
+// generically and the real cause is logged server-side.
+func (s *StdioServer) explain(tool string, err error) string {
 	switch {
 	case errors.Is(err, apperrors.ErrRequiresApproval):
 		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +
@@ -187,7 +210,12 @@ func explain(err error) string {
 		return "No such record in this workspace (or it is outside the acting user's row scope). (" + err.Error() + ")"
 	case errors.Is(err, apperrors.ErrVersionSkew):
 		return "The record changed since it was read; re-read it and retry with the new version. (" + err.Error() + ")"
+	case errors.Is(err, apperrors.ErrApprovalTokenInvalid):
+		return "The approval token was not accepted — it may be consumed, expired, or for a different call. " +
+			"Ask for a fresh approval and retry. (" + err.Error() + ")"
 	default:
-		return err.Error()
+		s.log.Error("mcp: tool call failed", "tool", tool, "err", err)
+		return "The tool failed for an internal reason; nothing may have changed. " +
+			"Retry, and if it keeps failing contact the workspace admin."
 	}
 }

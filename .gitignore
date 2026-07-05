@@ -6,8 +6,6 @@ coverage.out
 .DS_Store
 
 # Session working notes — local only, not part of the published repo
-/decisions/
-/feedback/
 /review_*.md
 
 # Local secrets — never commit

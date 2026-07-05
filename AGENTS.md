@@ -34,11 +34,20 @@ serves the tool surface over stdio. The same token is a REST Bearer
 credential (read-only on REST — C1). Every call re-authenticates:
 revocation binds mid-session.
 
-Host requirements: Go ≥ 1.26, Docker, `golangci-lint`, and python3
-(`make gen`/`make drift` run `tools/gen-stubs` through it).
+Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen
+tool chain is pure Go, in its own module `backend/tools/`).
 
 Local API calls need the workspace header (prod uses the subdomain):
 `curl -k https://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=…'`
+
+Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
+probes; 503 names the unready dependency), and `/metrics` (Prometheus
+text: outbox backlog, relay throughput, pool state) sit next to `/v1`.
+api, worker, and mcp take `--log-level` (debug|info|warn|error) and
+`--log-format` (text|json), env-backed as `MARGINCE_LOG_LEVEL` /
+`MARGINCE_LOG_FORMAT`; an invalid value is a boot error, never a silent
+default. The full flag/env table:
+[docs/reference/configuration.md](docs/reference/configuration.md).
 
 ## Layout (spec ADR-0054/A69 as amended; see decisions/0011)
 
@@ -58,15 +67,37 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — bounded capabilities, flat per ADR-0054 §3
+- `internal/modules/` — thirteen bounded capabilities, flat per ADR-0054 §3
   (store + mapping + transport + provider in one package); a module NEVER
-  imports a sibling: `identity` (sessions, passports, RBAC policy docs —
-  ONLY in `identity/internal/policy`, decisions/0006), `people` (person,
-  organization, lead + merge + promote — cross-aggregate single-tx SQL
-  ownership per decisions/0011), `deals` (deal, pipeline, workspace
-  seed), `activities` (timeline), `approvals` (the 🟡 confirm-first
-  engine, ADR-0036: staged rows ARE the authority object, decisions/0008),
-  `agents` (the governed MCP tool surface: registry + tools + stdio).
+  imports a sibling: `identity` (workspaces, users, sessions, passports;
+  RBAC policy docs ONLY in `identity/internal/policy`, decisions/0006),
+  `people` (person, organization, lead + merge + promote —
+  cross-aggregate single-tx SQL ownership per decisions/0011), `deals`
+  (deal, pipeline/stage config, workspace seed, won/lost + FX freeze),
+  `activities` (the timeline: idempotent logging + polymorphic links),
+  `approvals` (the 🟡 confirm-first engine, ADR-0036: staged rows ARE
+  the authority object, decisions/0008), `agents` (the governed tool
+  surface: registry, admission gate, stdio/hosted transports, the
+  Surface-B loop — reaches records only through the datasource seam),
+  `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
+  the offline fake, routing + budget + secret-stripping), `search`
+  (row-scoped retrieval: FTS + pgvector/RRF hybrid + context graph),
+  `capture` (the ONE `connector.Sink`: normalized inbound capture,
+  idempotent on the source natural key), `consent` (per-purpose consent
+  + the default-deny outbound suppression gate + the DSR case queue),
+  `privacy` (the GDPR engines: Art. 17 erasure, Art. 15 SAR assembly,
+  the nightly retention evaluator — the ratified cross-store writer,
+  gated by `backend/tableownership_test.go`), `collections`
+  (lists — static and dynamic segments — and tags, visibility-probed),
+  and `de` (the German jurisdiction pack: GoBD retention floors,
+  registered via `ports/jurisdiction`).
+
+  Two sanctioned spine shapes, and ONLY two — don't invent a third:
+  **Handlers→Store** for CRUD modules (people, deals, activities, …:
+  the store owns the transactional write shape and the RBAC gate at its
+  entry points) and **Handlers→Service** for engine modules (approvals,
+  identity: a service owns the multi-step domain logic and drives the
+  SQL inside it).
 - `internal/compose/` — the composition layer every process role shares:
   the contract HTTP surface (module handlers shadow generated 501 stubs),
   the composite `datasource.SystemOfRecordProvider`, the MCP registry +
@@ -79,6 +110,12 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `/`, talks only to `/v1`. `backend/migrations/core|custom/` — the
   ADR-0017 namespaces. `modules/<name>/custom/` + `migrations/custom/` —
   the fork-owned seam: upstream never writes there (ADR-0054 §7).
+- `backend/tools/` — the codegen tool chain (contract-overlay,
+  gen-stubs, gen-agentpolicy); its own Go module so the generators'
+  dependencies stay out of the product module's go.mod.
+- `frontend/` — an in-flight Vite/React workspace tracked by a parallel
+  session (decisions/0014); `make frontend-check` / `make frontend-dev`
+  exist at the repo root.
 
 ## DO NOT TOUCH
 
@@ -109,11 +146,37 @@ scope clauses in `platform/auth`): object denial →
 
 ## Craftsmanship
 
-Match architecture/15: comments say *why*, domain names not `data/tmp`,
-no `any` escapes, no dead code, no speculative abstraction; handle the
-honest hard cases (empty page, version skew, cross-tenant, GUC-unset).
-Tests read as specs and the integration lane fails loudly without a
-database — a skipped security gate looks exactly like a passing one.
+Match architecture/15 (anti-tell catalog T1–T11). The rule under every rule:
+**code that reads best to a human reads best to the next agent that edits it** —
+legibility is the product, not polish.
+
+- Comments say *why*, not *what* (T1). Domain names, not `data/tmp/helper` (T4).
+- **Never swallow an error** — no `_ = f()`, no empty `catch`, no ignored return;
+  errors flow through the sentinels, and messages are actionable and never leak
+  internals (no stack/SQL/table names to a client) (T2).
+- No `any`/`as`/unchecked assertions (T6). No dead or speculative code, no
+  abstraction without a second concrete caller today, no `TODO` without an issue
+  ref (T3/T8).
+- Handle the honest hard cases (empty page, version skew, cross-tenant, GUC-unset) (T7).
+- **Tests prove behaviour or they are noise (T11):** no assertion-free test (it can
+  only fail by panicking), no `time.Sleep` / real-clock / real-network flakiness, no
+  over-mocking that asserts call-order; mock only true boundaries (DB/HTTP/clock/queue)
+  and inject a `Clock`. Tests read as specs; the integration lane fails loudly without a
+  database — a skipped security gate looks exactly like a passing one.
+- **Pre-submit self-check:** would a senior write it this way? does it match the
+  surrounding file? do the errors say what-went-wrong *and* what-to-do? would a stranger
+  find where this change lives without a guide? is this the smallest diff that does the job?
+
+**The gate runs before every push (diff-scoped).** `.githooks/pre-push` runs the
+deterministic arm — `craft static` (the `cli/craft` tool, copied from the foundation repo,
+ADR-0045) — over the backend Go files **this push changes vs `origin/main`**. New/touched
+code must be clean; the pre-existing backlog is *not* gated. So write it right the first
+time — a swallowed error or a sleep in a test you add will block your push.
+- Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
+- Full manual sweep of the whole backend: **`make craft-static`** (still red on the backlog).
+- Only `BLOCKER` findings (`swallowed-errors`, `test-sleep`) block; `MAJOR`/`MINOR` are advisory.
+- A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
+  (a reasonless waiver is itself a finding).
 
 ## License headers (every new hand-written Go file)
 

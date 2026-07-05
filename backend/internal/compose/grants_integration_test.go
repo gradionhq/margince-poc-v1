@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // The widening itself is a platform/auth property, so it is asserted at
@@ -32,7 +33,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	peopleStore := people.NewStore(e.pool)
 
 	// Before the grant: team scope hides rep3's record from rep1.
-	if _, err := peopleStore.GetPerson(repCtx, foreign, false); err == nil {
+	if _, err := peopleStore.GetPerson(repCtx, foreign, storekit.LiveOnly); err == nil {
 		t.Fatal("foreign person visible before any grant")
 	}
 	// A search misses it too.
@@ -46,7 +47,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 
 	// After: the direct read, the search branch, and the link probe all
 	// see the record through the SAME widened predicate.
-	if _, err := peopleStore.GetPerson(repCtx, foreign, false); err != nil {
+	if _, err := peopleStore.GetPerson(repCtx, foreign, storekit.LiveOnly); err != nil {
 		t.Fatalf("granted person still hidden: %v", err)
 	}
 	page, err = e.store.Search(repCtx, search.Input{Query: "Shared Secret"})
@@ -61,7 +62,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := peopleStore.GetPerson(repCtx, foreign, false); err == nil {
+	if _, err := peopleStore.GetPerson(repCtx, foreign, storekit.LiveOnly); err == nil {
 		t.Fatal("revoked grant still widens visibility")
 	}
 }

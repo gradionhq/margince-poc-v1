@@ -39,6 +39,14 @@ var memberEntityTables = map[string]bool{
 
 const listColumns = `id, workspace_id, name, entity_type, list_type, definition, owner_id, team_id, created_at, updated_at, archived_at`
 
+// catalogCap bounds the un-paginated catalog reads. Lists and tags are
+// workspace-curated vocabulary — tens of rows, not record data — which
+// is why the contract defines no cursor for them (the missing
+// pagination is filed as feedback). The cap keeps a runaway workspace
+// from turning the catalog read into an export; truncation is reported
+// through the page flag, never silently.
+const catalogCap = 1000
+
 type listRow struct {
 	ID          ids.UUID
 	WorkspaceID ids.UUID
@@ -60,11 +68,12 @@ func scanList(r pgx.Row) (listRow, error) {
 	return l, err
 }
 
-func (s *Store) ListLists(ctx context.Context, entityType *string, includeArchived bool) ([]listRow, error) {
+func (s *Store) ListLists(ctx context.Context, entityType *string, archived storekit.ArchivedFilter) ([]listRow, bool, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var out []listRow
+	truncated := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
@@ -72,7 +81,7 @@ func (s *Store) ListLists(ctx context.Context, entityType *string, includeArchiv
 		if entityType != nil {
 			where = append(where, fmt.Sprintf("entity_type = $%d", arg(*entityType)))
 		}
-		if !includeArchived {
+		if archived != storekit.IncludeArchived {
 			where = append(where, "archived_at IS NULL")
 		}
 		scope, err := auth.ScopeClause(ctx, arg)
@@ -83,7 +92,8 @@ func (s *Store) ListLists(ctx context.Context, entityType *string, includeArchiv
 			where = append(where, scope)
 		}
 		rows, err := tx.Query(ctx,
-			"SELECT "+listColumns+" FROM list WHERE "+strings.Join(where, " AND ")+" ORDER BY name", args...)
+			"SELECT "+listColumns+" FROM list WHERE "+strings.Join(where, " AND ")+
+				fmt.Sprintf(" ORDER BY name LIMIT $%d", arg(catalogCap+1)), args...)
 		if err != nil {
 			return err
 		}
@@ -95,9 +105,16 @@ func (s *Store) ListLists(ctx context.Context, entityType *string, includeArchiv
 			}
 			out = append(out, l)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(out) > catalogCap {
+			out = out[:catalogCap]
+			truncated = true
+		}
+		return nil
 	})
-	return out, err
+	return out, truncated, err
 }
 
 type CreateListInput struct {

@@ -45,8 +45,15 @@ We build contract-first, and when code and spec disagree, the spec
 wins.
 
 Progress and the pickup point live in **[STATUS.md](STATUS.md)**;
-the binding engineering rules in [AGENTS.md](AGENTS.md). Everything
-below this line is for people (and agents) working on the code.
+the binding engineering rules in [AGENTS.md](AGENTS.md). User and
+operator documentation lives under [docs/](docs/):
+[getting started](docs/tutorials/getting-started.md) ·
+[how-to guides](docs/how-to/) (MCP server, passports, migrations) ·
+[reference](docs/reference/) (every flag/env, make targets) ·
+[explanation](docs/explanation/) (architecture, contract-first).
+Vulnerabilities: see [SECURITY.md](SECURITY.md) — private reporting via
+GitHub Security Advisories. Changes: [CHANGELOG.md](CHANGELOG.md).
+Everything below this line is for people (and agents) working on the code.
 
 ## Quick start
 
@@ -55,8 +62,11 @@ make db-up && make migrate && make dev
 ```
 
 Toolchain: Go ≥ 1.26, Docker (Postgres 16 + Redis 7 test containers),
-`golangci-lint`, and python3 (`make gen` / `make drift` run the stub
-generator through it).
+and `golangci-lint`. `make -C backend help` lists every target;
+`make -C backend hooks` installs the pre-commit hook (gofmt + the
+license-header gate). A step-by-step walkthrough and the full flag/env
+reference live in [docs/](docs/) (tutorials, how-to, reference,
+explanation — see below).
 
 Then open http://localhost:8080 — the embedded web UI (bootstrap a
 workspace, people, the deal board, the timeline). It is a hash-routed,
@@ -111,9 +121,11 @@ per-client throttling at the proxy.
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
-  (plumbing, owns no domain), `modules/{identity,people,deals,activities,
-  approvals,agents}` (no sibling imports), `internal/compose` (the one
-  composition seam), and four process-role binaries
+  (plumbing, owns no domain), twelve `modules/` (identity, people,
+  deals, activities, approvals, agents, ai, search, capture, consent,
+  collections, and the `de` jurisdiction pack — no sibling imports),
+  `internal/compose` (the one composition seam), and four process-role
+  binaries
   `cmd/{api,worker,migrate,mcp}`. The DAG is enforced three ways
   (depguard, go-arch-lint, and architecture fitness tests that derive
   their package lists from the tree).

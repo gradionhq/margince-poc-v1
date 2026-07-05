@@ -59,6 +59,7 @@ func (c *AnthropicClient) Complete(ctx context.Context, prompt string) (string, 
 	if err != nil {
 		return "", err
 	}
+	//craft:ignore swallowed-errors read-side body close is best-effort; the decode/status paths carry the real error
 	defer func() { _ = resp.Body.Close() }()
 
 	var out struct {

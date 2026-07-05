@@ -5,12 +5,12 @@
 
 package compose
 
-// Regression lane for the 2026-07-04 post-restructure red-team findings:
-// H1 — an FK argument naming a row-scoped record is a READ of the target
-// (deal organization/partner, organization parent); H2 — the approval
+// Authority-scope invariants that only bind if EVERY path honors them:
+// an FK argument naming a row-scoped record is a READ of the target
+// (deal organization/partner, organization parent); the approval
 // surface honors the target row's own/team scope, not just object
-// grants; H3 — rejecting is a decision and demands the same authority as
-// approving; M2 — a burst of undecidable stagings cannot starve older
+// grants; rejecting is a decision and demands the same authority as
+// approving; and a burst of undecidable stagings cannot starve older
 // decidable rows out of the inbox. Each test pins a hole, not a happy
 // path.
 
@@ -72,7 +72,7 @@ func (e *authzEnv) seedDeal(t *testing.T, name string, pipeline, stage ids.UUID,
 // must not be able to attach a deal or a child organization to an
 // organization their row scope hides — RLS and composite FKs stop
 // cross-tenant corruption, but only the visibility probe proves the
-// caller could read the target (H1).
+// caller could read the target.
 func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	e := setupAuthz(t)
 	pipeline, open, _ := dealFixture(t, e)
@@ -98,7 +98,7 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	if _, err := e.deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateDeal attaching out-of-scope organization → %v, want ErrNotFound", err)
 	}
-	if _, err := e.deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{PartnerOrgID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{PartnerOrganizationID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateDeal attaching out-of-scope partner → %v, want ErrNotFound", err)
 	}
 	if _, err := e.people.UpdateOrganization(rep, visibleOrg, people.UpdateOrganizationInput{ParentOrgID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
@@ -137,7 +137,7 @@ func stageFor(t *testing.T, svc *approvals.Service, e *authzEnv, kind string, ta
 // Holding deal.update does not entitle a rep to see or decide a staged
 // change against another team's deal: the approval surface applies the
 // target row's own/team scope on list, get, approve AND reject — an
-// undecidable approval reads as absent, in both directions (H2/H3).
+// undecidable approval reads as absent, in both directions.
 func TestApprovalAuthorityHonorsTargetRowScope(t *testing.T) {
 	e := setupAuthz(t)
 	pipeline, open, _ := dealFixture(t, e)
@@ -169,7 +169,7 @@ func TestApprovalAuthorityHonorsTargetRowScope(t *testing.T) {
 	}
 
 	// A human with no decision grant at all cannot reject by leaked UUID
-	// either — even when the target row itself would be visible (H3).
+	// either — even when the target row itself would be visible.
 	viewer := e.as(e.rep3, []ids.UUID{e.team2}, readOnlyPerms)
 	if _, err := svc.Decide(viewer, approvalID, false, strPtr("go away")); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("reject without decision grants → %v, want ErrNotFound", err)
@@ -187,7 +187,7 @@ func TestApprovalAuthorityHonorsTargetRowScope(t *testing.T) {
 
 // A burst of stagings the caller cannot decide must not starve older
 // decidable rows out of the inbox: List pages past the scan window until
-// the display limit fills or the table is exhausted (M2).
+// the display limit fills or the table is exhausted.
 func TestApprovalListPagesPastUndecidableBurst(t *testing.T) {
 	e := setupAuthz(t)
 	pipeline, open, _ := dealFixture(t, e)

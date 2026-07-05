@@ -141,7 +141,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		}); err != nil {
 			return err
 		}
-		out, err = readStage(ctx, tx, stageID, false)
+		out, err = readStage(ctx, tx, stageID, storekit.LiveOnly)
 		return err
 	})
 	return out, err
@@ -153,13 +153,13 @@ func (s *Store) GetStage(ctx context.Context, id ids.UUID) (crmcontracts.Stage, 
 	}
 	var out crmcontracts.Stage
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		out, err = readStage(ctx, tx, id, true)
+		out, err = readStage(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
 }
 
-func (s *Store) ListStages(ctx context.Context, pipelineID *ids.UUID, includeArchived bool) ([]crmcontracts.Stage, error) {
+func (s *Store) ListStages(ctx context.Context, pipelineID *ids.UUID, archived storekit.ArchivedFilter) ([]crmcontracts.Stage, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (s *Store) ListStages(ctx context.Context, pipelineID *ids.UUID, includeArc
 		if pipelineID != nil {
 			where = storekit.SQLf("pipeline_id = $%d", arg(*pipelineID))
 		}
-		if !includeArchived {
+		if archived == storekit.LiveOnly {
 			where += " AND archived_at IS NULL"
 		}
 		rows, err := tx.Query(ctx, storekit.SQLf(
@@ -193,7 +193,7 @@ func (s *Store) ListStages(ctx context.Context, pipelineID *ids.UUID, includeArc
 			return err
 		}
 		for _, id := range stageIDs {
-			stage, err := readStage(ctx, tx, id, true)
+			stage, err := readStage(ctx, tx, id, storekit.IncludeArchived)
 			if err != nil {
 				return err
 			}
@@ -269,16 +269,16 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 		if err != nil {
 			return err
 		}
-		out, err = readStage(ctx, tx, id, true)
+		out, err = readStage(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
 }
 
-func readStage(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool) (crmcontracts.Stage, error) {
+func readStage(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Stage, error) {
 	q := `SELECT id, workspace_id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at, archived_at
 	      FROM stage WHERE id = $1`
-	if !includeArchived {
+	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
 	var out crmcontracts.Stage

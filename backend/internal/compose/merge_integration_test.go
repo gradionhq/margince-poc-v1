@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -94,7 +95,7 @@ func TestMergePerson_relinkSurvivorshipAndReferentialIntegrity(t *testing.T) {
 	}
 
 	// Fill-only survivorship: B had no first_name, so it takes A's.
-	after, err := e.people.GetPerson(admin, tgt, false)
+	after, err := e.people.GetPerson(admin, tgt, storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("read survivor: %v", err)
 	}
@@ -103,10 +104,10 @@ func TestMergePerson_relinkSurvivorshipAndReferentialIntegrity(t *testing.T) {
 	}
 
 	// The source is archived with a one-hop redirect and no longer live.
-	if _, err := e.people.GetPerson(admin, src, false); err == nil {
+	if _, err := e.people.GetPerson(admin, src, storekit.LiveOnly); err == nil {
 		t.Error("merged-away source still reads as live")
 	}
-	archived, err := e.people.GetPerson(admin, src, true)
+	archived, err := e.people.GetPerson(admin, src, storekit.IncludeArchived)
 	if err != nil {
 		t.Fatalf("read archived source: %v", err)
 	}
@@ -177,7 +178,7 @@ func TestMergeOrganization_hierarchyReparenting(t *testing.T) {
 	}
 
 	// The child is re-homed under the survivor.
-	got, err := e.people.GetOrganization(admin, ids.UUID(child.Id), false)
+	got, err := e.people.GetOrganization(admin, ids.UUID(child.Id), storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("read child: %v", err)
 	}
@@ -218,7 +219,7 @@ func TestMergeOrganization_partnerExtensionMovesIntoVacancy(t *testing.T) {
 	if n := e.wsCount(t, `SELECT count(*) FROM partner WHERE organization_id = $1`, srcID); n != 0 {
 		t.Errorf("%d partner rows still point at the merged-away source", n)
 	}
-	got, err := e.people.GetOrganization(admin, tgtID, false)
+	got, err := e.people.GetOrganization(admin, tgtID, storekit.LiveOnly)
 	if err != nil {
 		t.Fatalf("read survivor: %v", err)
 	}

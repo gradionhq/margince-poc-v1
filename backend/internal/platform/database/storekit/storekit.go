@@ -28,6 +28,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// ArchivedFilter exists for call-site legibility on row-visibility
+// reads: a positional bool ("readDeal(ctx, tx, id, true)") hides which
+// way the archived rows go, so every by-id read spells it with these
+// constants instead.
+type ArchivedFilter uint8
+
+const (
+	// LiveOnly resolves only unarchived rows — the default read posture.
+	LiveOnly ArchivedFilter = iota
+	// IncludeArchived resolves archived rows too: archived and merged
+	// records stay fetchable by id.
+	IncludeArchived
+)
+
 // Actor resolves the audit identity of the current call. A missing actor
 // is a programming error (the middleware always binds one).
 func Actor(ctx context.Context) (principal.Principal, error) {
@@ -188,14 +202,21 @@ func EncodeCursor(createdAt time.Time, id ids.UUID) string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
+// MalformedCursorError is a client fault: the opaque keyset token is
+// client-supplied input, so failing to decode it maps to a 4xx at the
+// transport (httperr), never a 500.
+type MalformedCursorError struct{}
+
+func (*MalformedCursorError) Error() string { return "store: malformed cursor" }
+
 func DecodeCursor(token string) (Cursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return Cursor{}, errors.New("store: malformed cursor")
+		return Cursor{}, &MalformedCursorError{}
 	}
 	var c Cursor
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return Cursor{}, errors.New("store: malformed cursor")
+		return Cursor{}, &MalformedCursorError{}
 	}
 	return c, nil
 }

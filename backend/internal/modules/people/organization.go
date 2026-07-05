@@ -124,13 +124,13 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, false)
+		out, err = readOrganization(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
 }
 
-func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, includeArchived bool) (crmcontracts.Organization, error) {
+func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.Organization{}, err
 	}
@@ -139,7 +139,7 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, includeArchive
 		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, includeArchived)
+		out, err = readOrganization(ctx, tx, id, archived)
 		return err
 	})
 	return out, err
@@ -245,7 +245,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
 			return err
 		}
-		current, err := readOrganization(ctx, tx, id, false)
+		current, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -288,7 +288,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id, p.After()); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, false)
+		out, err = readOrganization(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
@@ -303,7 +303,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontra
 		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
 			return err
 		}
-		if _, err := readOrganization(ctx, tx, id, false); err != nil {
+		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 
@@ -333,7 +333,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontra
 		if err := storekit.Emit(ctx, tx, auditID, "organization.archived", "organization", id, nil); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, true)
+		out, err = readOrganization(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
@@ -343,9 +343,9 @@ const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_b
 	classification, relevance, parent_org_id, merged_into_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
-func readOrganization(ctx context.Context, tx pgx.Tx, id ids.UUID, includeArchived bool) (crmcontracts.Organization, error) {
+func readOrganization(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
 	q := `SELECT ` + orgColumns + ` FROM organization WHERE id = $1`
-	if !includeArchived {
+	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
 	o, err := scanOrganization(tx.QueryRow(ctx, q, id))

@@ -12,8 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -66,15 +70,42 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
+	// The keyset cursor is client input: a token that fails to decode is
+	// the caller's fault, same 422 shape as every other bad query input.
+	var badCursor *storekit.MalformedCursorError
+	if errors.As(err, &badCursor) {
+		Write(w, r, Validation("cursor", "malformed_cursor", "cursor is not a valid page token"))
+		return
+	}
+
 	for _, m := range mapping {
 		if errors.Is(err, m.sentinel) {
-			writeProblem(w, problem{Status: m.status, Code: m.code, Detail: err.Error()})
+			detail := err.Error()
+			// A sentinel wrapped around an infrastructure failure must not
+			// carry that failure's text onto the wire (SQL fragments,
+			// addresses). The client gets the sentinel's canonical detail;
+			// the full cause goes to the server log, like any 500 would.
+			if infrastructureCause(err) {
+				slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
+					"method", r.Method, "path", r.URL.Path, "err", err)
+				detail = m.sentinel.Error()
+			}
+			writeProblem(w, problem{Status: m.status, Code: m.code, Detail: detail})
 			return
 		}
 	}
 
 	slog.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "err", err)
 	writeProblem(w, problem{Status: http.StatusInternalServerError, Code: "internal"})
+}
+
+// infrastructureCause reports whether err's chain contains a raw
+// infrastructure failure (Postgres, network) whose message is meant for
+// operators, not clients.
+func infrastructureCause(err error) bool {
+	var pgErr *pgconn.PgError
+	var netErr net.Error
+	return errors.As(err, &pgErr) || errors.As(err, &netErr)
 }
 
 // DetailedError carries a non-sentinel wire shape: validation errors

@@ -41,18 +41,21 @@ func scanTag(r pgx.Row) (tagRow, error) {
 }
 
 // Tags are workspace-shared vocabulary (no owner column): object RBAC
-// gates them, row scope does not apply.
-func (s *Store) ListTags(ctx context.Context, includeArchived bool) ([]tagRow, error) {
+// gates them, row scope does not apply. The read is bounded by the same
+// catalogCap as lists — see the constant for why the contract has no
+// cursor here.
+func (s *Store) ListTags(ctx context.Context, archived storekit.ArchivedFilter) ([]tagRow, bool, error) {
 	if err := auth.Require(ctx, "tag", principal.ActionRead); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var out []tagRow
+	truncated := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		sql := "SELECT " + tagColumns + " FROM tag"
-		if !includeArchived {
+		if archived != storekit.IncludeArchived {
 			sql += " WHERE archived_at IS NULL"
 		}
-		rows, err := tx.Query(ctx, sql+" ORDER BY lower(name)")
+		rows, err := tx.Query(ctx, sql+" ORDER BY lower(name) LIMIT $1", catalogCap+1)
 		if err != nil {
 			return err
 		}
@@ -64,9 +67,16 @@ func (s *Store) ListTags(ctx context.Context, includeArchived bool) ([]tagRow, e
 			}
 			out = append(out, t)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(out) > catalogCap {
+			out = out[:catalogCap]
+			truncated = true
+		}
+		return nil
 	})
-	return out, err
+	return out, truncated, err
 }
 
 func (s *Store) CreateTag(ctx context.Context, name string, color *string) (tagRow, error) {
@@ -84,7 +94,7 @@ func (s *Store) CreateTag(ctx context.Context, name string, color *string) (tagR
 			RETURNING `+tagColumns, strings.TrimSpace(name), color)
 		var err error
 		if out, err = scanTag(row); err != nil {
-			if strings.Contains(err.Error(), "uq_tag_name") {
+			if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "uq_tag_name" {
 				return fmt.Errorf("tag %q: %w", name, apperrors.ErrConflict)
 			}
 			return err

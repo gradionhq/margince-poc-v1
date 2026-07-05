@@ -14,6 +14,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -42,7 +43,7 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.UUID, in SendEmailIn
 	// the write grant must refuse before the consent gate answers, or
 	// the 409-vs-403 difference becomes a consent oracle for callers
 	// with no rights at all.
-	anchor, err := s.GetActivity(ctx, anchorID, false)
+	anchor, err := s.GetActivity(ctx, anchorID, storekit.LiveOnly)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}

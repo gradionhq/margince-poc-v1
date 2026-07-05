@@ -66,6 +66,13 @@ type graphItem struct {
 	score      float64
 }
 
+// graphExpansionLimit caps EVERY leg of the fixed-depth walk — the
+// activity timeline and each hop-2 relationship expansion alike. A
+// graph view is a window onto the neighborhood, not an export: each leg
+// reads at most this many rows and ranking trims further, so an anchor
+// with thousands of links costs the same as one with fifty.
+const graphExpansionLimit = 50
+
 // anchorLinkColumn names the activity_link column an anchor type walks.
 var anchorLinkColumn = map[string]string{
 	"person":       "person_id",
@@ -124,7 +131,7 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		if scope != "" {
 			activitySQL += " AND " + scope
 		}
-		activitySQL += " ORDER BY a.occurred_at DESC LIMIT 50"
+		activitySQL += fmt.Sprintf(" ORDER BY a.occurred_at DESC LIMIT %d", graphExpansionLimit)
 		rows, err := tx.Query(ctx, activitySQL, args...)
 		if err != nil {
 			return err
@@ -192,11 +199,14 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		if hop.entity == anchorType {
 			continue // the anchor is not its own neighbor
 		}
+		// Bounded like the activity leg: the id order makes the window
+		// deterministic before the per-row visibility probe thins it.
 		rows, err := tx.Query(ctx, fmt.Sprintf(`
 			SELECT DISTINCT t.id, t.%s
 			FROM activity_link l JOIN %s t ON t.id = l.%s
-			WHERE l.activity_id = ANY($1) AND t.archived_at IS NULL AND l.%s IS NOT NULL AND t.id <> $2`,
-			hop.title, hop.entity, hop.column, hop.column), activityIDs, anchorID)
+			WHERE l.activity_id = ANY($1) AND t.archived_at IS NULL AND l.%s IS NOT NULL AND t.id <> $2
+			ORDER BY t.id LIMIT %d`,
+			hop.title, hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
 		if err != nil {
 			return nil, err
 		}

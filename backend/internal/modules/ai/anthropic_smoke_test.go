@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
+//go:build livesmoke
+
 package ai
 
 import (
@@ -14,10 +16,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// A live one-shot against the real API, run only where a developer has
-// dropped a key at ~/.margince/anthropic_key (or MARGINCE_ANTHROPIC_KEY).
-// Skipping is fine here — this is a reachability probe, not a security
-// gate; every behavioral property is covered by the httptest suite.
+// A live one-shot against the real API — a reachability probe, not a
+// security gate; every behavioral property is covered by the httptest
+// suite. Deliberately manual so the unit lane stays hermetic: run it
+// with `go test -tags livesmoke -run TestAnthropicLiveSmoke ./internal/modules/ai`
+// after dropping a key at ~/.margince/anthropic_key (or exporting
+// MARGINCE_ANTHROPIC_KEY).
 func TestAnthropicLiveSmoke(t *testing.T) {
 	key := os.Getenv("MARGINCE_ANTHROPIC_KEY")
 	if key == "" {

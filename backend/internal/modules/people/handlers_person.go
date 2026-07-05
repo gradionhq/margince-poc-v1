@@ -72,7 +72,7 @@ func (h Handlers) CreatePerson(w http.ResponseWriter, r *http.Request, _ crmcont
 }
 
 func (h Handlers) GetPerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	person, err := h.store.GetPerson(r.Context(), ids.UUID(id), true)
+	person, err := h.store.GetPerson(r.Context(), ids.UUID(id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

@@ -50,20 +50,20 @@ func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error
 
 func dealUpdateInput(req crmcontracts.UpdateDealRequest, ifVersion *int64) UpdateDealInput {
 	in := UpdateDealInput{
-		Name:           req.Name,
-		AmountMinor:    req.AmountMinor,
-		Currency:       req.Currency,
-		OrganizationID: uuidArg(req.OrganizationId),
-		OwnerID:        uuidArg(req.OwnerId),
-		PartnerOrgID:   uuidArg(req.PartnerOrgId),
-		IfVersion:      ifVersion,
+		Name:                  req.Name,
+		AmountMinor:           req.AmountMinor,
+		Currency:              req.Currency,
+		OrganizationID:        uuidArg(req.OrganizationId),
+		OwnerID:               uuidArg(req.OwnerId),
+		PartnerOrganizationID: uuidArg(req.PartnerOrgId),
+		IfVersion:             ifVersion,
 	}
 	if req.ExpectedCloseDate != nil {
 		in.ExpectedClose = &req.ExpectedCloseDate.Time
 	}
 	if req.ForecastCategory != nil {
 		cat := string(*req.ForecastCategory)
-		in.ForecastCat = &cat
+		in.ForecastCategory = &cat
 	}
 	if req.WaitUntil != nil {
 		in.WaitUntil = &req.WaitUntil.Time

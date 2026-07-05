@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package compose
+package privacy
 
-// Right-to-erasure (Art. 17, ADR-0011/A13), composed here because one
-// erasure spans people, capture, retrieval and audit. The shape is
-// fixed: anonymize the normalized rows in place, purge raw capture and
+// Right-to-erasure (Art. 17, ADR-0011/A13). The shape is fixed:
+// anonymize the normalized rows in place, purge raw capture and
 // embeddings, hash the identifiers onto the suppression list so
 // re-capture cannot resurrect the subject, and prove it all with a
 // PII-FREE audit tombstone — the tombstone must never re-store what it
-// certifies gone.
+// certifies gone. One erasure spans people, capture and retrieval
+// tables in ONE transaction on purpose: erasure must reach every store
+// that holds the data subject, and atomicity IS the guarantee — a
+// per-module cascade could commit half an erasure (the decisions/0011
+// single-transaction exception).
 
 import (
 	"context"

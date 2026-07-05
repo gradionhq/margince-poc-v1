@@ -40,7 +40,7 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := readActivity(ctx, tx, id, false)
+		current, err := readActivity(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -87,7 +87,7 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 		}); err != nil {
 			return err
 		}
-		out, err = readActivity(ctx, tx, id, false)
+		out, err = readActivity(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
@@ -99,7 +99,7 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.UUID) (crmcontracts.
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := readActivity(ctx, tx, id, false); err != nil {
+		if _, err := readActivity(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
@@ -116,7 +116,7 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.UUID) (crmcontracts.
 		if err := storekit.Emit(ctx, tx, auditID, "activity.archived", "activity", id, nil); err != nil {
 			return err
 		}
-		out, err = readActivity(ctx, tx, id, true)
+		out, err = readActivity(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
@@ -142,7 +142,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.UUID, in RelinkActivi
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := readActivity(ctx, tx, id, false); err != nil {
+		if _, err := readActivity(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 		// The relink target is a client-supplied reference (H1).
@@ -180,7 +180,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.UUID, in RelinkActivi
 			}
 		}
 		var err2 error
-		out, err2 = readActivity(ctx, tx, id, false)
+		out, err2 = readActivity(ctx, tx, id, storekit.LiveOnly)
 		return err2
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

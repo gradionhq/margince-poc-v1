@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -127,7 +128,7 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 
 		var branches []string
 		for _, branch := range searchBranches {
-			if !contains(types, branch.entity) {
+			if !slices.Contains(types, branch.entity) {
 				continue
 			}
 			// A hit is a read twice over: object RBAC first (a role
@@ -260,13 +261,4 @@ func clampLimit(v int) int {
 		return storekit.ClampLimit(nil)
 	}
 	return storekit.ClampLimit(&v)
-}
-
-func contains(list []string, v string) bool {
-	for _, item := range list {
-		if item == v {
-			return true
-		}
-	}
-	return false
 }

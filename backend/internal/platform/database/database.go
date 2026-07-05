@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,16 +22,31 @@ import (
 
 // NewPool opens a pgxpool with explicit operational limits (a defaultless
 // pool under load exhausts Postgres connections and hides slow queries).
+// Each limit is a fallback, not a mandate: an operator who sized the pool
+// in the DSN (pool_max_conns=…) knows their Postgres better than a
+// hardcoded 16 does, so a DSN-provided value always wins.
 func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pg: parsing DSN: %w", err)
 	}
-	cfg.MaxConns = 16
-	cfg.MinConns = 2
-	cfg.MaxConnLifetime = 30 * time.Minute
-	cfg.MaxConnIdleTime = 5 * time.Minute
-	cfg.HealthCheckPeriod = time.Minute
+	// ParseConfig already applied any pool_* DSN parameters; only fill
+	// the ones the DSN left unset.
+	if !strings.Contains(dsn, "pool_max_conns") {
+		cfg.MaxConns = 16
+	}
+	if !strings.Contains(dsn, "pool_min_conns") {
+		cfg.MinConns = 2
+	}
+	if !strings.Contains(dsn, "pool_max_conn_lifetime") {
+		cfg.MaxConnLifetime = 30 * time.Minute
+	}
+	if !strings.Contains(dsn, "pool_max_conn_idle_time") {
+		cfg.MaxConnIdleTime = 5 * time.Minute
+	}
+	if !strings.Contains(dsn, "pool_health_check_period") {
+		cfg.HealthCheckPeriod = time.Minute
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
