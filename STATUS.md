@@ -59,6 +59,15 @@ this list is the durable record:
   (was 83 blockers / 70 majors — every finding fixed or reason-waived
   inline); the LLM arm (`craft review`, five slices over the session diff)
   returned PASS on all slices and its nine findings are closed.
+- **craft gate single-sourced** (follow-up the same day): the gate is now
+  developed ONLY in the foundation (`../margince/skeleton/cli/craft`,
+  commit `893c73d` there) and vendored here verbatim, hash-pinned by
+  `cli/craft/craft-manifest.sha256` — `make craft-drift` (a `make check`
+  prerequisite) fails any local edit; `make craft-sync` pulls the current
+  gate. The gate identity tuple gained `code_version`
+  (`p1+r1+e1+c1+<model>`, docs 15 §4 / 17 §1 amended), so a verdict names
+  the exact gate source that produced it. The stale fork in the superseded
+  `margince-poc` repo is retired (its commit `6b40f0d`).
 
 Not done, deliberately: GitHub CI (owner is adding it; the five failing
 `cli/craft/wiring` tests that expect `.github/workflows/ci.yml`,
