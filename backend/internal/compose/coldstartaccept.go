@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -33,6 +34,7 @@ func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, store))
 	svc.WithEffect("enrich", scrapeAcceptEffect(svc, store))
 	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool)))
+	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
 	return approvals.NewHandlers(svc)
 }
 

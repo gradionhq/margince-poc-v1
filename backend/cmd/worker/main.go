@@ -59,6 +59,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	runnerInterval := fs.Duration("runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
 	retentionInterval := fs.Duration("retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	closeDateInterval := fs.Duration("close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
+	reconcileInterval := fs.Duration("reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -120,6 +121,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	corrector := compose.NewCloseDateCorrector(pool, logger)
 	_, _ = fmt.Fprintf(stdout, "worker sweeping close-date hygiene every %s\n", *closeDateInterval)
 	background.Go(func() { deals.RunCloseDateSweep(ctx, corrector, *closeDateInterval, logger) })
+
+	reconciler := compose.NewFollowUpReconciler(pool, logger)
+	_, _ = fmt.Fprintf(stdout, "worker reconciling overnight follow-ups every %s\n", *reconcileInterval)
+	background.Go(func() { deals.RunFollowUpReconcile(ctx, reconciler, *reconcileInterval, logger) })
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")

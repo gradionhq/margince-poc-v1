@@ -52,6 +52,11 @@ var decisionGrants = map[string][]struct {
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{"deal", principal.ActionUpdate}},
+	// Confirming an overnight follow-up proposal (features/07 §8a) creates
+	// the drafted task activity; the target deal's visibility gates who
+	// may see and decide it (targetVisible), the create grant gates the
+	// write the confirm performs.
+	"deal_follow_up": {{"activity", principal.ActionCreate}},
 }
 
 // kindDecidedEvents names the domain event a decision echoes for kinds
