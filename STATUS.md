@@ -5,7 +5,34 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (2026-07-06 PM — batch-5 CLEARED)
+## ▶ RESTART HERE (2026-07-06 evening — product-completeness loop)
+
+A product-facing loop session (goal: executable, testable product; onboarding
++ first screens beautiful and fully working; PR-per-slice through the CI +
+CodeRabbit + Sonar gates). Slice 1 = **PR #14** `feat/home-morning-brief`:
+
+- **Home now rides the real `/brief` spine** (B-EP09.12b×E05): no-run 404 →
+  honest generate card, POST refresh, ranked items with the §10.1 factor
+  bars, evidence counts, B-E05.13 act/dismiss updating in place, honest-short
+  footer; approvals stay on top, stalled deals close the page. New
+  `home.css` + `home.test.tsx`; e2e seed gained a coherent /brief run.
+- **Onboarding**: cold-start fields render human DE/EN labels (was raw
+  `LEGAL_NAME` keys); step 4 is honest about a skipped voice step and tags
+  the canned sample draft as an illustrative example.
+- `frontend/src/api/schema.d.ts` regenerated (picks up /brief, offers,
+  signals, views…).
+- Verified live in a browser end to end: signup → real-model cold-start of a
+  real site → funnel → generate brief over real deals → act/dismiss.
+  frontend-check green (94 unit), e2e 35/35.
+
+Browser-audit gaps still open (next slices): contacts/companies/leads lists
+are thin but work; deal 360 exists; offers/products, signals warm-room,
+smart lists/saved views, preference center have NO frontend surface yet —
+those are the highest-value next product slices. The dev stack must be
+restarted after backend merges (`make dev-tls`) or the SPA hits routes the
+running api doesn't have.
+
+## Prior restart point (2026-07-06 PM — batch-5 CLEARED)
 
 Clean stopping point. `origin/main` builds and carries no half-finished
 code. Migrations at **0049** (saved_view). Everything below is durable
