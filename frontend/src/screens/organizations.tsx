@@ -24,6 +24,7 @@ import {
 } from "./common";
 import { CreateAction } from "./create";
 import { confidenceLevel } from "./inbox";
+import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -297,6 +298,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
               </dl>
             </section>
             <EnrichCard orgId={org.id} />
+            <LogActivity entityType="organization" entityId={org.id} />
           </RecordView>
         )}
       </QueryGate>

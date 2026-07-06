@@ -23,6 +23,7 @@ import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 import { CreateAction } from "./create";
+import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
@@ -702,6 +703,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     </div>
                   </section>
                 )}
+              <LogActivity entityType="deal" entityId={deal.id} />
             </RecordView>
           );
         }}
