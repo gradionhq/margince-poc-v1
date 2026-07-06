@@ -145,8 +145,9 @@ type Group struct {
 	Streams []string
 }
 
-// Groups returns the seven V1 consumer groups with their subscribed
-// streams (events.md §4.3). cg:workflows and cg:read-model subscribe to
+// Groups returns the V1 consumer groups with their subscribed streams
+// (events.md §4.3) plus the E10 outbound-webhook fan-out group.
+// cg:workflows and cg:read-model subscribe to
 // everything by design; cg:audit-stream also does, because its "all
 // actor.type=agent events" slice cuts across every stream and Redis
 // consumer groups can only partition by stream, not by envelope field —
@@ -169,6 +170,10 @@ func Groups() []Group {
 		{Name: "cg:flow-bridge", Streams: forEntities("person", "deal", "activity")},
 		{Name: "cg:read-model", Streams: all},
 		{Name: "cg:audit-stream", Streams: all},
+		// The outbound-webhook fan-out (E10/S-E10.6): a subscription may
+		// name any published event type, so this group listens on every
+		// stream and matches per-subscription event_types in-process.
+		{Name: "cg:webhooks", Streams: all},
 	}
 }
 

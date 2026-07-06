@@ -34,6 +34,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -60,6 +61,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	retentionInterval := fs.Duration("retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	closeDateInterval := fs.Duration("close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	reconcileInterval := fs.Duration("reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
+	webhookKey := fs.String("webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the delivery worker")
+	webhookRetryInterval := fs.Duration("webhook-retry-interval", 5*time.Second, "outbound-webhook retry sweep tick interval")
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -130,6 +133,20 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
 
+	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key
+	// is configured: it consumes cg:webhooks to fan matching events to
+	// subscribers, and sweeps due retries on a ticker. Without the key the
+	// lane stays off — the api role answers 503 on the mutating surface.
+	if *webhookKey != "" {
+		deliverer, err := newWebhookDeliverer(*webhookKey, pool, logger)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(stdout, "worker delivering outbound webhooks (cg:webhooks), retry sweep every %s\n", *webhookRetryInterval)
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger) })
+		background.Go(func() { deliverer.RunRetrySweep(ctx, *webhookRetryInterval) })
+	}
+
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", *redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
 	// the next boot — shutdown loses no events.
@@ -155,6 +172,22 @@ func selectModelPath(routingPath string, fake bool, pool *pgxpool.Pool) (compose
 	default:
 		return compose.ModelPath{}, nil
 	}
+}
+
+// newWebhookDeliverer builds the outbound-webhook delivery engine from the
+// deployment signing key. A malformed/wrong-length key is a boot error,
+// never a silent fallback to an unsigned surface.
+func newWebhookDeliverer(encodedKey string, pool *pgxpool.Pool, log *slog.Logger) (*webhooks.Deliverer, error) {
+	key, err := webhooks.DecodeKey(encodedKey)
+	if err != nil {
+		return nil, err
+	}
+	cipher, err := webhooks.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	store := webhooks.NewStore(pool, cipher)
+	return webhooks.NewDeliverer(store, webhooks.NewGuardedClient(), nil, log), nil
 }
 
 func runScheduler(ctx context.Context, svc *compose.RunnerService, interval time.Duration, log *slog.Logger) {

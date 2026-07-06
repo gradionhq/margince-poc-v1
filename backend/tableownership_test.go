@@ -110,6 +110,10 @@ var tableOwners = map[string]string{
 	"tag":         "internal/modules/collections",
 	"taggable":    "internal/modules/collections",
 	"saved_view":  "internal/modules/collections",
+	// webhooks (the outbound integration surface: subscriptions + their
+	// per-attempt delivery log)
+	"webhook_subscription": "internal/modules/webhooks",
+	"webhook_delivery":     "internal/modules/webhooks",
 	// privacy (the erasure suppression list is the module's own state;
 	// its other writes are ratified waivers below)
 	"erasure_suppression": "internal/modules/privacy",

@@ -30,6 +30,7 @@ import (
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -59,6 +60,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	publicBaseURL := fs.String("public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail")
+	webhookKey := fs.String("webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the /webhook-subscriptions mutating surface")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -100,6 +102,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, coldStart...)
+
+	webhookOpt, err := webhookOption(*webhookKey)
+	if err != nil {
+		return err
+	}
+	if webhookOpt != nil {
+		opts = append(opts, webhookOpt)
+	}
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -203,6 +213,25 @@ func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([
 	default:
 		return nil, nil
 	}
+}
+
+// webhookOption builds the outbound-webhook signing option from the
+// deployment key. An empty key leaves the feature unconfigured (the
+// mutating surface answers 503); a malformed or wrong-length key is a boot
+// error, never a silent fallback to an unsigned surface.
+func webhookOption(encodedKey string) (compose.Option, error) {
+	if encodedKey == "" {
+		return nil, nil
+	}
+	key, err := webhooks.DecodeKey(encodedKey)
+	if err != nil {
+		return nil, err
+	}
+	cipher, err := webhooks.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	return compose.WithWebhookSigningKey(cipher), nil
 }
 
 // envOr reads an environment variable with an explicit default, keeping

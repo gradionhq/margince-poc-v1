@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -56,6 +57,7 @@ type (
 	privacyHandlers     = privacy.Handlers
 	agentsHandlers      = agents.Handlers
 	voiceHandlers       = ai.Handlers
+	webhooksHandlers    = webhooks.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding the module
@@ -76,6 +78,7 @@ type Server struct {
 	privacyHandlers
 	agentsHandlers
 	voiceHandlers
+	webhooksHandlers
 	reportHandlers
 	briefHandlers
 	coldstartHandlers
@@ -153,6 +156,18 @@ func WithBrief(brain runner.Brain) Option {
 	}
 }
 
+// WithWebhookSigningKey enables the outbound-webhook surface: the 32-byte
+// deployment key seals each subscription's signing secret at rest and the
+// api role can then replay a parked delivery on demand. Without it the
+// mutating webhook paths answer 503 (the read surface still lists).
+func WithWebhookSigningKey(cipher *webhooks.Cipher) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		store := webhooks.NewStore(pool, cipher)
+		deliverer := webhooks.NewDeliverer(store, webhooks.NewGuardedClient(), nil, s.log)
+		s.webhooksHandlers = webhooks.NewHandlers(store, deliverer)
+	}
+}
+
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
@@ -214,7 +229,13 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		privacyHandlers: privacy.NewHandlers(pool),
 		agentsHandlers:  agents.NewHandlers(pool),
 		voiceHandlers:   ai.NewHandlers(pool),
-		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
+		// Outbound webhooks default to unconfigured: the CRUD read surface
+		// works, but registering/rotating/replaying needs a deployment
+		// signing key, wired by WithWebhookSigningKey (the api role sources
+		// it from the environment). Without it those paths answer an honest
+		// 503, never a silently-unsigned delivery.
+		webhooksHandlers: webhooks.NewHandlers(webhooks.NewStore(pool, nil), nil),
+		reportHandlers:   reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		briefHandlers: briefHandlers{engine: NewBriefEngine(pool, people.NewStore(pool))},

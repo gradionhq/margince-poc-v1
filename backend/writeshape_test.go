@@ -30,10 +30,17 @@ import (
 // entry without a rationale is a finding, not a pass. When the spec's
 // events.md gains the missing event types, wiring storekit.Emit into
 // these mutations removes the entries.
+//
+//nolint:gosec // G101: the "RotateSecret" key names a function, not a credential — this map holds no secrets
 var auditOnlyWrites = map[string]string{
 	"internal/modules/collections:CreateSavedView":  "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
 	"internal/modules/collections:UpdateSavedView":  "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
 	"internal/modules/collections:ArchiveSavedView": "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
+	"internal/modules/webhooks:CreateSubscription":  "a webhook subscription is workspace integration config, not a record fact — the closed catalog (events.md §5) defines no webhook_subscription.* type; delivery CONSUMES the bus rather than emitting to it",
+	"internal/modules/webhooks:UpdateSubscription":  "a webhook subscription is workspace integration config, not a record fact — the closed catalog (events.md §5) defines no webhook_subscription.* type; delivery CONSUMES the bus rather than emitting to it",
+	"internal/modules/webhooks:RotateSecret":        "a webhook subscription is workspace integration config, not a record fact — the closed catalog (events.md §5) defines no webhook_subscription.* type; delivery CONSUMES the bus rather than emitting to it",
+	"internal/modules/webhooks:ArchiveSubscription": "a webhook subscription is workspace integration config, not a record fact — the closed catalog (events.md §5) defines no webhook_subscription.* type; delivery CONSUMES the bus rather than emitting to it",
+	"internal/modules/webhooks:requireReplay":       "replaying a parked delivery is an operational action over the integration surface — the closed catalog (events.md §5) defines no webhook delivery event; the re-POST rides the same audit-only path",
 	"internal/modules/collections:CreateList":       "lists are ratified audit-only in V1 — events.md \u00a75.3c defines no list.* types and none is added",
 	"internal/modules/collections:ArchiveList":      "lists are ratified audit-only in V1 — events.md \u00a75.3c defines no list.* types and none is added",
 	"internal/modules/collections:AddMember":        "lists are ratified audit-only in V1 — events.md \u00a75.3c defines no list.* types and none is added",
