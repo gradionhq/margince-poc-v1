@@ -3344,14 +3344,20 @@ type Lead struct {
 	PromotedPersonId *openapi_types.UUID     `json:"promoted_person_id,omitempty"`
 	Raw              *map[string]interface{} `json:"raw,omitempty"`
 
-	// Score Lead-local scoring; never reads the contact graph.
-	Score        int        `json:"score"`
-	Source       string     `json:"source"`
-	SourceId     *string    `json:"source_id,omitempty"`
-	SourceSystem *string    `json:"source_system,omitempty"`
-	Status       LeadStatus `json:"status"`
-	Title        *string    `json:"title,omitempty"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	// Score Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).
+	Score int `json:"score"`
+
+	// ScoreComputed Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value).
+	ScoreComputed *int `json:"score_computed,omitempty"`
+
+	// ScoreOverrideReason Non-null when a human has set score as a Commercial Judgement override (formulas §3.1, A68/ADR-0053). A non-empty reason makes score sticky: the §3 recompute stops touching score and tracks the machine value in score_computed instead. Cleared → recompute resumes.
+	ScoreOverrideReason *string    `json:"score_override_reason,omitempty"`
+	Source              string     `json:"source"`
+	SourceId            *string    `json:"source_id,omitempty"`
+	SourceSystem        *string    `json:"source_system,omitempty"`
+	Status              LeadStatus `json:"status"`
+	Title               *string    `json:"title,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -4286,10 +4292,13 @@ type UpdateLeadRequest struct {
 	FullName        *string              `json:"full_name,omitempty"`
 	OwnerId         *openapi_types.UUID  `json:"owner_id,omitempty"`
 
-	// Score Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score.
-	Score  *int                     `json:"score,omitempty"`
-	Status *UpdateLeadRequestStatus `json:"status,omitempty"`
-	Title  *string                  `json:"title,omitempty"`
+	// Score Human Commercial-Judgement score override (formulas §3.1, AC-S1). Setting it REQUIRES a non-empty score_override_reason in the SAME request — a score with no reason is rejected 422. Establishing an override makes the value sticky (recompute stops overwriting it). Omit to keep the current value.
+	Score *int `json:"score,omitempty"`
+
+	// ScoreOverrideReason The written reason accompanying a score override (mandatory whenever score is set, AC-S1). Two gestures only: a non-empty reason SETS/keeps the override; an explicit empty string CLEARS an in-force override (resumes the §3 recompute so score tracks score_computed again). Omit the field to leave the override untouched. null is not accepted — omit instead.
+	ScoreOverrideReason *string                  `json:"score_override_reason,omitempty"`
+	Status              *UpdateLeadRequestStatus `json:"status,omitempty"`
+	Title               *string                  `json:"title,omitempty"`
 }
 
 // UpdateLeadRequestStatus defines model for UpdateLeadRequest.Status.

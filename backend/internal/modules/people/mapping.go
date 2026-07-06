@@ -156,13 +156,14 @@ func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
 
 func leadUpdateInput(req crmcontracts.UpdateLeadRequest, ifVersion *int64) UpdateLeadInput {
 	in := UpdateLeadInput{
-		FullName:        req.FullName,
-		Title:           req.Title,
-		CompanyName:     req.CompanyName,
-		CandidateOrgKey: req.CandidateOrgKey,
-		Score:           req.Score,
-		OwnerID:         uuidArg(req.OwnerId),
-		IfVersion:       ifVersion,
+		FullName:            req.FullName,
+		Title:               req.Title,
+		CompanyName:         req.CompanyName,
+		CandidateOrgKey:     req.CandidateOrgKey,
+		Score:               req.Score,
+		ScoreOverrideReason: req.ScoreOverrideReason,
+		OwnerID:             uuidArg(req.OwnerId),
+		IfVersion:           ifVersion,
 	}
 	if req.Email != nil {
 		email := string(*req.Email)

@@ -5,13 +5,36 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ⚠️ Spec reconciliation 2026-07-06 — CLOSED TICKETS REOPENED (redo required)
+## ✅ Spec reconciliation 2026-07-06 — THREE REOPENED TICKETS REDONE + pushed
 
-The founder resolved feedback 16–24 against the spec (`../margince/specs`,
-this session). Most notes were ratified **as built** (see "ratified as-is"
-below — no action). **Three closed tickets now diverge from the ratified
-spec and MUST be redone**; two were **founder decisions** that reverse what
-the build shipped:
+The three reopened tickets are done, gate-green, craft+security reviewed,
+and on `origin/main`:
+
+- **B-EP06.14 per-field split** — `136d1ce` (CI green). `update_record`
+  back to 🟢 both transports; a green patch touching a human-owned field
+  splits ONLY that field into a 🟡 staged approval (ADR-0036 sub-patch
+  diff-hash, exactly-once) while the rest applies green. Spelled once in
+  `agents.SplitHumanOwned`, driven by MCP (`tools_update.go`) + REST
+  (`agentsplit.go`). **Security hardening landed with it:** a case-variant
+  field key (`{"FULL_NAME":…}`) bypassed the precedence probe (probe matches
+  jsonb keys case-sensitively; encoding/json matches struct fields
+  case-insensitively → lead wrote the column). `datasource.RejectNonCanonicalKeys`
+  now enforces byte-exact key identity for catch-all-free targets, wired into
+  BOTH the provider seam (`StrictDecode`) and REST decode (`httperr.Decode`).
+- **B-E07.5a voice text-only** — `136d1ce` (CI green). Fake `filesize÷6`
+  count + `.docx/.pdf` acceptance removed (was in the frontend onboarding
+  screen; backend was already honest); formats `.txt .md .vtt .srt .json`,
+  real WORD count per features/09 §B1.1 (spec says words, not tokens —
+  feedback/25). Binary extraction deferred to **B-E07.5c**.
+- **Lead-score sticky override** — landed (migration **0046**:
+  `lead.score_override_reason` + `lead.score_computed`), pending push (wave B).
+  Human `score` requires a non-empty reason (422 without, AC-S1); a non-empty
+  reason suppresses recompute (machine value retained in `score_computed`);
+  explicit empty-string reason clears + resumes recompute. Clearing gesture
+  (empty-string, since `*string` can't separate null from omitted) —
+  feedback/27; contract input type tightened to reject `null`.
+
+Original reconciliation notes (for the record):
 
 1. **B-EP06.14 human-edit precedence — REDO to per-field split.**
    *Founder decision: keep the §2.1 per-field split; reject whole-patch
@@ -57,6 +80,12 @@ a contract surface (`RelationshipStrength` on Person/Organization) — the
 computed value can now be **surfaced** (new display wiring, not a redo).
 
 New backlog ticket: **B-E01.13** speech-input cold-start accelerator (feedback/18).
+
+## Session (2026-07-06 AM) — reconciliation redo + resuming batch-5
+
+This session redid the three reopened tickets (block above), then resumes
+the batch-5 queue. Migrations now at **0046**. **Next up:** B-E08.1→4 the
+warm-room signals spine (see `scratchpad/night-queue.md` batch-5 queue).
 
 ## Session close (2026-07-06 early AM) — where to pick up
 

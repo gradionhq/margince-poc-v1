@@ -29,47 +29,79 @@ import (
 )
 
 // RecomputeLeadScore re-runs §3 for one live lead from its linked
-// activities and persists a changed score with audit + lead.updated.
+// activities and persists the change with audit + lead.updated.
 func (s *Store) RecomputeLeadScore(ctx context.Context, leadID ids.UUID, now time.Time) error {
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		var title, source *string
-		var currentScore int
-		var status string
-		err := tx.QueryRow(ctx,
-			`SELECT title, source, score, status FROM lead WHERE id = $1 AND archived_at IS NULL`,
-			leadID).Scan(&title, &source, &currentScore, &status)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // archived or gone: nothing to score
-		}
-		if err != nil {
-			return err
-		}
-		if status != "new" && status != "working" {
-			return nil // promoted/disqualified leads keep their last score
-		}
+		return recomputeLeadScoreTx(ctx, tx, leadID, now)
+	})
+}
 
-		signals, err := leadBehavioralSignals(ctx, tx, leadID)
-		if err != nil {
-			return err
-		}
-		score, _ := ScoreLead(deref(title), deref(source), signals, now)
-		if score == currentScore {
+// recomputeLeadScoreTx is the §3 recompute inside an open transaction —
+// shared by the SYSTEM workflow lane and the override-clear path in
+// UpdateLead. When a Commercial Judgement override is in force (a
+// non-empty score_override_reason) it NEVER overwrites lead.score: the
+// human value is sticky (formulas §3.1, AC-S1) and the freshly machine
+// value is retained in score_computed instead. With no override, score
+// tracks the machine value directly (score_computed stays null).
+func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.UUID, now time.Time) error {
+	var title, source, overrideReason *string
+	var currentScore int
+	var currentComputed *int
+	var status string
+	err := tx.QueryRow(ctx,
+		`SELECT title, source, score, score_override_reason, score_computed, status
+		   FROM lead WHERE id = $1 AND archived_at IS NULL`,
+		leadID).Scan(&title, &source, &currentScore, &overrideReason, &currentComputed, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // archived or gone: nothing to score
+	}
+	if err != nil {
+		return err
+	}
+	if status != "new" && status != "working" {
+		return nil // promoted/disqualified leads keep their last score
+	}
+
+	signals, err := leadBehavioralSignals(ctx, tx, leadID)
+	if err != nil {
+		return err
+	}
+	machine, _ := ScoreLead(deref(title), deref(source), signals, now)
+
+	// Sticky override: the machine value moves score_computed, never score.
+	if overrideReason != nil {
+		if currentComputed != nil && *currentComputed == machine {
 			return nil
 		}
-		if _, err := tx.Exec(ctx, `UPDATE lead SET score = $2 WHERE id = $1`, leadID, score); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE lead SET score_computed = $2 WHERE id = $1`, leadID, machine); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID,
-			map[string]any{"score": currentScore}, map[string]any{"score": score})
+			map[string]any{"score_computed": currentComputed}, map[string]any{"score_computed": machine})
 		if err != nil {
 			return err
 		}
 		return storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID, map[string]any{
-			"delta": map[string]any{"score": score},
+			"delta": map[string]any{"score_computed": machine},
 		})
+	}
+
+	if machine == currentScore {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `UPDATE lead SET score = $2 WHERE id = $1`, leadID, machine); err != nil {
+		return err
+	}
+	auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID,
+		map[string]any{"score": currentScore}, map[string]any{"score": machine})
+	if err != nil {
+		return err
+	}
+	return storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID, map[string]any{
+		"delta": map[string]any{"score": machine},
 	})
 }
 

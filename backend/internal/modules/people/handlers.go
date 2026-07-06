@@ -63,6 +63,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID)))
 		return
 	}
+	var needsReason *ScoreOverrideReasonRequiredError
+	if errors.As(err, &needsReason) {
+		httperr.Write(w, r, httperr.Validation("score_override_reason", "required", needsReason.Error()))
+		return
+	}
 	var promoted *AlreadyPromotedError
 	if errors.As(err, &promoted) {
 		e := &httperr.DetailedError{

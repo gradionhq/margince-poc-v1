@@ -4479,7 +4479,9 @@ components:
         company_name: { type: [string, 'null'], description: FREE TEXT — NOT an organization FK. }
         candidate_org_key: { type: [string, 'null'], description: Loose key for ABM routing without creating an org. }
         status: { type: string, enum: [new, working, promoted, disqualified], default: new }
-        score: { type: integer, default: 0, description: Lead-local scoring; never reads the contact graph. }
+        score: { type: integer, default: 0, description: 'Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).' }
+        score_override_reason: { type: [string, 'null'], description: 'Non-null when a human has set score as a Commercial Judgement override (formulas §3.1, A68/ADR-0053). A non-empty reason makes score sticky: the §3 recompute stops touching score and tracks the machine value in score_computed instead. Cleared → recompute resumes.' }
+        score_computed: { type: [integer, 'null'], readOnly: true, description: 'Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value).' }
         owner_id: { type: [string, 'null'], format: uuid }
         source_system: { type: [string, 'null'] }
         source_id: { type: [string, 'null'] }
@@ -4522,7 +4524,8 @@ components:
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'], description: 'Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK.' }
         status: { type: string, enum: [new, working] }
-        score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score.' }
+        score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Human Commercial-Judgement score override (formulas §3.1, AC-S1). Setting it REQUIRES a non-empty score_override_reason in the SAME request — a score with no reason is rejected 422. Establishing an override makes the value sticky (recompute stops overwriting it). Omit to keep the current value.' }
+        score_override_reason: { type: string, description: 'The written reason accompanying a score override (mandatory whenever score is set, AC-S1). Two gestures only: a non-empty reason SETS/keeps the override; an explicit empty string CLEARS an in-force override (resumes the §3 recompute so score tracks score_computed again). Omit the field to leave the override untouched. null is not accepted — omit instead.' }
         owner_id: { type: [string, 'null'], format: uuid }
 
     PromoteLeadRequest:

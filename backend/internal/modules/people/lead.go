@@ -283,8 +283,21 @@ type UpdateLeadInput struct {
 	CandidateOrgKey *string
 	Status          *string // only new ↔ working here; terminal states have their own paths
 	Score           *int
-	OwnerID         *ids.UUID
-	IfVersion       *int64
+	// ScoreOverrideReason is tri-state: nil = field absent (no override
+	// change); a non-nil empty string = the explicit CLEAR gesture; a
+	// non-nil non-empty string = the written reason for a score override.
+	ScoreOverrideReason *string
+	OwnerID             *ids.UUID
+	IfVersion           *int64
+}
+
+// ScoreOverrideReasonRequiredError rejects a human score with no written
+// reason — the Commercial Judgement rule (formulas §3.1, AC-S1): an
+// override is auditable or it does not happen.
+type ScoreOverrideReasonRequiredError struct{}
+
+func (e *ScoreOverrideReasonRequiredError) Error() string {
+	return "a score override requires a non-empty score_override_reason"
 }
 
 func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput) (crmcontracts.Lead, error) {
@@ -320,8 +333,12 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 		if in.Status != nil {
 			p.Set("status", current.Status, *in.Status)
 		}
-		if in.Score != nil {
-			p.Set("score", current.Score, *in.Score)
+		// Commercial Judgement score override (formulas §3.1, A68/ADR-0053):
+		// a human score is sticky. Setting it demands a written reason and
+		// retains the machine value; clearing the reason resumes recompute.
+		resumeRecompute, err := applyScoreOverride(p, current, in)
+		if err != nil {
+			return err
 		}
 		if in.OwnerID != nil {
 			p.Set("owner_id", current.OwnerId, *in.OwnerID)
@@ -347,10 +364,70 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 		if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", id, p.After()); err != nil {
 			return err
 		}
+		// Clearing an override immediately recomputes from current signals
+		// (formulas §3.1): score no longer lags behind the machine value.
+		if resumeRecompute {
+			if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
 		out, err = readLead(ctx, tx, id, storekit.LiveOnly)
 		return err
 	})
 	return out, err
+}
+
+// applyScoreOverride folds the §3.1 sticky-override rules into the patch
+// and reports whether the caller must resume recompute (an override was
+// cleared). Setting `score` establishes/refreshes an override — it
+// requires a non-empty reason and captures the machine value into
+// score_computed the first time. An explicit empty reason clears the
+// override. A non-empty reason with no score amends the note on an
+// override already in force.
+func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateLeadInput) (resumeRecompute bool, err error) {
+	overrideInForce := current.ScoreOverrideReason != nil
+
+	switch {
+	case in.Score != nil:
+		reason := ""
+		if in.ScoreOverrideReason != nil {
+			reason = strings.TrimSpace(*in.ScoreOverrideReason)
+		}
+		if reason == "" {
+			return false, &ScoreOverrideReasonRequiredError{}
+		}
+		p.Set("score", current.Score, *in.Score)
+		p.Set("score_override_reason", current.ScoreOverrideReason, reason)
+		// Retain the last machine value the first time an override takes
+		// hold; if one is already in force, score_computed already holds it
+		// and the recompute keeps it fresh — don't clobber it with a human
+		// number.
+		if !overrideInForce {
+			p.Set("score_computed", current.ScoreComputed, current.Score)
+		}
+		return false, nil
+
+	case in.ScoreOverrideReason != nil && strings.TrimSpace(*in.ScoreOverrideReason) == "":
+		if !overrideInForce {
+			return false, nil // no override to clear — a no-op
+		}
+		p.Set("score_override_reason", current.ScoreOverrideReason, nil)
+		// Resume: score tracks the retained machine value, then recompute
+		// refines it from current signals.
+		if current.ScoreComputed != nil {
+			p.Set("score", current.Score, *current.ScoreComputed)
+		}
+		p.Set("score_computed", current.ScoreComputed, nil)
+		return true, nil
+
+	case in.ScoreOverrideReason != nil:
+		if !overrideInForce {
+			return false, &ScoreOverrideReasonRequiredError{} // a reason without a score sets nothing
+		}
+		p.Set("score_override_reason", current.ScoreOverrideReason, strings.TrimSpace(*in.ScoreOverrideReason))
+		return false, nil
+	}
+	return false, nil
 }
 
 // DisqualifyLead is the one path enforcing "disqualified ⇒ archived"
@@ -388,8 +465,8 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.L
 }
 
 const leadColumns = `id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-	status, score, owner_id, source_system, source_id, promoted_person_id, promoted_at,
-	source, captured_by, version, created_at, updated_at, archived_at`
+	status, score, score_override_reason, score_computed, owner_id, source_system, source_id,
+	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at`
 
 func readLead(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
 	q := `SELECT ` + leadColumns + ` FROM lead WHERE id = $1`
@@ -412,8 +489,8 @@ func scanLead(row pgx.Row) (crmcontracts.Lead, error) {
 	var version int64
 
 	err := row.Scan(&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
-		&status, &l.Score, &ownerID, &l.SourceSystem, &l.SourceId, &promotedPerson, &l.PromotedAt,
-		&l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt)
+		&status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &l.SourceSystem, &l.SourceId,
+		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt)
 	if err != nil {
 		return l, err
 	}
