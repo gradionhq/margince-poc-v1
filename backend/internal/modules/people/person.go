@@ -298,25 +298,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 			return fmt.Errorf("read person before update: %w", err)
 		}
 
-		p := storekit.NewPatch()
-		if in.FullName != nil {
-			p.Set("full_name", current.FullName, *in.FullName)
-		}
-		if in.FirstName != nil {
-			p.Set("first_name", current.FirstName, *in.FirstName)
-		}
-		if in.LastName != nil {
-			p.Set("last_name", current.LastName, *in.LastName)
-		}
-		if in.Title != nil {
-			p.Set("title", current.Title, *in.Title)
-		}
-		if in.OwnerID != nil {
-			p.Set("owner_id", current.OwnerId, *in.OwnerID)
-		}
-		if in.Social != nil {
-			p.Set("social", current.Social, storekit.JSONArg(in.Social))
-		}
+		p := buildPersonPatch(current, in)
 		if p.Empty() {
 			out = current
 			return nil
@@ -338,6 +320,32 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		return nil
 	})
 	return out, err
+}
+
+// buildPersonPatch stages only the fields the caller supplied, each
+// diffed against the current row so the audit before/after captures the
+// real change and an unchanged field is left out of the UPDATE.
+func buildPersonPatch(current crmcontracts.Person, in UpdatePersonInput) *storekit.Patch {
+	p := storekit.NewPatch()
+	if in.FullName != nil {
+		p.Set("full_name", current.FullName, *in.FullName)
+	}
+	if in.FirstName != nil {
+		p.Set("first_name", current.FirstName, *in.FirstName)
+	}
+	if in.LastName != nil {
+		p.Set("last_name", current.LastName, *in.LastName)
+	}
+	if in.Title != nil {
+		p.Set("title", current.Title, *in.Title)
+	}
+	if in.OwnerID != nil {
+		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+	}
+	if in.Social != nil {
+		p.Set("social", current.Social, storekit.JSONArg(in.Social))
+	}
+	return p
 }
 
 // ArchivePerson soft-deletes the person and cascades to its owned child
