@@ -19,9 +19,11 @@ commit. `go build ./...` clean at HEAD. Migrations at **0046**.
 **In-flight, parked as a patch (NOT on main):** B-E08.1→4 warm-room
 signals + B-E13.7b lead routing. A finisher agent got both to **passing
 unit tests** (integration suite + craft/security review were still
-pending when we stopped). The full WIP is saved on local disk at
-`feedback/wip-2026-07-06-e08-signals-e13-routing.patch` (git-ignored;
-5,696 lines; migration 0047 for signals). To resume:
+pending when we stopped). The full WIP is git-preserved on branch **`wip/signals-lead-routing`**
+(`wip-archive/` — the patch, its sha256, and BASE.txt), and also still on
+local disk at `feedback/wip-2026-07-06-e08-signals-e13-routing.patch`
+(git-ignored; 5,696 lines; migration 0047 for signals). Prefer the branch —
+the `feedback/` copy is not preserved by git. To resume:
 
 1. `git apply feedback/wip-2026-07-06-e08-signals-e13-routing.patch`
    (verify first with `git apply --check`).
@@ -43,19 +45,40 @@ pending when we stopped). The full WIP is saved on local disk at
 export bundle B-E11.10a, brief HTTP surface + L2 ranker, reconciliation
 B-E06.2a, smart lists E15.11/12 (on the landed predicate engine).
 
-**Also queued (Codex review items):** the stale untracked
-`.claude/agents/security-redteam.md` still says passports are read-only
-on REST (contradicts ADR-0055) — update or delete before tracking; pay
-down the craft advisory swell as files are touched (`deals/offer.go`,
-`people/person.go`, `people/lead.go` >500 lines, `compose.New`,
-`approvals.decide`); decide whether to add a frontend CI lane. Local
-`make check` lint arm needs care only if run as `golangci-lint run ./...`
-from the repo root (a go.work dir with no Go files) — the `make -C
-backend` path CI uses is green.
+**Codex review items — resolved** (see the "Codex red-team review
+2026-07-06 — RESOLVED" section below). The only carry-over is the P2/advisory
+craft swell: pay down long-file/long-func majors as those files are touched
+(`deals/offer.go`, `people/person.go`, `people/lead.go` >500 lines,
+`compose.New`, `approvals.decide`) — still 0 blockers. Note: the root
+`golangci-lint run ./...` "no go files" error is a go.work-dir artifact; the
+`make -C backend` path CI uses is green.
 
-## Codex red-team review 2026-07-06 - report added
+## Codex red-team review 2026-07-06 — RESOLVED
 
-New comprehensive review: [review_codex_20260706_103425.md](review_codex_20260706_103425.md).
+All actionable findings from the review below have been addressed on `main`:
+
+- **RT-01** (`make check` red at golangci-lint) — did not reproduce; the failure
+  was root-dir `golangci-lint run ./...` in the go.work dir. The CI path
+  (`make -C backend`) and `make check` are green.
+- **RT-02** (vendored craft self-tests red) — added the governance files/jobs the
+  `cli/craft/wiring` tests expect: `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`,
+  `infra/branch-protection.json`, and the `dco` / `deterministic-gates` /
+  `craftsmanship` / `craft-residue` CI jobs. `go test -C cli/craft ./...` is green.
+- **RT-03** (CI lacked the frontend lane) — added a `frontend` CI job running
+  `make frontend-check` (pnpm 9 + node 22).
+- **RT-04** (stale security prompt) — `.claude/agents/security-redteam.md` now
+  states the ADR-0055 admission model instead of "read-only on REST".
+- **RT-05** (WIP was ignore-only) — preserved on branch `wip/signals-lead-routing`
+  with checksum + base commit; STATUS points there.
+- **RT craft swell** (P2, advisory) — long-file/long-func majors remain; pay down
+  opportunistically as those files are touched (still 0 blockers).
+
+The verification digest and pickup notes captured from the report follow. (The
+standalone report file was removed once its findings were resolved; this summary
+and the git history are the durable record.)
+
+## Codex red-team review 2026-07-06 - report captured
+
 Scope included security, architecture, clean code/craftsmanship, duplication,
 reuse, CI/tooling, frontend, governance, and the external craftsmanship dossier
 at `/Users/lars/develop/margince/specs/research/craftsmanship-loved-and-anti-patterns.md`.

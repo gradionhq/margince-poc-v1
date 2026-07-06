@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-drift craft-sync hooks
+.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync hooks
 
 check: craft-drift
 
@@ -39,6 +39,12 @@ frontend-e2e:
 ## subset automatically; this target is the full manual sweep.
 craft-static:
 	go run -C cli/craft . static --root ../../backend
+
+## craft-residue — fail if any unresolved CRAFT-FIX/CRAFT-DISPUTE marker was
+## left in the backend tree (the review-loop residue check, ADR-0045). The CI
+## `craft-residue` job runs this so a marker can never ride to main.
+craft-residue:
+	go run -C cli/craft . residue --root ../../backend
 
 ## craft-drift — verify cli/craft matches the foundation's hash manifest.
 ## The gate is foundation-owned (spec architecture/15 §4): it is developed in

@@ -1,0 +1,23 @@
+{
+  "_comment": "Declarative branch-protection for `main`, applied out-of-band (gh api repos/:owner/:repo/branches/main/protection --method PUT --input infra/branch-protection.json). The craftsmanship gate is a required status check with no admin override (ADR-0045); the deterministic gates are required and craftsmanship runs only after them (see .github/workflows/ci.yml). Enforced structurally by cli/craft/wiring.",
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "deterministic-gates",
+      "craftsmanship",
+      "craft-residue",
+      "integration (RLS + erasure + HTTP e2e)",
+      "govulncheck",
+      "frontend (biome + vitest + tsc + build)"
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 1,
+    "dismiss_stale_reviews": true
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}

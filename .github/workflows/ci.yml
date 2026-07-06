@@ -2,15 +2,22 @@
 # only the no-database lane, so the tenant-isolation and GDPR-erasure
 # fitness tests — which are `//go:build integration` and need a real
 # Postgres — never blocked a PR. This pipeline runs BOTH lanes plus the
-# pinned vulnerability scan as required checks, so a migration that forgets
-# FORCE RLS, an erasure that misses a PII table, or a vulnerable dependency
-# fails the merge instead of shipping.
+# pinned vulnerability scan, the deterministic craftsmanship gate, and the
+# frontend lane as required checks, so a migration that forgets FORCE RLS,
+# an erasure that misses a PII table, a vulnerable dependency, a swallowed
+# error, or a UI regression fails the merge instead of shipping.
+#
+# Job names mirror the foundation's craftsmanship wiring (ADR-0045,
+# cli/craft/wiring): external/fork PRs hit the same dco + deterministic-gates
+# + craftsmanship + craft-residue jobs as internal work, and craftsmanship
+# runs only after the deterministic gates are green.
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -20,8 +27,28 @@ defaults:
     working-directory: backend
 
 jobs:
-  check:
-    name: check (build vet lint arch-lint unit drift)
+  # Every commit in a PR carries a Developer Certificate of Origin sign-off.
+  # PR-only: the direct-to-main workflow signs off at push time, and history
+  # predating this gate is not retro-required.
+  dco:
+    name: dco
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every PR commit is signed off (DCO)
+        working-directory: .
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
+
+  # The deterministic merge gate: build, vet, lint, arch-lint, unit + root
+  # fitness tests, generated-drift, and the craft-manifest drift check.
+  deterministic-gates:
+    name: deterministic-gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +61,36 @@ jobs:
           version: v2.12.2
           working-directory: backend
       - run: make check
+
+  # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
+  # gates are green — a red build must never be judged on style.
+  craftsmanship:
+    name: craftsmanship
+    needs: [deterministic-gates]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: craft static (blocker-only)
+        working-directory: .
+        run: make craft-static
+
+  # No unresolved review-loop markers (CRAFT-FIX / CRAFT-DISPUTE) reach main.
+  craft-residue:
+    name: craft-residue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: craft residue
+        working-directory: .
+        run: make craft-residue
 
   integration:
     name: integration (RLS + erasure + HTTP e2e)
@@ -80,3 +137,23 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - run: make vuln
+
+  # The frontend lane: Biome, Vitest, TypeScript, and the Vite production
+  # build. The root Makefile promises CI runs both lanes; this is that lane.
+  frontend:
+    name: frontend (biome + vitest + tsc + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: make frontend-check
