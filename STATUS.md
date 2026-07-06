@@ -5,6 +5,59 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ⚠️ Spec reconciliation 2026-07-06 — CLOSED TICKETS REOPENED (redo required)
+
+The founder resolved feedback 16–24 against the spec (`../margince/specs`,
+this session). Most notes were ratified **as built** (see "ratified as-is"
+below — no action). **Three closed tickets now diverge from the ratified
+spec and MUST be redone**; two were **founder decisions** that reverse what
+the build shipped:
+
+1. **B-EP06.14 human-edit precedence — REDO to per-field split.**
+   *Founder decision: keep the §2.1 per-field split; reject whole-patch
+   staging.* The build shipped whole-patch 🟡 staging + `update_record` as
+   **TierDynamic**. Revert: (a) `update_record` goes back to **`tier: green`**
+   in the registry AND in `backend/api/crm.yaml` (undo the feedback/19 flip);
+   (b) the green `Update` handler itself runs the audit-trail field-ownership
+   lookup and **splits only the touched human-owned field** into a 🟡 staged
+   change while the rest of the green update proceeds — and it must run on
+   **both MCP and REST** (that was feedback/19's real concern: the gate must
+   fire over REST without a dynamic tier). The build flagged this split as
+   hard under ADR-0036 (version-pin + identical-call hash) — solving that is
+   now in scope, not a reason to whole-stage. Spec unchanged (§2.1 stands).
+
+2. **B-E07.5a voice corpus — REDO to text-only.** *Founder decision: drop
+   binary corpus from V1.* Delete the **fake `filesize ÷ 6` word count** for
+   binaries; drop `.docx`/`.pdf` from accepted formats (`.txt .md .vtt .srt
+   .json` only); the meter must show a **real** token count. Real binary
+   extraction is the new deferred ticket **B-E07.5c** (needs an ADR: worker
+   vs client-side; EU-sovereign egress check). Spec: features/09 §B1.1/B1.4 +
+   E07.md amended; bands pinned `thin<8k / good≥8k / rich≥20k / sharp≥30k`,
+   `CorpusMeterVersion=1` (matches what was built — keep it).
+
+3. **Lead score recompute — must respect the new sticky override.** The
+   recompute currently overwrites `lead.score` unconditionally. Spec now adds
+   `lead.score_override_reason` + `lead.score_computed` (data-model) and makes
+   the written reason **mandatory** when a human sets `score` (crm.yaml
+   `UpdateLeadRequest`, 422 without it). A non-empty reason **suppresses**
+   recompute (sticky) and retains the machine value in `score_computed`;
+   clearing it resumes recompute. (formulas §3.1 already mandated this — the
+   data-model/contract home was the gap, feedback/17.)
+
+**Ratified as-is (no redo — the build already matches the now-amended spec):**
+activity_link `lead` arm (mig 0038) + `relinkActivity` re-admits `lead`
+(if the relink endpoint still 422s a lead target, wire it through);
+`organization_profile_field` (mig 0037); `voice_profile.team_id`;
+`brief_item` deterministic columns + brief `audit-only` events (new §5.3d);
+offer `reject` route + offer/product `audit-only` (new §5.3e); product
+partial-`sku`-only; `fx_rate_unavailable` code; brief worked-example math
+(0.1875/0.8245) and the "last brief view" / unconvertible-amount / acted-vs-
+dismissed re-eligibility definitions. Relationship-strength (B-E13.16) now has
+a contract surface (`RelationshipStrength` on Person/Organization) — the
+computed value can now be **surfaced** (new display wiring, not a redo).
+
+New backlog ticket: **B-E01.13** speech-input cold-start accelerator (feedback/18).
+
 ## Session close (2026-07-06 early AM) — where to pick up
 
 The overnight autonomous run below shipped **28 leaf tickets across 4
