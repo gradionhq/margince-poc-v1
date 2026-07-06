@@ -5,6 +5,109 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (after-lunch pickup, 2026-07-06 ~11:15)
+
+Clean stopping point. `origin/main` is at the last CI-green commit; the
+working tree builds and carries no half-finished code. Everything below
+this block is durable context (the Codex review, the reconciliation
+record, prior sessions).
+
+**State of main:** the three reopened spec-reconciliation tickets are
+shipped and CI-green (`136d1ce`, `e66c59c`), plus the session-close doc
+commit. `go build ./...` clean at HEAD. Migrations at **0046**.
+
+**In-flight, parked as a patch (NOT on main):** B-E08.1→4 warm-room
+signals + B-E13.7b lead routing. A finisher agent got both to **passing
+unit tests** (integration suite + craft/security review were still
+pending when we stopped). The full WIP is saved on local disk at
+`feedback/wip-2026-07-06-e08-signals-e13-routing.patch` (git-ignored;
+5,696 lines; migration 0047 for signals). To resume:
+
+1. `git apply feedback/wip-2026-07-06-e08-signals-e13-routing.patch`
+   (verify first with `git apply --check`).
+2. Finish B-E08: the `modules/signals` package is complete but the build
+   blocker is compose wiring — embed `signals.Handlers` in
+   `internal/compose/server.go` (Server struct + `New()`), inject the
+   people StrengthSource seam (arch-legally: no module→sibling import),
+   register the `signal` entity in the composite datasource provider +
+   MCP registry (or make the ops human-only in crm.yaml per the module
+   doc's "the warm room proposes; the rep sends" stance — decide from
+   features/07 §9), and add `modules/signals` to the arch registries
+   (arch_test.go / .golangci.yml / .go-arch-lint.yml). Then the
+   integration suite.
+3. Gate (`make check` — expect only uncommitted-generated drift until
+   commit), run craft + security review agents, fix findings, commit,
+   push, watch CI.
+
+**Then** the rest of the batch-5 queue: preference center B-E11.32,
+export bundle B-E11.10a, brief HTTP surface + L2 ranker, reconciliation
+B-E06.2a, smart lists E15.11/12 (on the landed predicate engine).
+
+**Also queued (Codex review items):** the stale untracked
+`.claude/agents/security-redteam.md` still says passports are read-only
+on REST (contradicts ADR-0055) — update or delete before tracking; pay
+down the craft advisory swell as files are touched (`deals/offer.go`,
+`people/person.go`, `people/lead.go` >500 lines, `compose.New`,
+`approvals.decide`); decide whether to add a frontend CI lane. Local
+`make check` lint arm needs care only if run as `golangci-lint run ./...`
+from the repo root (a go.work dir with no Go files) — the `make -C
+backend` path CI uses is green.
+
+## Codex red-team review 2026-07-06 - report added
+
+New comprehensive review: [review_codex_20260706_103425.md](review_codex_20260706_103425.md).
+Scope included security, architecture, clean code/craftsmanship, duplication,
+reuse, CI/tooling, frontend, governance, and the external craftsmanship dossier
+at `/Users/lars/develop/margince/specs/research/craftsmanship-loved-and-anti-patterns.md`.
+
+Verification run during the review:
+
+- Passed: `cd backend && go test ./...`; `cd backend && go test -count=1 .`;
+  `make test-integration` (rerun with local-network approval after the sandbox
+  blocked localhost sockets); `make frontend-check`; `make craft-static`
+  (0 blockers, 31 major advisories); `make -C backend arch-lint`; `make -C
+  backend drift`; `go test -C backend/tools ./...`; `go test -C dev ./...`;
+  `make -C backend vuln` (no vulnerabilities found).
+- Failed: `make check` and direct `golangci-lint run ./...` because
+  golangci-lint 2.12.2 reports `context loading failed: no go files to
+  analyze`; `go test -C cli/craft ./...` because `cli/craft/wiring` expects
+  governance files/jobs absent from this checkout.
+
+Top pickup items from the review:
+
+1. Restore the declared merge gate: fix the golangci-lint/config/version issue
+   so `make check` is green again.
+2. Decide whether the vendored craft wiring expectations are binding here; add
+   the missing governance files/jobs or split those tests out upstream.
+3. Add frontend CI (`make frontend-check`, and decide required vs optional for
+   `make frontend-e2e`) because the root Makefile says CI runs both lanes but
+   `.github/workflows/ci.yml` currently runs backend only.
+4. Update or delete the untracked `.claude/agents/security-redteam.md` before
+   tracking it: it still says passports are read-only on REST, contradicting
+   ADR-0055.
+5. Preserve the 5115-line ignored WIP patch
+   `feedback/wip-2026-07-06-e08-signals-e13-routing.patch` on a branch/tracked
+   artifact before more agents depend on it.
+6. Pay down the craft advisory swell as files are touched, especially
+   `deals/offer.go`, `people/person.go`, `people/lead.go`, `compose.New`,
+   approval decision flow, and SAR assembly.
+
+Concurrent update after the report was drafted: the signals/lead-routing WIP
+appeared in the shared worktree (tracked generated/API/workflow diffs plus
+untracked `backend/internal/modules/signals/*`, lead-routing files, and
+`0047_signals`). I appended a report addendum with the fresh result. Current
+WIP gates are red:
+
+- `cd backend && go test ./...` fails because `compose.Server` does not yet
+  implement the generated signal methods (`ArchiveSignal` etc.).
+- `cd backend && go test -count=1 .` fails because `signal` and
+  `signal_resolution` are not enrolled in `tableOwners`, and
+  `UpdateSignal`/`ArchiveSignal` audit without outbox emits.
+- `make craft-static` still has 0 blockers, now 34 major advisories.
+
+Treat the signals/lead-routing worktree as unreviewed WIP until those build and
+fitness failures are resolved.
+
 ## ✅ Spec reconciliation 2026-07-06 — THREE REOPENED TICKETS REDONE + pushed
 
 The three reopened tickets are done, gate-green, craft+security reviewed,
