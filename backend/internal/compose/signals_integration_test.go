@@ -175,6 +175,52 @@ func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	}
 }
 
+// The resolver may attribute only to an organization the caller can see:
+// a team-scoped rep resolving a signal whose only domain match is an org
+// another team owns gets an unattributable drop, not a stamped
+// resolved_org_id that would leak the foreign org's id/existence.
+func TestResolverDoesNotAttributeToAnInvisibleOrg(t *testing.T) {
+	e := setupSearch(t)
+	store := signalStore(e)
+
+	// An org (with a matching domain) owned by rep3 — outside team1's scope.
+	foreignOrg := e.seed(t,
+		`INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
+		 VALUES ($1, $2, 'Foreign Co', $3, 'manual', 'human:x')`, e.rep3)
+	if _, err := e.owner.Exec(context.Background(),
+		`INSERT INTO organization_domain (id, workspace_id, organization_id, domain, source, captured_by)
+		 VALUES ($1, $2, $3, 'foreign.example', 'manual', 'human:x')`, ids.NewV7(), e.ws, ids.UUID(foreignOrg)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The raw signal carries no subject entity, so a team-scoped rep can
+	// see and resolve it — the gate must bite on the ATTRIBUTION, not the read.
+	admin := e.adminSignals()
+	sigID := createRaw(t, store, admin, "inbound:hi@foreign.example")
+
+	rep := signalActor(e, e.rep1, principal.RowScopeTeam, []ids.UUID{e.team1})
+	resolved, err := store.Resolve(rep, sigID)
+	if err != nil {
+		t.Fatalf("resolve by team-scoped rep: %v", err)
+	}
+	if string(resolved.ResolutionState) != "dropped" {
+		t.Fatalf("resolution_state = %q, want dropped (the only match is invisible)", resolved.ResolutionState)
+	}
+	if resolved.ResolvedOrgId != nil {
+		t.Fatalf("resolved_org_id = %v, want nil — an invisible org must never be stamped", resolved.ResolvedOrgId)
+	}
+
+	// The admin, who CAN see the org, resolves the same class of signal to it.
+	adminSig := createRaw(t, store, admin, "inbound:hi@foreign.example")
+	adminResolved, err := store.Resolve(admin, adminSig)
+	if err != nil {
+		t.Fatalf("admin resolve: %v", err)
+	}
+	if adminResolved.ResolvedOrgId == nil || ids.UUID(*adminResolved.ResolvedOrgId) != ids.UUID(foreignOrg) {
+		t.Fatalf("admin resolved_org_id = %v, want %v", adminResolved.ResolvedOrgId, ids.UUID(foreignOrg))
+	}
+}
+
 // Domain match with no known contact: the signal resolves to the
 // organization and stays company-level — no person link, and no person
 // row is invented.

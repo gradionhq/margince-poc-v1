@@ -27,6 +27,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -137,6 +138,14 @@ func (s *Store) Resolve(ctx context.Context, signalID ids.UUID) (crmcontracts.Si
 		attribution := parseRawRef(*sig.RawRef)
 		candidates, err := matchCandidates(ctx, tx, attribution)
 		if err != nil {
+			return err
+		}
+		// Row-scope the attribution: a resolver may only attribute a signal
+		// to an organization the caller can see. Stamping resolved_org_id
+		// (a read of that org) for an org outside the caller's scope would
+		// leak its existence and id, so an invisible match is dropped —
+		// leaving the signal unattributable rather than disclosing it.
+		if candidates, err = visibleCandidates(ctx, tx, candidates); err != nil {
 			return err
 		}
 
@@ -291,6 +300,26 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 	return out, nil
 }
 
+// visibleCandidates drops matches the caller cannot see under row-scope,
+// preserving order. A reference stamped onto the signal (resolved_org_id)
+// is a read of that org; auth.EnsureLinkTarget is the one visibility probe
+// shared with every other cross-record link, so the resolver never
+// attributes to — nor discloses — an org outside the caller's scope.
+func visibleCandidates(ctx context.Context, tx pgx.Tx, in []candidate) ([]candidate, error) {
+	out := in[:0]
+	for _, c := range in {
+		switch err := auth.EnsureLinkTarget(ctx, tx, "organization", c.OrgID); {
+		case err == nil:
+			out = append(out, c)
+		case errors.Is(err, apperrors.ErrNotFound):
+			// invisible to this caller — not an attribution they may learn
+		default:
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 // sortCandidates orders by confidence, id as the tie-breaker — the same
 // evidence always lists (and reports) candidates identically.
 func sortCandidates(cs []candidate) {
@@ -341,7 +370,16 @@ func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.UUI
 		}
 		return nil, fmt.Errorf("consent-gated person match: %w", err)
 	}
-	return &personID, nil
+	// resolved_person_id is a read of that person: only link one the caller
+	// can see under row-scope, else the signal stays company-level.
+	switch err := auth.EnsureLinkTarget(ctx, tx, "person", personID); {
+	case err == nil:
+		return &personID, nil
+	case errors.Is(err, apperrors.ErrNotFound):
+		return nil, nil
+	default:
+		return nil, err
+	}
 }
 
 // appendMatchBasis writes the append-only inspectable match record.

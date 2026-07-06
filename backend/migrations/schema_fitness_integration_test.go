@@ -211,6 +211,9 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
 		"offer.deal_id":                              "gated: auth.EnsureLinkTarget in CreateOffer; every later offer read/write re-probes the deal (H1)",
 		"offer.buyer_org_id":                         "gated: auth.EnsureLinkTarget in CreateOffer/UpdateOffer (H1)",
+		"signal.resolved_org_id":                     "gated: the resolver attributes only to a caller-visible org (visibleCandidates → auth.EnsureLinkTarget)",
+		"signal.resolved_person_id":                  "gated: consentedPerson links only a caller-visible person (auth.EnsureLinkTarget); else company-level",
+		"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
 	}
 
 	ownerDSN, _ := dsns(t)
