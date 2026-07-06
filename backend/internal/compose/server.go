@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -77,7 +78,7 @@ type Server struct {
 	agentsHandlers
 	voiceHandlers
 	reportHandlers
-	briefHandlers
+	briefs.Handlers
 	coldstartHandlers
 	scrapeHandlers
 	imapConnectHandlers
@@ -149,7 +150,7 @@ func WithScrape(fetch PageFetcher, brain runner.Brain) Option {
 // prerequisite for the home surface.
 func WithBrief(brain runner.Brain) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
-		s.briefHandlers.engine.WithL2Ranker(brain, s.log)
+		s.WithL2Ranker(brain, s.log)
 	}
 }
 
@@ -217,7 +218,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
-		briefHandlers: briefHandlers{engine: NewBriefEngine(pool, people.NewStore(pool))},
+		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
 		// The one-shot IMAP pull shares the capture registry (Sink + the
 		// live-authority principal swap); credentials arrive per request and
 		// are never persisted, so no standing connection is registered.

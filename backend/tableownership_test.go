@@ -17,10 +17,12 @@ package backendarch
 // clauses, not by ownership.
 
 import (
+	"bufio"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -117,8 +119,8 @@ var tableOwners = map[string]string{
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)
 	"idempotency_key": "internal/compose",
-	"brief_run":       "internal/compose",
-	"brief_item":      "internal/compose",
+	"brief_run":       "internal/compose/briefs",
+	"brief_item":      "internal/compose/briefs",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it
 	"audit_log":        storekitOwned,
@@ -214,6 +216,34 @@ func sqlWriteTargets(literal string) []string {
 // owningDir normalizes a package dir to its ownership unit: the module root
 // under internal/modules (subpackages share their module's ownership), or
 // internal/compose.
+// isIntegrationTagged reports whether the file builds only under the
+// integration tag — the test lane's scaffolding (harnesses, fixtures).
+// The ownership and write-shape obligations bind PRODUCTION writes; an
+// integration-tagged file can never reach a shipped binary, and its
+// seeding writes are the suites' own fixtures.
+func isIntegrationTagged(path string) bool {
+	f, err := os.Open(path) // #nosec G304 -- path is a *.go file from walking the trusted source tree
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			panic(cerr) // a leaked fd in a test helper is a bug, not a condition
+		}
+	}()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "//go:build integration" {
+			return true
+		}
+		if line != "" && !strings.HasPrefix(line, "//") {
+			return false // past the header — build constraints must precede it
+		}
+	}
+	return false
+}
+
 func owningDir(pkgDir string) string {
 	if strings.HasPrefix(pkgDir, "internal/modules/") {
 		parts := strings.SplitN(pkgDir, "/", 4)
@@ -237,7 +267,8 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 	for _, root := range []string{"internal/modules", "internal/compose"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
-				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") {
+				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||
+				isIntegrationTagged(path) {
 				return err
 			}
 			path = filepath.ToSlash(path)

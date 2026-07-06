@@ -17,6 +17,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -29,12 +31,12 @@ import (
 )
 
 func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
-	e := setupAuthz(t)
-	consentStore := consent.NewStore(e.pool)
-	adapter := commsAdapter{store: activities.NewStore(e.pool), gate: consent.NewGate(consentStore)}
+	e := integration.Setup(t)
+	consentStore := consent.NewStore(e.Pool)
+	adapter := commsAdapter{store: activities.NewStore(e.Pool), gate: consent.NewGate(consentStore)}
 
-	admin := e.admin()
-	personID := e.seedPerson(t, "Opt Out Target", &e.rep1)
+	admin := e.Admin()
+	personID := e.SeedPerson(t, "Opt Out Target", &e.Rep1)
 	addPersonEmail(t, e, personID, "target@buyer.test")
 
 	// A non-DOI marketing purpose, granted — so the agent send is initially
@@ -51,7 +53,7 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 
 	// The reply anchor the MCP send threads onto.
 	anchorID := ids.NewV7()
-	if err := database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
@@ -63,7 +65,7 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 
 	// An agent principal with the send-adjacent grants; the gate does not
 	// consult it, which is the point — suppression is principal-independent.
-	agentCtx := principal.WithWorkspaceID(context.Background(), e.ws)
+	agentCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 	agentCtx = principal.WithCorrelationID(agentCtx, ids.NewV7())
 	agentCtx = principal.WithActor(agentCtx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:optout-probe",
@@ -90,7 +92,7 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 
 	// The buyer one-click unsubscribes through the PUBLIC preference surface,
 	// exactly as the anonymous middleware binds it (system principal).
-	publicCtx := principal.WithWorkspaceID(context.Background(), e.ws)
+	publicCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 	publicCtx = principal.WithCorrelationID(publicCtx, ids.NewV7())
 	publicCtx = principal.WithActor(publicCtx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:public_preferences",
@@ -107,9 +109,9 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 
 // addPersonEmail attaches an email channel to a person as admin, so the
 // consent gate can resolve a recipient address to the subject.
-func addPersonEmail(t *testing.T, e *authzEnv, personID ids.UUID, email string) {
+func addPersonEmail(t *testing.T, e *integration.Env, personID ids.UUID, email string) {
 	t.Helper()
-	if err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, source, captured_by)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'work', true, 'manual', 'human:x')`,

@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -30,10 +32,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// reconcileEnv wraps authzEnv with the default pipeline, the follow-up
+// reconcileEnv wraps integration.Env with the default pipeline, the follow-up
 // reconciler, and the approvals service carrying its confirm effect.
 type reconcileEnv struct {
-	*authzEnv
+	*integration.Env
 	owner      *pgx.Conn
 	pipeline   ids.UUID
 	open       ids.UUID
@@ -56,12 +58,12 @@ var reconcilePerms = principal.Permissions{
 
 func setupReconcile(t *testing.T) *reconcileEnv {
 	t.Helper()
-	e := &reconcileEnv{authzEnv: setupAuthz(t), owner: ownerConn(t)}
-	e.pipeline, e.open, _ = dealFixture(t, e.authzEnv)
+	e := &reconcileEnv{Env: integration.Setup(t), owner: integration.OwnerConn(t)}
+	e.pipeline, e.open, _ = integration.DealFixture(t, e.Env)
 	quiet := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	e.svc = approvals.NewService(e.pool)
-	e.svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(e.svc, e.activities))
-	e.reconciler = deals.NewFollowUpReconciler(e.pool, followUpStager{svc: e.svc}, quiet)
+	e.svc = approvals.NewService(e.Pool)
+	e.svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(e.svc, e.Activities))
+	e.reconciler = deals.NewFollowUpReconciler(e.Pool, followUpStager{svc: e.svc}, quiet)
 	return e
 }
 
@@ -74,7 +76,7 @@ func (e *reconcileEnv) seedInteraction(t *testing.T, dealID ids.UUID, kind, subj
 	if _, err := e.owner.Exec(ctx,
 		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		 VALUES ($1, $2, $3, $4, now() - make_interval(hours => $5), 'manual', 'human:x')`,
-		id, e.ws, kind, subject, occurredHoursAgo); err != nil {
+		id, e.WS, kind, subject, occurredHoursAgo); err != nil {
 		t.Fatalf("seed %s activity: %v", kind, err)
 	}
 	e.linkActivity(t, id, dealID)
@@ -90,7 +92,7 @@ func (e *reconcileEnv) seedTask(t *testing.T, dealID ids.UUID, done bool) ids.UU
 		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at, is_done, done_at, source, captured_by)
 		 VALUES ($1, $2, 'task', 'Existing next step', now(), now() + interval '2 days', $3,
 		         CASE WHEN $3 THEN now() ELSE NULL END, 'manual', 'human:x')`,
-		id, e.ws, done); err != nil {
+		id, e.WS, done); err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
 	e.linkActivity(t, id, dealID)
@@ -101,7 +103,7 @@ func (e *reconcileEnv) linkActivity(t *testing.T, activityID, dealID ids.UUID) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(),
 		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, 'deal', $3)`,
-		e.ws, activityID, dealID); err != nil {
+		e.WS, activityID, dealID); err != nil {
 		t.Fatalf("link activity to deal: %v", err)
 	}
 }
@@ -171,7 +173,7 @@ func (e *reconcileEnv) dealVersion(t *testing.T, dealID ids.UUID) int64 {
 
 func TestFollowUpReconcileStagesProposalAndCommitsNothing(t *testing.T) {
 	e := setupReconcile(t)
-	deal := e.seedDeal(t, "Touched, no next step", e.pipeline, e.open, &e.rep1)
+	deal := e.SeedDeal(t, "Touched, no next step", e.pipeline, e.open, &e.Rep1)
 	call := e.seedInteraction(t, deal, "call", "Discovery call", 1)
 	before := e.dealVersion(t, deal)
 
@@ -211,12 +213,12 @@ func TestFollowUpReconcileSuppressesWhenNoDiscrepancy(t *testing.T) {
 
 	// A recent call but an OPEN task already queued: the rep has a next
 	// step — do not nag.
-	planned := e.seedDeal(t, "Has next step", e.pipeline, e.open, &e.rep1)
+	planned := e.SeedDeal(t, "Has next step", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, planned, "meeting", "Kickoff", 2)
 	e.seedTask(t, planned, false)
 
 	// A deal with only a note (not a call/mail/meeting): no real touch.
-	noteOnly := e.seedDeal(t, "Note only", e.pipeline, e.open, &e.rep1)
+	noteOnly := e.SeedDeal(t, "Note only", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, noteOnly, "email", "Old thread", 24*10) // outside the 48h window
 
 	if err := e.reconciler.Reconcile(context.Background()); err != nil {
@@ -232,7 +234,7 @@ func TestFollowUpReconcileSuppressesWhenNoDiscrepancy(t *testing.T) {
 
 func TestFollowUpReconcileDoesNotStackAcrossPasses(t *testing.T) {
 	e := setupReconcile(t)
-	deal := e.seedDeal(t, "Reconciled twice", e.pipeline, e.open, &e.rep1)
+	deal := e.SeedDeal(t, "Reconciled twice", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "call", "Call", 1)
 
 	for pass := 0; pass < 2; pass++ {
@@ -249,14 +251,14 @@ func TestFollowUpReconcileDoesNotStackAcrossPasses(t *testing.T) {
 
 func TestFollowUpConfirmCreatesTheTaskExactlyOnce(t *testing.T) {
 	e := setupReconcile(t)
-	deal := e.seedDeal(t, "Confirm me", e.pipeline, e.open, &e.rep1)
+	deal := e.SeedDeal(t, "Confirm me", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "call", "Discovery", 1)
 	if err := e.reconciler.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	approvalID, proposal := e.followUpApproval(t, deal)
 
-	human := e.as(e.rep1, []ids.UUID{e.team1}, reconcilePerms)
+	human := e.As(e.Rep1, []ids.UUID{e.Team1}, reconcilePerms)
 	if _, err := e.svc.Decide(human, approvalID, true, nil); err != nil {
 		t.Fatalf("approve + effect: %v", err)
 	}
@@ -287,14 +289,14 @@ func TestFollowUpConfirmCreatesTheTaskExactlyOnce(t *testing.T) {
 
 func TestFollowUpRejectWritesNothing(t *testing.T) {
 	e := setupReconcile(t)
-	deal := e.seedDeal(t, "Reject me", e.pipeline, e.open, &e.rep1)
+	deal := e.SeedDeal(t, "Reject me", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "meeting", "Sync", 1)
 	if err := e.reconciler.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	approvalID, _ := e.followUpApproval(t, deal)
 
-	human := e.as(e.rep1, []ids.UUID{e.team1}, reconcilePerms)
+	human := e.As(e.Rep1, []ids.UUID{e.Team1}, reconcilePerms)
 	if _, err := e.svc.Decide(human, approvalID, false, nil); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
@@ -315,7 +317,7 @@ func TestFollowUpRejectWritesNothing(t *testing.T) {
 
 func TestFollowUpProposalRespectsRowScope(t *testing.T) {
 	e := setupReconcile(t)
-	deal := e.seedDeal(t, "Rep1's deal", e.pipeline, e.open, &e.rep1)
+	deal := e.SeedDeal(t, "Rep1's deal", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "call", "Private call", 1)
 	if err := e.reconciler.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
@@ -324,7 +326,7 @@ func TestFollowUpProposalRespectsRowScope(t *testing.T) {
 
 	// rep3 sits in team2; rep1's deal is invisible to them, so the staged
 	// proposal reads as absent — no decide oracle for a leaked UUID.
-	outsider := e.as(e.rep3, []ids.UUID{e.team2}, reconcilePerms)
+	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, reconcilePerms)
 	if _, err := e.svc.Decide(outsider, approvalID, true, nil); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("outsider decide → %v, want ErrNotFound (row-scope existence hiding)", err)
 	}
@@ -333,7 +335,7 @@ func TestFollowUpProposalRespectsRowScope(t *testing.T) {
 	}
 
 	// The owner can see and confirm it.
-	owner := e.as(e.rep1, []ids.UUID{e.team1}, reconcilePerms)
+	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, reconcilePerms)
 	if _, err := e.svc.Decide(owner, approvalID, true, nil); err != nil {
 		t.Fatalf("owner decide: %v", err)
 	}

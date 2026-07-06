@@ -102,7 +102,7 @@ func extractionShapeValid(text string) error {
 	var parsed struct {
 		Fields []extractedField `json:"fields"`
 	}
-	if err := json.Unmarshal([]byte(unfence(text)), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &parsed); err != nil {
 		return fmt.Errorf("output must be {\"fields\":[...]}: %w", err)
 	}
 	return nil
@@ -168,7 +168,7 @@ func gateEvidence(modelText, pageText, sourceURL string, accept func(string) boo
 	var parsed struct {
 		Fields []extractedField `json:"fields"`
 	}
-	if err := json.Unmarshal([]byte(unfence(modelText)), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(ai.Unfence(modelText)), &parsed); err != nil {
 		return nil
 	}
 
@@ -197,14 +197,6 @@ func gateEvidence(modelText, pageText, sourceURL string, accept func(string) boo
 		})
 	}
 	return out
-}
-
-// unfence strips a ```json … ``` code fence some models wrap JSON in, so the
-// same reduction defines what both the shape check and the gate parse.
-func unfence(text string) string {
-	raw := strings.TrimSpace(text)
-	raw = strings.TrimPrefix(raw, "```json")
-	return strings.Trim(raw, "` \n")
 }
 
 // webFetcher is the production PageFetcher: plain GET with a byte cap, a crude

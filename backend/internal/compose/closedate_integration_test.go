@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -32,10 +34,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// closeDateEnv wraps authzEnv with a two-open-stage pipeline whose
+// closeDateEnv wraps integration.Env with a two-open-stage pipeline whose
 // probabilities pin the §11 tier judgments (20% early, 60% late).
 type closeDateEnv struct {
-	*authzEnv
+	*integration.Env
 	owner     *pgx.Conn
 	pipeline  ids.UUID
 	early     ids.UUID // 20%, position 0
@@ -46,9 +48,9 @@ type closeDateEnv struct {
 
 func setupCloseDate(t *testing.T) *closeDateEnv {
 	t.Helper()
-	e := &closeDateEnv{authzEnv: setupAuthz(t), owner: ownerConn(t)}
-	e.pipeline = seedRow(t, e.owner,
-		`INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Hygiene', true, 0)`, e.ws)
+	e := &closeDateEnv{Env: integration.Setup(t), owner: integration.OwnerConn(t)}
+	e.pipeline = integration.SeedRow(t, e.owner,
+		`INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Hygiene', true, 0)`, e.WS)
 	ctx := context.Background()
 	for _, stage := range []struct {
 		id          *ids.UUID
@@ -59,14 +61,14 @@ func setupCloseDate(t *testing.T) *closeDateEnv {
 		if _, err := e.owner.Exec(ctx,
 			`INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
 			 VALUES ($1, $2, $3, $4, $5, 'open', $6)`,
-			*stage.id, e.ws, e.pipeline, fmt.Sprintf("Stage %d", stage.position), stage.position, stage.probability); err != nil {
+			*stage.id, e.WS, e.pipeline, fmt.Sprintf("Stage %d", stage.position), stage.position, stage.probability); err != nil {
 			t.Fatal(err)
 		}
 	}
 	quiet := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	e.svc = approvals.NewService(e.pool)
-	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.pool)))
-	e.corrector = deals.NewCloseDateCorrector(e.pool, closeDateStager{svc: e.svc}, quiet)
+	e.svc = approvals.NewService(e.Pool)
+	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.Pool)))
+	e.corrector = deals.NewCloseDateCorrector(e.Pool, closeDateStager{svc: e.svc}, quiet)
 	return e
 }
 
@@ -86,7 +88,7 @@ func (e *closeDateEnv) seedSweepDeal(t *testing.T, name string, stage ids.UUID, 
 		                   forecast_category, expected_close_date, last_activity_at, created_at, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, 10000, 'EUR', $6, $7,
 		         now() - make_interval(days => $8), now() - interval '120 days', 'manual', 'human:x')`,
-		id, e.ws, name, e.pipeline, stage, category, expectedClose, lastActivityDaysAgo); err != nil {
+		id, e.WS, name, e.pipeline, stage, category, expectedClose, lastActivityDaysAgo); err != nil {
 		t.Fatalf("seeding deal %q: %v", name, err)
 	}
 	return id
@@ -122,7 +124,7 @@ func (e *closeDateEnv) pendingCorrections(t *testing.T, dealID ids.UUID) int {
 
 func (e *closeDateEnv) runForecastReport(t *testing.T, ctx context.Context, body string) reportResultWire {
 	t.Helper()
-	handlers := reportHandlers{engine: newReportEngine(e.pool)}
+	handlers := reportHandlers{engine: newReportEngine(e.Pool)}
 	req := httptest.NewRequest(http.MethodPost, "/v1/reports/forecast", strings.NewReader(body)).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	handlers.RunReport(rec, req, "forecast")
@@ -142,11 +144,11 @@ func intp(v int) *int { return &v }
 
 func TestCloseDatePastRejectedOnOpenDealWrites(t *testing.T) {
 	e := setupCloseDate(t)
-	admin := e.admin()
+	admin := e.Admin()
 	yesterday := today().AddDate(0, 0, -1)
 	tomorrow := today().AddDate(0, 0, 1)
 
-	_, err := e.deals.CreateDeal(admin, deals.CreateDealInput{
+	_, err := e.Deals.CreateDeal(admin, deals.CreateDealInput{
 		Name: "Born invalid", PipelineID: e.pipeline, StageID: e.early, Source: "manual",
 		ExpectedClose: &yesterday,
 	})
@@ -156,7 +158,7 @@ func TestCloseDatePastRejectedOnOpenDealWrites(t *testing.T) {
 	}
 
 	closingToday := today()
-	d, err := e.deals.CreateDeal(admin, deals.CreateDealInput{
+	d, err := e.Deals.CreateDeal(admin, deals.CreateDealInput{
 		Name: "Closing today is fine", PipelineID: e.pipeline, StageID: e.early, Source: "manual",
 		ExpectedClose: &closingToday,
 	})
@@ -164,10 +166,10 @@ func TestCloseDatePastRejectedOnOpenDealWrites(t *testing.T) {
 		t.Fatalf("create closing today: %v (overdue is strict <)", err)
 	}
 
-	if _, err := e.deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{ExpectedClose: &yesterday}); !errors.As(err, &pastClose) {
+	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{ExpectedClose: &yesterday}); !errors.As(err, &pastClose) {
 		t.Fatalf("update to a past close date → %v, want PastCloseDateError", err)
 	}
-	if _, err := e.deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{ExpectedClose: &tomorrow}); err != nil {
+	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{ExpectedClose: &tomorrow}); err != nil {
 		t.Fatalf("update to tomorrow: %v", err)
 	}
 }
@@ -186,7 +188,7 @@ func TestForecastExcludesFlaggedDealsFromCommitAndBestCase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := e.as(e.rep1, []ids.UUID{e.team1}, adminPerms)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	result := e.runForecastReport(t, ctx, `{"group_by":["forecast_category"]}`)
 
 	counts := map[string]int64{}
@@ -276,7 +278,7 @@ func TestCloseDateSweepStagesProvisionalForForecastBearingDeal(t *testing.T) {
 
 	// Excluded from Commit while provisional (AC-F9): the commit filter
 	// matches nothing, so the aggregate has no group row at all.
-	ctx := e.as(e.rep1, []ids.UUID{e.team1}, adminPerms)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	result := e.runForecastReport(t, ctx, `{"filters":{"forecast_category":"commit"}}`)
 	if len(result.Rows) != 0 {
 		t.Errorf("commit rows while provisional = %+v, want none", result.Rows)
@@ -304,7 +306,7 @@ func TestCloseDateConfirmAppliesTheDateAndClearsProvisional(t *testing.T) {
 		t.Fatalf("no staged correction to decide: %v", err)
 	}
 
-	human := e.as(e.rep1, []ids.UUID{e.team1}, adminPerms)
+	human := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	if _, err := e.svc.Decide(human, approvalID, true, nil); err != nil {
 		t.Fatalf("approve + effect: %v", err)
 	}
@@ -398,7 +400,7 @@ func TestCloseDateSweepLeavesNoOpenDealWithPastCloseDate(t *testing.T) {
 	var openPast int
 	if err := e.owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM deal WHERE workspace_id = $1 AND status = 'open' AND archived_at IS NULL
-		   AND expected_close_date < current_date`, e.ws).Scan(&openPast); err != nil {
+		   AND expected_close_date < current_date`, e.WS).Scan(&openPast); err != nil {
 		t.Fatal(err)
 	}
 	if openPast != 0 {
@@ -407,7 +409,7 @@ func TestCloseDateSweepLeavesNoOpenDealWithPastCloseDate(t *testing.T) {
 	var openMissing int
 	if err := e.owner.QueryRow(context.Background(),
 		`SELECT count(*) FROM deal WHERE workspace_id = $1 AND status = 'open' AND archived_at IS NULL
-		   AND expected_close_date IS NULL`, e.ws).Scan(&openMissing); err != nil {
+		   AND expected_close_date IS NULL`, e.WS).Scan(&openMissing); err != nil {
 		t.Fatal(err)
 	}
 	if openMissing != 0 {

@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -31,15 +33,15 @@ import (
 )
 
 func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	adapter := commsAdapter{
-		store: activities.NewStore(e.pool),
-		gate:  consent.NewGate(consent.NewStore(e.pool)),
+		store: activities.NewStore(e.Pool),
+		gate:  consent.NewGate(consent.NewStore(e.Pool)),
 	}
-	ctx := e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	anchorID := ids.NewV7()
-	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
@@ -97,10 +99,10 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 }
 
 func TestIntentToolsReturnTheAssembledPicture(t *testing.T) {
-	e := setupAuthz(t)
-	target := e.seedPerson(t, "Briefing Target", &e.rep1)
-	retriever := search.NewRetriever(search.NewStore(e.pool), nil)
-	ctx := e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms)
+	e := integration.Setup(t)
+	target := e.SeedPerson(t, "Briefing Target", &e.Rep1)
+	retriever := search.NewRetriever(search.NewStore(e.Pool), nil)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	assembled, err := retriever.AssembleContext(ctx,
 		datasource.EntityRef{Type: datasource.EntityPerson, ID: target},

@@ -16,6 +16,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -47,14 +49,14 @@ const acmeExtraction = `{"fields":[
 
 // insertOrg creates an org owned by owner, optionally with a domain and a
 // human-set industry, and returns its id.
-func insertOrg(t *testing.T, e *authzEnv, owner ids.UUID, domain, industry string) ids.UUID {
+func insertOrg(t *testing.T, e *integration.Env, owner ids.UUID, domain, industry string) ids.UUID {
 	t.Helper()
 	orgID := ids.NewV7()
-	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
 			INSERT INTO organization (id, workspace_id, owner_id, display_name, industry, source, captured_by)
 			VALUES ($1, $2, $3, 'Acme', NULLIF($4,''), 'manual', 'human:owner')`,
-			orgID, e.ws, owner, industry); err != nil {
+			orgID, e.WS, owner, industry); err != nil {
 			return err
 		}
 		if domain == "" {
@@ -62,7 +64,7 @@ func insertOrg(t *testing.T, e *authzEnv, owner ids.UUID, domain, industry strin
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, $3, true, 'manual', 'human:owner')`, e.ws, orgID, domain)
+			VALUES ($1, $2, $3, true, 'manual', 'human:owner')`, e.WS, orgID, domain)
 		return err
 	})
 	if err != nil {
@@ -72,12 +74,12 @@ func insertOrg(t *testing.T, e *authzEnv, owner ids.UUID, domain, industry strin
 }
 
 func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
-	e := setupAuthz(t)
-	orgID := insertOrg(t, e, e.rep1, "acme.example", "")
+	e := integration.Setup(t)
+	orgID := insertOrg(t, e, e.Rep1, "acme.example", "")
 	brain := ai.NewFakeClient().Script(acmeExtraction)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.people, approvals: approvals.NewService(e.pool)}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: approvals.NewService(e.Pool)}
 
-	proposal, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), orgID, "")
+	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +100,7 @@ func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
 	var kind, status, targetType string
 	var targetID ids.UUID
 	var eventCount int
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
 			`SELECT kind, status, coalesce(target_entity_type,''), coalesce(target_entity_id, $2)
 			 FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId), ids.Nil).Scan(&kind, &status, &targetType, &targetID); err != nil {
@@ -119,66 +121,66 @@ func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
 }
 
 func TestScrapeHidesAnInvisibleOrg(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	// Owned by rep3 (team2) — invisible to rep1 (team1) under team row-scope.
-	hidden := insertOrg(t, e, e.rep3, "hidden.example", "")
+	hidden := insertOrg(t, e, e.Rep3, "hidden.example", "")
 	brain := ai.NewFakeClient().Script(acmeExtraction)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.people, approvals: approvals.NewService(e.pool)}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: approvals.NewService(e.Pool)}
 
 	// Both the domain path and the override path must 404 an org the caller
 	// cannot see — existence-hiding, before any egress on their behalf.
-	if _, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), hidden, ""); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), hidden, ""); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("enrich a hidden org (domain path) → %v, want ErrNotFound", err)
 	}
-	if _, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), hidden, "https://attacker.example"); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), hidden, "https://attacker.example"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("enrich a hidden org (override path) → %v, want ErrNotFound", err)
 	}
 	// A never-existed id is 404 too (same EnsureVisible path).
-	if _, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), ids.NewV7(), ""); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), ids.NewV7(), ""); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("enrich a nonexistent org → %v, want ErrNotFound", err)
 	}
 }
 
 func TestScrapeDegradesHonestly(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	// (a) A visible org with a domain but nothing survives the gate → unreadable.
-	orgID := insertOrg(t, e, e.rep1, "acme.example", "")
+	orgID := insertOrg(t, e, e.Rep1, "acme.example", "")
 	allHallucinated := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: allHallucinated}, people: e.people, approvals: approvals.NewService(e.pool)}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: allHallucinated}, people: e.People, approvals: approvals.NewService(e.Pool)}
 	var unreadable *unreadableError
-	if _, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), orgID, ""); !errors.As(err, &unreadable) {
+	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, ""); !errors.As(err, &unreadable) {
 		t.Fatalf("all-hallucinated extraction → %v, want unreadable", err)
 	}
 
 	// (b) A visible org with NO domain and no override → no target to read.
-	noDomain := insertOrg(t, e, e.rep1, "", "")
-	if _, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), noDomain, ""); !errors.Is(err, people.ErrNoEnrichTarget) {
+	noDomain := insertOrg(t, e, e.Rep1, "", "")
+	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), noDomain, ""); !errors.Is(err, people.ErrNoEnrichTarget) {
 		t.Fatalf("org without a domain → %v, want ErrNoEnrichTarget", err)
 	}
 }
 
 func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	// Human already set the industry; legal_name is empty.
-	orgID := insertOrg(t, e, e.rep1, "acme.example", "Handcrafted Industry")
+	orgID := insertOrg(t, e, e.Rep1, "acme.example", "Handcrafted Industry")
 	brain := ai.NewFakeClient().Script(acmeExtraction, acmeExtraction)
 
-	svc := approvals.NewService(e.pool)
-	svc.WithEffect("enrich", scrapeAcceptEffect(svc, e.people))
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.people, approvals: svc}
+	svc := approvals.NewService(e.Pool)
+	svc.WithEffect("enrich", scrapeAcceptEffect(svc, e.People))
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: svc}
 
-	proposal, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), orgID, "")
+	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 
 	var industry, capturedBy string
 	var profileRows, orgs int
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
 			`SELECT industry FROM organization WHERE id = $1`, orgID).Scan(&industry); err != nil {
 			return err
@@ -205,20 +207,20 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 
 	// Exactly-once: the approval is consumed and a re-decide is refused.
 	var already *approvals.AlreadyDecidedError
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); !errors.As(err, &already) {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); !errors.As(err, &already) {
 		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
 	}
 
 	// A REJECTED enrichment writes nothing.
-	proposal2, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, scrapePerms), orgID, "")
+	proposal2, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal2.ProposalId), false, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal2.ProposalId), false, nil); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	var rejectedRows int
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM organization_profile_field WHERE organization_id = $1`, orgID).Scan(&rejectedRows)
 	})

@@ -35,13 +35,13 @@ import (
 
 type forecastEnv struct {
 	owner    *pgx.Conn
-	pool     *pgxpool.Pool
+	Pool     *pgxpool.Pool
 	handlers reportHandlers
-	ws       ids.UUID
-	rep1     ids.UUID // team1
-	rep3     ids.UUID // team2
-	team1    ids.UUID
-	team2    ids.UUID
+	WS       ids.UUID
+	Rep1     ids.UUID // team1
+	Rep3     ids.UUID // team2
+	Team1    ids.UUID
+	Team2    ids.UUID
 	pipeline ids.UUID
 	// stages keyed by win_probability, all semantic=open
 	stages map[int]ids.UUID
@@ -80,25 +80,25 @@ func setupForecast(t *testing.T) *forecastEnv {
 	}
 
 	e := &forecastEnv{
-		owner: owner, ws: ids.NewV7(),
-		rep1: ids.NewV7(), rep3: ids.NewV7(), team1: ids.NewV7(), team2: ids.NewV7(),
+		owner: owner, WS: ids.NewV7(),
+		Rep1: ids.NewV7(), Rep3: ids.NewV7(), Team1: ids.NewV7(), Team2: ids.NewV7(),
 		stages: map[int]ids.UUID{},
 	}
-	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Forecast', 'forecast', 'EUR')`, e.ws); err != nil {
+	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Forecast', 'forecast', 'EUR')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
-	for email, u := range map[string]ids.UUID{"rep1@forecast.test": e.rep1, "rep3@forecast.test": e.rep3} {
-		if _, err := owner.Exec(ctx, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`, u, e.ws, email); err != nil {
+	for email, u := range map[string]ids.UUID{"rep1@forecast.test": e.Rep1, "rep3@forecast.test": e.Rep3} {
+		if _, err := owner.Exec(ctx, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`, u, e.WS, email); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, tm := range []ids.UUID{e.team1, e.team2} {
-		if _, err := owner.Exec(ctx, `INSERT INTO team (id, workspace_id, name) VALUES ($1, $2, $3)`, tm, e.ws, tm.String()); err != nil {
+	for _, tm := range []ids.UUID{e.Team1, e.Team2} {
+		if _, err := owner.Exec(ctx, `INSERT INTO team (id, workspace_id, name) VALUES ($1, $2, $3)`, tm, e.WS, tm.String()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for u, tm := range map[ids.UUID]ids.UUID{e.rep1: e.team1, e.rep3: e.team2} {
-		if _, err := owner.Exec(ctx, `INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($1, $2, $3)`, e.ws, tm, u); err != nil {
+	for u, tm := range map[ids.UUID]ids.UUID{e.Rep1: e.Team1, e.Rep3: e.Team2} {
+		if _, err := owner.Exec(ctx, `INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($1, $2, $3)`, e.WS, tm, u); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -115,7 +115,7 @@ func setupForecast(t *testing.T) *forecastEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.pool = pool
+	e.Pool = pool
 	e.handlers = reportHandlers{engine: newReportEngine(pool)}
 	return e
 }
@@ -125,7 +125,7 @@ func setupForecast(t *testing.T) *forecastEnv {
 func (e *forecastEnv) seed(t *testing.T, sql string, args ...any) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := e.owner.Exec(context.Background(), sql, append([]any{id, e.ws}, args...)...); err != nil {
+	if _, err := e.owner.Exec(context.Background(), sql, append([]any{id, e.WS}, args...)...); err != nil {
 		t.Fatalf("seeding: %v", err)
 	}
 	return id
@@ -143,7 +143,7 @@ func (e *forecastEnv) seedOpenDeal(t *testing.T, name string, probability int, o
 }
 
 func (e *forecastEnv) dealReadCtx(userID ids.UUID, teams []ids.UUID, scope principal.RowScope) context.Context {
-	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + userID.String(), UserID: userID, TeamIDs: teams,
 		Permissions: principal.Permissions{
@@ -153,7 +153,7 @@ func (e *forecastEnv) dealReadCtx(userID ids.UUID, teams []ids.UUID, scope princ
 	})
 }
 
-func (e *forecastEnv) admin() context.Context {
+func (e *forecastEnv) Admin() context.Context {
 	return e.dealReadCtx(ids.NewV7(), nil, principal.RowScopeAll)
 }
 
@@ -258,7 +258,7 @@ func TestForecastRollupReconcilesToConstituentDeals(t *testing.T) {
 	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, archived_at, source, captured_by)
 		VALUES ($1, $2, 'Archived', $3, $4, 77777, 'EUR', now(), 'manual', 'human:x')`, e.pipeline, e.stages[60])
 
-	result := e.runForecast(t, e.admin(), `{"group_by":["forecast_category"]}`)
+	result := e.runForecast(t, e.Admin(), `{"group_by":["forecast_category"]}`)
 	if len(result.Rows) != 3 {
 		t.Fatalf("rows = %d (%+v), want commit + best_case + the NULL group", len(result.Rows), result.Rows)
 	}
@@ -319,20 +319,20 @@ func TestForecastRollupReconcilesToConstituentDeals(t *testing.T) {
 // a deal with two stakeholders counts once in the per-owner grouping.
 func TestForecastByOwnerCountsAMultiStakeholderDealOnce(t *testing.T) {
 	e := setupForecast(t)
-	dealID := e.seedOpenDeal(t, "Two champions", 60, &e.rep1, int64p(50000), stringp("commit"))
+	dealID := e.seedOpenDeal(t, "Two champions", 60, &e.Rep1, int64p(50000), stringp("commit"))
 	for _, role := range []string{"champion", "economic_buyer"} {
 		personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`, "Stakeholder "+role)
 		e.seed(t, `INSERT INTO relationship (id, workspace_id, kind, deal_id, person_id, role, source, captured_by)
 			VALUES ($1, $2, 'deal_stakeholder', $3, $4, $5, 'manual', 'human:x')`, dealID, personID, role)
 	}
 
-	result := e.runForecast(t, e.admin(), `{"group_by":["owner_id"]}`)
+	result := e.runForecast(t, e.Admin(), `{"group_by":["owner_id"]}`)
 	if len(result.Rows) != 1 {
 		t.Fatalf("rows = %+v, want exactly one owner group", result.Rows)
 	}
 	row := result.Rows[0]
-	if row["owner_id"] != e.rep1.String() {
-		t.Fatalf("owner_id = %v, want %s", row["owner_id"], e.rep1)
+	if row["owner_id"] != e.Rep1.String() {
+		t.Fatalf("owner_id = %v, want %s", row["owner_id"], e.Rep1)
 	}
 	if got := wireInt(t, row, "deals"); got != 1 {
 		t.Errorf("deals = %d, want 1 — the stakeholder join must not multiply the deal", got)
@@ -351,15 +351,15 @@ func TestForecastByOwnerCountsAMultiStakeholderDealOnce(t *testing.T) {
 // to its base inputs, so the lineage bottoms out with no opaque step.
 func TestForecastDerivationDrillThroughReconcilesExactly(t *testing.T) {
 	e := setupForecast(t)
-	e.seedOpenDeal(t, "Alpha", 20, &e.rep1, int64p(100000), stringp("commit"))
-	e.seedOpenDeal(t, "Beta", 60, &e.rep1, int64p(12341), stringp("best_case"))
-	e.seedOpenDeal(t, "Gamma", 55, &e.rep1, nil, stringp("commit"))
-	e.seedOpenDeal(t, "Foreign owner", 60, &e.rep3, int64p(999999), stringp("commit"))
+	e.seedOpenDeal(t, "Alpha", 20, &e.Rep1, int64p(100000), stringp("commit"))
+	e.seedOpenDeal(t, "Beta", 60, &e.Rep1, int64p(12341), stringp("best_case"))
+	e.seedOpenDeal(t, "Gamma", 55, &e.Rep1, nil, stringp("commit"))
+	e.seedOpenDeal(t, "Foreign owner", 60, &e.Rep3, int64p(999999), stringp("commit"))
 
-	result := e.runForecast(t, e.admin(), `{"group_by":["owner_id"]}`)
+	result := e.runForecast(t, e.Admin(), `{"group_by":["owner_id"]}`)
 	var row map[string]any
 	for _, r := range result.Rows {
-		if r["owner_id"] == e.rep1.String() {
+		if r["owner_id"] == e.Rep1.String() {
 			row = r
 		}
 	}
@@ -371,11 +371,11 @@ func TestForecastDerivationDrillThroughReconcilesExactly(t *testing.T) {
 	if !ok || handle == "" {
 		t.Fatalf("aggregate row has no derivation_url: %+v", row)
 	}
-	derivation := e.explain(t, e.admin(), handle)
+	derivation := e.explain(t, e.Admin(), handle)
 
 	for _, phrase := range []string{
 		"open, unarchived deals",
-		`within the group where owner_id = "` + e.rep1.String() + `"`,
+		`within the group where owner_id = "` + e.Rep1.String() + `"`,
 		"the sum of weighted_amount_minor as weighted_minor",
 	} {
 		if !strings.Contains(derivation.Definition, phrase) {
@@ -424,13 +424,13 @@ func TestForecastDerivationDrillThroughReconcilesExactly(t *testing.T) {
 // pointing the handle at a foreign owner yields an empty set, not a leak.
 func TestForecastDerivationHonorsRowScope(t *testing.T) {
 	e := setupForecast(t)
-	e.seedOpenDeal(t, "Mine A", 20, &e.rep1, int64p(10000), stringp("commit"))
-	e.seedOpenDeal(t, "Mine B", 60, &e.rep1, int64p(20000), stringp("commit"))
-	e.seedOpenDeal(t, "Theirs", 20, &e.rep3, int64p(40000), stringp("commit"))
+	e.seedOpenDeal(t, "Mine A", 20, &e.Rep1, int64p(10000), stringp("commit"))
+	e.seedOpenDeal(t, "Mine B", 60, &e.Rep1, int64p(20000), stringp("commit"))
+	e.seedOpenDeal(t, "Theirs", 20, &e.Rep3, int64p(40000), stringp("commit"))
 
-	rep := e.dealReadCtx(e.rep1, []ids.UUID{e.team1}, principal.RowScopeTeam)
+	rep := e.dealReadCtx(e.Rep1, []ids.UUID{e.Team1}, principal.RowScopeTeam)
 	result := e.runForecast(t, rep, `{"group_by":["owner_id"]}`)
-	if len(result.Rows) != 1 || result.Rows[0]["owner_id"] != e.rep1.String() {
+	if len(result.Rows) != 1 || result.Rows[0]["owner_id"] != e.Rep1.String() {
 		t.Fatalf("team-scoped report rows = %+v, want only rep1's group", result.Rows)
 	}
 
@@ -449,14 +449,14 @@ func TestForecastDerivationHonorsRowScope(t *testing.T) {
 
 	// A handle pinned to the foreign owner resolves to an EMPTY set
 	// under team scope — anything that returns a record is a read.
-	foreign := e.explain(t, rep, "/v1/reports/forecast/derivation?by=owner_id&agg=count%3A%3Adeals&owner_id="+e.rep3.String())
+	foreign := e.explain(t, rep, "/v1/reports/forecast/derivation?by=owner_id&agg=count%3A%3Adeals&owner_id="+e.Rep3.String())
 	if foreign.TotalRows != 0 || len(foreign.Rows) != 0 {
 		t.Errorf("foreign-owner drill-through leaked %d rows (total %d)", len(foreign.Rows), foreign.TotalRows)
 	}
 
 	// Admin (row_scope=all) sees all three — the scope, not the data,
 	// made the difference.
-	full := e.explain(t, e.admin(), result.DerivationURL)
+	full := e.explain(t, e.Admin(), result.DerivationURL)
 	if full.TotalRows != 3 {
 		t.Errorf("admin drill-through total = %d, want 3", full.TotalRows)
 	}

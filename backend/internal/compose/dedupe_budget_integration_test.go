@@ -13,6 +13,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -23,8 +25,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-func connectorCtx(e *authzEnv) context.Context {
-	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+func connectorCtx(e *integration.Env) context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalConnector, ID: "connector:test",
@@ -36,8 +38,8 @@ func connectorCtx(e *authzEnv) context.Context {
 }
 
 func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
-	e := setupAuthz(t)
-	sink := capture.NewSink(e.pool).WithStager(mergeStager{svc: approvals.NewService(e.pool)})
+	e := integration.Setup(t)
+	sink := capture.NewSink(e.Pool).WithStager(mergeStager{svc: approvals.NewService(e.Pool)})
 	ctx := connectorCtx(e)
 
 	first, err := sink.Upsert(ctx, connector.NormalizedRecord{
@@ -61,7 +63,7 @@ func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = second
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var leads, proposals int
 		if err := tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM lead WHERE email = 'dana@example.test'`).Scan(&leads); err != nil {
@@ -94,9 +96,9 @@ func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
 }
 
 func TestSeatDerivedBudget(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	// setupAuthz seeds three full-seat humans.
-	budget, err := NewSeatBudget(e.pool).MonthlyTokenBudget(context.Background(), e.ws)
+	budget, err := NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), e.WS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,12 +109,12 @@ func TestSeatDerivedBudget(t *testing.T) {
 	// workspace table sits outside RLS and is owner-seeded, so the seed
 	// goes through the owner connection like every other fixture.
 	empty := ids.NewV7()
-	owner := ownerConn(t)
+	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Empty', 'empty-budget', 'EUR')`, empty); err != nil {
 		t.Fatalf("workspace insert: %v", err)
 	}
-	budget, err = NewSeatBudget(e.pool).MonthlyTokenBudget(context.Background(), empty)
+	budget, err = NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), empty)
 	if err != nil {
 		t.Fatal(err)
 	}

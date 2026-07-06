@@ -5,72 +5,29 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (2026-07-07 — product loop paused; a 5-PR stack awaits merge)
+## ▶ RESTART HERE (2026-07-07 — Niraj architecture feedback implemented)
 
-Session ended deliberately mid-pipeline. **Five gate-green-except-Sonar PRs
-are stacked and ready** (each verified live in a browser against the real
-backend, all unit+e2e lanes green):
-
-- **#14** `feat/home-morning-brief` — Home rides the real /brief spine
-  (ranked queue, §10.1 factor bars, act/dismiss); onboarding human field
-  labels + step-4 honesty; **plus the whole Sonar-gate enablement** (see
-  below). ← the stack base; merge this first.
-- **#15** `feat/record-create-flows` — create flows for contact / company /
-  lead / deal (shared CreateAction), styled .input/.field atoms.
-- **#17** `feat/360-enrich-strength` — company-360 enrichment card driving
-  POST /organizations/{id}/enrich (EP05 scrape verb surfaced).
-- **#18** `feat/log-activity` — log a note/task from the three 360s.
-- **#19** `feat/tasks-remind` — task create + remind_at set/clear (B-E16.1
-  surface). #18/#19 were built by parallel worktree agents; both branch off
-  #17's pre-rebase head — REBASE them once #17 merges (i18n adjacency
-  conflicts are likely between the two; both add keys at the same anchors).
-
-**The SonarCloud saga (all fixed, last scan still running at close):** the
-required "SonarCloud Code Analysis" check blocked ALL merges. Chain of
-causes, each fixed on #14: SONAR_TOKEN secret invalid (owner regenerated) →
-sonar.organization was `gradionhq`, real org key is **`gradion`** → quality
-gate failed on new_coverage=0% (scan job now runs go test -coverprofile +
-vitest lcov; properties declare report paths, test.inclusions, generated
-schema.d.ts excluded) → two new-code security findings (setup actions now
-SHA-pinned, pnpm install --ignore-scripts) → remaining duplication was
-en.ts↔de.ts cross-matching (parallel catalogs BY DESIGN; fixed via
-sonar.cpd.exclusions for exactly those two files). **Pickup: check the
-scans on #14/#15/#17 — if green, merge #14 → retarget #15 to main → merge →
-retarget #17 → merge → rebase #18/#19 → merge.** If duplication persists,
-read the per-file blocks via api/duplications/show (the technique that
-found the i18n cause).
-
-Memory `margince-sonarcloud-ci-state` records the whole gate chain for
-future sessions. The dev stack was STOPPED at session close (`make
-dev-tls` to relaunch). Note the api binary must be restarted after backend
-merges or the SPA hits missing routes.
-
-## Prior restart point (2026-07-06 evening — product-completeness loop)
-
-A product-facing loop session (goal: executable, testable product; onboarding
-+ first screens beautiful and fully working; PR-per-slice through the CI +
-CodeRabbit + Sonar gates). Slice 1 = **PR #14** `feat/home-morning-brief`:
-
-- **Home now rides the real `/brief` spine** (B-EP09.12b×E05): no-run 404 →
-  honest generate card, POST refresh, ranked items with the §10.1 factor
-  bars, evidence counts, B-E05.13 act/dismiss updating in place, honest-short
-  footer; approvals stay on top, stalled deals close the page. New
-  `home.css` + `home.test.tsx`; e2e seed gained a coherent /brief run.
-- **Onboarding**: cold-start fields render human DE/EN labels (was raw
-  `LEGAL_NAME` keys); step 4 is honest about a skipped voice step and tags
-  the canned sample draft as an illustrative example.
-- `frontend/src/api/schema.d.ts` regenerated (picks up /brief, offers,
-  signals, views…).
-- Verified live in a browser end to end: signup → real-model cold-start of a
-  real site → funnel → generate brief over real deals → act/dismiss.
-  frontend-check green (94 unit), e2e 35/35.
-
-Browser-audit gaps still open (next slices): contacts/companies/leads lists
-are thin but work; deal 360 exists; offers/products, signals warm-room,
-smart lists/saved views, preference center have NO frontend surface yet —
-those are the highest-value next product slices. The dev stack must be
-restarted after backend merges (`make dev-tls`) or the SPA hits routes the
-running api doesn't have.
+The accepted Codex/Niraj architecture-readability review is implemented on
+branch `feat/niraj-architecture-feedback` (PR "Implement Niraj Architecture
+Feedback"): **decisions/0018** (module growth policy — flat by default, five
+named split triggers, compose corollary), **docs/explanation/authorization.md**
+(why the RBAC/row-scope gate sits at store/service entry points, 403 vs 404,
+FK-reference-is-a-read), the **integration-suite move** to
+`backend/internal/compose/integration/` (61 suites + ONE importable harness in
+`harness.go`; count parity 468=468; the true white-box suites — closedate,
+coldstart, reconcile, report_forecast, scrape, comms, dedupe_budget,
+preference_agent — stay in compose root by design), and the pilot
+**`compose/briefs`** orchestration split (`briefs.Handlers` embedded in
+`compose.Server`; the shared `unfence` trim rehomed as `modules/ai.Unfence`).
+Gates re-pointed: go-arch-lint compose glob, `bench-perf` →
+`./internal/compose/integration`, write-shape/table-ownership waivers re-keyed
+(+ both walkers now skip `//go:build integration` scaffolding). Remaining
+compose groups (reporting, exports, enrichment, public surface) follow the
+0018 recipe opportunistically — NOT scheduled work. Spec-side: **A99**
+(ADR-0054 §3 amendment), conventions 11 §2 growth rule, **B-EP01.17/18/19**
+marked POCV1 DONE, `HANDOFF-to-code-session-2026-07-06.md` — committed on the
+spec repo's local `main` as `da05f3e` (push was outside this session's
+permissions — push it).
 
 ## Prior restart point (2026-07-06 PM — batch-5 CLEARED)
 

@@ -65,8 +65,8 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/signals:UpdateSignal":         "human triage (status/severity) is ratified audit-only \u2014 events.md \u00a75.11 defines only signal.detected/signal.resolved (raw\u2192entity attribution, emitted by the resolver), no signal.updated, and the closed-verb law forbids inventing one build-side",
 	"internal/modules/signals:ArchiveSignal":        "signal archive is ratified audit-only \u2014 events.md \u00a75.11 defines no signal.archived type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/privacy:AssembleSAR":          "the closed catalog (events.md \u00a75) defines no subject-access-export type; the export is a read whose only write IS the audit row",
-	"internal/compose:SnapshotRun":                  "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
-	"internal/compose:markItem":                     "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
+	"internal/compose/briefs:SnapshotRun":           "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
+	"internal/compose/briefs:markItem":              "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose:WriteFiltered":                "filtered export is a read whose only write IS the audit row \u2014 the closed catalog (events.md \u00a75) defines no export type (the same ratification as AssembleSAR)",
 }
 
@@ -80,7 +80,8 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				isIntegrationTagged(path) {
 				return err
 			}
 			path = filepath.ToSlash(path)
