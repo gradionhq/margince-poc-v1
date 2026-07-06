@@ -1,0 +1,156 @@
+/* Home / Morning Brief — the /brief run rendered as a ranked queue: rank,
+ * deal, the §10.1 factor decomposition as readable bars (no mystery number),
+ * evidence count, and the act/dismiss pair. Settled items stay visible but
+ * recede, so the morning reads as progress, not deletion. */
+
+.brief-runbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.brief-runbar > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.brief-runbar > button {
+  margin-top: 4px;
+  flex: none;
+}
+
+.brief-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brief-deal {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brief-deal.settled {
+  opacity: 0.6;
+}
+
+.brief-deal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brief-deal-head .brief-rank {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  color: var(--textSecondary);
+  flex: none;
+}
+
+.brief-deal-name {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--textPrimary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.brief-deal-name:hover {
+  color: var(--accent);
+}
+
+.brief-deal-name svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.brief-deal-amount {
+  color: var(--textSecondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.brief-score {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--textSecondary);
+  flex: none;
+}
+
+.brief-factors {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.brief-factor {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.brief-factor-label {
+  color: var(--textSecondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brief-factor-track {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--borderSubtle);
+  overflow: hidden;
+}
+
+.brief-factor-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.brief-deal-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.brief-deal-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.brief-deal-actions svg,
+.brief-runbar svg {
+  width: 14px;
+  height: 14px;
+}
+
+.brief-honesty {
+  color: var(--textSecondary);
+  margin: 2px 2px 0;
+}
+
+.brief-none {
+  padding: 18px;
+}
+
+@media (max-width: 640px) {
+  .brief-factors {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
