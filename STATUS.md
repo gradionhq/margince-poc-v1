@@ -5,45 +5,41 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (after-lunch pickup, 2026-07-06 ~11:15)
+## ▶ RESTART HERE (2026-07-06 PM)
 
-Clean stopping point. `origin/main` is at the last CI-green commit; the
-working tree builds and carries no half-finished code. Everything below
-this block is durable context (the Codex review, the reconciliation
+Clean stopping point. `origin/main` builds and carries no half-finished
+code. Everything below is durable context (Codex review, reconciliation
 record, prior sessions).
 
-**State of main:** the three reopened spec-reconciliation tickets are
-shipped and CI-green (`136d1ce`, `e66c59c`), plus the session-close doc
-commit. `go build ./...` clean at HEAD. Migrations at **0046**.
+**State of main:** the three reopened spec-reconciliation tickets
+(`136d1ce`, `e66c59c`) plus **B-E08.1→4 warm-room signals + B-E13.7b lead
+routing** (`cec8646`, CI-green) are shipped. `go build ./...` clean.
+Migrations at **0047** (signals).
 
-**In-flight, parked as a patch (NOT on main):** B-E08.1→4 warm-room
-signals + B-E13.7b lead routing. A finisher agent got both to **passing
-unit tests** (integration suite + craft/security review were still
-pending when we stopped). The full WIP is git-preserved on branch **`wip/signals-lead-routing`**
-(`wip-archive/` — the patch, its sha256, and BASE.txt), and also still on
-local disk at `feedback/wip-2026-07-06-e08-signals-e13-routing.patch`
-(git-ignored; 5,696 lines; migration 0047 for signals). Prefer the branch —
-the `feedback/` copy is not preserved by git. To resume:
+- **Signals (B-E08):** consent-gated company-level `signal` substrate,
+  inspectable resolver (never creates a person; person link only under a
+  recorded consent grant), warm/cold join over the contact graph, warm
+  intro-path proposal (mutates nothing). Signal mutations are
+  `x-agent-access: human-only` (signal is deliberately not a datasource-seam
+  entity — no agent write path). feedback/28 files two low-severity
+  consent-scope notes (purpose-agnostic grant check; resolved_person_id
+  under org scope) for a spec ruling.
+- **Lead routing (B-E13.7b):** workspace-locked round-robin + per-owner cap
+  + ordered rules, TOCTOU-safe, exactly-once. The routable-field vocabulary
+  is bound across people↔agents by a compose fitness test.
 
-1. `git apply feedback/wip-2026-07-06-e08-signals-e13-routing.patch`
-   (verify first with `git apply --check`).
-2. Finish B-E08: the `modules/signals` package is complete but the build
-   blocker is compose wiring — embed `signals.Handlers` in
-   `internal/compose/server.go` (Server struct + `New()`), inject the
-   people StrengthSource seam (arch-legally: no module→sibling import),
-   register the `signal` entity in the composite datasource provider +
-   MCP registry (or make the ops human-only in crm.yaml per the module
-   doc's "the warm room proposes; the rep sends" stance — decide from
-   features/07 §9), and add `modules/signals` to the arch registries
-   (arch_test.go / .golangci.yml / .go-arch-lint.yml). Then the
-   integration suite.
-3. Gate (`make check` — expect only uncommitted-generated drift until
-   commit), run craft + security review agents, fix findings, commit,
-   push, watch CI.
+The parked WIP patch (`feedback/wip-…patch`) and branches
+`wip/signals-lead-routing` / `feat/e08-signals-e13-lead-routing` are now
+**obsolete** (their content is on main) — safe to delete.
 
-**Then** the rest of the batch-5 queue: preference center B-E11.32,
-export bundle B-E11.10a, brief HTTP surface + L2 ranker, reconciliation
-B-E06.2a, smart lists E15.11/12 (on the landed predicate engine).
+**Next up — batch-5 queue** (each: build to spec, gate, craft+security
+review, push, watch CI): preference center B-E11.32 (+ RFC 8058
+one-click unsubscribe), export bundle B-E11.10a, brief HTTP surface +
+B-E05.2 L2 ranker, overnight reconciliation B-E06.2a, smart lists /
+saved views E15.11/12 (on the landed predicate engine). Then the larger
+deferred blocks (E18/19/20 adapters, E12 extension, E17 e-invoicing,
+EP08 CRA chain) which need config/accounts/ADRs — see the coverage
+audits.
 
 **Codex review items — resolved** (see the "Codex red-team review
 2026-07-06 — RESOLVED" section below). The only carry-over is the P2/advisory
