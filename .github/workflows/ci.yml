@@ -165,7 +165,8 @@ jobs:
           fetch-depth: 0
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
-        uses: SonarSource/sonarqube-scan-action@v5
+        # Pinned to a full commit SHA (githubactions:S7637 / supply-chain): v5.
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703
       - name: No token yet — scan skipped
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
