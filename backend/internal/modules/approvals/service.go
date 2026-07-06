@@ -216,53 +216,7 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 	var a row
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		a, err = get(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		visible, err := decidable(ctx, tx, p, a)
-		if err != nil {
-			return err
-		}
-		if !visible {
-			return apperrors.ErrNotFound
-		}
-		if st := a.effectiveStatus(s.now()); st != "pending" {
-			return &AlreadyDecidedError{Status: st}
-		}
-
-		status, action, verdict := "rejected", "reject", "rejected"
-		if approve {
-			status, action, verdict = "approved", "approve", "approved"
-		}
-		auditEvidence := map[string]any{
-			"kind": a.Kind, "verdict": verdict, "reason": reason,
-		}
-		decidedPayload := map[string]any{
-			"kind": a.Kind, "verdict": verdict, "decided_by": p.UserID,
-		}
-		if edited != nil {
-			if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, decidedPayload); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE approval SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4
-			 WHERE id = $1`,
-			id, status, p.UserID, reason); err != nil {
-			return err
-		}
-		auditID, err := s.audit(ctx, tx, p, action, id, auditEvidence)
-		if err != nil {
-			return err
-		}
-		if err := s.emit(ctx, tx, p, auditID, "approval.decided", id, decidedPayload); err != nil {
-			return err
-		}
-		if err := s.emitKindDecided(ctx, tx, p, auditID, id, a.Kind, approve); err != nil {
-			return err
-		}
-		a, err = get(ctx, tx, id)
+		a, err = s.decideInTx(ctx, tx, p, id, approve, reason, edited)
 		return err
 	})
 	if err != nil {
@@ -278,6 +232,61 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		}
 	}
 	return a, err
+}
+
+// decideInTx runs the decision inside the caller's transaction: the
+// decide-authority + row-scope gate, the pending guard, the optional
+// modify-then-approve edit, the status write, and the write shape. It
+// returns the re-read row so the follow-on effect runs against committed
+// state.
+func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, id ids.UUID, approve bool, reason *string, edited json.RawMessage) (row, error) {
+	a, err := get(ctx, tx, id)
+	if err != nil {
+		return row{}, err
+	}
+	visible, err := decidable(ctx, tx, p, a)
+	if err != nil {
+		return row{}, err
+	}
+	if !visible {
+		return row{}, apperrors.ErrNotFound
+	}
+	if st := a.effectiveStatus(s.now()); st != "pending" {
+		return row{}, &AlreadyDecidedError{Status: st}
+	}
+
+	status, action, verdict := "rejected", "reject", "rejected"
+	if approve {
+		status, action, verdict = "approved", "approve", "approved"
+	}
+	auditEvidence := map[string]any{
+		"kind": a.Kind, "verdict": verdict, "reason": reason,
+	}
+	decidedPayload := map[string]any{
+		"kind": a.Kind, "verdict": verdict, "decided_by": p.UserID,
+	}
+	if edited != nil {
+		if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, decidedPayload); err != nil {
+			return row{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE approval SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4
+		 WHERE id = $1`,
+		id, status, p.UserID, reason); err != nil {
+		return row{}, err
+	}
+	auditID, err := s.audit(ctx, tx, p, action, id, auditEvidence)
+	if err != nil {
+		return row{}, err
+	}
+	if err := s.emit(ctx, tx, p, auditID, "approval.decided", id, decidedPayload); err != nil {
+		return row{}, err
+	}
+	if err := s.emitKindDecided(ctx, tx, p, auditID, id, a.Kind, approve); err != nil {
+		return row{}, err
+	}
+	return get(ctx, tx, id)
 }
 
 // applyEditedPayload is the modify-then-approve write (ADR-0036 §4): the

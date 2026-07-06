@@ -94,11 +94,8 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			// latter is a plain conflict, not a "duplicate email" (the
 			// email may not even be set). No re-read here: the failed
 			// INSERT aborted the transaction.
-			if name, ok := storekit.UniqueViolation(err); ok {
-				if name == "uq_lead_email_dedupe" {
-					return &DuplicateLeadError{Email: deref(in.Email)}
-				}
-				return apperrors.ErrConflict
+			if mapped, ok := leadUniqueViolation(err, in.Email); ok {
+				return mapped
 			}
 			return fmt.Errorf("insert lead: %w", err)
 		}
@@ -306,50 +303,67 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 	}
 	var out crmcontracts.Lead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
-			return err
-		}
-		current, err := readLead(ctx, tx, id, storekit.LiveOnly)
-		if err != nil {
-			return err
-		}
-
-		p, resumeRecompute, err := buildLeadPatch(current, in)
-		if err != nil {
-			return err
-		}
-		if p.Empty() {
-			out = current
-			return nil
-		}
-
-		if err := p.Apply(ctx, tx, "lead", id, in.IfVersion); err != nil {
-			if name, ok := storekit.UniqueViolation(err); ok {
-				if name == "uq_lead_email_dedupe" {
-					return &DuplicateLeadError{Email: deref(in.Email)}
-				}
-				return apperrors.ErrConflict
-			}
-			return err
-		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "lead", id, p.Before(), p.After())
-		if err != nil {
-			return err
-		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", id, p.After()); err != nil {
-			return err
-		}
-		// Clearing an override immediately recomputes from current signals
-		// (formulas §3.1): score no longer lags behind the machine value.
-		if resumeRecompute {
-			if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC()); err != nil {
-				return err
-			}
-		}
-		out, err = readLead(ctx, tx, id, storekit.LiveOnly)
+		var err error
+		out, err = s.updateLeadTx(ctx, tx, id, in)
 		return err
 	})
 	return out, err
+}
+
+// updateLeadTx runs the visibility gate, the sparse-patch fold, the write
+// shape, and the cleared-override recompute for one lead update inside the
+// caller's transaction.
+func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.UUID, in UpdateLeadInput) (crmcontracts.Lead, error) {
+	if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	current, err := readLead(ctx, tx, id, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	p, resumeRecompute, err := buildLeadPatch(current, in)
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	if p.Empty() {
+		return current, nil
+	}
+	if err := p.Apply(ctx, tx, "lead", id, in.IfVersion); err != nil {
+		if mapped, ok := leadUniqueViolation(err, in.Email); ok {
+			return crmcontracts.Lead{}, mapped
+		}
+		return crmcontracts.Lead{}, err
+	}
+	auditID, err := storekit.Audit(ctx, tx, "update", "lead", id, p.Before(), p.After())
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", id, p.After()); err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	// Clearing an override immediately recomputes from current signals
+	// (formulas §3.1): score no longer lags behind the machine value.
+	if resumeRecompute {
+		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC()); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	}
+	return readLead(ctx, tx, id, storekit.LiveOnly)
+}
+
+// leadUniqueViolation maps a lead write's unique-index violation to the
+// contract error: the email dedupe index answers 409 duplicate-email; any
+// other unique index a plain conflict. The bool is false when err is not a
+// unique violation at all, so the caller keeps its own wrapping.
+func leadUniqueViolation(err error, email *string) (error, bool) {
+	name, ok := storekit.UniqueViolation(err)
+	if !ok {
+		return nil, false
+	}
+	if name == "uq_lead_email_dedupe" {
+		return &DuplicateLeadError{Email: deref(email)}, true
+	}
+	return apperrors.ErrConflict, true
 }
 
 // buildLeadPatch folds the caller's sparse update onto the current lead

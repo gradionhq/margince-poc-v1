@@ -175,58 +175,78 @@ func (s *Store) ListPartners(ctx context.Context, in ListPartnersInput) ([]partn
 	var out []partnerRow
 	var page storekit.Page
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		var args []any
-		arg := func(v any) int { args = append(args, v); return len(args) }
-		where := []string{"p.archived_at IS NULL"}
-		if in.PartnerRole != nil {
-			where = append(where, storekit.SQLf("p.partner_role = $%d", arg(*in.PartnerRole)))
-		}
-		if in.CertStatus != nil {
-			where = append(where, storekit.SQLf("p.cert_status = $%d", arg(*in.CertStatus)))
-		}
-		if in.Cursor != "" {
-			after, err := ids.Parse(in.Cursor)
-			if err != nil {
-				return &RequiredFieldError{Field: "cursor"}
-			}
-			where = append(where, storekit.SQLf("p.organization_id > $%d", arg(after)))
-		}
-		// A partner row is a read of its organization: the org's own
-		// row scope bounds the list.
-		scope, err := auth.ScopeClauseFor(ctx, "organization", "o", arg)
-		if err != nil {
-			return err
-		}
-		if scope != "" {
-			where = append(where, scope)
-		}
-		sql := storekit.SQLf(`
-			SELECT %s FROM partner p
-			JOIN organization o ON o.id = p.organization_id AND o.archived_at IS NULL
-			WHERE %s ORDER BY p.organization_id LIMIT $%d`,
-			aliased(partnerColumns, "p"), strings.Join(where, " AND "), arg(limit+1))
-		rows, err := tx.Query(ctx, sql, args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			p, err := scanPartner(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, p)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(out) > limit {
-			out = out[:limit]
-			page = storekit.Page{HasMore: true, NextCursor: out[limit-1].OrganizationID.String()}
-		}
-		return nil
+		var err error
+		out, page, err = listPartnersTx(ctx, tx, in, limit)
+		return err
 	})
 	return out, page, err
+}
+
+// listPartnersTx runs the keyset-paged partner list inside the caller's
+// transaction: filters + org-derived row scope, one page + lookahead.
+func listPartnersTx(ctx context.Context, tx pgx.Tx, in ListPartnersInput, limit int) ([]partnerRow, storekit.Page, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	where, err := partnerListWhere(ctx, in, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	sql := storekit.SQLf(`
+		SELECT %s FROM partner p
+		JOIN organization o ON o.id = p.organization_id AND o.archived_at IS NULL
+		WHERE %s ORDER BY p.organization_id LIMIT $%d`,
+		aliased(partnerColumns, "p"), strings.Join(where, " AND "), arg(limit+1))
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	defer rows.Close()
+	var out []partnerRow
+	for rows.Next() {
+		p, err := scanPartner(rows)
+		if err != nil {
+			return nil, storekit.Page{}, err
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	var page storekit.Page
+	if len(out) > limit {
+		out = out[:limit]
+		page = storekit.Page{HasMore: true, NextCursor: out[limit-1].OrganizationID.String()}
+	}
+	return out, page, nil
+}
+
+// partnerListWhere builds the WHERE fragments for the partner list: the
+// role/cert-status filters, the keyset cursor, and the org's own row scope
+// (a partner row is a read of its organization, so the org scope bounds
+// the list).
+func partnerListWhere(ctx context.Context, in ListPartnersInput, arg func(any) int) ([]string, error) {
+	where := []string{"p.archived_at IS NULL"}
+	if in.PartnerRole != nil {
+		where = append(where, storekit.SQLf("p.partner_role = $%d", arg(*in.PartnerRole)))
+	}
+	if in.CertStatus != nil {
+		where = append(where, storekit.SQLf("p.cert_status = $%d", arg(*in.CertStatus)))
+	}
+	if in.Cursor != "" {
+		after, err := ids.Parse(in.Cursor)
+		if err != nil {
+			return nil, &RequiredFieldError{Field: "cursor"}
+		}
+		where = append(where, storekit.SQLf("p.organization_id > $%d", arg(after)))
+	}
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "o", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+	return where, nil
 }
 
 func wirePartner(p partnerRow) crmcontracts.Partner {

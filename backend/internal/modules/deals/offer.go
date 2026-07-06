@@ -89,66 +89,92 @@ func (s *Store) CreateOffer(ctx context.Context, dealID ids.UUID, in CreateOffer
 
 	var out crmcontracts.Offer
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
-		// The deal anchors the offer's visibility: it must exist, be live
-		// and sit inside the caller's row scope (miss = 404).
-		if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID); err != nil {
-			return err
-		}
-
-		buyerOrg := in.BuyerOrgID
-		if buyerOrg == nil {
-			var dealOrg *ids.UUID
-			if err := tx.QueryRow(ctx,
-				`SELECT organization_id FROM deal WHERE id = $1`, dealID).Scan(&dealOrg); err != nil {
-				return fmt.Errorf("read deal organization: %w", err)
-			}
-			buyerOrg = dealOrg
-		} else if err := auth.EnsureLinkTarget(ctx, tx, "organization", *buyerOrg); err != nil {
-			return err
-		}
-
-		number, err := nextOfferNumber(ctx, tx, wsID)
-		if err != nil {
-			return err
-		}
-
-		id := ids.NewV7()
-		_, err = tx.Exec(ctx,
-			`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
-			                    buyer_org_id, valid_until, intro_text, terms_text, source, captured_by)
-			 VALUES ($1, $2, $3, $4, 1, 'draft', $5, $6, $7, $8, $9, $10, $11)`,
-			id, wsID, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText, in.Source, by)
-		if err != nil {
-			return fmt.Errorf("insert offer: %w", err)
-		}
-
-		for i, line := range in.LineItems {
-			if err := insertOfferLine(ctx, tx, wsID, id, in.Currency, line); err != nil {
-				return fmt.Errorf("line %d: %w", i+1, err)
-			}
-		}
-		if err := recomputeOfferTotals(ctx, tx, id); err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "create", "offer", id,
-			nil, map[string]any{"offer_number": number, "deal_id": dealID, "currency": in.Currency})
-		if err != nil {
-			return fmt.Errorf("audit offer create: %w", err)
-		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", id, map[string]any{
-			"offer_id": id, "deal_id": dealID, "revision": 1,
-			"currency": in.Currency, "source": in.Source, "captured_by": by,
-		}); err != nil {
-			return fmt.Errorf("emit offer.created: %w", err)
-		}
-		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read created offer: %w", err)
-		}
-		return nil
+		var err error
+		out, err = createOfferTx(ctx, tx, dealID, in, by)
+		return err
 	})
 	return out, err
+}
+
+// createOfferTx resolves the buyer org, mints the offer number, inserts
+// the offer and its lines, derives the totals, and runs the write shape —
+// all inside the caller's transaction.
+func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.UUID, in CreateOfferInput, by string) (crmcontracts.Offer, error) {
+	wsID := storekit.MustWorkspace(ctx)
+	// The deal anchors the offer's visibility: it must exist, be live
+	// and sit inside the caller's row scope (miss = 404).
+	if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	buyerOrg, err := resolveBuyerOrg(ctx, tx, dealID, in.BuyerOrgID)
+	if err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	number, err := nextOfferNumber(ctx, tx, wsID)
+	if err != nil {
+		return crmcontracts.Offer{}, err
+	}
+
+	id := ids.NewV7()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
+		                    buyer_org_id, valid_until, intro_text, terms_text, source, captured_by)
+		 VALUES ($1, $2, $3, $4, 1, 'draft', $5, $6, $7, $8, $9, $10, $11)`,
+		id, wsID, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText, in.Source, by); err != nil {
+		return crmcontracts.Offer{}, fmt.Errorf("insert offer: %w", err)
+	}
+	if err := insertOfferLines(ctx, tx, wsID, id, in.Currency, in.LineItems); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	if err := recomputeOfferTotals(ctx, tx, id); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "create", "offer", id,
+		nil, map[string]any{"offer_number": number, "deal_id": dealID, "currency": in.Currency})
+	if err != nil {
+		return crmcontracts.Offer{}, fmt.Errorf("audit offer create: %w", err)
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", id, map[string]any{
+		"offer_id": id, "deal_id": dealID, "revision": 1,
+		"currency": in.Currency, "source": in.Source, "captured_by": by,
+	}); err != nil {
+		return crmcontracts.Offer{}, fmt.Errorf("emit offer.created: %w", err)
+	}
+	out, err := readOfferWithLines(ctx, tx, id, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Offer{}, fmt.Errorf("read created offer: %w", err)
+	}
+	return out, nil
+}
+
+// resolveBuyerOrg picks the offer's buyer org: an explicit org is
+// row-scope probed (a client-supplied FK, H1); absent one, the offer
+// inherits the deal's organization.
+func resolveBuyerOrg(ctx context.Context, tx pgx.Tx, dealID ids.UUID, buyerOrgID *ids.UUID) (*ids.UUID, error) {
+	if buyerOrgID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", *buyerOrgID); err != nil {
+			return nil, err
+		}
+		return buyerOrgID, nil
+	}
+	var dealOrg *ids.UUID
+	if err := tx.QueryRow(ctx,
+		`SELECT organization_id FROM deal WHERE id = $1`, dealID).Scan(&dealOrg); err != nil {
+		return nil, fmt.Errorf("read deal organization: %w", err)
+	}
+	return dealOrg, nil
+}
+
+// insertOfferLines inserts each input line in order, numbering the 422
+// error by the caller's 1-based line position.
+func insertOfferLines(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, currency string, lines []OfferLineInputRow) error {
+	for i, line := range lines {
+		if err := insertOfferLine(ctx, tx, wsID, offerID, currency, line); err != nil {
+			return fmt.Errorf("line %d: %w", i+1, err)
+		}
+	}
+	return nil
 }
 
 // nextOfferNumber mints the workspace's next human-facing Angebot number
