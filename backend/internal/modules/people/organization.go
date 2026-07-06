@@ -63,25 +63,8 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		wsID := storekit.MustWorkspace(ctx)
 
-		for _, d := range in.Domains {
-			var existing ids.UUID
-			err := tx.QueryRow(ctx,
-				`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
-				d.Domain).Scan(&existing)
-			if err == nil {
-				dup := &DuplicateDomainError{Domain: d.Domain}
-				visible, verr := auth.VisibleTo(ctx, tx, "organization", existing)
-				if verr != nil {
-					return verr
-				}
-				if visible {
-					dup.ExistingID = existing
-				}
-				return dup
-			}
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("probe domain dedupe: %w", err)
-			}
+		if err := ensureOrgDomainsUnclaimed(ctx, tx, in.Domains); err != nil {
+			return err
 		}
 
 		// Naming a parent is a read of the parent: the child discloses the
@@ -103,19 +86,8 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			return fmt.Errorf("insert organization: %w", err)
 		}
 
-		for _, d := range in.Domains {
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-				 VALUES ($1, $2, lower($3), $4, $5, $6)`,
-				wsID, id, d.Domain, d.IsPrimary, in.Source, by); err != nil {
-				if name, ok := storekit.UniqueViolation(err); ok {
-					if name == "uq_org_domain" {
-						return &DuplicateDomainError{Domain: d.Domain}
-					}
-					return apperrors.ErrConflict // e.g. a second primary domain
-				}
-				return fmt.Errorf("insert organization domain: %w", err)
-			}
+		if err := insertOrgDomains(ctx, tx, wsID, id, in.Source, by, in.Domains); err != nil {
+			return err
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "organization", id, nil, map[string]any{"display_name": in.DisplayName})
@@ -131,6 +103,56 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		return nil
 	})
 	return out, err
+}
+
+// ensureOrgDomainsUnclaimed answers the domain dedupe probe with the
+// contract's 409, disclosing the existing org id only when the caller
+// could read that row (a domain maps to at most one org per workspace,
+// data-model §4.2).
+func ensureOrgDomainsUnclaimed(ctx context.Context, tx pgx.Tx, domains []OrgDomainInput) error {
+	for _, d := range domains {
+		var existing ids.UUID
+		err := tx.QueryRow(ctx,
+			`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
+			d.Domain).Scan(&existing)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("probe domain dedupe: %w", err)
+		}
+		dup := &DuplicateDomainError{Domain: d.Domain}
+		visible, verr := auth.VisibleTo(ctx, tx, "organization", existing)
+		if verr != nil {
+			return verr
+		}
+		if visible {
+			dup.ExistingID = existing
+		}
+		return dup
+	}
+	return nil
+}
+
+// insertOrgDomains lands the org's domains; the unique index remains the
+// structural guarantee under races, mapping uq_org_domain to the typed
+// 409 and a second primary domain to a plain conflict.
+func insertOrgDomains(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, source, by string, domains []OrgDomainInput) error {
+	for _, d := range domains {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+			 VALUES ($1, $2, lower($3), $4, $5, $6)`,
+			wsID, orgID, d.Domain, d.IsPrimary, source, by); err != nil {
+			if name, ok := storekit.UniqueViolation(err); ok {
+				if name == "uq_org_domain" {
+					return &DuplicateDomainError{Domain: d.Domain}
+				}
+				return apperrors.ErrConflict // e.g. a second primary domain
+			}
+			return fmt.Errorf("insert organization domain: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {

@@ -216,20 +216,8 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 
 	var out relationshipRow
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		// Every supplied endpoint is a client-supplied FK argument (H1).
-		for _, ref := range []struct {
-			table string
-			id    *ids.UUID
-		}{
-			{"person", in.PersonID}, {"organization", in.OrganizationID},
-			{"organization", in.CounterpartyOrgID}, {"deal", in.DealID},
-		} {
-			if ref.id == nil {
-				continue
-			}
-			if err := auth.EnsureLinkTarget(ctx, tx, ref.table, *ref.id); err != nil {
-				return err
-			}
+		if err := ensureRelationshipEndpoints(ctx, tx, in); err != nil {
+			return err
 		}
 		// One current primary employer per person: demote the incumbent
 		// inside the same transaction rather than failing the write.
@@ -250,29 +238,55 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID,
 			in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt, in.Source, capturedBy)
 		if out, err = scanRelationship(row); err != nil {
-			// The rel_* CHECKs are the kind→endpoint shape rules
-			// (migration 0007): a violation is bad input, not a fault.
-			if constraint, ok := storekit.CheckViolation(err); ok {
-				switch constraint {
-				case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape":
-					return &RequiredFieldError{Field: "kind: " + in.Kind + " endpoint shape"}
-				case "rel_dates":
-					return &RequiredFieldError{Field: "ended_at: must not precede started_at"}
-				}
-			}
-			// The partial unique indexes are the edge dedupe rules: a
-			// second identical edge is a conflict on the existing one.
-			if constraint, ok := storekit.UniqueViolation(err); ok {
-				switch constraint {
-				case "uq_rel_current_primary_employer", "uq_rel_deal_person_role":
-					return fmt.Errorf("relationship %s: %w", constraint, apperrors.ErrConflict)
-				}
-			}
-			return err
+			return mapRelationshipConstraint(err, in.Kind)
 		}
 		return emitRelationshipChange(ctx, tx, "create", out)
 	})
 	return out, err
+}
+
+// ensureRelationshipEndpoints validates every supplied endpoint as a
+// client-supplied FK argument (H1): each named target must be visible
+// under the caller's row scope before the edge lands.
+func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelationshipInput) error {
+	for _, ref := range []struct {
+		table string
+		id    *ids.UUID
+	}{
+		{"person", in.PersonID}, {"organization", in.OrganizationID},
+		{"organization", in.CounterpartyOrgID}, {"deal", in.DealID},
+	} {
+		if ref.id == nil {
+			continue
+		}
+		if err := auth.EnsureLinkTarget(ctx, tx, ref.table, *ref.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mapRelationshipConstraint turns the insert's constraint failures into
+// typed input errors: the rel_* CHECKs are the kind→endpoint shape rules
+// (migration 0007) — bad input, not a fault — and the partial unique
+// indexes are the edge dedupe rules (a second identical edge conflicts
+// with the existing one). Anything else surfaces unchanged.
+func mapRelationshipConstraint(err error, kind string) error {
+	if constraint, ok := storekit.CheckViolation(err); ok {
+		switch constraint {
+		case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape":
+			return &RequiredFieldError{Field: "kind: " + kind + " endpoint shape"}
+		case "rel_dates":
+			return &RequiredFieldError{Field: "ended_at: must not precede started_at"}
+		}
+	}
+	if constraint, ok := storekit.UniqueViolation(err); ok {
+		switch constraint {
+		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role":
+			return fmt.Errorf("relationship %s: %w", constraint, apperrors.ErrConflict)
+		}
+	}
+	return err
 }
 
 type UpdateRelationshipInput struct {

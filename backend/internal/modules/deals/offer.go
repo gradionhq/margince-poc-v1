@@ -470,56 +470,12 @@ func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 			return err
 		}
 
-		var line OfferLineInput
-		var curPosition int
-		var curDescription, curUnit string
-		err = tx.QueryRow(ctx,
-			`SELECT position, description, unit, quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
-			 FROM offer_line_item WHERE id = $1 AND offer_id = $2`, lineID, offerID).
-			Scan(&curPosition, &curDescription, &curUnit, &line.Quantity, &line.UnitPriceMinor, &line.DiscountPct, &line.TaxRate)
+		curPosition, curDescription, curUnit, line, err := readOfferLineForUpdate(ctx, tx, offerID, lineID)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return apperrors.ErrNotFound
-			}
-			return fmt.Errorf("read offer line: %w", err)
+			return err
 		}
 
-		// A hand-built patch: storekit's Patch targets archivable rows
-		// (its WHERE carries archived_at IS NULL) and a line lives or
-		// dies with its offer instead — the draft gate above is the
-		// mutability rule here.
-		before, after := map[string]any{}, map[string]any{}
-		sets, args := []string{}, []any{lineID}
-		set := func(column string, oldVal, newVal any) {
-			args = append(args, newVal)
-			sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
-			before[column], after[column] = oldVal, newVal
-		}
-		if in.Position != nil {
-			set("position", curPosition, *in.Position)
-		}
-		if in.Description != nil {
-			set("description", curDescription, *in.Description)
-		}
-		if in.Unit != nil {
-			set("unit", curUnit, *in.Unit)
-		}
-		if in.Quantity != nil {
-			set("quantity", line.Quantity, *in.Quantity)
-			line.Quantity = *in.Quantity
-		}
-		if in.UnitPriceMinor != nil {
-			set("unit_price_minor", line.UnitPriceMinor, *in.UnitPriceMinor)
-			line.UnitPriceMinor = *in.UnitPriceMinor
-		}
-		if in.DiscountPct != nil {
-			set("discount_pct", line.DiscountPct, *in.DiscountPct)
-			line.DiscountPct = *in.DiscountPct
-		}
-		if in.TaxRate != nil {
-			set("tax_rate", line.TaxRate, *in.TaxRate)
-			line.TaxRate = *in.TaxRate
-		}
+		sets, args, before, after, line := buildOfferLinePatch(lineID, in, curPosition, curDescription, curUnit, line)
 		// Validate the resulting line's math up front (422, not a CHECK 500).
 		if _, err := LineTotals(line); err != nil {
 			return err
@@ -548,6 +504,64 @@ func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 		return nil
 	})
 	return out, err
+}
+
+// readOfferLineForUpdate loads the line's current snapshot for a patch;
+// a missing line (or one on another offer) is 404, not a fault.
+func readOfferLineForUpdate(ctx context.Context, tx pgx.Tx, offerID, lineID ids.UUID) (curPosition int, curDescription, curUnit string, line OfferLineInput, err error) {
+	err = tx.QueryRow(ctx,
+		`SELECT position, description, unit, quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
+		 FROM offer_line_item WHERE id = $1 AND offer_id = $2`, lineID, offerID).
+		Scan(&curPosition, &curDescription, &curUnit, &line.Quantity, &line.UnitPriceMinor, &line.DiscountPct, &line.TaxRate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", "", OfferLineInput{}, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return 0, "", "", OfferLineInput{}, fmt.Errorf("read offer line: %w", err)
+	}
+	return curPosition, curDescription, curUnit, line, nil
+}
+
+// buildOfferLinePatch folds the caller's sparse line edit into a
+// hand-built patch. storekit's Patch targets archivable rows (its WHERE
+// carries archived_at IS NULL) and a line lives or dies with its offer
+// instead — the draft gate is the mutability rule here. It returns the
+// SET fragments and args ($1 is the line id), the before/after audit
+// maps, and the resulting line with the edits applied for validation.
+func buildOfferLinePatch(lineID ids.UUID, in UpdateOfferLineInput, curPosition int, curDescription, curUnit string, line OfferLineInput) (sets []string, args []any, before, after map[string]any, validated OfferLineInput) {
+	before, after = map[string]any{}, map[string]any{}
+	sets, args = []string{}, []any{lineID}
+	set := func(column string, oldVal, newVal any) {
+		args = append(args, newVal)
+		sets = append(sets, fmt.Sprintf("%s = $%d", column, len(args)))
+		before[column], after[column] = oldVal, newVal
+	}
+	if in.Position != nil {
+		set("position", curPosition, *in.Position)
+	}
+	if in.Description != nil {
+		set("description", curDescription, *in.Description)
+	}
+	if in.Unit != nil {
+		set("unit", curUnit, *in.Unit)
+	}
+	if in.Quantity != nil {
+		set("quantity", line.Quantity, *in.Quantity)
+		line.Quantity = *in.Quantity
+	}
+	if in.UnitPriceMinor != nil {
+		set("unit_price_minor", line.UnitPriceMinor, *in.UnitPriceMinor)
+		line.UnitPriceMinor = *in.UnitPriceMinor
+	}
+	if in.DiscountPct != nil {
+		set("discount_pct", line.DiscountPct, *in.DiscountPct)
+		line.DiscountPct = *in.DiscountPct
+	}
+	if in.TaxRate != nil {
+		set("tax_rate", line.TaxRate, *in.TaxRate)
+		line.TaxRate = *in.TaxRate
+	}
+	return sets, args, before, after, line
 }
 
 func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID, lineID ids.UUID) (crmcontracts.Offer, error) {

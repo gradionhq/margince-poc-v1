@@ -172,36 +172,8 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 		if err := p.Apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply deal patch: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "deal", id, p.Before(), p.After())
-		if err != nil {
-			return fmt.Errorf("audit deal update: %w", err)
-		}
-
-		// Owner reassignment is a first-class fact with its own
-		// consumers (events.md §5.3): emit deal.owner_changed for the
-		// owner transition and deal.updated only for the other fields —
-		// both on this request's correlation_id when they co-occur.
-		ownerChanged := in.OwnerID != nil && (current.OwnerId == nil || ids.UUID(*current.OwnerId) != *in.OwnerID)
-		if ownerChanged {
-			payload := map[string]any{"to_owner_id": *in.OwnerID}
-			if current.OwnerId != nil {
-				payload["from_owner_id"] = *current.OwnerId
-			}
-			if err := storekit.Emit(ctx, tx, auditID, "deal.owner_changed", "deal", id, payload); err != nil {
-				return fmt.Errorf("emit deal.owner_changed: %w", err)
-			}
-		}
-		rest := make(map[string]any, len(p.After()))
-		for field, v := range p.After() {
-			if ownerChanged && field == "owner_id" {
-				continue
-			}
-			rest[field] = v
-		}
-		if len(rest) > 0 {
-			if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", id, rest); err != nil {
-				return fmt.Errorf("emit deal.updated: %w", err)
-			}
+		if err := recordDealUpdate(ctx, tx, id, current, in, p); err != nil {
+			return err
 		}
 		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return fmt.Errorf("read updated deal: %w", err)
@@ -209,6 +181,42 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 		return nil
 	})
 	return out, err
+}
+
+// recordDealUpdate lands the write shape's audit row and its paired
+// outbox events. The fan-out splits by consumer (events.md §5.3): owner
+// reassignment is a first-class fact, so it emits deal.owner_changed for
+// the owner transition and deal.updated only for the other fields — both
+// on this request's correlation_id when they co-occur.
+func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch) error {
+	auditID, err := storekit.Audit(ctx, tx, "update", "deal", id, p.Before(), p.After())
+	if err != nil {
+		return fmt.Errorf("audit deal update: %w", err)
+	}
+	after := p.After()
+	ownerChanged := in.OwnerID != nil && (current.OwnerId == nil || ids.UUID(*current.OwnerId) != *in.OwnerID)
+	if ownerChanged {
+		payload := map[string]any{"to_owner_id": *in.OwnerID}
+		if current.OwnerId != nil {
+			payload["from_owner_id"] = *current.OwnerId
+		}
+		if err := storekit.Emit(ctx, tx, auditID, "deal.owner_changed", "deal", id, payload); err != nil {
+			return fmt.Errorf("emit deal.owner_changed: %w", err)
+		}
+	}
+	rest := make(map[string]any, len(after))
+	for field, v := range after {
+		if ownerChanged && field == "owner_id" {
+			continue
+		}
+		rest[field] = v
+	}
+	if len(rest) > 0 {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", id, rest); err != nil {
+			return fmt.Errorf("emit deal.updated: %w", err)
+		}
+	}
+	return nil
 }
 
 // dealUpdatePatch folds the caller's sparse update onto the current row

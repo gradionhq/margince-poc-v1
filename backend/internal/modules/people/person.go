@@ -89,30 +89,11 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return fmt.Errorf("insert person: %w", err)
 		}
 
-		for _, e := range in.Emails {
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
-				 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8)`,
-				wsID, id, e.Email, e.EmailType, e.IsPrimary, e.Position, in.Source, by); err != nil {
-				if name, ok := storekit.UniqueViolation(err); ok {
-					if name == "uq_person_email_dedupe" {
-						// Race with a concurrent create: the transaction is
-						// aborted, so no id re-query is possible; the 409
-						// omits existing_id.
-						return &DuplicateEmailError{Email: e.Email}
-					}
-					return apperrors.ErrConflict // e.g. two primary emails of one type
-				}
-				return fmt.Errorf("insert person email: %w", err)
-			}
+		if err := insertPersonEmails(ctx, tx, wsID, id, in.Source, by, in.Emails); err != nil {
+			return err
 		}
-		for _, p := range in.Phones {
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				wsID, id, p.Phone, p.PhoneType, p.IsPrimary, p.Position, in.Source, by); err != nil {
-				return fmt.Errorf("insert person phone: %w", err)
-			}
+		if err := insertPersonPhones(ctx, tx, wsID, id, in.Source, by, in.Phones); err != nil {
+			return err
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "person", id, nil, map[string]any{"full_name": in.FullName})
@@ -129,6 +110,41 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		return nil
 	})
 	return out, err
+}
+
+// insertPersonEmails lands the person's emails; the unique index stays
+// the structural guarantee under races, mapping uq_person_email_dedupe
+// to the typed 409 (which omits existing_id — the aborted transaction
+// cannot re-query) and two primary emails of one type to a plain conflict.
+func insertPersonEmails(ctx context.Context, tx pgx.Tx, wsID, personID ids.UUID, source, by string, emails []PersonEmailInput) error {
+	for _, e := range emails {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
+			 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8)`,
+			wsID, personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by); err != nil {
+			if name, ok := storekit.UniqueViolation(err); ok {
+				if name == "uq_person_email_dedupe" {
+					return &DuplicateEmailError{Email: e.Email}
+				}
+				return apperrors.ErrConflict
+			}
+			return fmt.Errorf("insert person email: %w", err)
+		}
+	}
+	return nil
+}
+
+// insertPersonPhones lands the person's phone rows.
+func insertPersonPhones(ctx context.Context, tx pgx.Tx, wsID, personID ids.UUID, source, by string, phones []PersonPhoneInput) error {
+	for _, p := range phones {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			wsID, personID, p.Phone, p.PhoneType, p.IsPrimary, p.Position, source, by); err != nil {
+			return fmt.Errorf("insert person phone: %w", err)
+		}
+	}
+	return nil
 }
 
 // ensurePersonEmailsUnclaimed is the dedupe pre-check, so the 409 can

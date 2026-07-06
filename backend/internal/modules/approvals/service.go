@@ -242,28 +242,9 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 			"kind": a.Kind, "verdict": verdict, "decided_by": p.UserID,
 		}
 		if edited != nil {
-			canonical, editedHash, hashErr := diffhash.Canonical(edited)
-			if hashErr != nil {
-				return &InvalidEditError{Cause: hashErr}
-			}
-			if _, err := tx.Exec(ctx,
-				`UPDATE approval SET proposed_change = $2, diff_hash = $3 WHERE id = $1`,
-				id, canonical, editedHash); err != nil {
+			if err := applyEditedPayload(ctx, tx, id, edited, a, auditEvidence, decidedPayload); err != nil {
 				return err
 			}
-			// Both sides of the human delta go on the record: what the
-			// agent proposed, and what the human actually released.
-			auditEvidence["edited"] = true
-			auditEvidence["original_change"] = json.RawMessage(a.ProposedChange)
-			auditEvidence["original_diff_hash"] = a.DiffHash
-			auditEvidence["edited_change"] = json.RawMessage(canonical)
-			auditEvidence["edited_diff_hash"] = editedHash
-			decidedPayload["edited"] = true
-			decidedPayload["diff_hash"] = editedHash
-			// The decided event carries the human's version: a suspended
-			// agent run resumes with THIS call — the original one no
-			// longer matches any authority.
-			decidedPayload["edited_change"] = json.RawMessage(canonical)
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE approval SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4
@@ -278,16 +259,8 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		if err := s.emit(ctx, tx, p, auditID, "approval.decided", id, decidedPayload); err != nil {
 			return err
 		}
-		if echo, ok := kindDecidedEvents[a.Kind]; ok {
-			eventType := echo.rejected
-			if approve {
-				eventType = echo.approved
-			}
-			if err := s.emit(ctx, tx, p, auditID, eventType, id, map[string]any{
-				"approval_id": id, "decided_by": p.UserID,
-			}); err != nil {
-				return err
-			}
+		if err := s.emitKindDecided(ctx, tx, p, auditID, id, a.Kind, approve); err != nil {
+			return err
 		}
 		a, err = get(ctx, tx, id)
 		return err
@@ -305,6 +278,50 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 		}
 	}
 	return a, err
+}
+
+// applyEditedPayload is the modify-then-approve write (ADR-0036 §4): the
+// human's edited payload replaces the staged change under a freshly
+// computed diff_hash, and both sides of the human delta go on the record
+// — what the agent proposed, and what the human actually released. The
+// decided event carries the human's version, so a suspended agent run
+// resumes with THIS call; the original hash no longer opens anything.
+func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.UUID, edited json.RawMessage, a row, auditEvidence, decidedPayload map[string]any) error {
+	canonical, editedHash, hashErr := diffhash.Canonical(edited)
+	if hashErr != nil {
+		return &InvalidEditError{Cause: hashErr}
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE approval SET proposed_change = $2, diff_hash = $3 WHERE id = $1`,
+		id, canonical, editedHash); err != nil {
+		return err
+	}
+	auditEvidence["edited"] = true
+	auditEvidence["original_change"] = json.RawMessage(a.ProposedChange)
+	auditEvidence["original_diff_hash"] = a.DiffHash
+	auditEvidence["edited_change"] = json.RawMessage(canonical)
+	auditEvidence["edited_diff_hash"] = editedHash
+	decidedPayload["edited"] = true
+	decidedPayload["diff_hash"] = editedHash
+	decidedPayload["edited_change"] = json.RawMessage(canonical)
+	return nil
+}
+
+// emitKindDecided fires the kind-specific echo of the verdict (e.g. a
+// coldstart read-back's approved/rejected event) on the same audit row,
+// when the staging's kind registers one.
+func (s *Service) emitKindDecided(ctx context.Context, tx pgx.Tx, p principal.Principal, auditID, id ids.UUID, kind string, approve bool) error {
+	echo, ok := kindDecidedEvents[kind]
+	if !ok {
+		return nil
+	}
+	eventType := echo.rejected
+	if approve {
+		eventType = echo.approved
+	}
+	return s.emit(ctx, tx, p, auditID, eventType, id, map[string]any{
+		"approval_id": id, "decided_by": p.UserID,
+	})
 }
 
 // Redeem consumes one approved staging for exactly the call it was staged

@@ -94,51 +94,71 @@ func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, e
 		var afterCreated *time.Time
 		var afterID *ids.UUID
 		for {
-			q := `SELECT ` + columns + ` FROM approval`
-			args := []any{}
-			arg := func(v any) int { args = append(args, v); return len(args) }
-			where := []string{}
-			if status != nil {
-				where = append(where, fmt.Sprintf("status = $%d", arg(*status)))
-			}
-			if afterCreated != nil {
-				where = append(where, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(*afterCreated), arg(*afterID)))
-			}
-			for i, w := range where {
-				if i == 0 {
-					q += " WHERE " + w
-				} else {
-					q += " AND " + w
-				}
-			}
-			q += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, inboxBatch)
-
+			q, args := inboxPageQuery(status, afterCreated, afterID)
 			batch, err := collect(ctx, tx, q, args)
 			if err != nil {
 				return err
 			}
-			for i := range batch {
-				a := batch[i]
-				visible, err := decidable(ctx, tx, p, a)
-				if err != nil {
-					return err
-				}
-				if !visible {
-					continue
-				}
-				out = append(out, a)
-				if len(out) >= limit {
-					return nil
-				}
+			var full bool
+			out, full, err = appendDecidable(ctx, tx, p, batch, out, limit)
+			if err != nil {
+				return err
 			}
-			if len(batch) < inboxBatch {
-				return nil // table exhausted
+			if full || len(batch) < inboxBatch {
+				return nil // display limit met, or the table is exhausted
 			}
 			last := batch[len(batch)-1]
 			afterCreated, afterID = &last.CreatedAt, &last.ID
 		}
 	})
 	return out, err
+}
+
+// inboxPageQuery builds one keyset page of the inbox scan: newest first,
+// optionally filtered by status and paged past the (created_at, id)
+// cursor of the previous batch.
+func inboxPageQuery(status *string, afterCreated *time.Time, afterID *ids.UUID) (string, []any) {
+	q := `SELECT ` + columns + ` FROM approval`
+	args := []any{}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	where := []string{}
+	if status != nil {
+		where = append(where, fmt.Sprintf("status = $%d", arg(*status)))
+	}
+	if afterCreated != nil {
+		where = append(where, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(*afterCreated), arg(*afterID)))
+	}
+	for i, w := range where {
+		if i == 0 {
+			q += " WHERE " + w
+		} else {
+			q += " AND " + w
+		}
+	}
+	q += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, inboxBatch)
+	return q, args
+}
+
+// appendDecidable filters one scanned batch through the decidability
+// probe and appends the visible rows to out, stopping the moment the
+// display limit is met (full = true) so a burst of undecidable stagings
+// cannot starve older visible rows out of the caller's inbox.
+func appendDecidable(ctx context.Context, tx pgx.Tx, p principal.Principal, batch, out []row, limit int) ([]row, bool, error) {
+	for i := range batch {
+		a := batch[i]
+		visible, err := decidable(ctx, tx, p, a)
+		if err != nil {
+			return out, false, err
+		}
+		if !visible {
+			continue
+		}
+		out = append(out, a)
+		if len(out) >= limit {
+			return out, true, nil
+		}
+	}
+	return out, false, nil
 }
 
 // collect materializes one query's rows (the row-scope probes inside the
