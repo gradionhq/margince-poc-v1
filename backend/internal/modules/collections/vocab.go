@@ -61,6 +61,18 @@ var segmentEngines = map[string]storekit.Query{
 	},
 }
 
+// SegmentEngine returns the ONE predicate engine (the closed field
+// vocabulary, the fixed base clause, and the scope-forcing executor) for a
+// filterable resource. Dynamic-list membership (B-E15.11) and filtered
+// export (B-E15.13) both draw the engine from here, so the §13.5 filter
+// allow-list and the row-scope composition have exactly one spelling. ok
+// is false for a resource with no segment engine (activities/partners are
+// not predicate-leaf resources — see the vocabulary note above).
+func SegmentEngine(resource string) (storekit.Query, bool) {
+	q, ok := segmentEngines[resource]
+	return q, ok
+}
+
 // predicateFromDefinition decodes a dynamic list's stored `definition`
 // jsonb into the canonical predicate tree. The definition IS the filter
 // tree (and/or/field/op/value) — no wrapper — so the round-trip is a

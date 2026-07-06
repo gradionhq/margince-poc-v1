@@ -67,6 +67,7 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/privacy:AssembleSAR":          "the closed catalog (events.md \u00a75) defines no subject-access-export type; the export is a read whose only write IS the audit row",
 	"internal/compose:SnapshotRun":                  "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose:markItem":                     "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
+	"internal/compose:WriteFiltered":                "filtered export is a read whose only write IS the audit row \u2014 the closed catalog (events.md \u00a75) defines no export type (the same ratification as AssembleSAR)",
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {

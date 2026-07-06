@@ -1119,6 +1119,48 @@ func (e EnrichmentProposalStatus) Valid() bool {
 	}
 }
 
+// Defines values for FilteredExportRequestFormat.
+const (
+	Csv  FilteredExportRequestFormat = "csv"
+	Json FilteredExportRequestFormat = "json"
+)
+
+// Valid indicates whether the value is a known member of the FilteredExportRequestFormat enum.
+func (e FilteredExportRequestFormat) Valid() bool {
+	switch e {
+	case Csv:
+		return true
+	case Json:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilteredExportRequestObject.
+const (
+	FilteredExportRequestObjectDeal         FilteredExportRequestObject = "deal"
+	FilteredExportRequestObjectLead         FilteredExportRequestObject = "lead"
+	FilteredExportRequestObjectOrganization FilteredExportRequestObject = "organization"
+	FilteredExportRequestObjectPerson       FilteredExportRequestObject = "person"
+)
+
+// Valid indicates whether the value is a known member of the FilteredExportRequestObject enum.
+func (e FilteredExportRequestObject) Valid() bool {
+	switch e {
+	case FilteredExportRequestObjectDeal:
+		return true
+	case FilteredExportRequestObjectLead:
+		return true
+	case FilteredExportRequestObjectOrganization:
+		return true
+	case FilteredExportRequestObjectPerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IngestVoiceCorpusSourceRequestFormat.
 const (
 	IngestVoiceCorpusSourceRequestFormatJson        IngestVoiceCorpusSourceRequestFormat = "json"
@@ -3912,6 +3954,28 @@ type EnrichmentProposal struct {
 
 // EnrichmentProposalStatus Always staged — accept via the approval inbox.
 type EnrichmentProposalStatus string
+
+// FilteredExportRequest A filtered export request. Supply exactly ONE source: an inline `object` (with a required `filter`), a `view_id` (a saved view whose filter state is exported), or a `list_id` (a dynamic list whose definition is exported). The slice is always row-scoped to the caller through the one filter engine.
+type FilteredExportRequest struct {
+	// Filter The canonical §13.5 predicate tree (nested and/or groups over typed leaves). Required with `object`.
+	Filter *map[string]interface{}     `json:"filter,omitempty"`
+	Format FilteredExportRequestFormat `json:"format"`
+
+	// ListId Export the definition of a dynamic list. Mutually exclusive with object/view_id.
+	ListId *openapi_types.UUID `json:"list_id,omitempty"`
+
+	// Object The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
+	Object *FilteredExportRequestObject `json:"object,omitempty"`
+
+	// ViewId Export the filter state of one of the caller's saved views. Mutually exclusive with object/list_id.
+	ViewId *openapi_types.UUID `json:"view_id,omitempty"`
+}
+
+// FilteredExportRequestFormat defines model for FilteredExportRequest.Format.
+type FilteredExportRequestFormat string
+
+// FilteredExportRequestObject The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
+type FilteredExportRequestObject string
 
 // ImapConnectRequest defines model for ImapConnectRequest.
 type ImapConnectRequest struct {
@@ -6876,6 +6940,9 @@ type AdvanceDealJSONRequestBody = AdvanceDealRequest
 
 // CreateOfferJSONRequestBody defines body for CreateOffer for application/json ContentType.
 type CreateOfferJSONRequestBody = CreateOfferRequest
+
+// CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
+type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
@@ -10887,6 +10954,9 @@ type ServerInterface interface {
 	// List a deal's stakeholders (deal↔person relationships).
 	// (GET /deals/{id}/stakeholders)
 	ListDealStakeholders(w http.ResponseWriter, r *http.Request, id Id)
+	// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
+	// (POST /exports)
+	CreateFilteredExport(w http.ResponseWriter, r *http.Request)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -11445,6 +11515,12 @@ func (_ Unimplemented) CreateOffer(w http.ResponseWriter, r *http.Request, id Id
 // List a deal's stakeholders (deal↔person relationships).
 // (GET /deals/{id}/stakeholders)
 func (_ Unimplemented) ListDealStakeholders(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
+// (POST /exports)
+func (_ Unimplemented) CreateFilteredExport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14272,6 +14348,26 @@ func (siw *ServerInterfaceWrapper) ListDealStakeholders(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDealStakeholders(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateFilteredExport operation middleware
+func (siw *ServerInterfaceWrapper) CreateFilteredExport(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateFilteredExport(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19511,6 +19607,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/stakeholders", wrapper.ListDealStakeholders)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/exports", wrapper.CreateFilteredExport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)

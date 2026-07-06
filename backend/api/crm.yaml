@@ -2304,6 +2304,39 @@ paths:
               schema: { $ref: '#/components/schemas/SavedView' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ------------------------------ /exports ----------------------------------
+  /exports:
+    post:
+      tags: [Views]
+      operationId: createFilteredExport
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
+      description: |
+        First-class filtered export (features/10 §3): emits exactly the rows that match the active
+        filter AND that the caller may see (row-scoped through the same one filter engine that drives
+        lists and saved views), rendered to CSV or JSON. Supply exactly one source — an inline `object`
+        with a `filter` (the canonical §13.5 predicate), a `view_id`, or a `list_id`. Bulk record read
+        that can exfiltrate at scale, so it is **human-only** (an agent principal is rejected) and every
+        export writes one `audit_log` entry (who exported what slice, when — P7/P12).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FilteredExportRequest' }
+      responses:
+        '200':
+          description: The filtered slice as a downloadable attachment (Content-Disposition header set).
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------ /tags -------------------------------------
   /tags:
     get:
@@ -5392,6 +5425,35 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/SavedView' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    FilteredExportRequest:
+      type: object
+      description: >-
+        A filtered export request. Supply exactly ONE source: an inline `object`
+        (with a required `filter`), a `view_id` (a saved view whose filter state is
+        exported), or a `list_id` (a dynamic list whose definition is exported). The
+        slice is always row-scoped to the caller through the one filter engine.
+      required: [format]
+      properties:
+        object:
+          type: string
+          enum: [person, organization, deal, lead]
+          description: The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
+        filter:
+          type: object
+          additionalProperties: true
+          description: The canonical §13.5 predicate tree (nested and/or groups over typed leaves). Required with `object`.
+        view_id:
+          type: string
+          format: uuid
+          description: Export the filter state of one of the caller's saved views. Mutually exclusive with object/list_id.
+        list_id:
+          type: string
+          format: uuid
+          description: Export the definition of a dynamic list. Mutually exclusive with object/view_id.
+        format:
+          type: string
+          enum: [csv, json]
 
     # ---- Identity (User / Team / Role) ----
     User:

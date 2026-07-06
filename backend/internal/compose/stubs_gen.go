@@ -192,6 +192,10 @@ func (stubs) ListDealStakeholders(w nethttp.ResponseWriter, r *nethttp.Request, 
 	httperr.NotImplemented(w, r, "ListDealStakeholders")
 }
 
+func (stubs) CreateFilteredExport(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateFilteredExport")
+}
+
 func (stubs) ListLeads(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListLeadsParams) {
 	httperr.NotImplemented(w, r, "ListLeads")
 }

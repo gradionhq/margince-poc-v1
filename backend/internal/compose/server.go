@@ -81,6 +81,7 @@ type Server struct {
 	coldstartHandlers
 	scrapeHandlers
 	imapConnectHandlers
+	filteredExportHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -221,7 +222,15 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		// live-authority principal swap); credentials arrive per request and
 		// are never persisted, so no standing connection is registered.
 		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool)},
-		log:                 log,
+		// First-class filtered export (B-E15.13): the writer reuses the ONE
+		// predicate engine + the bundle writer's open-format rendering; the
+		// collections store resolves a saved view / dynamic list source
+		// behind its own visibility gate.
+		filteredExportHandlers: filteredExportHandlers{
+			writer:      NewFilteredExportWriter(pool),
+			collections: collections.NewStore(pool),
+		},
+		log: log,
 	}
 	for _, opt := range opts {
 		opt(&srv, pool)
