@@ -11,11 +11,11 @@ export function QueryGate<Data>({
   query,
   empty,
   children,
-}: {
+}: Readonly<{
   query: UseQueryResult<Data>;
   empty?: (data: Data) => boolean;
   children: (data: Data) => ReactNode;
-}) {
+}>) {
   const t = useT();
   if (query.isPending) {
     return (

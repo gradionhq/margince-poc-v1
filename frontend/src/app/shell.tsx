@@ -1,8 +1,9 @@
 import { Moon, Search, Sun, UserRound } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { NAV, RAIL_LESS_SCREENS } from "./nav";
-import { navigate, type Route, routeHash, useRoute } from "./router";
+import { type Route, routeHash, useRoute } from "./router";
 import "./shell.css";
 
 // The app shell (B-EP09.4): WorkspaceRail + top bar. The top bar shows only
@@ -48,10 +49,10 @@ function Logomark() {
 export function WorkspaceRail({
   route,
   counts,
-}: {
+}: Readonly<{
   route: Route;
   counts?: ShellCounts;
-}) {
+}>) {
   const t = useT();
   return (
     <nav className="rail" aria-label={t("shell.railAria")}>
@@ -84,15 +85,35 @@ export function WorkspaceRail({
   );
 }
 
+// Off-rail screens (reached from Settings, not the NAV rail) carry their own
+// title key; anything unmapped falls back to the raw screen slug.
+const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
+  settings: "nav.settings",
+  design: "nav.design",
+  automations: "nav.automations",
+};
+
+function resolveTitle(
+  screen: string,
+  labelKey: MessageKey | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  if (labelKey) {
+    return t(labelKey);
+  }
+  const offRailKey = OFF_RAIL_TITLE_KEYS[screen];
+  return offRailKey ? t(offRailKey) : screen;
+}
+
 export function TopBar({
   route,
   onOpenSearch,
   actions,
-}: {
+}: Readonly<{
   route: Route;
   onOpenSearch: () => void;
   actions?: ReactNode;
-}) {
+}>) {
   const t = useT();
   const { locale, setLocale } = useLocale();
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -102,15 +123,7 @@ export function TopBar({
   }, [theme]);
 
   const navItem = NAV.find((item) => item.screen === route.screen);
-  const title = navItem
-    ? t(navItem.labelKey)
-    : route.screen === "settings"
-      ? t("nav.settings")
-      : route.screen === "design"
-        ? t("nav.design")
-        : route.screen === "automations"
-          ? t("nav.automations")
-          : route.screen;
+  const title = resolveTitle(route.screen, navItem?.labelKey, t);
 
   return (
     <header className="topbar">
@@ -158,12 +171,12 @@ export function Shell({
   counts,
   onOpenSearch,
   topBarActions,
-}: {
+}: Readonly<{
   children: ReactNode;
   counts?: ShellCounts;
   onOpenSearch: () => void;
   topBarActions?: ReactNode;
-}) {
+}>) {
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
 
@@ -196,4 +209,5 @@ export function Shell({
   );
 }
 
-export { navigate, useRoute };
+export { navigate } from "./router";
+export { useRoute };

@@ -69,11 +69,11 @@ export function CommandPalette({
   open,
   onClose,
   commands,
-}: {
+}: Readonly<{
   open: boolean;
   onClose: () => void;
   commands: Command[];
-}) {
+}>) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -116,6 +116,7 @@ export function CommandPalette({
 
   const run = (command: Command) => {
     if (command.id === "ask-ai") {
+      // NOSONAR: persisted value is a trimmed plain string from a controlled input, consumed as text (never eval'd or rendered as HTML)
       sessionStorage.setItem(ASK_QUERY_KEY, query.trim());
     }
     onClose();
@@ -127,6 +128,7 @@ export function CommandPalette({
   }
 
   return (
+    // NOSONAR: backdrop dismiss only; keyboard path (Esc) is handled on the input inside
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handled on the input below
     <div
@@ -139,6 +141,7 @@ export function CommandPalette({
     >
       <div
         className="palette"
+        // NOSONAR: styled overlay palette, not a native modal; conditional mount and layout don't map cleanly to <dialog>
         role="dialog"
         aria-modal="true"
         aria-label={t("palette.aria")}
@@ -215,7 +218,7 @@ export function usePaletteHotkey(toggle: () => void) {
         toggle();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
   }, [toggle]);
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { type DragEvent, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -103,7 +103,7 @@ export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
         probabilityPct: stage.win_probability,
         rawMinor: raw ?? 0,
         weightedMinor:
-          raw !== null ? Math.round((raw * stage.win_probability) / 100) : 0,
+          raw === null ? 0 : Math.round((raw * stage.win_probability) / 100),
         currency: currency ?? "EUR",
         deals: stageDeals.map(toBoardDeal),
         sumHidden: raw === null,
@@ -116,6 +116,19 @@ type PendingAdvance = {
   dealId: string;
   toStage: Stage;
 };
+
+// Won reads success, lost reads danger, an open deal carries no status tone.
+function dealStatusTone(
+  status: Deal["status"],
+): "success" | "danger" | undefined {
+  if (status === "won") {
+    return "success";
+  }
+  if (status === "lost") {
+    return "danger";
+  }
+  return undefined;
+}
 
 export function DealsScreen() {
   const t = useT();
@@ -174,6 +187,43 @@ export function DealsScreen() {
     }
   };
 
+  // Board interactions are hoisted here so the render-prop tree below doesn't
+  // nest their event callbacks past the readable depth.
+  const openDeal = (deal: BoardDeal) => {
+    if (Date.now() - lastDragEnd.current > 250) {
+      navigate({ screen: "deals", id: deal.id });
+    }
+  };
+
+  const cardDragHandlers = (deal: BoardDeal) => ({
+    draggable: true as const,
+    onDragStart: (event: DragEvent) => {
+      dragging.current = deal.id;
+      event.dataTransfer.setData("text/plain", deal.id);
+    },
+  });
+
+  const columnDropHandlers = (column: BoardColumn) => ({
+    onDragOver: (event: DragEvent) => {
+      event.preventDefault();
+      (event.currentTarget as HTMLElement).classList.add("droptarget");
+    },
+    onDragLeave: (event: DragEvent) => {
+      (event.currentTarget as HTMLElement).classList.remove("droptarget");
+    },
+    onDrop: (event: DragEvent) => {
+      event.preventDefault();
+      (event.currentTarget as HTMLElement).classList.remove("droptarget");
+      const dealId =
+        event.dataTransfer.getData("text/plain") || dragging.current;
+      dragging.current = null;
+      lastDragEnd.current = Date.now();
+      if (dealId) {
+        requestAdvance(dealId, column.stage);
+      }
+    },
+  });
+
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.deals")} />
@@ -193,45 +243,9 @@ export function DealsScreen() {
               return view === "board" ? (
                 <PipelineBoard
                   columns={columns}
-                  onOpen={(deal) => {
-                    if (Date.now() - lastDragEnd.current > 250) {
-                      navigate({ screen: "deals", id: deal.id });
-                    }
-                  }}
-                  cardDragHandlers={(deal) => ({
-                    draggable: true,
-                    onDragStart: (event) => {
-                      dragging.current = deal.id;
-                      event.dataTransfer.setData("text/plain", deal.id);
-                    },
-                  })}
-                  columnDropHandlers={(column) => ({
-                    onDragOver: (event) => {
-                      event.preventDefault();
-                      (event.currentTarget as HTMLElement).classList.add(
-                        "droptarget",
-                      );
-                    },
-                    onDragLeave: (event) => {
-                      (event.currentTarget as HTMLElement).classList.remove(
-                        "droptarget",
-                      );
-                    },
-                    onDrop: (event) => {
-                      event.preventDefault();
-                      (event.currentTarget as HTMLElement).classList.remove(
-                        "droptarget",
-                      );
-                      const dealId =
-                        event.dataTransfer.getData("text/plain") ||
-                        dragging.current;
-                      dragging.current = null;
-                      lastDragEnd.current = Date.now();
-                      if (dealId) {
-                        requestAdvance(dealId, column.stage);
-                      }
-                    },
-                  })}
+                  onOpen={openDeal}
+                  cardDragHandlers={cardDragHandlers}
+                  columnDropHandlers={columnDropHandlers}
                 />
               ) : (
                 <DealTable deals={page.data} stages={pipeline.stages ?? []} />
@@ -311,7 +325,10 @@ export function DealsScreen() {
   );
 }
 
-function DealTable({ deals, stages }: { deals: Deal[]; stages: Stage[] }) {
+function DealTable({
+  deals,
+  stages,
+}: Readonly<{ deals: Deal[]; stages: Stage[] }>) {
   const t = useT();
   const { locale } = useLocale();
   const [sortKey, setSortKey] = useState<"name" | "amount" | "close">("name");
@@ -322,16 +339,20 @@ function DealTable({ deals, stages }: { deals: Deal[]; stages: Stage[] }) {
   );
 
   const sorted = useMemo(() => {
+    const compareDeals = (a: Deal, b: Deal): number => {
+      if (sortKey === "amount") {
+        return (a.amount_minor ?? 0) - (b.amount_minor ?? 0);
+      }
+      if (sortKey === "close") {
+        return (a.expected_close_date ?? "").localeCompare(
+          b.expected_close_date ?? "",
+        );
+      }
+      return a.name.localeCompare(b.name);
+    };
     const rows = [...deals];
     rows.sort((a, b) => {
-      const compare =
-        sortKey === "amount"
-          ? (a.amount_minor ?? 0) - (b.amount_minor ?? 0)
-          : sortKey === "close"
-            ? (a.expected_close_date ?? "").localeCompare(
-                b.expected_close_date ?? "",
-              )
-            : a.name.localeCompare(b.name);
+      const compare = compareDeals(a, b);
       return descending ? -compare : compare;
     });
     return rows;
@@ -393,17 +414,7 @@ function DealTable({ deals, stages }: { deals: Deal[]; stages: Stage[] }) {
             key: "status",
             header: t("lead.status"),
             render: (deal: Deal) => (
-              <Badge
-                tone={
-                  deal.status === "won"
-                    ? "success"
-                    : deal.status === "lost"
-                      ? "danger"
-                      : undefined
-                }
-              >
-                {deal.status}
-              </Badge>
+              <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
             ),
           },
         ]}
@@ -415,7 +426,7 @@ function DealTable({ deals, stages }: { deals: Deal[]; stages: Stage[] }) {
   );
 }
 
-export function DealScreen({ id }: { id: string }) {
+export function DealScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();
@@ -508,17 +519,7 @@ export function DealScreen({ id }: { id: string }) {
               }
               zone="Europe/Berlin"
               badges={
-                <Badge
-                  tone={
-                    deal.status === "won"
-                      ? "success"
-                      : deal.status === "lost"
-                        ? "danger"
-                        : undefined
-                  }
-                >
-                  {deal.status}
-                </Badge>
+                <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
               }
               timeline={
                 timelineQuery.isSuccess

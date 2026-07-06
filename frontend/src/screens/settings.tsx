@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { api, setWorkspaceSlug, workspaceSlug } from "../api/client";
 import {
   Badge,
@@ -416,6 +416,79 @@ function AuditLogCard() {
 
   const entries = query.data?.pages.flatMap((page) => page.data) ?? [];
 
+  // Honest state matrix (§3a): loading, error, empty, then the list — kept as
+  // sequential branches rather than a nested ternary in the JSX below.
+  let body: ReactNode;
+  if (query.isPending) {
+    body = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Skeleton width="60%" />
+        <Skeleton width="90%" />
+      </div>
+    );
+  } else if (query.isError) {
+    body = (
+      <EmptyState>
+        <p>{t("common.error")}</p>
+        <p className="t-mono" style={{ marginTop: 6 }}>
+          {query.error instanceof Error ? query.error.message : null}
+        </p>
+        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
+          {t("common.retry")}
+        </Button>
+      </EmptyState>
+    );
+  } else if (entries.length === 0) {
+    body = <EmptyState>{t("common.empty")}</EmptyState>;
+  } else {
+    body = (
+      <>
+        <ul
+          style={{
+            listStyle: "none",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          {entries.map((entry) => (
+            <li
+              key={entry.id}
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <span className="t-small">
+                {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
+              </span>
+              <span className="t-mono t-small">
+                {entry.actor_type}:{entry.actor_id}
+              </span>
+              <Badge tone="accent">{entry.action}</Badge>
+              <span className="t-mono t-small">
+                {entry.entity_type}
+                {entry.entity_id ? ` ${entry.entity_id}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {query.hasNextPage && (
+          <Button
+            small
+            disabled={query.isFetchingNextPage}
+            onClick={() => query.fetchNextPage()}
+            style={{ marginTop: 10 }}
+          >
+            {t("settings.loadMore")}
+          </Button>
+        )}
+      </>
+    );
+  }
+
   return (
     <section className="card" style={{ marginBottom: 14 }}>
       <SectionHeader title={t("settings.audit")} sub={t("settings.auditSub")} />
@@ -453,75 +526,20 @@ function AuditLogCard() {
           onChange={(event) => setAction(event.target.value)}
         />
       </div>
-      {query.isPending ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Skeleton width="60%" />
-          <Skeleton width="90%" />
-        </div>
-      ) : query.isError ? (
-        <EmptyState>
-          <p>{t("common.error")}</p>
-          <p className="t-mono" style={{ marginTop: 6 }}>
-            {query.error instanceof Error ? query.error.message : null}
-          </p>
-          <Button
-            small
-            onClick={() => query.refetch()}
-            style={{ marginTop: 10 }}
-          >
-            {t("common.retry")}
-          </Button>
-        </EmptyState>
-      ) : entries.length === 0 ? (
-        <EmptyState>{t("common.empty")}</EmptyState>
-      ) : (
-        <>
-          <ul
-            style={{
-              listStyle: "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
-            {entries.map((entry) => (
-              <li
-                key={entry.id}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                }}
-              >
-                <span className="t-small">
-                  {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
-                </span>
-                <span className="t-mono t-small">
-                  {entry.actor_type}:{entry.actor_id}
-                </span>
-                <Badge tone="accent">{entry.action}</Badge>
-                <span className="t-mono t-small">
-                  {entry.entity_type}
-                  {entry.entity_id ? ` ${entry.entity_id}` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {query.hasNextPage && (
-            <Button
-              small
-              disabled={query.isFetchingNextPage}
-              onClick={() => query.fetchNextPage()}
-              style={{ marginTop: 10 }}
-            >
-              {t("settings.loadMore")}
-            </Button>
-          )}
-        </>
-      )}
+      {body}
     </section>
   );
+}
+
+// Erasure reads danger, a rectification reads warn, other DSR kinds are neutral.
+function dsrKindTone(kind: string): "danger" | "warn" | undefined {
+  if (kind === "erasure") {
+    return "danger";
+  }
+  if (kind === "rectify") {
+    return "warn";
+  }
+  return undefined;
 }
 
 function PrivacyInboxCard() {
@@ -560,17 +578,7 @@ function PrivacyInboxCard() {
                 key={dsr.id}
                 style={{ display: "flex", gap: 8, alignItems: "center" }}
               >
-                <Badge
-                  tone={
-                    dsr.kind === "erasure"
-                      ? "danger"
-                      : dsr.kind === "rectify"
-                        ? "warn"
-                        : undefined
-                  }
-                >
-                  {dsr.kind}
-                </Badge>
+                <Badge tone={dsrKindTone(dsr.kind)}>{dsr.kind}</Badge>
                 <span className="t-mono">{dsr.subject_ref}</span>
                 <Badge
                   tone={dsr.status === "fulfilled" ? "success" : undefined}

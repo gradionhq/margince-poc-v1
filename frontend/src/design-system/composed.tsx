@@ -35,10 +35,10 @@ export type BriefItem = {
 export function MorningBriefItem({
   item,
   onResolve,
-}: {
+}: Readonly<{
   item: BriefItem;
   onResolve?: (resolution: Resolution) => void;
-}) {
+}>) {
   const t = useT();
   return (
     <article className="brief-item card">
@@ -89,14 +89,14 @@ export function DealCard({
   deal,
   onOpen,
   dragHandlers,
-}: {
+}: Readonly<{
   deal: BoardDeal;
   onOpen?: (deal: BoardDeal) => void;
   dragHandlers?: {
     draggable: true;
     onDragStart: (event: React.DragEvent) => void;
   };
-}) {
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const classes = [
@@ -137,7 +137,7 @@ export function PipelineBoard({
   columnExtras,
   cardDragHandlers,
   columnDropHandlers,
-}: {
+}: Readonly<{
   columns: BoardColumn[];
   onOpen?: (deal: BoardDeal) => void;
   columnExtras?: (column: BoardColumn) => ReactNode;
@@ -153,7 +153,7 @@ export function PipelineBoard({
     onDrop: (event: React.DragEvent) => void;
     onDragLeave: (event: React.DragEvent) => void;
   };
-}) {
+}>) {
   const t = useT();
   const { locale } = useLocale();
   return (
@@ -221,14 +221,14 @@ export function RecordView({
   timeline,
   zone,
   children,
-}: {
+}: Readonly<{
   name: string;
   subtitle?: string;
   badges?: ReactNode;
   timeline: TimelineEntry[];
   zone: string;
   children?: ReactNode;
-}) {
+}>) {
   const t = useT();
   const { locale } = useLocale();
   return (

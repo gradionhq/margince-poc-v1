@@ -31,7 +31,7 @@ export const PUBLIC_BOOKING_CONSENT = {
   policy_version: "2026-07",
 } as const;
 
-export function BookingScreen({ hostSlug }: { hostSlug?: string }) {
+export function BookingScreen({ hostSlug }: Readonly<{ hostSlug?: string }>) {
   if (hostSlug) {
     return <PublicBookingScreen hostSlug={hostSlug} />;
   }
@@ -182,7 +182,7 @@ function SessionBookingScreen() {
   );
 }
 
-function PublicBookingScreen({ hostSlug }: { hostSlug: string }) {
+function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();

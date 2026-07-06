@@ -51,15 +51,20 @@ function useTimeline(
   });
 }
 
+function timelineKind(kind: string): TimelineEntry["kind"] {
+  if (kind === "email") {
+    return "email";
+  }
+  if (kind === "meeting") {
+    return "meeting";
+  }
+  return "note";
+}
+
 export function activityTimeline(activities: Activity[]): TimelineEntry[] {
   return activities.map((activity) => ({
     id: activity.id,
-    kind:
-      activity.kind === "email"
-        ? "email"
-        : activity.kind === "meeting"
-          ? "meeting"
-          : "note",
+    kind: timelineKind(activity.kind),
     title: activity.subject ?? activity.kind,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by),
@@ -121,7 +126,7 @@ export function ContactsScreen() {
   );
 }
 
-export function PersonScreen({ id }: { id: string }) {
+export function PersonScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const personQuery = useQuery({
     queryKey: ["person", id],

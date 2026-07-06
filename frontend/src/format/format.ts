@@ -38,8 +38,9 @@ function assertIanaZone(zone: string): void {
       `timezone must be an IANA name, got fixed offset "${zone}"`,
     );
   }
-  // Intl itself rejects unknown names — let RangeError propagate.
-  new Intl.DateTimeFormat("en-US", { timeZone: zone });
+  // Intl itself rejects unknown names — constructing with the zone throws a
+  // RangeError we let propagate; format() forces the value to be consumed.
+  new Intl.DateTimeFormat("en-US", { timeZone: zone }).format();
 }
 
 // Zone-by-purpose (architecture/10 §2): personal deadlines localize to the

@@ -20,7 +20,10 @@ describe("money formatting (B-EP09.17)", () => {
     const en = formatMoney(stored, "EUR", "en");
     expect(de).toBe("1.234,56\u00a0€");
     expect(en).toBe("€1,234.56");
-    expect(stored).toBe(123_456); // the stored value is untouched
+    // formatting is a pure read: re-rendering the same stored value is stable,
+    // and the two locales render the one value differently.
+    expect(formatMoney(stored, "EUR", "de")).toBe(de);
+    expect(de).not.toBe(en);
   });
 
   it("respects the currency's minor-unit scale", () => {

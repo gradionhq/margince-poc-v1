@@ -88,6 +88,8 @@ function normalizeUrl(raw: string): {
     .replace(/^www\./i, "")
     .replace(/\/+$/, "");
   const host = s.split("/")[0] ?? "";
+  // NOSONAR: rewriting this host check to a linear pattern changes its accept/reject
+  // set (dotted-label edge cases); input is a bounded hostname, so backtracking is not a risk.
   const looksLikeHost =
     /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host) && !/\s/.test(host);
   return { ok: looksLikeHost, host, full: `https://${s}` };
@@ -103,6 +105,34 @@ function deriveName(host: string): string {
     .map((w) => w[0]?.toUpperCase() + w.slice(1))
     .join(" ");
   return titled || host;
+}
+
+function stepState(index: number, current: number): "done" | "active" | "" {
+  if (index < current) {
+    return "done";
+  }
+  if (index === current) {
+    return "active";
+  }
+  return "";
+}
+
+// The pinned CorpusMeterVersion=1 bands (features/09 §B1.4):
+// thin < 8k · good ≥ 8k · rich ≥ 20k · sharp ≥ 30k.
+function corpusQuality(total: number): { cls: string; key: MessageKey } {
+  if (total === 0) {
+    return { cls: "", key: "ob.s3.qualStart" };
+  }
+  if (total < 8000) {
+    return { cls: "thin", key: "ob.s3.qualThin" };
+  }
+  if (total < 20000) {
+    return { cls: "good", key: "ob.s3.qualGood" };
+  }
+  if (total < VOICE_TARGET) {
+    return { cls: "rich", key: "ob.s3.qualRich" };
+  }
+  return { cls: "sharp", key: "ob.s3.qualSharp" };
 }
 
 export function OnboardingScreen() {
@@ -131,7 +161,7 @@ export function OnboardingScreen() {
       // editable confirm. Scroll the read-back into view.
       setReadData(data);
       setHost(norm.host);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      globalThis.scrollTo({ top: 0, behavior: "smooth" });
     },
   });
 
@@ -140,7 +170,7 @@ export function OnboardingScreen() {
       return;
     }
     setStep(next);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    globalThis.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -152,7 +182,7 @@ export function OnboardingScreen() {
         </span>
         <nav className="stepper" aria-label={t("ob.title")}>
           {STEPS.map((s, i) => {
-            const state = i < step ? "done" : i === step ? "active" : "";
+            const state = stepState(i, step);
             return (
               <span key={s.key} style={{ display: "contents" }}>
                 <span
@@ -209,11 +239,11 @@ function Footer({
   step,
   canContinue,
   go,
-}: {
+}: Readonly<{
   step: number;
   canContinue: boolean;
   go: (n: number) => void;
-}) {
+}>) {
   const t = useT();
   return (
     <div className="wiz-foot">
@@ -273,7 +303,7 @@ function ReadStep({
   company,
   host,
   onManual,
-}: {
+}: Readonly<{
   url: string;
   setUrl: (v: string) => void;
   norm: { ok: boolean; host: string; full: string };
@@ -282,9 +312,34 @@ function ReadStep({
   company: string;
   host: string;
   onManual: () => void;
-}) {
+}>) {
   const t = useT();
   const showInvalid = url.trim() !== "" && !norm.ok;
+
+  let readButtonLabel: ReactNode;
+  if (read.isPending) {
+    readButtonLabel = (
+      <>
+        <span className="ob-spinner" /> {t("ob.reading")}
+      </>
+    );
+  } else if (readData) {
+    readButtonLabel = t("ob.readAgain");
+  } else {
+    readButtonLabel = (
+      <>
+        {t("ob.readGo")} <ArrowRight aria-hidden />
+      </>
+    );
+  }
+
+  let urlNoteClass = "";
+  if (norm.ok) {
+    urlNoteClass = "ok";
+  } else if (showInvalid) {
+    urlNoteClass = "err";
+  }
+
   return (
     <section className="ob-panel">
       <div className="kick">{t("ob.s1.kick")}</div>
@@ -312,20 +367,10 @@ function ReadStep({
           disabled={!norm.ok || read.isPending}
           onClick={() => read.mutate()}
         >
-          {read.isPending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.reading")}
-            </>
-          ) : readData ? (
-            t("ob.readAgain")
-          ) : (
-            <>
-              {t("ob.readGo")} <ArrowRight aria-hidden />
-            </>
-          )}
+          {readButtonLabel}
         </Button>
       </div>
-      <div className={`urlnote ${norm.ok ? "ok" : showInvalid ? "err" : ""}`}>
+      <div className={`urlnote ${urlNoteClass}`}>
         {norm.ok && (
           <>
             <Check aria-hidden /> {t("ob.urlWillRead", { host: norm.host })}
@@ -408,10 +453,10 @@ function ReadStep({
 function ReadFailure({
   message,
   onManual,
-}: {
+}: Readonly<{
   message: string;
   onManual: () => void;
-}) {
+}>) {
   const t = useT();
   return (
     <div className="readfail warn">
@@ -443,7 +488,7 @@ function ReadFailure({
 
 // ---- step 2: confirm -------------------------------------------------------
 
-function ConfirmStep({ readData }: { readData: ColdStart | null }) {
+function ConfirmStep({ readData }: Readonly<{ readData: ColdStart | null }>) {
   const t = useT();
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [buyer, setBuyer] = useState("");
@@ -569,7 +614,7 @@ const SOURCES: Source[] = [
 const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
 const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
-function VoiceStep({ company }: { company: string }) {
+function VoiceStep({ company }: Readonly<{ company: string }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
@@ -623,36 +668,23 @@ function VoiceStep({ company }: { company: string }) {
         rejected.push(file.name);
         continue;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const words = String(reader.result).split(/\s+/).filter(Boolean).length;
+      file.text().then((text) => {
+        const words = text.split(/\s+/).filter(Boolean).length;
         setUploads((prev) => [...prev, { name: file.name, words }]);
-      };
-      reader.readAsText(file);
+      });
     }
     setSkipped(rejected);
     e.target.value = "";
   };
 
-  // The pinned CorpusMeterVersion=1 bands (features/09 §B1.4):
-  // thin < 8k · good ≥ 8k · rich ≥ 20k · sharp ≥ 30k.
-  const quality: { cls: string; key: MessageKey } =
-    corpus.total === 0
-      ? { cls: "", key: "ob.s3.qualStart" }
-      : corpus.total < 8000
-        ? { cls: "thin", key: "ob.s3.qualThin" }
-        : corpus.total < 20000
-          ? { cls: "good", key: "ob.s3.qualGood" }
-          : corpus.total < VOICE_TARGET
-            ? { cls: "rich", key: "ob.s3.qualRich" }
-            : { cls: "sharp", key: "ob.s3.qualSharp" };
+  const quality = corpusQuality(corpus.total);
 
   const build = () => {
     setBuilding(true);
     // A short modelling beat, then the starter-voice card. This is a starter
     // preview built from the corpus you selected — it sharpens for real once
     // sent email is ingested at connect (see the footnote copy).
-    window.setTimeout(() => {
+    globalThis.setTimeout(() => {
       setBuilding(false);
       setBuilt(true);
     }, 1100);
@@ -696,6 +728,34 @@ function VoiceStep({ company }: { company: string }) {
         <div className="srcgrid">
           {SOURCES.map((s) => {
             const on = added.has(s.id);
+            let mark: ReactNode = null;
+            if (s.locked) {
+              mark = (
+                <span className="star">
+                  <Lock aria-hidden />
+                </span>
+              );
+            } else if (s.star) {
+              mark = (
+                <span className="star">
+                  <Star aria-hidden />
+                </span>
+              );
+            }
+            let words: ReactNode = null;
+            if (s.locked) {
+              words = (
+                <span className="added-w muted">
+                  {t("ob.s3.lockedWords", { count: s.words.toLocaleString() })}
+                </span>
+              );
+            } else if (on) {
+              words = (
+                <span className="added-w">
+                  {t("ob.s3.addedWords", { count: s.words.toLocaleString() })}
+                </span>
+              );
+            }
             return (
               <button
                 key={s.id}
@@ -703,15 +763,7 @@ function VoiceStep({ company }: { company: string }) {
                 className={`src ${on ? "added" : ""} ${s.locked ? "locked" : ""}`}
                 onClick={() => toggle(s)}
               >
-                {s.locked ? (
-                  <span className="star">
-                    <Lock aria-hidden />
-                  </span>
-                ) : s.star ? (
-                  <span className="star">
-                    <Star aria-hidden />
-                  </span>
-                ) : null}
+                {mark}
                 <span className="si">{s.icon}</span>
                 <span className="sb">
                   <span className="st">
@@ -721,19 +773,7 @@ function VoiceStep({ company }: { company: string }) {
                     </span>
                   </span>
                   <span className="sh">{t(s.hint)}</span>
-                  {s.locked ? (
-                    <span className="added-w muted">
-                      {t("ob.s3.lockedWords", {
-                        count: s.words.toLocaleString(),
-                      })}
-                    </span>
-                  ) : on ? (
-                    <span className="added-w">
-                      {t("ob.s3.addedWords", {
-                        count: s.words.toLocaleString(),
-                      })}
-                    </span>
-                  ) : null}
+                  {words}
                 </span>
               </button>
             );
@@ -756,7 +796,6 @@ function VoiceStep({ company }: { company: string }) {
           type="file"
           multiple
           hidden
-          aria-hidden
           accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
@@ -770,9 +809,9 @@ function VoiceStep({ company }: { company: string }) {
           </ul>
         )}
         {skipped.length > 0 && (
-          <p className="ob-sub" role="status" style={{ marginTop: 8 }}>
+          <output className="ob-sub" style={{ display: "block", marginTop: 8 }}>
             {t("ob.s3.dropSkipped", { files: skipped.join(", ") })}
-          </p>
+          </output>
         )}
 
         <div className="meter">
@@ -892,7 +931,7 @@ function VoiceStep({ company }: { company: string }) {
 
 // ---- step 4: results -------------------------------------------------------
 
-function ResultsStep({ company }: { company: string }) {
+function ResultsStep({ company }: Readonly<{ company: string }>) {
   const t = useT();
   const cards: { title: MessageKey; body: MessageKey }[] = [
     { title: "ob.s4.cardProfile", body: "ob.s4.cardProfileBody" },
@@ -961,7 +1000,7 @@ function ConnectStep() {
   const connect = useMutation({
     mutationFn: async () => {
       const res = await fetch(
-        `${window.location.origin}/v1/connectors/imap/connect`,
+        `${globalThis.location.origin}/v1/connectors/imap/connect`,
         {
           method: "POST",
           credentials: "include",

@@ -29,9 +29,49 @@ export function groupTask(task: Activity, now: Date): TaskGroup {
 
 const GROUP_ORDER: TaskGroup[] = ["overdue", "today", "upcoming", "undated"];
 
-export function TasksScreen() {
+// One open task, with its complete / snooze actions. Extracted so the grouped
+// render tree above stays legible instead of nesting these handlers deeply.
+function TaskRow({
+  task,
+  overdue,
+  onComplete,
+  onSnooze,
+}: Readonly<{
+  task: Activity;
+  overdue: boolean;
+  onComplete: (id: string) => void;
+  onSnooze: (task: Activity) => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  return (
+    <div className="card" style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ flex: 1 }}>
+          <strong>{task.subject ?? ""}</strong>
+          {task.due_at && (
+            <span className="t-caption">
+              {" "}
+              · {formatDateTime(task.due_at, locale, "Europe/Berlin")}
+            </span>
+          )}
+        </span>
+        {overdue && <Badge tone="danger">{t("tasks.overdue")}</Badge>}
+        <Button small variant="primary" onClick={() => onComplete(task.id)}>
+          {t("tasks.complete")}
+        </Button>
+        {task.due_at && (
+          <Button small onClick={() => onSnooze(task)}>
+            {t("tasks.snooze")}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function TasksScreen() {
+  const t = useT();
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["tasks"],
@@ -69,6 +109,19 @@ export function TasksScreen() {
     undated: t("tasks.undated"),
   };
 
+  const completeTask = (id: string) =>
+    update.mutate({ id, body: { is_done: true } });
+
+  const snoozeTask = (task: Activity) => {
+    if (!task.due_at) {
+      return;
+    }
+    const nextDue = new Date(
+      new Date(task.due_at).getTime() + 86_400_000,
+    ).toISOString();
+    update.mutate({ id: task.id, body: { due_at: nextDue } });
+  };
+
   return (
     <div className="wrap narrow">
       <SectionHeader title={t("nav.tasks")} />
@@ -92,68 +145,13 @@ export function TasksScreen() {
                   <section key={group} aria-label={groupLabel[group]}>
                     <SectionHeader title={groupLabel[group]} />
                     {tasks.map((task) => (
-                      <div
+                      <TaskRow
                         key={task.id}
-                        className="card"
-                        style={{ marginBottom: 8 }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                          }}
-                        >
-                          <span style={{ flex: 1 }}>
-                            <strong>{task.subject ?? ""}</strong>
-                            {task.due_at && (
-                              <span className="t-caption">
-                                {" "}
-                                ·{" "}
-                                {formatDateTime(
-                                  task.due_at,
-                                  locale,
-                                  "Europe/Berlin",
-                                )}
-                              </span>
-                            )}
-                          </span>
-                          {group === "overdue" && (
-                            <Badge tone="danger">{groupLabel.overdue}</Badge>
-                          )}
-                          <Button
-                            small
-                            variant="primary"
-                            onClick={() =>
-                              update.mutate({
-                                id: task.id,
-                                body: { is_done: true },
-                              })
-                            }
-                          >
-                            {t("tasks.complete")}
-                          </Button>
-                          {task.due_at && (
-                            <Button
-                              small
-                              onClick={() =>
-                                update.mutate({
-                                  id: task.id,
-                                  body: {
-                                    due_at: new Date(
-                                      new Date(
-                                        task.due_at as string,
-                                      ).getTime() + 86_400_000,
-                                    ).toISOString(),
-                                  },
-                                })
-                              }
-                            >
-                              {t("tasks.snooze")}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
+                        task={task}
+                        overdue={group === "overdue"}
+                        onComplete={completeTask}
+                        onSnooze={snoozeTask}
+                      />
                     ))}
                   </section>
                 );

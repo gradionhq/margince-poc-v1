@@ -59,7 +59,7 @@ function editableStrings(change: Record<string, unknown>): [string, string][] {
   });
 }
 
-export function ApprovalRow({ approval }: { approval: Approval }) {
+export function ApprovalRow({ approval }: Readonly<{ approval: Approval }>) {
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();

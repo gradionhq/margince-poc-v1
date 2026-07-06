@@ -45,10 +45,10 @@ const LocaleContext = createContext<LocaleContextValue>({
 export function LocaleProvider({
   initial = DEFAULT_LOCALE,
   children,
-}: {
+}: Readonly<{
   initial?: Locale;
   children: ReactNode;
-}) {
+}>) {
   const [locale, setLocale] = useState<Locale>(initial);
   const value = useMemo(() => ({ locale, setLocale }), [locale]);
   return (

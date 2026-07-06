@@ -35,6 +35,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Catalog defaults and stored params are JSON scalars; anything non-scalar
+// has no honest single-line rendering, so it collapses to empty.
+function scalarText(value: unknown): string {
+  if (value === undefined || value === null || typeof value === "object") {
+    return "";
+  }
+  return String(value);
+}
+
+function paramKind(type: unknown): ParamField["kind"] | null {
+  if (type === "integer" || type === "number") {
+    return "integer";
+  }
+  if (type === "string") {
+    return "string";
+  }
+  return null;
+}
+
 // The ONLY source of editable parameters: the catalog entry's JSON schema.
 export function paramFields(schema: Record<string, unknown>): ParamField[] {
   const properties = isRecord(schema.properties) ? schema.properties : {};
@@ -42,12 +61,7 @@ export function paramFields(schema: Record<string, unknown>): ParamField[] {
     if (!isRecord(raw)) {
       return [];
     }
-    const kind: ParamField["kind"] | null =
-      raw.type === "integer" || raw.type === "number"
-        ? "integer"
-        : raw.type === "string"
-          ? "string"
-          : null;
+    const kind = paramKind(raw.type);
     if (kind === null) {
       return [];
     }
@@ -57,7 +71,7 @@ export function paramFields(schema: Record<string, unknown>): ParamField[] {
         kind,
         min: typeof raw.minimum === "number" ? raw.minimum : undefined,
         max: typeof raw.maximum === "number" ? raw.maximum : undefined,
-        initial: raw.default === undefined ? "" : String(raw.default),
+        initial: scalarText(raw.default),
       },
     ];
   });
@@ -85,7 +99,7 @@ function AutomationForm({
   pending,
   onSubmit,
   onCancel,
-}: {
+}: Readonly<{
   entry: CatalogEntry;
   initialName: string;
   initialParams?: Automation["params"];
@@ -93,7 +107,7 @@ function AutomationForm({
   pending: boolean;
   onSubmit: (name: string, params: Record<string, unknown>) => void;
   onCancel: () => void;
-}) {
+}>) {
   const t = useT();
   const formId = useId();
   const fields = paramFields(entry.params_schema);
@@ -104,7 +118,7 @@ function AutomationForm({
         const configured = initialParams?.[field.key];
         return [
           field.key,
-          configured === undefined ? field.initial : String(configured),
+          configured === undefined ? field.initial : scalarText(configured),
         ];
       }),
     ),
@@ -171,10 +185,10 @@ function AutomationForm({
 export function AutomationRow({
   automation,
   entry,
-}: {
+}: Readonly<{
   automation: Automation;
   entry?: CatalogEntry;
-}) {
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -222,6 +236,13 @@ export function AutomationRow({
 
   const enabled = automation.status === "enabled";
 
+  let mutationError: string | null = null;
+  if (patch.error instanceof Error) {
+    mutationError = patch.error.message;
+  } else if (remove.error instanceof Error) {
+    mutationError = remove.error.message;
+  }
+
   return (
     <li style={{ marginBottom: 12 }} data-automation={automation.id}>
       <div
@@ -242,7 +263,7 @@ export function AutomationRow({
         </Badge>
         <span className="t-mono t-small">
           {Object.entries(automation.params)
-            .map(([key, value]) => `${key}=${String(value)}`)
+            .map(([key, value]) => `${key}=${scalarText(value)}`)
             .join(" ")}
         </span>
         <span style={{ flexGrow: 1 }} />
@@ -285,11 +306,7 @@ export function AutomationRow({
           className="t-caption"
           style={{ color: "var(--danger)", marginTop: 8 }}
         >
-          {patch.error instanceof Error
-            ? patch.error.message
-            : remove.error instanceof Error
-              ? remove.error.message
-              : null}
+          {mutationError}
         </p>
       )}
     </li>
