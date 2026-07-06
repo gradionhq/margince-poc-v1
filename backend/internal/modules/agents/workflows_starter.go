@@ -10,7 +10,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -18,57 +17,13 @@ import (
 )
 
 // StarterWorkflows returns the shipped handler set over the injected
-// record seam.
+// record seam. The route_lead starter is NOT here: its engine is
+// lead-store SQL, so the people module provides that handler and
+// compose registers it beside these.
 func StarterWorkflows(provider datasource.SystemOfRecordProvider) []workflow.Handler {
 	return []workflow.Handler{
-		routeLead{provider: provider},
 		stageChangeCreateTask{provider: provider},
 	}
-}
-
-// routeLead answers every new lead with a triage task — the "no lead
-// sits unseen" floor until territory routing rules arrive.
-type routeLead struct {
-	provider datasource.SystemOfRecordProvider
-}
-
-func (routeLead) Spec() workflow.Spec {
-	return workflow.Spec{
-		Name:    "route_lead",
-		Trigger: workflow.Trigger{EventType: "lead.created"},
-		Tier:    mcp.TierGreen,
-	}
-}
-
-func (routeLead) Match(context.Context, workflow.Event) (bool, error) {
-	return true, nil // every fresh lead deserves eyes
-}
-
-func (w routeLead) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
-	dueInDays, err := DueInDays(ev.Params, 1)
-	if err != nil {
-		return workflow.Effect{}, err
-	}
-	args, err := json.Marshal(map[string]any{
-		"kind":    "task",
-		"subject": fmt.Sprintf("Triage new lead %s", ev.Entity.ID),
-		"due_at":  ev.OccurredAt.AddDate(0, 0, dueInDays),
-	})
-	if err != nil {
-		return workflow.Effect{}, err
-	}
-	return workflow.Effect{Actions: []workflow.Action{{
-		Kind: workflow.ActionCreateTask, Target: ev.Entity, Args: args,
-	}}}, nil
-}
-
-func (w routeLead) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
-	applied, err := ApplyActions(ctx, w.provider, eff)
-	return workflow.RunResult{Applied: applied}, err
-}
-
-func (routeLead) IdempotencyKey(ev workflow.Event) string {
-	return "route_lead:" + ev.Entity.ID.String()
 }
 
 // stageChangeCreateTask keeps momentum: every stage move mints a

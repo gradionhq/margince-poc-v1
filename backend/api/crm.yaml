@@ -3472,6 +3472,229 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # -------------------------- /signals (E08 warm room) ----------------------
+  # The warm-room signal spine (B-E08.1–.4, features/07 §9, data-model §12.5):
+  # company-level, consent-gated, droppable. A signal resolves to an
+  # ORGANIZATION (never a covert person dossier); the warm/cold join rides our
+  # own contact graph and answers with evidence ids, never a mystery score.
+  /signals:
+    get:
+      tags: [Signals]
+      operationId: listSignals
+      summary: List signals (cursor-paginated), newest first.
+      # The warm room is a human review surface (features/07 §9: the warm room
+      # proposes, the rep sends) and signal is deliberately NOT a datasource-seam
+      # entity — the generic search_records tool scopes to person|organization|
+      # deal|lead|activity. Reads stay REST-reachable under the signal RBAC object
+      # + row scope; they are not offered as an agent tool.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, acknowledged, resolved, dismissed] }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other] }
+        - name: resolution_state
+          in: query
+          schema: { type: string, enum: [resolved, low_confidence, unresolved, dropped] }
+      responses:
+        '200':
+          description: A page of signals.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignalListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Signals]
+      operationId: createSignal
+      summary: Record a signal (a derived observation, or a raw inbound/web item awaiting resolution).
+      description: |
+        A signal about a known record carries its subject (`entity_type`+`entity_id`, both or
+        neither) and enters `resolution_state=resolved`; a raw item (only a `raw_ref` source
+        pointer) enters `unresolved` until POST /signals/{id}/resolve attributes it to an
+        organization or drops it. Signals are COMPANY-LEVEL: there is no mandatory person
+        link, and `resolved_person_id` is only ever set by the resolver under recorded
+        consent (P12).
+      # The warm room proposes; the rep sends (features/07 §9). Recording,
+      # triaging, resolving and archiving a consent-gated (P12) company-level
+      # signal is a human act through the governed surface — never an agent tool.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSignalRequest' }
+            examples:
+              rawInbound:
+                value:
+                  kind: buying_intent
+                  source_channel: inbound
+                  raw_ref: 'inbound:sam@acme.example'
+                  summary: Inbound demo request from acme.example
+                  source: 'connector:imap:msg-991'
+      responses:
+        '201':
+          description: Created signal.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The subject entity does not exist or is outside the caller's row scope.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /signals/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Signals]
+      operationId: getSignal
+      summary: Get a signal by id.
+      # Read-only, REST-reachable under the signal RBAC object + row scope; not an
+      # agent tool — signal is not a datasource-seam entity (see listSignals).
+      responses:
+        '200':
+          description: The signal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Signals]
+      operationId: updateSignal
+      summary: Triage a signal (acknowledge / resolve / dismiss, severity).
+      description: |
+        A status change to `acknowledged`/`resolved`/`dismissed` appends the human-outcome
+        row to `signal_resolution` (`outcome`+`note`+`resolved_by`) — the same append-only
+        log that holds the resolver's match basis, distinguished by which columns are set.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSignalRequest' }
+      responses:
+        '200':
+          description: Updated signal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Signals]
+      operationId: archiveSignal
+      summary: Archive (soft-delete) a signal.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: Archived signal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /signals/{id}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Signals]
+      operationId: resolveSignal
+      summary: Run the signal→company resolver over the signal's raw_ref (inspectable match, never silently confident).
+      description: |
+        Maps the raw source pointer to a specific organization via the domain index,
+        exact name, or a prior-interaction email match (B-E08.2), writing the append-only
+        `signal_resolution` match-basis row and stamping the signal. Exactly one candidate →
+        `resolved`; several plausible candidates → `low_confidence` (surfaced, never silently
+        asserted); none → `dropped` — an unattributable signal retains NO person-level
+        dossier. `resolved_person_id` is set only where the org match holds AND the person
+        has a recorded consent grant; the resolver never creates person rows. Read+resolve
+        only, no outbound.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The stamped signal with its resolution outcome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Signal' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The signal has no raw_ref to resolve, or is already terminally resolved/dropped.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /signals/{id}/warmth:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Signals]
+      operationId: getSignalWarmth
+      summary: The warm/cold classification with the full "why warm" evidence (B-E08.3).
+      description: |
+        A signal resolved to an organization where we hold ≥1 live contact edge
+        (employment or deal stakeholder) is WARM and routes to the warm room; a resolved
+        organization with no contact is COLD and routes to the cold queue. The answer is
+        evidence, not a score: the source signal id, the resolved org id, and the specific
+        contact id(s) in our own graph that make it warm, each with its §4 relationship
+        strength. Reads only our own relational core — never an external profile.
+      responses:
+        '200':
+          description: The warm/cold branch with its evidence ids.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignalWarmth' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The signal is not resolved to an organization (unresolved / low-confidence / dropped signals have no warmth).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /signals/{id}/intro-path:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Signals]
+      operationId: getSignalIntroPath
+      summary: The proposed warm-intro path for a warm signal (B-E08.4) — an actionable move, not a notification.
+      description: |
+        Names the route-in contact (the strongest live relationship at the resolved
+        organization), the relationship we have, and a concrete suggested next move with a
+        drafted message carrying the Art. 50 AI-assisted disclosure and evidence back to the
+        warm signal. PROPOSAL ONLY: nothing is sent and no record mutates — the outbound
+        send rides the 🟡 confirm-first send tool (POST /activities/{id}/send-email); the
+        warm room proposes, the rep sends.
+      responses:
+        '200':
+          description: The proposed intro path.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignalIntroPath' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The signal is cold or not resolved — there is no warm path to propose.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # =========================================================================
   # =========================================================================
   # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
@@ -3479,7 +3702,7 @@ paths:
   # follows the SAME resource shape as /people|/deals above — list (cursor+Sort),
   # get, create, update (If-Match), archive — with schemas drawn 1:1 from the
   # §12.5 DDL. The contract-codegen + AC-MCP-3 lint MUST emit/verify these ops:
-  #   /signals            (E08; MCP search_records/read_record; resolve via POST /signals/{id}/resolve)
+  #   /signals            (E08; now SPECIFIED above, B-E08.1–.4 — resolve via POST /signals/{id}/resolve, warm/cold via /signals/{id}/warmth + /signals/{id}/intro-path)
   #   /deal-rooms         (E08/E12; engagement events are read via /deal-rooms/{id}/engagement)
   #   /voice-profiles     (E07; now SPECIFIED above, B-E07.4/.5a — corpus sources via /voice-profiles/{id}/sources)
   #   /drafting-assets    (E07/E08; approval flips `approved` — admin/🟡)
@@ -4561,6 +4784,167 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Lead' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Signals (E08 warm room, data-model §12.5) ----
+    Signal:
+      type: object
+      description: |
+        A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
+        company-level and consent-gated by construction — the only mandatory attribution is
+        organizational (`resolved_org_id` after resolution); `resolved_person_id` is optional
+        and set only under a recorded consent grant (P12). Unattributable signals are
+        `dropped`, never retained as a person-level dossier.
+      required: [id, workspace_id, kind, source_channel, resolution_state, severity, summary, evidence, status, detected_at, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        kind: { type: string, enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other] }
+        source_channel:
+          type: string
+          enum: [derived, inbound, web, social, deal_room_engagement]
+          default: derived
+          description: Where the raw signal came from.
+        raw_ref: { type: [string, 'null'], description: 'Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.' }
+        entity_type:
+          type: [string, 'null']
+          enum: [deal, organization, person, null]
+          description: The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
+        entity_id: { type: [string, 'null'], format: uuid }
+        resolution_state:
+          type: string
+          enum: [resolved, low_confidence, unresolved, dropped]
+          description: 'The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.'
+        resolution_confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        resolved_org_id: { type: [string, 'null'], format: uuid, description: The organization the raw signal resolved to (the only required attribution level). }
+        resolved_person_id: { type: [string, 'null'], format: uuid, description: Optional person resolution — set only under a recorded consent grant, never inferred. }
+        severity: { type: string, enum: [info, warn, urgent], default: info }
+        summary: { type: string }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/SignalEvidence' }
+          description: Per-claim evidence (evidence-or-omit, features/07 §11 gate 1).
+        status: { type: string, enum: [open, acknowledged, resolved, dismissed], default: open }
+        detected_at: { type: string, format: date-time }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    SignalEvidence:
+      type: object
+      required: [snippet]
+      properties:
+        snippet: { type: string }
+        source_type: { type: [string, 'null'], enum: [activity, deal, signal, relationship, page, null] }
+        source_id: { type: [string, 'null'] }
+
+    CreateSignalRequest:
+      type: object
+      required: [kind, summary, source]
+      properties:
+        kind: { type: string, enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other] }
+        source_channel: { type: string, enum: [derived, inbound, web, social, deal_room_engagement], default: derived }
+        raw_ref: { type: [string, 'null'] }
+        entity_type:
+          type: [string, 'null']
+          enum: [deal, organization, person, null]
+          description: 'Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).'
+        entity_id: { type: [string, 'null'], format: uuid }
+        severity: { type: string, enum: [info, warn, urgent], default: info }
+        summary: { type: string }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/SignalEvidence' }
+        detected_at: { type: [string, 'null'], format: date-time, description: When the underlying observation happened (defaults to now). }
+        source: { type: string }
+
+    UpdateSignalRequest:
+      type: object
+      description: |
+        Triage. A `status` move to acknowledged/resolved/dismissed appends the human-outcome
+        `signal_resolution` row; `note` travels with that outcome. `resolution_state` and the
+        resolved ids are resolver-owned and not writable here.
+      properties:
+        status: { type: string, enum: [open, acknowledged, resolved, dismissed] }
+        note: { type: [string, 'null'], description: Optional outcome note recorded with a status change. }
+        severity: { type: string, enum: [info, warn, urgent] }
+
+    SignalListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Signal' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    SignalWarmContact:
+      type: object
+      description: One contact edge in our own graph that makes the signal warm — evidence, with its explainable §4 strength.
+      required: [person_id, relationship_kind, strength, strength_bucket]
+      properties:
+        person_id: { type: string, format: uuid }
+        full_name: { type: [string, 'null'] }
+        relationship_kind: { type: string, enum: [employment, deal_stakeholder] }
+        relationship_role: { type: [string, 'null'], description: 'e.g. cto, champion, economic_buyer.' }
+        strength: { type: integer, description: The deterministic §4 relationship strength (0–100). }
+        strength_bucket: { type: string, enum: [none, weak, moderate, strong] }
+
+    SignalWarmth:
+      type: object
+      description: |
+        The warm/cold branch with its full evidence: source signal id, resolved org id, and
+        the specific contact id(s) that make it warm. No mystery score — a numeric-only
+        answer would be a contract violation (features/07 §9).
+      required: [warm, routing, source_signal_id, resolved_org_id, contact_ids, contacts]
+      properties:
+        warm: { type: boolean }
+        routing:
+          type: string
+          enum: [warm_room, cold_queue]
+          description: The real routing branch — warm signals surface in the warm room, cold ones queue separately.
+        source_signal_id: { type: string, format: uuid }
+        resolved_org_id: { type: string, format: uuid }
+        contact_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: Empty exactly when cold.
+        contacts:
+          type: array
+          items: { $ref: '#/components/schemas/SignalWarmContact' }
+
+    SignalIntroPath:
+      type: object
+      description: |
+        An actionable warm-intro path — names the route-in contact, the relationship we
+        have, and a concrete next move with a drafted message. Proposal only: the send is
+        the 🟡 confirm-first send tool, never this read.
+      required: [signal_id, resolved_org_id, contact_id, relationship, next_move, evidence]
+      properties:
+        signal_id: { type: string, format: uuid }
+        resolved_org_id: { type: string, format: uuid }
+        contact_id: { type: string, format: uuid, description: The route-in contact (the strongest live relationship at the resolved organization). }
+        contact_name: { type: [string, 'null'] }
+        relationship: { $ref: '#/components/schemas/SignalWarmContact' }
+        next_move:
+          type: object
+          required: [kind, draft_subject, draft_body, ai_disclosure]
+          properties:
+            kind:
+              type: string
+              enum: [draft_to_contact, intro_request]
+              description: 'intro_request when the signal resolved (under consent) to a specific person other than the route-in contact; otherwise a direct draft to the contact.'
+            draft_subject: { type: string }
+            draft_body: { type: string, description: Renders the Art. 50 AI-assisted disclosure (features/07 §11 gate 9). }
+            ai_disclosure: { type: string, description: The machine-readable Art. 50 disclosure line the draft carries. }
+        evidence:
+          type: object
+          description: Provenance back to the warm signal (evidence-or-omit).
+          required: [source_signal_id, resolved_org_id, contact_ids]
+          properties:
+            source_signal_id: { type: string, format: uuid }
+            resolved_org_id: { type: string, format: uuid }
+            contact_ids: { type: array, items: { type: string, format: uuid } }
 
     # ---- List / Tag ----
     List:

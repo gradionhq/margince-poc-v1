@@ -32,10 +32,11 @@ func Streams() []string {
 	return out
 }
 
-// catalog is the enumerable V1 event catalog (events.md §5.1–§5.9): each
-// type's home stream entity and current payload schema version. §5.10
-// (overlay mirror) is overlay-mode-only and §5.11 (engagement/signals)
-// rides E08/E15 — both are deferred with their work packages.
+// catalog is the enumerable V1 event catalog (events.md §5.1–§5.9, plus
+// the §5.11 signal lifecycle): each type's home stream entity and current
+// payload schema version. §5.10 (overlay mirror) is overlay-mode-only and
+// the remaining §5.11 types (engagement.reply, forecast.period_closed)
+// ride E15/E09 — deferred with their work packages.
 //
 // Types whose entity segment is not itself a stream ride their family's
 // stream (events.md §1 routing rule): consent.*/retention.* are
@@ -93,6 +94,12 @@ var catalog = map[string]struct {
 	"capture.normalized": {"capture", 1},
 	"capture.failed":     {"capture", 1},
 	"capture.skipped":    {"capture", 1},
+
+	// §5.11: signal is not one of the nine stream entities — the
+	// detection lifecycle rides the capture stream (events.md §5.11
+	// stream-routing rule).
+	"signal.detected": {"capture", 1},
+	"signal.resolved": {"capture", 1},
 
 	"coldstart.read_back_proposed": {"coldstart", 1},
 	"coldstart.accepted":           {"coldstart", 1},

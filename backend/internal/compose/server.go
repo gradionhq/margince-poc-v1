@@ -14,6 +14,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -50,6 +52,7 @@ type (
 	searchHandlers      = search.Handlers
 	consentHandlers     = consent.Handlers
 	collectionsHandlers = collections.Handlers
+	signalsHandlers     = signals.Handlers
 	privacyHandlers     = privacy.Handlers
 	agentsHandlers      = agents.Handlers
 	voiceHandlers       = ai.Handlers
@@ -69,6 +72,7 @@ type Server struct {
 	searchHandlers
 	consentHandlers
 	collectionsHandlers
+	signalsHandlers
 	privacyHandlers
 	agentsHandlers
 	voiceHandlers
@@ -173,10 +177,14 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		// consent never imports its sibling.
 		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),
 		collectionsHandlers: collections.NewHandlers(pool),
-		privacyHandlers:     privacy.NewHandlers(pool),
-		agentsHandlers:      agents.NewHandlers(pool),
-		voiceHandlers:       ai.NewHandlers(pool),
-		reportHandlers:      reportHandlers{engine: newReportEngine(pool)},
+		// The warm room ranks its contact edges by the §4 relationship
+		// strength owned by people; injected through the adapter below so
+		// signals never imports its sibling.
+		signalsHandlers: signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
+		privacyHandlers: privacy.NewHandlers(pool),
+		agentsHandlers:  agents.NewHandlers(pool),
+		voiceHandlers:   ai.NewHandlers(pool),
+		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
 		// The one-shot IMAP pull shares the capture registry (Sink + the
 		// live-authority principal swap); credentials arrive per request and
 		// are never persisted, so no standing connection is registered.
@@ -238,6 +246,22 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux.Handle("/", web.Handler())
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
+}
+
+// signalStrength bridges people's §4 relationship-strength computation to
+// the slice the warm room consumes (signals.StrengthSource). It carries
+// only the score and its bucket across the seam — the full explainable
+// decomposition stays with its owner. This is the arch-legal edge: signals
+// declares its own seam type, and the cross-module dependency lives here in
+// compose, never as a signals→people import.
+type signalStrength struct{ people *people.Store }
+
+func (s signalStrength) PersonStrength(ctx context.Context, personID ids.UUID, now time.Time) (signals.RelationshipStrength, error) {
+	rs, err := s.people.PersonStrength(ctx, personID, now)
+	if err != nil {
+		return signals.RelationshipStrength{}, err
+	}
+	return signals.RelationshipStrength{Strength: rs.Strength, Bucket: rs.Bucket}, nil
 }
 
 // paramParseError maps a generated request-parameter parse failure onto

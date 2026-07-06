@@ -113,6 +113,19 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 			return false, err
 		}
 		return exists, nil
+	case "signal":
+		// A signal has no owner_id — it is visible when its SUBJECT entity
+		// is (the same scope the signals store applies), so a staged
+		// archive discloses nothing the record itself would not.
+		err := auth.EnsureSignalVisible(ctx, tx, *a.TargetID)
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, apperrors.ErrNotFound):
+			return false, nil
+		default:
+			return false, err
+		}
 	case "activity":
 		err := auth.EnsureActivityVisible(ctx, tx, *a.TargetID)
 		switch {

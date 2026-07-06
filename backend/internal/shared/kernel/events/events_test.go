@@ -49,7 +49,7 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"changed": true, "applied": true, "sent": true, "accepted": true,
 		"rejected": true, "superseded": true, "disqualified": true,
 		"received": true, "normalized": true, "skipped": true,
-		"read_back_proposed": true,
+		"read_back_proposed": true, "detected": true, "resolved": true,
 	}
 
 	for _, typ := range Types() {
@@ -79,6 +79,8 @@ func TestStreamForRoutesFamiliesWithoutOwnStream(t *testing.T) {
 		"retention.applied": "gw:events:crm:person",
 		"offer.accepted":    "gw:events:crm:deal",
 		"deal.updated":      "gw:events:crm:deal",
+		"signal.detected":   "gw:events:crm:capture",
+		"signal.resolved":   "gw:events:crm:capture",
 	} {
 		if got, err := StreamFor(typ); err != nil || got != want {
 			t.Errorf("StreamFor(%q) = %q, %v; want %q", typ, got, err, want)

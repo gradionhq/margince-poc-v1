@@ -13,6 +13,7 @@ package compose_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -38,9 +39,33 @@ func seedStarterAutomations(t *testing.T, e *searchEnv) {
 	}
 }
 
-func TestWorkflowRouteLeadAppliesExactlyOnce(t *testing.T) {
+// enableLeadRouting inserts an ENABLED route_lead instance with the
+// given routing params — the configured state seedStarterAutomations
+// leaves for an admin to fill in (an unconfigured pool routes nobody).
+func enableLeadRouting(t *testing.T, e *searchEnv, params map[string]any) ids.UUID {
+	t.Helper()
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var automationID ids.UUID
+	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        'route_lead', 'Route new leads', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
+			        $1, true)
+			RETURNING id`, paramsJSON).Scan(&automationID)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return automationID
+}
+
+func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 	e := setupSearch(t)
-	seedStarterAutomations(t, e)
+	enableLeadRouting(t, e, map[string]any{"owners": []string{e.rep1.String()}})
 	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
 	engine := compose.NewWorkflowEngine(e.pool)
 
@@ -61,11 +86,12 @@ func TestWorkflowRouteLeadAppliesExactlyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var tasks, runs int
+	var runs int
+	var owner *ids.UUID
 	var applied []byte
 	err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM activity WHERE kind = 'task' AND subject LIKE 'Triage new lead%'`).Scan(&tasks); err != nil {
+			`SELECT owner_id FROM lead WHERE id = $1`, leadID).Scan(&owner); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
@@ -74,22 +100,34 @@ func TestWorkflowRouteLeadAppliesExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tasks != 1 || runs != 1 {
-		t.Fatalf("route_lead applied %d tasks over %d runs, want exactly 1/1", tasks, runs)
+	if owner == nil || *owner != e.rep1 || runs != 1 {
+		t.Fatalf("route_lead left owner=%v over %d runs, want rep1 exactly once", owner, runs)
 	}
 	var appliedActions []map[string]any
 	if err := json.Unmarshal(applied, &appliedActions); err != nil || len(appliedActions) != 1 {
 		t.Fatalf("run record lacks the applied trace: %s (%v)", applied, err)
 	}
-	// The workflow's write is a system-actor fact in the same audit
-	// stream as everything else.
-	var actorType string
+
+	// The decision is an audited, system-attributed fact (AC-S5), and
+	// the assignment shipped its lead.updated through the outbox — the
+	// full write shape, not a bare column flip.
+	var actorType, action string
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT actor_type FROM audit_log WHERE entity_type = 'activity' ORDER BY occurred_at DESC LIMIT 1`).Scan(&actorType); err != nil {
+		`SELECT actor_type, action FROM audit_log WHERE entity_type = 'lead' AND entity_id = $1
+		 ORDER BY occurred_at DESC LIMIT 1`, leadID).Scan(&actorType, &action); err != nil {
 		t.Fatal(err)
 	}
-	if actorType != "system" {
-		t.Fatalf("workflow write attributed to %q, want system", actorType)
+	if actorType != "system" || action != "assign" {
+		t.Fatalf("routing audited as %s/%s, want system/assign", actorType, action)
+	}
+	var outboxed int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'lead.updated'
+		 AND envelope->'entity'->>'id' = $1::text`, leadID).Scan(&outboxed); err != nil {
+		t.Fatal(err)
+	}
+	if outboxed != 1 {
+		t.Fatalf("assignment emitted %d lead.updated events, want exactly 1", outboxed)
 	}
 }
 
@@ -110,24 +148,24 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	countTasks := func() int {
+	ownerOf := func(leadID ids.UUID) *ids.UUID {
 		t.Helper()
-		var tasks int
+		var owner *ids.UUID
 		err := database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
 			return tx.QueryRow(context.Background(),
-				`SELECT count(*) FROM activity WHERE kind = 'task' AND subject LIKE 'Triage new lead%'`).Scan(&tasks)
+				`SELECT owner_id FROM lead WHERE id = $1`, leadID).Scan(&owner)
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return tasks
+		return owner
 	}
 
 	// No automation rows at all: the registered handler stays silent.
 	first := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
 	dispatch(first)
-	if got := countTasks(); got != 0 {
-		t.Fatalf("unconfigured workspace fired %d tasks, want 0", got)
+	if got := ownerOf(first); got != nil {
+		t.Fatalf("unconfigured workspace assigned owner %v, want none", got)
 	}
 
 	// A PAUSED instance (the contract's created-paused shape) is silent too.
@@ -136,21 +174,21 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 		return tx.QueryRow(context.Background(), `
 			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'route_lead', 'Route new leads', '{"event_type":"lead.created"}', '{"kind":"create_task"}',
-			        '{"due_in_days": 5}', false)
-			RETURNING id`).Scan(&automationID)
+			        'route_lead', 'Route new leads', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
+			        $1, false)
+			RETURNING id`, fmt.Sprintf(`{"owners": [%q]}`, e.rep3.String())).Scan(&automationID)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	second := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
 	dispatch(second)
-	if got := countTasks(); got != 0 {
-		t.Fatalf("paused instance fired %d tasks, want 0", got)
+	if got := ownerOf(second); got != nil {
+		t.Fatalf("paused instance assigned owner %v, want none", got)
 	}
 
 	// Enabled: the next event fires exactly once, honoring the instance
-	// params (due 5 days out, not the handler's default 1).
+	// params — the configured pool of one (rep3) is where the lead lands.
 	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `UPDATE automation SET enabled = true WHERE id = $1`, automationID)
 		return err
@@ -161,20 +199,19 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	third := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
 	dispatch(third)
 	dispatch(third) // redelivery still applies exactly once
-	if got := countTasks(); got != 1 {
-		t.Fatalf("enabled instance fired %d tasks, want exactly 1", got)
+	if got := ownerOf(third); got == nil || *got != e.rep3 {
+		t.Fatalf("enabled instance assigned %v — the instance's owner pool did not reach the run", got)
 	}
-	var dueAt, occurredAt time.Time
+	var runs int
 	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `
-			SELECT a.due_at, r.created_at FROM activity a, workflow_run r
-			WHERE a.kind = 'task' AND r.handler = 'route_lead'`).Scan(&dueAt, &occurredAt)
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM workflow_run WHERE handler = 'route_lead'`).Scan(&runs)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if days := int(dueAt.Sub(occurredAt).Hours() / 24); days < 4 || days > 5 {
-		t.Fatalf("task due %v after the run — the instance's due_in_days=5 param did not reach Plan", dueAt.Sub(occurredAt))
+	if runs != 1 {
+		t.Fatalf("enabled instance recorded %d runs, want exactly 1", runs)
 	}
 }
 

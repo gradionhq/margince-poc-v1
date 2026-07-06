@@ -100,6 +100,9 @@ var tableOwners = map[string]string{
 	"runner_job":   "internal/modules/agents",
 	"workflow_run": "internal/modules/agents",
 	"automation":   "internal/modules/agents",
+	// signals (the warm-room signal spine + its append-only resolution log)
+	"signal":            "internal/modules/signals",
+	"signal_resolution": "internal/modules/signals",
 	// collections
 	"list":        "internal/modules/collections",
 	"list_member": "internal/modules/collections",

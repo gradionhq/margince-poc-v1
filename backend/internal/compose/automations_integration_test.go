@@ -71,7 +71,7 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 		t.Fatalf("unknown key → %d, want 422", status)
 	}
 	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "route_lead", "name": "Bad params", "params": anyMap{"due_in_days": "soon"},
+		"key": "route_lead", "name": "Bad params", "params": anyMap{"cap_per_owner": "soon"},
 	}, nil, nil); status != 422 {
 		t.Fatalf("mistyped param → %d, want 422", status)
 	}
@@ -89,7 +89,8 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 		Version int            `json:"version"`
 	}
 	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "route_lead", "name": "Slow-lane routing", "params": anyMap{"due_in_days": 3},
+		"key": "route_lead", "name": "Slow-lane routing",
+		"params": anyMap{"owners": []string{"0198c0de-0000-7000-8000-000000000001"}, "cap_per_owner": 3},
 	}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("create → %d", status)
 	}
@@ -103,7 +104,7 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 	if status := e.call(t, "GET", "/v1/automations/"+created.ID, nil, nil, &fetched); status != http.StatusOK {
 		t.Fatalf("get → %d", status)
 	}
-	if fetched.Name != "Slow-lane routing" || fetched.Params["due_in_days"] != float64(3) {
+	if fetched.Name != "Slow-lane routing" || fetched.Params["cap_per_owner"] != float64(3) {
 		t.Fatalf("round-trip lost the config: %+v", fetched)
 	}
 

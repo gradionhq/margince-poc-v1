@@ -243,6 +243,7 @@ var auditActionGrant = map[string]principal.Action{
 	"consent_grant":    principal.ActionUpdate,
 	"consent_withdraw": principal.ActionUpdate,
 	"activity_relink":  principal.ActionUpdate,
+	"resolve":          principal.ActionUpdate,
 }
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a
@@ -287,6 +288,61 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 	   OR (l.deal_id IS NOT NULL AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = l.deal_id AND %[4]s))
 	   OR (l.lead_id IS NOT NULL AND EXISTS (SELECT 1 FROM lead sl WHERE sl.id = l.lead_id AND %[5]s)))))`,
 		alias, person("sp"), organization("so"), deal("sd"), lead("sl")), nil
+}
+
+// SignalScopeClause is the signal analogue of ActivityScopeClause: a
+// signal has no owner_id — its free-text summary/evidence inherit the
+// sensitivity of the record it is ABOUT, so a signal is visible when its
+// subject entity (entity_type/entity_id) is visible under the caller's
+// row scope. A subject-less signal (a raw item still awaiting resolution)
+// is workspace-shared, like an unlinked note (decisions/0006). It lives
+// here, not in the signals module, because the signals store's reads and
+// the approvals surface's staged-archive visibility probe both enforce it
+// — scope policy has exactly one spelling (ADR-0054 §8). alias names the
+// signal table in the outer query.
+func SignalScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if Unbounded(p) {
+		return "", nil
+	}
+	person := VisiblePredicate(p, "person", arg)
+	organization := VisiblePredicate(p, "organization", arg)
+	deal := VisiblePredicate(p, "deal", arg)
+	return fmt.Sprintf(`(%[1]s.entity_type IS NULL
+	 OR (%[1]s.entity_type = 'person'       AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = %[1]s.entity_id AND %[2]s))
+	 OR (%[1]s.entity_type = 'organization' AND EXISTS (SELECT 1 FROM organization so WHERE so.id = %[1]s.entity_id AND %[3]s))
+	 OR (%[1]s.entity_type = 'deal'         AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = %[1]s.entity_id AND %[4]s)))`,
+		alias, person("sp"), organization("so"), deal("sd")), nil
+}
+
+// EnsureSignalVisible is EnsureVisible for signals, using the
+// subject-entity scope above; out of scope reads as ErrNotFound.
+func EnsureSignalVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+
+	clause, err := SignalScopeClause(ctx, "s", arg)
+	if err != nil {
+		return err
+	}
+	if clause == "" {
+		return nil
+	}
+	var visible bool
+	err = tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM signal s WHERE s.id = $%d AND %s)`, idPos, clause),
+		args...).Scan(&visible)
+	if err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }
 
 // EnsureActivityVisible is EnsureVisible for activities, using the

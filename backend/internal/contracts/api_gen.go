@@ -834,6 +834,108 @@ func (e CreateRelationshipRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for CreateSignalRequestEntityType.
+const (
+	CreateSignalRequestEntityTypeDeal         CreateSignalRequestEntityType = "deal"
+	CreateSignalRequestEntityTypeLessThannil  CreateSignalRequestEntityType = "<nil>"
+	CreateSignalRequestEntityTypeOrganization CreateSignalRequestEntityType = "organization"
+	CreateSignalRequestEntityTypePerson       CreateSignalRequestEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the CreateSignalRequestEntityType enum.
+func (e CreateSignalRequestEntityType) Valid() bool {
+	switch e {
+	case CreateSignalRequestEntityTypeDeal:
+		return true
+	case CreateSignalRequestEntityTypeLessThannil:
+		return true
+	case CreateSignalRequestEntityTypeOrganization:
+		return true
+	case CreateSignalRequestEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSignalRequestKind.
+const (
+	CreateSignalRequestKindBuyingIntent CreateSignalRequestKind = "buying_intent"
+	CreateSignalRequestKindChampionLeft CreateSignalRequestKind = "champion_left"
+	CreateSignalRequestKindOther        CreateSignalRequestKind = "other"
+	CreateSignalRequestKindReengagement CreateSignalRequestKind = "reengagement"
+	CreateSignalRequestKindRisk         CreateSignalRequestKind = "risk"
+	CreateSignalRequestKindStalledDeal  CreateSignalRequestKind = "stalled_deal"
+)
+
+// Valid indicates whether the value is a known member of the CreateSignalRequestKind enum.
+func (e CreateSignalRequestKind) Valid() bool {
+	switch e {
+	case CreateSignalRequestKindBuyingIntent:
+		return true
+	case CreateSignalRequestKindChampionLeft:
+		return true
+	case CreateSignalRequestKindOther:
+		return true
+	case CreateSignalRequestKindReengagement:
+		return true
+	case CreateSignalRequestKindRisk:
+		return true
+	case CreateSignalRequestKindStalledDeal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSignalRequestSeverity.
+const (
+	CreateSignalRequestSeverityInfo   CreateSignalRequestSeverity = "info"
+	CreateSignalRequestSeverityUrgent CreateSignalRequestSeverity = "urgent"
+	CreateSignalRequestSeverityWarn   CreateSignalRequestSeverity = "warn"
+)
+
+// Valid indicates whether the value is a known member of the CreateSignalRequestSeverity enum.
+func (e CreateSignalRequestSeverity) Valid() bool {
+	switch e {
+	case CreateSignalRequestSeverityInfo:
+		return true
+	case CreateSignalRequestSeverityUrgent:
+		return true
+	case CreateSignalRequestSeverityWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateSignalRequestSourceChannel.
+const (
+	CreateSignalRequestSourceChannelDealRoomEngagement CreateSignalRequestSourceChannel = "deal_room_engagement"
+	CreateSignalRequestSourceChannelDerived            CreateSignalRequestSourceChannel = "derived"
+	CreateSignalRequestSourceChannelInbound            CreateSignalRequestSourceChannel = "inbound"
+	CreateSignalRequestSourceChannelSocial             CreateSignalRequestSourceChannel = "social"
+	CreateSignalRequestSourceChannelWeb                CreateSignalRequestSourceChannel = "web"
+)
+
+// Valid indicates whether the value is a known member of the CreateSignalRequestSourceChannel enum.
+func (e CreateSignalRequestSourceChannel) Valid() bool {
+	switch e {
+	case CreateSignalRequestSourceChannelDealRoomEngagement:
+		return true
+	case CreateSignalRequestSourceChannelDerived:
+		return true
+	case CreateSignalRequestSourceChannelInbound:
+		return true
+	case CreateSignalRequestSourceChannelSocial:
+		return true
+	case CreateSignalRequestSourceChannelWeb:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateStageRequestSemantic.
 const (
 	CreateStageRequestSemanticLost CreateStageRequestSemantic = "lost"
@@ -1641,6 +1743,264 @@ func (e SearchResultType) Valid() bool {
 	}
 }
 
+// Defines values for SignalEntityType.
+const (
+	SignalEntityTypeDeal         SignalEntityType = "deal"
+	SignalEntityTypeLessThannil  SignalEntityType = "<nil>"
+	SignalEntityTypeOrganization SignalEntityType = "organization"
+	SignalEntityTypePerson       SignalEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the SignalEntityType enum.
+func (e SignalEntityType) Valid() bool {
+	switch e {
+	case SignalEntityTypeDeal:
+		return true
+	case SignalEntityTypeLessThannil:
+		return true
+	case SignalEntityTypeOrganization:
+		return true
+	case SignalEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalKind.
+const (
+	SignalKindBuyingIntent SignalKind = "buying_intent"
+	SignalKindChampionLeft SignalKind = "champion_left"
+	SignalKindOther        SignalKind = "other"
+	SignalKindReengagement SignalKind = "reengagement"
+	SignalKindRisk         SignalKind = "risk"
+	SignalKindStalledDeal  SignalKind = "stalled_deal"
+)
+
+// Valid indicates whether the value is a known member of the SignalKind enum.
+func (e SignalKind) Valid() bool {
+	switch e {
+	case SignalKindBuyingIntent:
+		return true
+	case SignalKindChampionLeft:
+		return true
+	case SignalKindOther:
+		return true
+	case SignalKindReengagement:
+		return true
+	case SignalKindRisk:
+		return true
+	case SignalKindStalledDeal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalResolutionState.
+const (
+	SignalResolutionStateDropped       SignalResolutionState = "dropped"
+	SignalResolutionStateLowConfidence SignalResolutionState = "low_confidence"
+	SignalResolutionStateResolved      SignalResolutionState = "resolved"
+	SignalResolutionStateUnresolved    SignalResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the SignalResolutionState enum.
+func (e SignalResolutionState) Valid() bool {
+	switch e {
+	case SignalResolutionStateDropped:
+		return true
+	case SignalResolutionStateLowConfidence:
+		return true
+	case SignalResolutionStateResolved:
+		return true
+	case SignalResolutionStateUnresolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalSeverity.
+const (
+	SignalSeverityInfo   SignalSeverity = "info"
+	SignalSeverityUrgent SignalSeverity = "urgent"
+	SignalSeverityWarn   SignalSeverity = "warn"
+)
+
+// Valid indicates whether the value is a known member of the SignalSeverity enum.
+func (e SignalSeverity) Valid() bool {
+	switch e {
+	case SignalSeverityInfo:
+		return true
+	case SignalSeverityUrgent:
+		return true
+	case SignalSeverityWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalSourceChannel.
+const (
+	SignalSourceChannelDealRoomEngagement SignalSourceChannel = "deal_room_engagement"
+	SignalSourceChannelDerived            SignalSourceChannel = "derived"
+	SignalSourceChannelInbound            SignalSourceChannel = "inbound"
+	SignalSourceChannelSocial             SignalSourceChannel = "social"
+	SignalSourceChannelWeb                SignalSourceChannel = "web"
+)
+
+// Valid indicates whether the value is a known member of the SignalSourceChannel enum.
+func (e SignalSourceChannel) Valid() bool {
+	switch e {
+	case SignalSourceChannelDealRoomEngagement:
+		return true
+	case SignalSourceChannelDerived:
+		return true
+	case SignalSourceChannelInbound:
+		return true
+	case SignalSourceChannelSocial:
+		return true
+	case SignalSourceChannelWeb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalStatus.
+const (
+	SignalStatusAcknowledged SignalStatus = "acknowledged"
+	SignalStatusDismissed    SignalStatus = "dismissed"
+	SignalStatusOpen         SignalStatus = "open"
+	SignalStatusResolved     SignalStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the SignalStatus enum.
+func (e SignalStatus) Valid() bool {
+	switch e {
+	case SignalStatusAcknowledged:
+		return true
+	case SignalStatusDismissed:
+		return true
+	case SignalStatusOpen:
+		return true
+	case SignalStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalEvidenceSourceType.
+const (
+	SignalEvidenceSourceTypeActivity     SignalEvidenceSourceType = "activity"
+	SignalEvidenceSourceTypeDeal         SignalEvidenceSourceType = "deal"
+	SignalEvidenceSourceTypeLessThannil  SignalEvidenceSourceType = "<nil>"
+	SignalEvidenceSourceTypePage         SignalEvidenceSourceType = "page"
+	SignalEvidenceSourceTypeRelationship SignalEvidenceSourceType = "relationship"
+	SignalEvidenceSourceTypeSignal       SignalEvidenceSourceType = "signal"
+)
+
+// Valid indicates whether the value is a known member of the SignalEvidenceSourceType enum.
+func (e SignalEvidenceSourceType) Valid() bool {
+	switch e {
+	case SignalEvidenceSourceTypeActivity:
+		return true
+	case SignalEvidenceSourceTypeDeal:
+		return true
+	case SignalEvidenceSourceTypeLessThannil:
+		return true
+	case SignalEvidenceSourceTypePage:
+		return true
+	case SignalEvidenceSourceTypeRelationship:
+		return true
+	case SignalEvidenceSourceTypeSignal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalIntroPathNextMoveKind.
+const (
+	DraftToContact SignalIntroPathNextMoveKind = "draft_to_contact"
+	IntroRequest   SignalIntroPathNextMoveKind = "intro_request"
+)
+
+// Valid indicates whether the value is a known member of the SignalIntroPathNextMoveKind enum.
+func (e SignalIntroPathNextMoveKind) Valid() bool {
+	switch e {
+	case DraftToContact:
+		return true
+	case IntroRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalWarmContactRelationshipKind.
+const (
+	SignalWarmContactRelationshipKindDealStakeholder SignalWarmContactRelationshipKind = "deal_stakeholder"
+	SignalWarmContactRelationshipKindEmployment      SignalWarmContactRelationshipKind = "employment"
+)
+
+// Valid indicates whether the value is a known member of the SignalWarmContactRelationshipKind enum.
+func (e SignalWarmContactRelationshipKind) Valid() bool {
+	switch e {
+	case SignalWarmContactRelationshipKindDealStakeholder:
+		return true
+	case SignalWarmContactRelationshipKindEmployment:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalWarmContactStrengthBucket.
+const (
+	Moderate SignalWarmContactStrengthBucket = "moderate"
+	None     SignalWarmContactStrengthBucket = "none"
+	Strong   SignalWarmContactStrengthBucket = "strong"
+	Weak     SignalWarmContactStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the SignalWarmContactStrengthBucket enum.
+func (e SignalWarmContactStrengthBucket) Valid() bool {
+	switch e {
+	case Moderate:
+		return true
+	case None:
+		return true
+	case Strong:
+		return true
+	case Weak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SignalWarmthRouting.
+const (
+	ColdQueue SignalWarmthRouting = "cold_queue"
+	WarmRoom  SignalWarmthRouting = "warm_room"
+)
+
+// Valid indicates whether the value is a known member of the SignalWarmthRouting enum.
+func (e SignalWarmthRouting) Valid() bool {
+	switch e {
+	case ColdQueue:
+		return true
+	case WarmRoom:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StageSemantic.
 const (
 	StageSemanticLost StageSemantic = "lost"
@@ -1827,6 +2187,51 @@ func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 	case UpdateOrganizationRequestSizeBandN5011000:
 		return true
 	case UpdateOrganizationRequestSizeBandN51200:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateSignalRequestSeverity.
+const (
+	Info   UpdateSignalRequestSeverity = "info"
+	Urgent UpdateSignalRequestSeverity = "urgent"
+	Warn   UpdateSignalRequestSeverity = "warn"
+)
+
+// Valid indicates whether the value is a known member of the UpdateSignalRequestSeverity enum.
+func (e UpdateSignalRequestSeverity) Valid() bool {
+	switch e {
+	case Info:
+		return true
+	case Urgent:
+		return true
+	case Warn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateSignalRequestStatus.
+const (
+	UpdateSignalRequestStatusAcknowledged UpdateSignalRequestStatus = "acknowledged"
+	UpdateSignalRequestStatusDismissed    UpdateSignalRequestStatus = "dismissed"
+	UpdateSignalRequestStatusOpen         UpdateSignalRequestStatus = "open"
+	UpdateSignalRequestStatusResolved     UpdateSignalRequestStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the UpdateSignalRequestStatus enum.
+func (e UpdateSignalRequestStatus) Valid() bool {
+	switch e {
+	case UpdateSignalRequestStatusAcknowledged:
+		return true
+	case UpdateSignalRequestStatusDismissed:
+		return true
+	case UpdateSignalRequestStatusOpen:
+		return true
+	case UpdateSignalRequestStatusResolved:
 		return true
 	default:
 		return false
@@ -2210,19 +2615,19 @@ func (e ListDataSubjectRequestsParamsStatus) Valid() bool {
 
 // Defines values for ListDealsParamsStatus.
 const (
-	Lost ListDealsParamsStatus = "lost"
-	Open ListDealsParamsStatus = "open"
-	Won  ListDealsParamsStatus = "won"
+	ListDealsParamsStatusLost ListDealsParamsStatus = "lost"
+	ListDealsParamsStatusOpen ListDealsParamsStatus = "open"
+	ListDealsParamsStatusWon  ListDealsParamsStatus = "won"
 )
 
 // Valid indicates whether the value is a known member of the ListDealsParamsStatus enum.
 func (e ListDealsParamsStatus) Valid() bool {
 	switch e {
-	case Lost:
+	case ListDealsParamsStatusLost:
 		return true
-	case Open:
+	case ListDealsParamsStatusOpen:
 		return true
-	case Won:
+	case ListDealsParamsStatusWon:
 		return true
 	default:
 		return false
@@ -2231,28 +2636,28 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealOffersParamsStatus.
 const (
-	Accepted   ListDealOffersParamsStatus = "accepted"
-	Draft      ListDealOffersParamsStatus = "draft"
-	Expired    ListDealOffersParamsStatus = "expired"
-	Rejected   ListDealOffersParamsStatus = "rejected"
-	Sent       ListDealOffersParamsStatus = "sent"
-	Superseded ListDealOffersParamsStatus = "superseded"
+	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
+	ListDealOffersParamsStatusDraft      ListDealOffersParamsStatus = "draft"
+	ListDealOffersParamsStatusExpired    ListDealOffersParamsStatus = "expired"
+	ListDealOffersParamsStatusRejected   ListDealOffersParamsStatus = "rejected"
+	ListDealOffersParamsStatusSent       ListDealOffersParamsStatus = "sent"
+	ListDealOffersParamsStatusSuperseded ListDealOffersParamsStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListDealOffersParamsStatus enum.
 func (e ListDealOffersParamsStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case ListDealOffersParamsStatusAccepted:
 		return true
-	case Draft:
+	case ListDealOffersParamsStatusDraft:
 		return true
-	case Expired:
+	case ListDealOffersParamsStatusExpired:
 		return true
-	case Rejected:
+	case ListDealOffersParamsStatusRejected:
 		return true
-	case Sent:
+	case ListDealOffersParamsStatusSent:
 		return true
-	case Superseded:
+	case ListDealOffersParamsStatusSuperseded:
 		return true
 	default:
 		return false
@@ -2393,25 +2798,25 @@ func (e ListRecordGrantsParamsSubjectType) Valid() bool {
 
 // Defines values for ListRelationshipsParamsKind.
 const (
-	CoSellWith      ListRelationshipsParamsKind = "co_sell_with"
-	DealStakeholder ListRelationshipsParamsKind = "deal_stakeholder"
-	Employment      ListRelationshipsParamsKind = "employment"
-	PartnerOf       ListRelationshipsParamsKind = "partner_of"
-	ReferredBy      ListRelationshipsParamsKind = "referred_by"
+	ListRelationshipsParamsKindCoSellWith      ListRelationshipsParamsKind = "co_sell_with"
+	ListRelationshipsParamsKindDealStakeholder ListRelationshipsParamsKind = "deal_stakeholder"
+	ListRelationshipsParamsKindEmployment      ListRelationshipsParamsKind = "employment"
+	ListRelationshipsParamsKindPartnerOf       ListRelationshipsParamsKind = "partner_of"
+	ListRelationshipsParamsKindReferredBy      ListRelationshipsParamsKind = "referred_by"
 )
 
 // Valid indicates whether the value is a known member of the ListRelationshipsParamsKind enum.
 func (e ListRelationshipsParamsKind) Valid() bool {
 	switch e {
-	case CoSellWith:
+	case ListRelationshipsParamsKindCoSellWith:
 		return true
-	case DealStakeholder:
+	case ListRelationshipsParamsKindDealStakeholder:
 		return true
-	case Employment:
+	case ListRelationshipsParamsKindEmployment:
 		return true
-	case PartnerOf:
+	case ListRelationshipsParamsKindPartnerOf:
 		return true
-	case ReferredBy:
+	case ListRelationshipsParamsKindReferredBy:
 		return true
 	default:
 		return false
@@ -2439,6 +2844,84 @@ func (e SearchParamsTypes) Valid() bool {
 	case SearchParamsTypesOrganization:
 		return true
 	case SearchParamsTypesPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListSignalsParamsStatus.
+const (
+	ListSignalsParamsStatusAcknowledged ListSignalsParamsStatus = "acknowledged"
+	ListSignalsParamsStatusDismissed    ListSignalsParamsStatus = "dismissed"
+	ListSignalsParamsStatusOpen         ListSignalsParamsStatus = "open"
+	ListSignalsParamsStatusResolved     ListSignalsParamsStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the ListSignalsParamsStatus enum.
+func (e ListSignalsParamsStatus) Valid() bool {
+	switch e {
+	case ListSignalsParamsStatusAcknowledged:
+		return true
+	case ListSignalsParamsStatusDismissed:
+		return true
+	case ListSignalsParamsStatusOpen:
+		return true
+	case ListSignalsParamsStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListSignalsParamsKind.
+const (
+	ListSignalsParamsKindBuyingIntent ListSignalsParamsKind = "buying_intent"
+	ListSignalsParamsKindChampionLeft ListSignalsParamsKind = "champion_left"
+	ListSignalsParamsKindOther        ListSignalsParamsKind = "other"
+	ListSignalsParamsKindReengagement ListSignalsParamsKind = "reengagement"
+	ListSignalsParamsKindRisk         ListSignalsParamsKind = "risk"
+	ListSignalsParamsKindStalledDeal  ListSignalsParamsKind = "stalled_deal"
+)
+
+// Valid indicates whether the value is a known member of the ListSignalsParamsKind enum.
+func (e ListSignalsParamsKind) Valid() bool {
+	switch e {
+	case ListSignalsParamsKindBuyingIntent:
+		return true
+	case ListSignalsParamsKindChampionLeft:
+		return true
+	case ListSignalsParamsKindOther:
+		return true
+	case ListSignalsParamsKindReengagement:
+		return true
+	case ListSignalsParamsKindRisk:
+		return true
+	case ListSignalsParamsKindStalledDeal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListSignalsParamsResolutionState.
+const (
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
+)
+
+// Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
+func (e ListSignalsParamsResolutionState) Valid() bool {
+	switch e {
+	case Dropped:
+		return true
+	case LowConfidence:
+		return true
+	case Resolved:
+		return true
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -3064,6 +3547,35 @@ type CreateRelationshipRequest struct {
 
 // CreateRelationshipRequestKind defines model for CreateRelationshipRequest.Kind.
 type CreateRelationshipRequestKind string
+
+// CreateSignalRequest defines model for CreateSignalRequest.
+type CreateSignalRequest struct {
+	// DetectedAt When the underlying observation happened (defaults to now).
+	DetectedAt *time.Time          `json:"detected_at,omitempty"`
+	EntityId   *openapi_types.UUID `json:"entity_id,omitempty"`
+
+	// EntityType Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).
+	EntityType    *CreateSignalRequestEntityType    `json:"entity_type,omitempty"`
+	Evidence      *[]SignalEvidence                 `json:"evidence,omitempty"`
+	Kind          CreateSignalRequestKind           `json:"kind"`
+	RawRef        *string                           `json:"raw_ref,omitempty"`
+	Severity      *CreateSignalRequestSeverity      `json:"severity,omitempty"`
+	Source        string                            `json:"source"`
+	SourceChannel *CreateSignalRequestSourceChannel `json:"source_channel,omitempty"`
+	Summary       string                            `json:"summary"`
+}
+
+// CreateSignalRequestEntityType Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).
+type CreateSignalRequestEntityType string
+
+// CreateSignalRequestKind defines model for CreateSignalRequest.Kind.
+type CreateSignalRequestKind string
+
+// CreateSignalRequestSeverity defines model for CreateSignalRequest.Severity.
+type CreateSignalRequestSeverity string
+
+// CreateSignalRequestSourceChannel defines model for CreateSignalRequest.SourceChannel.
+type CreateSignalRequestSourceChannel string
 
 // CreateStageRequest defines model for CreateStageRequest.
 type CreateStageRequest struct {
@@ -4163,6 +4675,165 @@ type SendEmailRequest struct {
 	To             []openapi_types.Email `json:"to"`
 }
 
+// Signal A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
+// company-level and consent-gated by construction — the only mandatory attribution is
+// organizational (`resolved_org_id` after resolution); `resolved_person_id` is optional
+// and set only under a recorded consent grant (P12). Unattributable signals are
+// `dropped`, never retained as a person-level dossier.
+type Signal struct {
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+
+	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
+	CapturedBy *string             `json:"captured_by,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	DetectedAt time.Time           `json:"detected_at"`
+	EntityId   *openapi_types.UUID `json:"entity_id,omitempty"`
+
+	// EntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
+	EntityType *SignalEntityType `json:"entity_type,omitempty"`
+
+	// Evidence Per-claim evidence (evidence-or-omit, features/07 §11 gate 1).
+	Evidence []SignalEvidence   `json:"evidence"`
+	Id       openapi_types.UUID `json:"id"`
+	Kind     SignalKind         `json:"kind"`
+
+	// RawRef Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.
+	RawRef               *string  `json:"raw_ref,omitempty"`
+	ResolutionConfidence *float32 `json:"resolution_confidence,omitempty"`
+
+	// ResolutionState The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.
+	ResolutionState SignalResolutionState `json:"resolution_state"`
+
+	// ResolvedOrgId The organization the raw signal resolved to (the only required attribution level).
+	ResolvedOrgId *openapi_types.UUID `json:"resolved_org_id,omitempty"`
+
+	// ResolvedPersonId Optional person resolution — set only under a recorded consent grant
+	ResolvedPersonId *openapi_types.UUID `json:"resolved_person_id,omitempty"`
+	Severity         SignalSeverity      `json:"severity"`
+	Source           string              `json:"source"`
+
+	// SourceChannel Where the raw signal came from.
+	SourceChannel SignalSourceChannel `json:"source_channel"`
+	Status        SignalStatus        `json:"status"`
+	Summary       string              `json:"summary"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version     *RowVersion        `json:"version,omitempty"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// SignalEntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
+type SignalEntityType string
+
+// SignalKind defines model for Signal.Kind.
+type SignalKind string
+
+// SignalResolutionState The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.
+type SignalResolutionState string
+
+// SignalSeverity defines model for Signal.Severity.
+type SignalSeverity string
+
+// SignalSourceChannel Where the raw signal came from.
+type SignalSourceChannel string
+
+// SignalStatus defines model for Signal.Status.
+type SignalStatus string
+
+// SignalEvidence defines model for SignalEvidence.
+type SignalEvidence struct {
+	Snippet    string                    `json:"snippet"`
+	SourceId   *string                   `json:"source_id,omitempty"`
+	SourceType *SignalEvidenceSourceType `json:"source_type,omitempty"`
+}
+
+// SignalEvidenceSourceType defines model for SignalEvidence.SourceType.
+type SignalEvidenceSourceType string
+
+// SignalIntroPath An actionable warm-intro path — names the route-in contact, the relationship we
+// have, and a concrete next move with a drafted message. Proposal only: the send is
+// the 🟡 confirm-first send tool, never this read.
+type SignalIntroPath struct {
+	// ContactId The route-in contact (the strongest live relationship at the resolved organization).
+	ContactId   openapi_types.UUID `json:"contact_id"`
+	ContactName *string            `json:"contact_name,omitempty"`
+
+	// Evidence Provenance back to the warm signal (evidence-or-omit).
+	Evidence struct {
+		ContactIds     []openapi_types.UUID `json:"contact_ids"`
+		ResolvedOrgId  openapi_types.UUID   `json:"resolved_org_id"`
+		SourceSignalId openapi_types.UUID   `json:"source_signal_id"`
+	} `json:"evidence"`
+	NextMove struct {
+		// AiDisclosure The machine-readable Art. 50 disclosure line the draft carries.
+		AiDisclosure string `json:"ai_disclosure"`
+
+		// DraftBody Renders the Art. 50 AI-assisted disclosure (features/07 §11 gate 9).
+		DraftBody    string `json:"draft_body"`
+		DraftSubject string `json:"draft_subject"`
+
+		// Kind intro_request when the signal resolved (under consent) to a specific person other than the route-in contact; otherwise a direct draft to the contact.
+		Kind SignalIntroPathNextMoveKind `json:"kind"`
+	} `json:"next_move"`
+
+	// Relationship One contact edge in our own graph that makes the signal warm — evidence, with its explainable §4 strength.
+	Relationship  SignalWarmContact  `json:"relationship"`
+	ResolvedOrgId openapi_types.UUID `json:"resolved_org_id"`
+	SignalId      openapi_types.UUID `json:"signal_id"`
+}
+
+// SignalIntroPathNextMoveKind intro_request when the signal resolved (under consent) to a specific person other than the route-in contact; otherwise a direct draft to the contact.
+type SignalIntroPathNextMoveKind string
+
+// SignalListResponse defines model for SignalListResponse.
+type SignalListResponse struct {
+	Data []Signal `json:"data"`
+	Page PageInfo `json:"page"`
+}
+
+// SignalWarmContact One contact edge in our own graph that makes the signal warm — evidence, with its explainable §4 strength.
+type SignalWarmContact struct {
+	FullName         *string                           `json:"full_name,omitempty"`
+	PersonId         openapi_types.UUID                `json:"person_id"`
+	RelationshipKind SignalWarmContactRelationshipKind `json:"relationship_kind"`
+
+	// RelationshipRole e.g. cto, champion, economic_buyer.
+	RelationshipRole *string `json:"relationship_role,omitempty"`
+
+	// Strength The deterministic §4 relationship strength (0–100).
+	Strength       int                             `json:"strength"`
+	StrengthBucket SignalWarmContactStrengthBucket `json:"strength_bucket"`
+}
+
+// SignalWarmContactRelationshipKind defines model for SignalWarmContact.RelationshipKind.
+type SignalWarmContactRelationshipKind string
+
+// SignalWarmContactStrengthBucket defines model for SignalWarmContact.StrengthBucket.
+type SignalWarmContactStrengthBucket string
+
+// SignalWarmth The warm/cold branch with its full evidence: source signal id, resolved org id, and
+// the specific contact id(s) that make it warm. No mystery score — a numeric-only
+// answer would be a contract violation (features/07 §9).
+type SignalWarmth struct {
+	// ContactIds Empty exactly when cold.
+	ContactIds    []openapi_types.UUID `json:"contact_ids"`
+	Contacts      []SignalWarmContact  `json:"contacts"`
+	ResolvedOrgId openapi_types.UUID   `json:"resolved_org_id"`
+
+	// Routing The real routing branch — warm signals surface in the warm room, cold ones queue separately.
+	Routing        SignalWarmthRouting `json:"routing"`
+	SourceSignalId openapi_types.UUID  `json:"source_signal_id"`
+	Warm           bool                `json:"warm"`
+}
+
+// SignalWarmthRouting The real routing branch — warm signals surface in the warm room, cold ones queue separately.
+type SignalWarmthRouting string
+
 // Stage A pipeline stage. Mirrors the `stage` table.
 type Stage struct {
 	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
@@ -4381,6 +5052,22 @@ type UpdateRelationshipRequest struct {
 	Role             *string             `json:"role,omitempty"`
 	StartedAt        *openapi_types.Date `json:"started_at,omitempty"`
 }
+
+// UpdateSignalRequest Triage. A `status` move to acknowledged/resolved/dismissed appends the human-outcome
+// `signal_resolution` row; `note` travels with that outcome. `resolution_state` and the
+// resolved ids are resolver-owned and not writable here.
+type UpdateSignalRequest struct {
+	// Note Optional outcome note recorded with a status change.
+	Note     *string                      `json:"note,omitempty"`
+	Severity *UpdateSignalRequestSeverity `json:"severity,omitempty"`
+	Status   *UpdateSignalRequestStatus   `json:"status,omitempty"`
+}
+
+// UpdateSignalRequestSeverity defines model for UpdateSignalRequest.Severity.
+type UpdateSignalRequestSeverity string
+
+// UpdateSignalRequestStatus defines model for UpdateSignalRequest.Status.
+type UpdateSignalRequestStatus string
 
 // UpdateStageRequest defines model for UpdateStageRequest.
 type UpdateStageRequest struct {
@@ -5649,6 +6336,78 @@ type SearchParams struct {
 // SearchParamsTypes defines parameters for Search.
 type SearchParamsTypes string
 
+// ListSignalsParams defines parameters for ListSignals.
+type ListSignalsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// IncludeArchived Include soft-deleted (archived) rows. Default false.
+	IncludeArchived *IncludeArchived                  `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+	Status          *ListSignalsParamsStatus          `form:"status,omitempty" json:"status,omitempty"`
+	Kind            *ListSignalsParamsKind            `form:"kind,omitempty" json:"kind,omitempty"`
+	ResolutionState *ListSignalsParamsResolutionState `form:"resolution_state,omitempty" json:"resolution_state,omitempty"`
+}
+
+// ListSignalsParamsStatus defines parameters for ListSignals.
+type ListSignalsParamsStatus string
+
+// ListSignalsParamsKind defines parameters for ListSignals.
+type ListSignalsParamsKind string
+
+// ListSignalsParamsResolutionState defines parameters for ListSignals.
+type ListSignalsParamsResolutionState string
+
+// CreateSignalParams defines parameters for CreateSignal.
+type CreateSignalParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateSignalParams defines parameters for UpdateSignal.
+type UpdateSignalParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ResolveSignalParams defines parameters for ResolveSignal.
+type ResolveSignalParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListStagesParams defines parameters for ListStages.
 type ListStagesParams struct {
 	PipelineId *openapi_types.UUID `form:"pipeline_id,omitempty" json:"pipeline_id,omitempty"`
@@ -5857,6 +6616,12 @@ type UpdateRelationshipJSONRequestBody = UpdateRelationshipRequest
 
 // RunReportJSONRequestBody defines body for RunReport for application/json ContentType.
 type RunReportJSONRequestBody = RunReportRequest
+
+// CreateSignalJSONRequestBody defines body for CreateSignal for application/json ContentType.
+type CreateSignalJSONRequestBody = CreateSignalRequest
+
+// UpdateSignalJSONRequestBody defines body for UpdateSignal for application/json ContentType.
+type UpdateSignalJSONRequestBody = UpdateSignalRequest
 
 // CreateStageJSONRequestBody defines body for CreateStage for application/json ContentType.
 type CreateStageJSONRequestBody = CreateStageRequest
@@ -9952,6 +10717,30 @@ type ServerInterface interface {
 	// Cross-object search (people, orgs, deals, activities, leads).
 	// (GET /search)
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
+	// List signals (cursor-paginated), newest first.
+	// (GET /signals)
+	ListSignals(w http.ResponseWriter, r *http.Request, params ListSignalsParams)
+	// Record a signal (a derived observation, or a raw inbound/web item awaiting resolution).
+	// (POST /signals)
+	CreateSignal(w http.ResponseWriter, r *http.Request, params CreateSignalParams)
+	// Archive (soft-delete) a signal.
+	// (DELETE /signals/{id})
+	ArchiveSignal(w http.ResponseWriter, r *http.Request, id Id)
+	// Get a signal by id.
+	// (GET /signals/{id})
+	GetSignal(w http.ResponseWriter, r *http.Request, id Id)
+	// Triage a signal (acknowledge / resolve / dismiss, severity).
+	// (PATCH /signals/{id})
+	UpdateSignal(w http.ResponseWriter, r *http.Request, id Id, params UpdateSignalParams)
+	// The proposed warm-intro path for a warm signal (B-E08.4) — an actionable move, not a notification.
+	// (GET /signals/{id}/intro-path)
+	GetSignalIntroPath(w http.ResponseWriter, r *http.Request, id Id)
+	// Run the signal→company resolver over the signal's raw_ref (inspectable match, never silently confident).
+	// (POST /signals/{id}/resolve)
+	ResolveSignal(w http.ResponseWriter, r *http.Request, id Id, params ResolveSignalParams)
+	// The warm/cold classification with the full "why warm" evidence (B-E08.3).
+	// (GET /signals/{id}/warmth)
+	GetSignalWarmth(w http.ResponseWriter, r *http.Request, id Id)
 	// List stages (optionally filtered by pipeline).
 	// (GET /stages)
 	ListStages(w http.ResponseWriter, r *http.Request, params ListStagesParams)
@@ -10636,6 +11425,54 @@ func (_ Unimplemented) ExplainReport(w http.ResponseWriter, r *http.Request, rep
 // Cross-object search (people, orgs, deals, activities, leads).
 // (GET /search)
 func (_ Unimplemented) Search(w http.ResponseWriter, r *http.Request, params SearchParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List signals (cursor-paginated), newest first.
+// (GET /signals)
+func (_ Unimplemented) ListSignals(w http.ResponseWriter, r *http.Request, params ListSignalsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record a signal (a derived observation, or a raw inbound/web item awaiting resolution).
+// (POST /signals)
+func (_ Unimplemented) CreateSignal(w http.ResponseWriter, r *http.Request, params CreateSignalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive (soft-delete) a signal.
+// (DELETE /signals/{id})
+func (_ Unimplemented) ArchiveSignal(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a signal by id.
+// (GET /signals/{id})
+func (_ Unimplemented) GetSignal(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Triage a signal (acknowledge / resolve / dismiss, severity).
+// (PATCH /signals/{id})
+func (_ Unimplemented) UpdateSignal(w http.ResponseWriter, r *http.Request, id Id, params UpdateSignalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The proposed warm-intro path for a warm signal (B-E08.4) — an actionable move, not a notification.
+// (GET /signals/{id}/intro-path)
+func (_ Unimplemented) GetSignalIntroPath(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Run the signal→company resolver over the signal's raw_ref (inspectable match, never silently confident).
+// (POST /signals/{id}/resolve)
+func (_ Unimplemented) ResolveSignal(w http.ResponseWriter, r *http.Request, id Id, params ResolveSignalParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The warm/cold classification with the full "why warm" evidence (B-E08.3).
+// (GET /signals/{id}/warmth)
+func (_ Unimplemented) GetSignalWarmth(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16496,6 +17333,432 @@ func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// ListSignals operation middleware
+func (siw *ServerInterfaceWrapper) ListSignals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSignalsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "resolution_state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "resolution_state", r.URL.Query(), &params.ResolutionState, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "resolution_state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resolution_state", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSignals(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSignal operation middleware
+func (siw *ServerInterfaceWrapper) CreateSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSignalParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSignal(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveSignal operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveSignal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSignal operation middleware
+func (siw *ServerInterfaceWrapper) GetSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSignal(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSignal operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateSignalParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSignal(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSignalIntroPath operation middleware
+func (siw *ServerInterfaceWrapper) GetSignalIntroPath(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSignalIntroPath(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveSignal operation middleware
+func (siw *ServerInterfaceWrapper) ResolveSignal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ResolveSignalParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveSignal(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSignalWarmth operation middleware
+func (siw *ServerInterfaceWrapper) GetSignalWarmth(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSignalWarmth(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListStages operation middleware
 func (siw *ServerInterfaceWrapper) ListStages(w http.ResponseWriter, r *http.Request) {
 
@@ -17562,6 +18825,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/search", wrapper.Search)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/signals", wrapper.ListSignals)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/signals", wrapper.CreateSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/signals/{id}", wrapper.ArchiveSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/signals/{id}", wrapper.GetSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/signals/{id}", wrapper.UpdateSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/signals/{id}/intro-path", wrapper.GetSignalIntroPath)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/signals/{id}/resolve", wrapper.ResolveSignal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/signals/{id}/warmth", wrapper.GetSignalWarmth)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/stages", wrapper.ListStages)

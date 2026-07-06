@@ -16,15 +16,19 @@ import (
 
 // NewWorkflowEngine builds the engine with the shipped starter set and
 // the system invariants: the starters are catalog automations (instance-
-// gated, pausable); the lead-score recompute is a formula obligation
+// gated, pausable) — stage_change_create_task from agents, route_lead
+// from people (the routing decision is transactional lead-store SQL) —
+// while the lead-score recompute is a formula obligation
 // (formulas-and-rules §3 — "recomputed on each captured signal") and
 // fires always.
 func NewWorkflowEngine(pool *pgxpool.Pool) *agents.WorkflowEngine {
 	engine := agents.NewWorkflowEngine(pool)
+	peopleStore := people.NewStore(pool)
 	for _, handler := range agents.StarterWorkflows(NewProvider(pool)) {
 		engine.RegisterWorkflow(handler)
 	}
-	for _, handler := range people.LeadScoreWorkflows(people.NewStore(pool)) {
+	engine.RegisterWorkflow(people.LeadRoutingWorkflow(peopleStore))
+	for _, handler := range people.LeadScoreWorkflows(peopleStore) {
 		engine.RegisterSystemWorkflow(handler)
 	}
 	return engine

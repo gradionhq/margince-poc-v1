@@ -440,6 +440,38 @@ func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcont
 	httperr.NotImplemented(w, r, "Search")
 }
 
+func (stubs) ListSignals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListSignalsParams) {
+	httperr.NotImplemented(w, r, "ListSignals")
+}
+
+func (stubs) CreateSignal(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateSignalParams) {
+	httperr.NotImplemented(w, r, "CreateSignal")
+}
+
+func (stubs) ArchiveSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveSignal")
+}
+
+func (stubs) GetSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetSignal")
+}
+
+func (stubs) UpdateSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateSignalParams) {
+	httperr.NotImplemented(w, r, "UpdateSignal")
+}
+
+func (stubs) GetSignalIntroPath(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetSignalIntroPath")
+}
+
+func (stubs) ResolveSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ResolveSignalParams) {
+	httperr.NotImplemented(w, r, "ResolveSignal")
+}
+
+func (stubs) GetSignalWarmth(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetSignalWarmth")
+}
+
 func (stubs) ListStages(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListStagesParams) {
 	httperr.NotImplemented(w, r, "ListStages")
 }

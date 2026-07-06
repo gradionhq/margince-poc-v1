@@ -59,6 +59,8 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/deals:RemoveOfferLineItem":  "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",
 	"internal/modules/identity:CreateRecordGrant": "the closed catalog (events.md \u00a75) defines no grant.* type; the closed-verb law forbids inventing one build-side",
 	"internal/modules/identity:RevokeRecordGrant": "the closed catalog (events.md \u00a75) defines no grant.* type; the closed-verb law forbids inventing one build-side",
+	"internal/modules/signals:UpdateSignal":       "human triage (status/severity) is ratified audit-only \u2014 events.md \u00a75.11 defines only signal.detected/signal.resolved (raw\u2192entity attribution, emitted by the resolver), no signal.updated, and the closed-verb law forbids inventing one build-side",
+	"internal/modules/signals:ArchiveSignal":      "signal archive is ratified audit-only \u2014 events.md \u00a75.11 defines no signal.archived type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/privacy:AssembleSAR":        "the closed catalog (events.md \u00a75) defines no subject-access-export type; the export is a read whose only write IS the audit row",
 	"internal/compose:SnapshotRun":                "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose:markItem":                   "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
