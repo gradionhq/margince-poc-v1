@@ -1,5 +1,7 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
+import { navigate } from "../app/router";
 import { Button, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -20,6 +22,30 @@ export type CreateField = {
   options?: CreateFieldOption[];
   placeholder?: string;
 };
+
+// The shared post-create choreography: refresh the list, close the modal,
+// open the fresh record's 360. Screens supply only their transport.
+export function useCreateRecord<Created extends { id: string }>({
+  create,
+  invalidate,
+  screen,
+  onDone,
+}: Readonly<{
+  create: (values: Record<string, string>) => Promise<Created>;
+  invalidate: string;
+  screen: string;
+  onDone: () => void;
+}>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: create,
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: [invalidate] });
+      onDone();
+      navigate({ screen, id: created.id });
+    },
+  });
+}
 
 export function NewRecordButton({
   label,

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -8,7 +8,7 @@ import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
-import { CreateRecordModal, NewRecordButton } from "./create";
+import { CreateRecordModal, NewRecordButton, useCreateRecord } from "./create";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -76,11 +76,13 @@ export function activityTimeline(activities: Activity[]): TimelineEntry[] {
 export function ContactsScreen() {
   const t = useT();
   const query = usePeople();
-  const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  const create = useMutation({
-    mutationFn: async (values: Record<string, string>) => {
+  const create = useCreateRecord({
+    invalidate: "people",
+    screen: "contacts",
+    onDone: () => setCreating(false),
+    create: async (values) => {
       const email = values.email?.trim();
       const { data, error } = await api.POST("/people", {
         body: {
@@ -105,11 +107,6 @@ export function ContactsScreen() {
         throw new Error(problemMessage(error));
       }
       return data;
-    },
-    onSuccess: (person) => {
-      queryClient.invalidateQueries({ queryKey: ["people"] });
-      setCreating(false);
-      navigate({ screen: "contacts", id: person.id });
     },
   });
 

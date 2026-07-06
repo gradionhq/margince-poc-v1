@@ -22,7 +22,7 @@ import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
-import { CreateRecordModal, NewRecordButton } from "./create";
+import { CreateRecordModal, NewRecordButton, useCreateRecord } from "./create";
 import { activityTimeline } from "./people";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
@@ -190,8 +190,11 @@ export function DealsScreen({
     },
   });
 
-  const create = useMutation({
-    mutationFn: async (values: Record<string, string>) => {
+  const create = useCreateRecord({
+    invalidate: "deals",
+    screen: "deals",
+    onDone: () => setCreating(false),
+    create: async (values) => {
       const pipeline = pipelineQuery.data;
       if (!pipeline) {
         throw new Error(problemMessage(null));
@@ -214,11 +217,6 @@ export function DealsScreen({
         throw new Error(problemMessage(error));
       }
       return data;
-    },
-    onSuccess: (deal) => {
-      queryClient.invalidateQueries({ queryKey: ["deals"] });
-      setCreating(false);
-      navigate({ screen: "deals", id: deal.id });
     },
   });
 

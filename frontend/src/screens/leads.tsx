@@ -12,7 +12,7 @@ import {
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
-import { CreateRecordModal, NewRecordButton } from "./create";
+import { CreateRecordModal, NewRecordButton, useCreateRecord } from "./create";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
 // lead surface is accent-tinted, lead detail is its own screen (never
@@ -51,11 +51,13 @@ export function LeadsScreen() {
       return data;
     },
   });
-  const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  const create = useMutation({
-    mutationFn: async (values: Record<string, string>) => {
+  const create = useCreateRecord({
+    invalidate: "leads",
+    screen: "leads",
+    onDone: () => setCreating(false),
+    create: async (values) => {
       const { data, error } = await api.POST("/leads", {
         body: {
           full_name: values.full_name?.trim() || null,
@@ -69,11 +71,6 @@ export function LeadsScreen() {
         throw new Error(problemMessage(error));
       }
       return data;
-    },
-    onSuccess: (lead) => {
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
-      setCreating(false);
-      navigate({ screen: "leads", id: lead.id });
     },
   });
 

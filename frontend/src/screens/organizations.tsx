@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -8,7 +8,7 @@ import { RecordView } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
-import { CreateRecordModal, NewRecordButton } from "./create";
+import { CreateRecordModal, NewRecordButton, useCreateRecord } from "./create";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -30,11 +30,13 @@ export function CompaniesScreen() {
       return data;
     },
   });
-  const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  const create = useMutation({
-    mutationFn: async (values: Record<string, string>) => {
+  const create = useCreateRecord({
+    invalidate: "organizations",
+    screen: "companies",
+    onDone: () => setCreating(false),
+    create: async (values) => {
       const domain = values.domain?.trim().toLowerCase();
       const { data, error } = await api.POST("/organizations", {
         body: {
@@ -48,11 +50,6 @@ export function CompaniesScreen() {
         throw new Error(problemMessage(error));
       }
       return data;
-    },
-    onSuccess: (org) => {
-      queryClient.invalidateQueries({ queryKey: ["organizations"] });
-      setCreating(false);
-      navigate({ screen: "companies", id: org.id });
     },
   });
 
