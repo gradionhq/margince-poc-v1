@@ -7,6 +7,7 @@ import { RecordView } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
+import { CreateAction } from "./create";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -28,9 +29,42 @@ export function CompaniesScreen() {
       return data;
     },
   });
+  const createCompany = async (values: Record<string, string>) => {
+    const domain = values.domain?.trim().toLowerCase();
+    const { data, error } = await api.POST("/organizations", {
+      body: {
+        display_name: values.display_name.trim(),
+        industry: values.industry?.trim() || null,
+        ...(domain ? { domains: [{ domain, is_primary: true }] } : {}),
+        source: "manual",
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    return data;
+  };
+
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.companies")} />
+      <div className="list-head">
+        <SectionHeader title={t("nav.companies")} />
+        <CreateAction
+          label={t("create.company")}
+          invalidate="organizations"
+          screen="companies"
+          create={createCompany}
+          fields={[
+            {
+              key: "display_name",
+              label: "create.displayName",
+              required: true,
+            },
+            { key: "industry", label: "create.industry" },
+            { key: "domain", label: "create.domain", placeholder: "acme.com" },
+          ]}
+        />
+      </div>
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <DataTable

@@ -7,6 +7,7 @@ import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
+import { CreateAction } from "./create";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -74,9 +75,50 @@ export function activityTimeline(activities: Activity[]): TimelineEntry[] {
 export function ContactsScreen() {
   const t = useT();
   const query = usePeople();
+
+  const createContact = async (values: Record<string, string>) => {
+    const email = values.email?.trim();
+    const { data, error } = await api.POST("/people", {
+      body: {
+        full_name: values.full_name.trim(),
+        title: values.title?.trim() || null,
+        ...(email
+          ? {
+              emails: [
+                {
+                  email,
+                  email_type: "work" as const,
+                  is_primary: true,
+                  position: 0,
+                },
+              ],
+            }
+          : {}),
+        source: "manual",
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    return data;
+  };
+
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.contacts")} />
+      <div className="list-head">
+        <SectionHeader title={t("nav.contacts")} />
+        <CreateAction
+          label={t("create.contact")}
+          invalidate="people"
+          screen="contacts"
+          create={createContact}
+          fields={[
+            { key: "full_name", label: "create.fullName", required: true },
+            { key: "title", label: "create.personTitle" },
+            { key: "email", label: "create.email", type: "email" },
+          ]}
+        />
+      </div>
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <DataTable

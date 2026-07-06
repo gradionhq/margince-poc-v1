@@ -11,6 +11,7 @@ import {
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
+import { CreateAction } from "./create";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
 // lead surface is accent-tinted, lead detail is its own screen (never
@@ -49,9 +50,38 @@ export function LeadsScreen() {
       return data;
     },
   });
+  const createLead = async (values: Record<string, string>) => {
+    const { data, error } = await api.POST("/leads", {
+      body: {
+        full_name: values.full_name?.trim() || null,
+        email: values.email?.trim() || null,
+        company_name: values.company_name?.trim() || null,
+        status: "new",
+        source: "manual",
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    return data;
+  };
+
   return (
     <div className="wrap lead-surface">
-      <SectionHeader title={t("nav.leads")} sub={t("lead.segregated")} />
+      <div className="list-head">
+        <SectionHeader title={t("nav.leads")} sub={t("lead.segregated")} />
+        <CreateAction
+          label={t("create.lead")}
+          invalidate="leads"
+          screen="leads"
+          create={createLead}
+          fields={[
+            { key: "full_name", label: "create.fullName", required: true },
+            { key: "email", label: "create.email", type: "email" },
+            { key: "company_name", label: "create.companyName" },
+          ]}
+        />
+      </div>
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <DataTable

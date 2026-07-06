@@ -209,6 +209,32 @@
   color: var(--textMeta);
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.input {
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  color: var(--textPrimary);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 9px 11px;
+  width: 100%;
+  outline: none;
+  transition: 0.15s;
+}
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+select.input {
+  cursor: pointer;
+}
+
 .input-icon {
   position: relative;
   display: inline-flex;

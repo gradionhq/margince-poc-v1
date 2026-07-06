@@ -22,6 +22,7 @@ import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
+import { CreateAction } from "./create";
 import { activityTimeline } from "./people";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
@@ -130,7 +131,9 @@ function dealStatusTone(
   return undefined;
 }
 
-export function DealsScreen() {
+export function DealsScreen({
+  startCreating = false,
+}: Readonly<{ startCreating?: boolean }>) {
   const t = useT();
   const queryClient = useQueryClient();
   const pipelineQuery = usePipeline();
@@ -172,6 +175,48 @@ export function DealsScreen() {
   });
 
   const stages = pipelineQuery.data?.stages ?? [];
+
+  const orgsQuery = useQuery({
+    queryKey: ["organizations"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations", {
+        params: { query: { limit: 50 } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+
+  const createDeal = async (values: Record<string, string>) => {
+    const pipeline = pipelineQuery.data;
+    if (!pipeline) {
+      throw new Error(problemMessage(null));
+    }
+    const amount = values.amount?.trim();
+    const { data, error } = await api.POST("/deals", {
+      body: {
+        name: values.name.trim(),
+        pipeline_id: pipeline.id,
+        stage_id: values.stage_id,
+        // The UI takes major units; the wire is minor units.
+        amount_minor: amount ? Math.round(Number(amount) * 100) : null,
+        currency: values.currency || "EUR",
+        organization_id: values.organization_id || null,
+        expected_close_date: values.expected_close_date || null,
+        source: "manual",
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    return data;
+  };
+
+  // Open-stage targets only: a deal is born open (INV-CLOSE-PAST twin rule);
+  // won/lost are reached through the confirmed advance, never at create.
+  const openStages = stages.filter((stage) => stage.semantic === "open");
 
   const requestAdvance = (dealId: string, stageId: string) => {
     const toStage = stages.find((stage) => stage.id === stageId);
@@ -226,7 +271,56 @@ export function DealsScreen() {
 
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.deals")} />
+      <div className="list-head">
+        <SectionHeader title={t("nav.deals")} />
+        {openStages.length > 0 && (
+          <CreateAction
+            label={t("create.deal")}
+            invalidate="deals"
+            screen="deals"
+            create={createDeal}
+            startOpen={startCreating}
+            fields={[
+              { key: "name", label: "create.dealName", required: true },
+              { key: "amount", label: "create.amount", type: "number" },
+              {
+                key: "currency",
+                label: "create.currency",
+                type: "select",
+                required: true,
+                options: ["EUR", "USD", "GBP", "CHF"].map((code) => ({
+                  value: code,
+                  label: code,
+                })),
+              },
+              {
+                key: "stage_id",
+                label: "create.stage",
+                type: "select",
+                required: true,
+                options: openStages.map((stage) => ({
+                  value: stage.id,
+                  label: stage.name,
+                })),
+              },
+              {
+                key: "organization_id",
+                label: "create.organization",
+                type: "select",
+                options: (orgsQuery.data?.data ?? []).map((org) => ({
+                  value: org.id,
+                  label: org.display_name,
+                })),
+              },
+              {
+                key: "expected_close_date",
+                label: "create.expectedClose",
+                type: "date",
+              },
+            ]}
+          />
+        )}
+      </div>
       <div style={{ marginBottom: 12 }}>
         <SegmentedControl
           options={["board", "table"] as const}
