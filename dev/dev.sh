@@ -28,7 +28,7 @@ cleanup() {
   echo "dev: shutting down…"
   # Kill the whole process group's children we started.
   for pid in "${API_PID:-}" "${DOOR_PID:-}" "${VITE_PID:-}"; do
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
   done
   rm -rf "$SCRATCH"
 }
@@ -36,10 +36,10 @@ trap cleanup EXIT INT TERM
 
 # --- AI key: real model powers the /coldstart read-back happy path ----------
 AI_FLAG=(--ai-fake)
-if [ -f .env.local ]; then
+if [[ -f .env.local ]]; then
   set -a; . ./.env.local; set +a
 fi
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
   # Inject the literal key onto every anthropic tier binding.
   sed "s#provider: anthropic, model: \([^ }]*\)#provider: anthropic, model: \1, api_key: ${ANTHROPIC_API_KEY}#g" \
     backend/ai-routing.yaml > "$ROUTING"

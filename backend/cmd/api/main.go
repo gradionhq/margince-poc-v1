@@ -25,10 +25,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
@@ -83,7 +83,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, compose.WithPublicBaseURL(*publicBaseURL))
 	}
 
-	stopRelay := func() {}
+	stopRelay := func() {
+		// No inline relay to stop unless --inline-relay wires one below.
+	}
 	if *inlineRelay {
 		busReady, stop, err := startInlineRelay(ctx, pool, *redisAddr, logger)
 		if err != nil {

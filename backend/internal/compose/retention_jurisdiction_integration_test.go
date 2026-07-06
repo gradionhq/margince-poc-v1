@@ -19,6 +19,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	// Registering the DE jurisdiction pack arms the GoBD retention floors
+	// this test exercises (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"

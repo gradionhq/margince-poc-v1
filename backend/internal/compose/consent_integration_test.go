@@ -252,10 +252,10 @@ func TestDOIIssuanceSupersedesAndValidatesPurpose(t *testing.T) {
 		t.Fatalf("superseded token redeemed → %d, want 422", status)
 	}
 	// …the fresh one does.
-	if status := c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
+	if c.call(t, "POST", "/v1/people/"+c.personID+"/consent", anyMap{
 		"purpose_id": c.purposes["marketing_email"], "new_state": "granted",
 		"double_opt_in_token": second,
-	}, nil, nil); status != http.StatusOK {
+	}, nil, nil) != http.StatusOK {
 		t.Fatalf("fresh token refused")
 	}
 

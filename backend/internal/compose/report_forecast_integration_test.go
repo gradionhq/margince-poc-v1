@@ -225,7 +225,7 @@ func wireInt(t *testing.T, row map[string]any, key string) int64 {
 // weightedMinor mirrors formulas-and-rules §6: round(amount ×
 // probability / 100) per deal, half away from zero — the ground truth
 // the report must reconcile to.
-func weightedMinor(amountMinor int64, probability int64) int64 {
+func weightedMinor(amountMinor, probability int64) int64 {
 	return (amountMinor*probability + 50) / 100
 }
 
