@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -12,7 +11,7 @@ import {
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
-import { CreateRecordModal, NewRecordButton, useCreateRecord } from "./create";
+import { CreateAction } from "./create";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
 // lead surface is accent-tinted, lead detail is its own screen (never
@@ -51,51 +50,38 @@ export function LeadsScreen() {
       return data;
     },
   });
-  const [creating, setCreating] = useState(false);
-
-  const create = useCreateRecord({
-    invalidate: "leads",
-    screen: "leads",
-    onDone: () => setCreating(false),
-    create: async (values) => {
-      const { data, error } = await api.POST("/leads", {
-        body: {
-          full_name: values.full_name?.trim() || null,
-          email: values.email?.trim() || null,
-          company_name: values.company_name?.trim() || null,
-          status: "new",
-          source: "manual",
-        },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
+  const createLead = async (values: Record<string, string>) => {
+    const { data, error } = await api.POST("/leads", {
+      body: {
+        full_name: values.full_name?.trim() || null,
+        email: values.email?.trim() || null,
+        company_name: values.company_name?.trim() || null,
+        status: "new",
+        source: "manual",
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    return data;
+  };
 
   return (
     <div className="wrap lead-surface">
       <div className="list-head">
         <SectionHeader title={t("nav.leads")} sub={t("lead.segregated")} />
-        <NewRecordButton
+        <CreateAction
           label={t("create.lead")}
-          onClick={() => setCreating(true)}
+          invalidate="leads"
+          screen="leads"
+          create={createLead}
+          fields={[
+            { key: "full_name", label: "create.fullName", required: true },
+            { key: "email", label: "create.email", type: "email" },
+            { key: "company_name", label: "create.companyName" },
+          ]}
         />
       </div>
-      <CreateRecordModal
-        open={creating}
-        onClose={() => setCreating(false)}
-        title={t("create.lead")}
-        fields={[
-          { key: "full_name", label: "create.fullName", required: true },
-          { key: "email", label: "create.email", type: "email" },
-          { key: "company_name", label: "create.companyName" },
-        ]}
-        pending={create.isPending}
-        error={create.isError ? create.error.message : null}
-        onSubmit={(values) => create.mutate(values)}
-      />
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <DataTable

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -8,7 +7,7 @@ import { RecordView } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
-import { CreateRecordModal, NewRecordButton, useCreateRecord } from "./create";
+import { CreateAction } from "./create";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -30,51 +29,42 @@ export function CompaniesScreen() {
       return data;
     },
   });
-  const [creating, setCreating] = useState(false);
-
-  const create = useCreateRecord({
-    invalidate: "organizations",
-    screen: "companies",
-    onDone: () => setCreating(false),
-    create: async (values) => {
-      const domain = values.domain?.trim().toLowerCase();
-      const { data, error } = await api.POST("/organizations", {
-        body: {
-          display_name: values.display_name.trim(),
-          industry: values.industry?.trim() || null,
-          ...(domain ? { domains: [{ domain, is_primary: true }] } : {}),
-          source: "manual",
-        },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
+  const createCompany = async (values: Record<string, string>) => {
+    const domain = values.domain?.trim().toLowerCase();
+    const { data, error } = await api.POST("/organizations", {
+      body: {
+        display_name: values.display_name.trim(),
+        industry: values.industry?.trim() || null,
+        ...(domain ? { domains: [{ domain, is_primary: true }] } : {}),
+        source: "manual",
+      },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    return data;
+  };
 
   return (
     <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.companies")} />
-        <NewRecordButton
+        <CreateAction
           label={t("create.company")}
-          onClick={() => setCreating(true)}
+          invalidate="organizations"
+          screen="companies"
+          create={createCompany}
+          fields={[
+            {
+              key: "display_name",
+              label: "create.displayName",
+              required: true,
+            },
+            { key: "industry", label: "create.industry" },
+            { key: "domain", label: "create.domain", placeholder: "acme.com" },
+          ]}
         />
       </div>
-      <CreateRecordModal
-        open={creating}
-        onClose={() => setCreating(false)}
-        title={t("create.company")}
-        fields={[
-          { key: "display_name", label: "create.displayName", required: true },
-          { key: "industry", label: "create.industry" },
-          { key: "domain", label: "create.domain", placeholder: "acme.com" },
-        ]}
-        pending={create.isPending}
-        error={create.isError ? create.error.message : null}
-        onSubmit={(values) => create.mutate(values)}
-      />
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <DataTable

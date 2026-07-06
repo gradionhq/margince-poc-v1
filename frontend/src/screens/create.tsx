@@ -47,6 +47,47 @@ export function useCreateRecord<Created extends { id: string }>({
   });
 }
 
+// The whole per-screen create affordance in one piece: the button, the modal,
+// its open state, and the post-create choreography. A list screen supplies
+// its label, fields, and transport — nothing else.
+export function CreateAction<Created extends { id: string }>({
+  label,
+  fields,
+  create,
+  invalidate,
+  screen,
+  startOpen = false,
+}: Readonly<{
+  label: string;
+  fields: CreateField[];
+  create: (values: Record<string, string>) => Promise<Created>;
+  invalidate: string;
+  screen: string;
+  startOpen?: boolean;
+}>) {
+  const [creating, setCreating] = useState(startOpen);
+  const mutation = useCreateRecord({
+    create,
+    invalidate,
+    screen,
+    onDone: () => setCreating(false),
+  });
+  return (
+    <>
+      <NewRecordButton label={label} onClick={() => setCreating(true)} />
+      <CreateRecordModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        title={label}
+        fields={fields}
+        pending={mutation.isPending}
+        error={mutation.isError ? mutation.error.message : null}
+        onSubmit={(values) => mutation.mutate(values)}
+      />
+    </>
+  );
+}
+
 export function NewRecordButton({
   label,
   onClick,
