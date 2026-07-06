@@ -169,6 +169,16 @@ export const en = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Warmth",
 
+  "enrich.title": "Read from the website",
+  "enrich.sub":
+    "evidence-or-omit — fills only empty fields, and only after your approval",
+  "enrich.cta": "Read now",
+  "enrich.reading": "Reading…",
+  "enrich.staged":
+    "Staged — nothing written yet. Accept it in your inbox; only empty fields fill.",
+  "enrich.toInbox": "Open inbox",
+  "enrich.from": "read from {url}",
+
   "create.cancel": "Cancel",
   "create.save": "Create",
   "create.saving": "Creating…",
