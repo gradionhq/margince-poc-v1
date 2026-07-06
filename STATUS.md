@@ -81,11 +81,40 @@ computed value can now be **surfaced** (new display wiring, not a redo).
 
 New backlog ticket: **B-E01.13** speech-input cold-start accelerator (feedback/18).
 
-## Session (2026-07-06 AM) — reconciliation redo + resuming batch-5
+## Session close (2026-07-06 AM) — reconciliation redone; batch-5 interrupted
 
-This session redid the three reopened tickets (block above), then resumes
-the batch-5 queue. Migrations now at **0046**. **Next up:** B-E08.1→4 the
-warm-room signals spine (see `scratchpad/night-queue.md` batch-5 queue).
+**Shipped and CI-green on origin/main** (each push: full `make check`,
+full integration lane, craft static 0 blockers, and parallel craft +
+security review agents with every confirmed finding fixed in-slice):
+
+- `136d1ce` — B-EP06.14 per-field split + B-E07.5a voice text-only (the
+  first two reopened tickets; details in the reconciliation block above),
+  including the case-variant key security hardening the review loop found.
+- `e66c59c` — the lead-score sticky override (migration **0046**).
+
+Migrations at **0046**. feedback/25–27 filed (meter-unit wording, per-field
+precedence notes incl. the create-time sparse-audit gap, score-clear gesture).
+
+**Interrupted mid-flight (session token limit):** two build agents died
+mid-implementation — B-E08.1→4 warm-room signals (migration 0047, a new
+`modules/signals`, contract ops added but compose handlers unfinished —
+tree did NOT build) and B-E13.7b lead routing (engine + tests, near-complete
+but unreviewed). Their combined WIP (~2k lines, both agents' work
+interleaved in shared files) is archived as a clean-applying patch:
+**`feedback/wip-2026-07-06-e08-signals-e13-routing.patch`**
+(`git apply` it on `e66c59c`/HEAD; verify with `git apply --check`). The
+committed tree carries NOTHING partial — build + tests green at HEAD.
+
+**Pick up next:** re-apply the patch and finish B-E08 (the missing compose
+handlers for the signal ops — the build error names them, e.g.
+`ArchiveSignal`; then the resolver/warm-cold/intro-path acceptance tests)
+and gate B-E13.7b separately, or restart both tickets clean if the patch
+has drifted. Then the rest of the batch-5 queue (preference center
+B-E11.32, export bundle B-E11.10a, brief HTTP surface + L2 ranker,
+reconciliation B-E06.2a, smart lists E15.11/12 on the landed predicate
+engine). Advisory (non-blocking) craft notes to fold in someday:
+`modules/people/lead.go` is 517 lines (> 500 — split by concept);
+`approvals.decide` is 97 body lines.
 
 ## Session close (2026-07-06 early AM) — where to pick up
 
