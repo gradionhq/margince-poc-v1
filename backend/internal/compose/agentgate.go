@@ -57,64 +57,79 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 				next.ServeHTTP(w, r)
 				return
 			}
-
-			// The generated table is keyed by the chi route pattern the
-			// contract router registered; a mutating route it doesn't
-			// know is refused, never admitted ungated (ADR-0055 §2).
-			pattern := chi.RouteContext(ctx).RoutePattern()
-			pol, known := agentPolicies[r.Method+" "+pattern]
-			if !known {
-				httperr.Write(w, r, fmt.Errorf(
-					"agent gate: %s %s carries no autonomy tier: %w", r.Method, pattern, apperrors.ErrPermissionDenied))
-				return
-			}
-			if pol.Access != "tool" {
-				// human-only governance (self-approval class) and the
-				// session/bootstrap machinery: an agent principal is
-				// rejected outright, whatever its scope or seat.
-				httperr.Write(w, r, fmt.Errorf(
-					"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
-				return
-			}
-
-			spec, ok := operationSpec(pol, reg)
+			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
 			if !ok {
-				httperr.Write(w, r, fmt.Errorf(
-					"agent gate: %s declares a dynamic tier with no resolvable tool: %w", pol.Op, apperrors.ErrPermissionDenied))
 				return
 			}
-
-			body, err := io.ReadAll(io.LimitReader(r.Body, maxGatedBody+1))
-			if err != nil || len(body) > maxGatedBody {
-				httperr.Write(w, r, httperr.Validation("body", "too_large", "request body unreadable or exceeds the gated limit"))
-				return
-			}
-			r.Body = io.NopCloser(bytes.NewReader(body))
-
-			resolve, ok := tierInput(ctx, spec, pol, deps, r, body)
-			if !ok {
-				httperr.Write(w, r, fmt.Errorf(
-					"agent gate: %s: no REST tier resolver for dynamic tool %s: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
-				return
-			}
-
-			ctx, err = gate.Admit(ctx, spec, resolve)
+			ctx, err := gate.Admit(ctx, spec, resolve)
 			r = r.WithContext(ctx)
-			switch {
-			case err == nil:
-				if pol.Tool == "update_record" && !actionShapedUpdateOps[pol.Op] {
-					splitOrRedeemUpdate(w, r, next, staging, ownership, pol, body)
-					return
-				}
-				next.ServeHTTP(w, r)
-				return
-			case !errors.Is(err, apperrors.ErrRequiresApproval) || staging == nil:
-				httperr.Write(w, r, err)
-				return
-			}
-
-			stageOrRedeem(w, r, next, staging, pol, body)
+			admitAgentCall(w, r, next, staging, ownership, pol, body, err)
 		})
+	}
+}
+
+// prepareAgentGate resolves the admission inputs for a mutating agent call:
+// the op→tier policy for the route, its ToolSpec, the buffered body (reset
+// onto the request for the downstream handler), and the lazy tier-resolver
+// input. It writes the refusal and reports ok=false when the route is
+// unknown, human-only, unresolvable, or over the body cap (fail-closed).
+func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Registry, deps tierDeps) (mcp.ToolSpec, func() (mcp.TierResolverInput, error), agentPolicy, []byte, bool) {
+	ctx := r.Context()
+	// The generated table is keyed by the chi route pattern the contract
+	// router registered; a mutating route it doesn't know is refused, never
+	// admitted ungated (ADR-0055 §2).
+	pattern := chi.RouteContext(ctx).RoutePattern()
+	pol, known := agentPolicies[r.Method+" "+pattern]
+	if !known {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s %s carries no autonomy tier: %w", r.Method, pattern, apperrors.ErrPermissionDenied))
+		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
+	}
+	if pol.Access != "tool" {
+		// human-only governance (self-approval class) and the
+		// session/bootstrap machinery: an agent principal is rejected
+		// outright, whatever its scope or seat.
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
+		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
+	}
+	spec, ok := operationSpec(pol, reg)
+	if !ok {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s declares a dynamic tier with no resolvable tool: %w", pol.Op, apperrors.ErrPermissionDenied))
+		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxGatedBody+1))
+	if err != nil || len(body) > maxGatedBody {
+		httperr.Write(w, r, httperr.Validation("body", "too_large", "request body unreadable or exceeds the gated limit"))
+		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	resolve, ok := tierInput(ctx, spec, pol, deps, r, body)
+	if !ok {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s: no REST tier resolver for dynamic tool %s: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
+		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
+	}
+	return spec, resolve, pol, body, true
+}
+
+// admitAgentCall dispatches a mutating agent call on the admission outcome:
+// admitted 🟢 work runs (a field-shaped update_record edit routes through
+// the per-field owner check first); a 🟡 refusal stages or redeems the
+// approval; any other admission error is surfaced as-is.
+func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte, err error) {
+	switch {
+	case err == nil:
+		if pol.Tool == "update_record" && !actionShapedUpdateOps[pol.Op] {
+			splitOrRedeemUpdate(w, r, next, staging, ownership, pol, body)
+			return
+		}
+		next.ServeHTTP(w, r)
+	case !errors.Is(err, apperrors.ErrRequiresApproval) || staging == nil:
+		httperr.Write(w, r, err)
+	default:
+		stageOrRedeem(w, r, next, staging, pol, body)
 	}
 }
 

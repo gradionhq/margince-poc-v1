@@ -342,69 +342,92 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
-
-		where := []string{spec.baseWhere}
-		// Deterministic filter order — the plan echo and the SQL must not
-		// depend on map iteration.
-		filterKeys := make([]string, 0, len(req.Filters))
-		for key := range req.Filters {
-			filterKeys = append(filterKeys, key)
-		}
-		sort.Strings(filterKeys)
-		for _, key := range filterKeys {
-			expr, ok := spec.filters[key]
-			if !ok {
-				return &FieldNotAllowedError{Field: key}
-			}
-			where = append(where, fmt.Sprintf("%s = $%d", expr, arg(req.Filters[key])))
-		}
-		var scope string
-		var err error
-		if spec.activityWalk {
-			scope, err = auth.ActivityScopeClause(ctx, "t", arg)
-		} else {
-			scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
-		}
+		where, err := buildReportWhere(ctx, spec, req, arg)
 		if err != nil {
 			return err
 		}
-		if scope != "" {
-			where = append(where, scope)
-		}
-
-		sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s",
-			strings.Join(selects, ", "), spec.fromClause(), strings.Join(where, " AND "))
-		if len(groupBy) > 0 {
-			positions := make([]string, len(groupBy))
-			for i := range groupBy {
-				positions[i] = fmt.Sprint(i + 1)
-			}
-			sql += " GROUP BY " + strings.Join(positions, ", ") + " ORDER BY " + strings.Join(positions, ", ")
-		}
-		sql += fmt.Sprintf(" LIMIT %d", reportRowLimit)
-
-		pgRows, err := tx.Query(ctx, sql, args...)
+		pgRows, err := tx.Query(ctx, reportSQL(spec, selects, where, groupBy), args...)
 		if err != nil {
 			return fmt.Errorf("report %s: %w", report, err)
 		}
 		defer pgRows.Close()
-		for pgRows.Next() {
-			values, err := pgRows.Values()
-			if err != nil {
-				return err
-			}
-			row := make(map[string]any, len(columns))
-			for i, col := range columns {
-				row[col] = wireValue(values[i])
-			}
-			rows = append(rows, row)
-		}
-		return pgRows.Err()
+		rows, err = scanReportRows(pgRows, columns)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+// buildReportWhere assembles the WHERE side — the spec's base predicate,
+// the validated caller filters (sorted for a deterministic plan echo), and
+// the caller's row-scope clause — binding every value through arg.
+func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, arg func(any) int) ([]string, error) {
+	where := []string{spec.baseWhere}
+	// Deterministic filter order — the plan echo and the SQL must not
+	// depend on map iteration.
+	filterKeys := make([]string, 0, len(req.Filters))
+	for key := range req.Filters {
+		filterKeys = append(filterKeys, key)
+	}
+	sort.Strings(filterKeys)
+	for _, key := range filterKeys {
+		expr, ok := spec.filters[key]
+		if !ok {
+			return nil, &FieldNotAllowedError{Field: key}
+		}
+		where = append(where, fmt.Sprintf("%s = $%d", expr, arg(req.Filters[key])))
+	}
+	var scope string
+	var err error
+	if spec.activityWalk {
+		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
+	} else {
+		scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+	return where, nil
+}
+
+// reportSQL renders the aggregate query: the validated SELECT list over the
+// spec's FROM and WHERE, grouped and ordered by the dimension positions,
+// bounded by the report row limit.
+func reportSQL(spec reportSpec, selects, where, groupBy []string) string {
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s",
+		strings.Join(selects, ", "), spec.fromClause(), strings.Join(where, " AND "))
+	if len(groupBy) > 0 {
+		positions := make([]string, len(groupBy))
+		for i := range groupBy {
+			positions[i] = fmt.Sprint(i + 1)
+		}
+		sql += " GROUP BY " + strings.Join(positions, ", ") + " ORDER BY " + strings.Join(positions, ", ")
+	}
+	sql += fmt.Sprintf(" LIMIT %d", reportRowLimit)
+	return sql
+}
+
+// scanReportRows shapes each result row into a column→value map, rendering
+// values wire-friendly.
+func scanReportRows(pgRows pgx.Rows, columns []string) ([]map[string]any, error) {
+	var rows []map[string]any
+	for pgRows.Next() {
+		values, err := pgRows.Values()
+		if err != nil {
+			return nil, err
+		}
+		row := make(map[string]any, len(columns))
+		for i, col := range columns {
+			row[col] = wireValue(values[i])
+		}
+		rows = append(rows, row)
+	}
+	return rows, pgRows.Err()
 }
 
 // wireValue renders driver-native values JSON-friendly: uuids as their

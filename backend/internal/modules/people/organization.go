@@ -274,51 +274,68 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOr
 		if err != nil {
 			return fmt.Errorf("read organization before update: %w", err)
 		}
-
-		p := storekit.NewPatch()
-		if in.DisplayName != nil {
-			p.Set("display_name", current.DisplayName, *in.DisplayName)
-		}
-		if in.LegalName != nil {
-			p.Set("legal_name", current.LegalName, *in.LegalName)
-		}
-		if in.Industry != nil {
-			p.Set("industry", current.Industry, *in.Industry)
-		}
-		if in.SizeBand != nil {
-			p.Set("size_band", current.SizeBand, *in.SizeBand)
-		}
-		if in.OwnerID != nil {
-			p.Set("owner_id", current.OwnerId, *in.OwnerID)
-		}
-		if in.ParentOrgID != nil {
-			// Re-parenting is a read of the new parent (the create-path rule).
-			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.ParentOrgID); err != nil {
-				return err
-			}
-			p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
+		p, err := buildOrganizationPatch(ctx, tx, current, in)
+		if err != nil {
+			return err
 		}
 		if p.Empty() {
 			out = current
 			return nil
 		}
-
-		if err := p.Apply(ctx, tx, "organization", id, in.IfVersion); err != nil {
-			return fmt.Errorf("apply organization patch: %w", err)
-		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id, p.Before(), p.After())
-		if err != nil {
-			return fmt.Errorf("audit organization update: %w", err)
-		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id, p.After()); err != nil {
-			return fmt.Errorf("emit organization.updated: %w", err)
-		}
-		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read updated organization: %w", err)
-		}
-		return nil
+		out, err = writeOrganizationUpdate(ctx, tx, id, in.IfVersion, p)
+		return err
 	})
 	return out, err
+}
+
+// buildOrganizationPatch folds the caller's sparse org edit into a patch.
+// Naming a new parent is a read of that parent (the create-path rule), so
+// it is visibility-probed before the edge lands.
+func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Organization, in UpdateOrganizationInput) (*storekit.Patch, error) {
+	p := storekit.NewPatch()
+	if in.DisplayName != nil {
+		p.Set("display_name", current.DisplayName, *in.DisplayName)
+	}
+	if in.LegalName != nil {
+		p.Set("legal_name", current.LegalName, *in.LegalName)
+	}
+	if in.Industry != nil {
+		p.Set("industry", current.Industry, *in.Industry)
+	}
+	if in.SizeBand != nil {
+		p.Set("size_band", current.SizeBand, *in.SizeBand)
+	}
+	if in.OwnerID != nil {
+		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+	}
+	if in.ParentOrgID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.ParentOrgID); err != nil {
+			return nil, err
+		}
+		p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
+	}
+	return p, nil
+}
+
+// writeOrganizationUpdate lands the patch on the write shape — domain row,
+// audit row, and organization.updated event in the one transaction — and
+// returns the reloaded survivor.
+func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, ifVersion *int64, p *storekit.Patch) (crmcontracts.Organization, error) {
+	if err := p.Apply(ctx, tx, "organization", id, ifVersion); err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("apply organization patch: %w", err)
+	}
+	auditID, err := storekit.Audit(ctx, tx, "update", "organization", id, p.Before(), p.After())
+	if err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("audit organization update: %w", err)
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id, p.After()); err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("emit organization.updated: %w", err)
+	}
+	out, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("read updated organization: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontracts.Organization, error) {
