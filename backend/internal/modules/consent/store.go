@@ -210,14 +210,7 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		if err := auth.EnsureVisible(ctx, tx, "person", in.PersonID); err != nil {
 			return err
 		}
-		var purposeKey string
-		var requiresDOI bool
-		err := tx.QueryRow(ctx,
-			`SELECT key, requires_double_opt_in FROM consent_purpose WHERE id = $1 AND archived_at IS NULL`,
-			in.PurposeID).Scan(&purposeKey, &requiresDOI)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("purpose %s: %w", in.PurposeID, apperrors.ErrNotFound)
-		}
+		purposeKey, requiresDOI, err := loadConsentPurpose(ctx, tx, in.PurposeID)
 		if err != nil {
 			return err
 		}
@@ -237,21 +230,9 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 			return nil // the decision on record stands; an anonymous capture cannot flip it
 		}
 
-		// The German email norm: a DOI purpose's grant is only effective
-		// once the double-opt-in round-trip confirmed. The token must be
-		// one this server issued (hash-matched, unconsumed, unexpired) —
-		// consuming it here makes the confirmation single-use and
-		// unfabricatable rather than stored half-true.
-		var doiConfirmedAt *time.Time
-		if in.NewState == "granted" && requiresDOI {
-			if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
-				return &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}
-			}
-			confirmed, err := s.consumeDOIToken(ctx, tx, in.PersonID, in.PurposeID, *in.DoubleOptInToken)
-			if err != nil {
-				return err
-			}
-			doiConfirmedAt = &confirmed
+		doiConfirmedAt, err := s.resolveDOIConfirmation(ctx, tx, in, requiresDOI)
+		if err != nil {
+			return err
 		}
 
 		capturedAt := s.now().UTC()
@@ -279,6 +260,40 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		return nil
 	})
 	return out, err
+}
+
+// loadConsentPurpose resolves the target purpose's key and DOI flag; an
+// unknown or archived purpose is 404.
+func loadConsentPurpose(ctx context.Context, tx pgx.Tx, purposeID ids.UUID) (key string, requiresDOI bool, err error) {
+	err = tx.QueryRow(ctx,
+		`SELECT key, requires_double_opt_in FROM consent_purpose WHERE id = $1 AND archived_at IS NULL`,
+		purposeID).Scan(&key, &requiresDOI)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("purpose %s: %w", purposeID, apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return key, requiresDOI, nil
+}
+
+// resolveDOIConfirmation enforces the German email norm: a DOI purpose's
+// grant is only effective once the double-opt-in round-trip confirmed.
+// The token must be one this server issued (hash-matched, unconsumed,
+// unexpired) — consuming it here makes the confirmation single-use and
+// unfabricatable rather than stored half-true. Non-DOI paths return nil.
+func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in RecordInput, requiresDOI bool) (*time.Time, error) {
+	if in.NewState != "granted" || !requiresDOI {
+		return nil, nil
+	}
+	if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
+		return nil, &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}
+	}
+	confirmed, err := s.consumeDOIToken(ctx, tx, in.PersonID, in.PurposeID, *in.DoubleOptInToken)
+	if err != nil {
+		return nil, err
+	}
+	return &confirmed, nil
 }
 
 // upsertConsentWithProof writes the state row and appends the immutable

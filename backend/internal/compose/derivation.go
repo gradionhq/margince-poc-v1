@@ -259,26 +259,9 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 
-		where := []string{spec.baseWhere}
-		for _, p := range plan.preds {
-			if p.value == "" {
-				where = append(where, p.expr+" IS NULL")
-			} else {
-				where = append(where, fmt.Sprintf("%s = $%d", p.expr, arg(p.value)))
-			}
-		}
-		var scope string
-		var err error
-		if spec.activityWalk {
-			scope, err = auth.ActivityScopeClause(ctx, "t", arg)
-		} else {
-			scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
-		}
+		where, err := derivationWhere(ctx, spec, plan, arg)
 		if err != nil {
 			return err
-		}
-		if scope != "" {
-			where = append(where, scope)
 		}
 		whereSQL := strings.Join(where, " AND ")
 
@@ -289,18 +272,8 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 			return fmt.Errorf("derivation %s rows: %w", report, err)
 		}
 		defer pgRows.Close()
-		for pgRows.Next() {
-			values, err := pgRows.Values()
-			if err != nil {
-				return err
-			}
-			row := make(map[string]any, len(plan.columns))
-			for i, col := range plan.columns {
-				row[col] = wireValue(values[i])
-			}
-			out.Rows = append(out.Rows, row)
-		}
-		if err := pgRows.Err(); err != nil {
+		out.Rows, err = scanDerivationRows(pgRows, plan.columns)
+		if err != nil {
 			return err
 		}
 		pgRows.Close()
@@ -329,6 +302,58 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		}
 		return nil
 	})
+}
+
+// derivationWhere renders the drill-through's WHERE side: the report's
+// base predicate, the validated equality predicates ("" = SQL NULL), and
+// the caller's row-scope clause (the activity link-walk when the report
+// rides on activities). The identical clause backs both the rows query
+// and the aggregate recompute, so the explanation can never out-see the
+// number it explains.
+func derivationWhere(ctx context.Context, spec reportSpec, plan derivationPlan, arg func(any) int) ([]string, error) {
+	where := []string{spec.baseWhere}
+	for _, p := range plan.preds {
+		if p.value == "" {
+			where = append(where, p.expr+" IS NULL")
+		} else {
+			where = append(where, fmt.Sprintf("%s = $%d", p.expr, arg(p.value)))
+		}
+	}
+	var scope string
+	var err error
+	if spec.activityWalk {
+		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
+	} else {
+		scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+	return where, nil
+}
+
+// scanDerivationRows materializes the drill-through rows, mapping each
+// column to its wire value positionally.
+func scanDerivationRows(pgRows pgx.Rows, columns []string) ([]map[string]any, error) {
+	var out []map[string]any
+	for pgRows.Next() {
+		values, err := pgRows.Values()
+		if err != nil {
+			return nil, err
+		}
+		row := make(map[string]any, len(columns))
+		for i, col := range columns {
+			row[col] = wireValue(values[i])
+		}
+		out = append(out, row)
+	}
+	if err := pgRows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // boundPredicate is one field = value binding rendered into the

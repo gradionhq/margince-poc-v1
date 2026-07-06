@@ -314,34 +314,9 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 			return err
 		}
 
-		p := storekit.NewPatch()
-		if in.FullName != nil {
-			p.Set("full_name", current.FullName, *in.FullName)
-		}
-		if in.Email != nil {
-			p.Set("email", current.Email, strings.ToLower(*in.Email))
-		}
-		if in.Title != nil {
-			p.Set("title", current.Title, *in.Title)
-		}
-		if in.CompanyName != nil {
-			p.Set("company_name", current.CompanyName, *in.CompanyName)
-		}
-		if in.CandidateOrgKey != nil {
-			p.Set("candidate_org_key", current.CandidateOrgKey, *in.CandidateOrgKey)
-		}
-		if in.Status != nil {
-			p.Set("status", current.Status, *in.Status)
-		}
-		// Commercial Judgement score override (formulas §3.1, A68/ADR-0053):
-		// a human score is sticky. Setting it demands a written reason and
-		// retains the machine value; clearing the reason resumes recompute.
-		resumeRecompute, err := applyScoreOverride(p, current, in)
+		p, resumeRecompute, err := buildLeadPatch(current, in)
 		if err != nil {
 			return err
-		}
-		if in.OwnerID != nil {
-			p.Set("owner_id", current.OwnerId, *in.OwnerID)
 		}
 		if p.Empty() {
 			out = current
@@ -375,6 +350,42 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 		return err
 	})
 	return out, err
+}
+
+// buildLeadPatch folds the caller's sparse update onto the current lead
+// as a field patch, and reports whether the caller must resume recompute
+// (a cleared score override). The Commercial Judgement score override
+// (formulas §3.1, A68/ADR-0053) is sticky: setting a score demands a
+// written reason and retains the machine value; clearing the reason
+// resumes recompute.
+func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Patch, bool, error) {
+	p := storekit.NewPatch()
+	if in.FullName != nil {
+		p.Set("full_name", current.FullName, *in.FullName)
+	}
+	if in.Email != nil {
+		p.Set("email", current.Email, strings.ToLower(*in.Email))
+	}
+	if in.Title != nil {
+		p.Set("title", current.Title, *in.Title)
+	}
+	if in.CompanyName != nil {
+		p.Set("company_name", current.CompanyName, *in.CompanyName)
+	}
+	if in.CandidateOrgKey != nil {
+		p.Set("candidate_org_key", current.CandidateOrgKey, *in.CandidateOrgKey)
+	}
+	if in.Status != nil {
+		p.Set("status", current.Status, *in.Status)
+	}
+	resumeRecompute, err := applyScoreOverride(p, current, in)
+	if err != nil {
+		return nil, false, err
+	}
+	if in.OwnerID != nil {
+		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+	}
+	return p, resumeRecompute, nil
 }
 
 // applyScoreOverride folds the §3.1 sticky-override rules into the patch
