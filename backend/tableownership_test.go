@@ -109,6 +109,7 @@ var tableOwners = map[string]string{
 	"list_member": "internal/modules/collections",
 	"tag":         "internal/modules/collections",
 	"taggable":    "internal/modules/collections",
+	"saved_view":  "internal/modules/collections",
 	// privacy (the erasure suppression list is the module's own state;
 	// its other writes are ratified waivers below)
 	"erasure_suppression": "internal/modules/privacy",

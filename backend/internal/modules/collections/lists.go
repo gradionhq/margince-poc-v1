@@ -144,6 +144,16 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	if in.ListType == "static" && len(in.Definition) > 0 {
 		return listRow{}, &BadInputError{Field: "definition", Reason: "a static list carries no definition"}
 	}
+	// A dynamic segment's definition is a stored filter the members
+	// endpoint later runs through the ONE engine. Validate it against the
+	// entity's closed vocabulary NOW so an unknown field or an over-deep
+	// tree is rejected at creation (422) rather than at read time — a
+	// list cannot store a filter it could never evaluate.
+	if in.ListType == "dynamic" {
+		if err := validateSegmentDefinition(in.EntityType, in.Definition); err != nil {
+			return listRow{}, err
+		}
+	}
 	var out listRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
@@ -233,9 +243,22 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.UUID, limit int, cur
 		// would leak the existence of records outside the caller's scope. So
 		// each member is disclosed only if its target passes that table's
 		// visibility predicate (unbounded actors get no filter).
-		var listEntityType string
-		if err := tx.QueryRow(ctx, `SELECT entity_type FROM list WHERE id = $1`, listID).Scan(&listEntityType); err != nil {
+		var listEntityType, listType string
+		var definition map[string]any
+		if err := tx.QueryRow(ctx, `SELECT entity_type, list_type, definition FROM list WHERE id = $1`, listID).
+			Scan(&listEntityType, &listType, &definition); err != nil {
 			return err
+		}
+		// A dynamic segment has no explicit members: its membership IS the
+		// live evaluation of its stored filter through the ONE engine. That
+		// evaluation composes the caller's row-scope clause itself
+		// (Query.SelectIDs), so a team-scoped caller's segment excludes the
+		// records they cannot see — the same visibility law the static path
+		// enforces with its per-member probe.
+		if listType == "dynamic" {
+			var segErr error
+			out, page, segErr = s.evaluateSegment(ctx, tx, listID, listEntityType, definition, limit, cursor)
+			return segErr
 		}
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
@@ -331,6 +354,83 @@ func rowScanMember(row pgx.Row, m *memberRow) error {
 	return row.Scan(&m.ID, &m.ListID, &m.EntityType, &m.EntityID, &m.AddedBy, &m.CreatedAt)
 }
 
+// dynamicAddedBy marks a computed segment member: it was never explicitly
+// added, so its provenance is the filter itself, not a user.
+const dynamicAddedBy = "dynamic"
+
+// evaluateSegment runs a dynamic list's stored filter through the ONE
+// engine and returns the matching visible records as members. SelectIDs
+// composes the caller's row-scope clause, so the result is already
+// existence-hidden to the caller's scope; the ids come back id-ordered,
+// which the members endpoint paginates by keyset over the entity id (a
+// computed member carries no member-row id of its own, so the record's
+// own id IS its stable member identifier).
+func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.UUID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
+	engine, ok := segmentEngines[listEntityType]
+	if !ok {
+		// A stored list.entity_type outside the segment set is a schema
+		// invariant break, not a client error — surface it, never guess.
+		return nil, storekit.Page{}, fmt.Errorf("no dynamic segment engine for entity_type %q", listEntityType)
+	}
+	pred, err := predicateFromDefinition(definition)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	matched, err := engine.SelectIDs(ctx, tx, pred, storekit.PredicateRowLimit)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+
+	var after *ids.UUID
+	if cursor != "" {
+		parsed, err := ids.Parse(cursor)
+		if err != nil {
+			return nil, storekit.Page{}, &BadInputError{Field: "cursor", Reason: "malformed"}
+		}
+		after = &parsed
+	}
+
+	out := make([]memberRow, 0, limit)
+	var page storekit.Page
+	for _, entityID := range matched {
+		if after != nil && entityID.String() <= after.String() {
+			continue
+		}
+		if len(out) == limit {
+			page = storekit.Page{HasMore: true, NextCursor: out[limit-1].EntityID.String()}
+			break
+		}
+		out = append(out, memberRow{
+			ID:         entityID,
+			ListID:     listID,
+			EntityType: listEntityType,
+			EntityID:   entityID,
+			AddedBy:    dynamicAddedBy,
+		})
+	}
+	return out, page, nil
+}
+
+// validateSegmentDefinition proves a dynamic list's definition is an
+// evaluable filter over the entity's closed vocabulary before it is
+// stored: it compiles the predicate (discarding the SQL) so an unknown
+// field, a mistyped value, or an over-deep/over-wide tree fails as a
+// PredicateError the transport maps to 422.
+func validateSegmentDefinition(entityType string, definition map[string]any) error {
+	engine, ok := segmentEngines[entityType]
+	if !ok {
+		return &BadInputError{Field: "entity_type", Reason: "no dynamic segment engine for " + entityType}
+	}
+	pred, err := predicateFromDefinition(definition)
+	if err != nil {
+		return err
+	}
+	discard := 0
+	arg := func(any) int { discard++; return discard }
+	_, err = storekit.CompilePredicate(pred, engine.Fields, arg)
+	return err
+}
+
 // ensureListVisible is the list's own row-scope probe (owner_id scoped
 // like every other owner-carrying table; ownerless lists are shared).
 func ensureListVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
@@ -370,12 +470,17 @@ func wireList(l listRow) crmcontracts.List {
 }
 
 func wireMember(m memberRow) crmcontracts.ListMember {
-	return crmcontracts.ListMember{
+	out := crmcontracts.ListMember{
 		Id:         openapi_types.UUID(m.ID),
 		ListId:     openapi_types.UUID(m.ListID),
 		EntityType: crmcontracts.ListMemberEntityType(m.EntityType),
 		EntityId:   openapi_types.UUID(m.EntityID),
 		AddedBy:    &m.AddedBy,
-		CreatedAt:  &m.CreatedAt,
 	}
+	// A computed segment member carries no explicit added-at instant; only
+	// a real list_member row does.
+	if !m.CreatedAt.IsZero() {
+		out.CreatedAt = &m.CreatedAt
+	}
+	return out
 }

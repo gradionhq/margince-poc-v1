@@ -116,6 +116,8 @@ tags:
     description: Static and dynamic-segment lists.
   - name: Tags
     description: Tags applicable to people/orgs/deals/leads.
+  - name: Views
+    description: Per-user saved views (columns, sort, filter state) for a resource.
   - name: Reports
     description: Run validated, typed reports (the clean-core HubSpot fix).
   - name: Search
@@ -2188,7 +2190,7 @@ paths:
     get:
       tags: [Lists]
       operationId: listListMembers
-      summary: List a (static) list's members.
+      summary: List a list's members — explicit rows for a static list, or the live filter evaluation for a dynamic segment.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -2217,6 +2219,90 @@ paths:
               schema: { $ref: '#/components/schemas/ListMember' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  # ------------------------------ /views ------------------------------------
+  /views:
+    get:
+      tags: [Views]
+      operationId: listSavedViews
+      summary: List the caller's saved views (per-user; optionally scoped to one resource).
+      parameters:
+        - name: resource
+          in: query
+          schema: { type: string, enum: [people, organizations, deals, activities, leads, partners] }
+        - $ref: '#/components/parameters/IncludeArchived'
+      responses:
+        '200':
+          description: Saved views.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedViewListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Views]
+      operationId: createSavedView
+      x-mcp-tool: { verb: create_record, record_type: saved_view, tier: green }
+      summary: Save a per-user view (columns, sort, filter state) for a resource.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSavedViewRequest' }
+      responses:
+        '201':
+          description: Created saved view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedView' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /views/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Views]
+      operationId: getSavedView
+      summary: Get one of the caller's saved views by id.
+      responses:
+        '200':
+          description: The saved view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Views]
+      operationId: updateSavedView
+      x-mcp-tool: { verb: update_record, record_type: saved_view, tier: green }
+      summary: Update a saved view's name or query state.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateSavedViewRequest' }
+      responses:
+        '200':
+          description: Updated saved view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Views]
+      operationId: archiveSavedView
+      x-mcp-tool: { verb: archive_record, record_type: saved_view, tier: yellow }
+      summary: Archive a saved view.
+      responses:
+        '200':
+          description: Archived saved view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedView' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ------------------------------ /tags -------------------------------------
   /tags:
@@ -5148,6 +5234,51 @@ components:
       required: [data, page]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Tag' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    SavedView:
+      type: object
+      description: >-
+        A per-user saved view (columns, sort, filter state) over one resource.
+        Mirrors the `saved_view` table. V1 is private (owner-only); shared/team
+        views are a fast-follow.
+      required: [id, workspace_id, owner_id, resource, name, query, version]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        owner_id: { type: string, format: uuid }
+        shared_scope: { type: string, enum: [private, team, workspace], default: private, description: V1 enforces private. }
+        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners] }
+        name: { type: string }
+        query:
+          type: object
+          additionalProperties: true
+          description: The saved column choice, sort, and filter state (§13.5 vocabulary); persisted verbatim and restored exactly.
+        version: { type: integer, format: int64, description: Optimistic-concurrency version; echo it in If-Match on update. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateSavedViewRequest:
+      type: object
+      required: [resource, name, query]
+      properties:
+        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners] }
+        name: { type: string }
+        query: { type: object, additionalProperties: true }
+
+    UpdateSavedViewRequest:
+      type: object
+      description: A partial update; omitted fields keep their stored value.
+      properties:
+        name: { type: string }
+        query: { type: object, additionalProperties: true }
+
+    SavedViewListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/SavedView' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- Identity (User / Team / Role) ----

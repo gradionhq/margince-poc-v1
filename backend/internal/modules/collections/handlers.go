@@ -183,10 +183,96 @@ func (h Handlers) ApplyTag(w http.ResponseWriter, r *http.Request, id crmcontrac
 	httperr.WriteJSON(w, http.StatusCreated, wireTaggable(applied))
 }
 
+func (h Handlers) ListSavedViews(w http.ResponseWriter, r *http.Request, params crmcontracts.ListSavedViewsParams) {
+	var resource *string
+	if params.Resource != nil {
+		v := string(*params.Resource)
+		resource = &v
+	}
+	archived := storekit.LiveOnly
+	if params.IncludeArchived != nil && *params.IncludeArchived {
+		archived = storekit.IncludeArchived
+	}
+	views, truncated, err := h.store.ListSavedViews(r.Context(), resource, archived)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	data := make([]crmcontracts.SavedView, 0, len(views))
+	for _, v := range views {
+		data = append(data, wireSavedView(v))
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.SavedViewListResponse{Data: data, Page: crmcontracts.PageInfo{HasMore: truncated}})
+}
+
+func (h Handlers) CreateSavedView(w http.ResponseWriter, r *http.Request) {
+	var req crmcontracts.CreateSavedViewRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	view, err := h.store.CreateSavedView(r.Context(), CreateSavedViewInput{
+		Resource: string(req.Resource),
+		Name:     req.Name,
+		Query:    req.Query,
+	})
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, wireSavedView(view))
+}
+
+func (h Handlers) GetSavedView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	view, err := h.store.GetSavedView(r.Context(), ids.UUID(id))
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, wireSavedView(view))
+}
+
+func (h Handlers) UpdateSavedView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.UpdateSavedViewParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	var req crmcontracts.UpdateSavedViewRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	in := UpdateSavedViewInput{Name: req.Name, IfVersion: ifVersion}
+	if req.Query != nil {
+		q := *req.Query
+		in.Query = &q
+	}
+	view, err := h.store.UpdateSavedView(r.Context(), ids.UUID(id), in)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, wireSavedView(view))
+}
+
+func (h Handlers) ArchiveSavedView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	view, err := h.store.ArchiveSavedView(r.Context(), ids.UUID(id))
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, wireSavedView(view))
+}
+
 func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	var bad *BadInputError
 	if errors.As(err, &bad) {
 		httperr.Write(w, r, httperr.Validation(bad.Field, "invalid", bad.Reason))
+		return
+	}
+	// A rejected dynamic-segment / saved-view filter surfaces the offending
+	// field and machine-readable code (data-model §13.5 → 422).
+	var pred *storekit.PredicateError
+	if errors.As(err, &pred) {
+		httperr.Write(w, r, httperr.Validation(pred.Field, pred.Code, pred.Message))
 		return
 	}
 	httperr.Write(w, r, err)

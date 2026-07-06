@@ -516,6 +516,26 @@ func (stubs) ApplyTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontra
 	httperr.NotImplemented(w, r, "ApplyTag")
 }
 
+func (stubs) ListSavedViews(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListSavedViewsParams) {
+	httperr.NotImplemented(w, r, "ListSavedViews")
+}
+
+func (stubs) CreateSavedView(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateSavedView")
+}
+
+func (stubs) ArchiveSavedView(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveSavedView")
+}
+
+func (stubs) GetSavedView(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetSavedView")
+}
+
+func (stubs) UpdateSavedView(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateSavedViewParams) {
+	httperr.NotImplemented(w, r, "UpdateSavedView")
+}
+
 func (stubs) ListVoiceProfiles(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListVoiceProfilesParams) {
 	httperr.NotImplemented(w, r, "ListVoiceProfiles")
 }

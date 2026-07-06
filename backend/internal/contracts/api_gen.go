@@ -834,6 +834,36 @@ func (e CreateRelationshipRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for CreateSavedViewRequestResource.
+const (
+	CreateSavedViewRequestResourceActivities    CreateSavedViewRequestResource = "activities"
+	CreateSavedViewRequestResourceDeals         CreateSavedViewRequestResource = "deals"
+	CreateSavedViewRequestResourceLeads         CreateSavedViewRequestResource = "leads"
+	CreateSavedViewRequestResourceOrganizations CreateSavedViewRequestResource = "organizations"
+	CreateSavedViewRequestResourcePartners      CreateSavedViewRequestResource = "partners"
+	CreateSavedViewRequestResourcePeople        CreateSavedViewRequestResource = "people"
+)
+
+// Valid indicates whether the value is a known member of the CreateSavedViewRequestResource enum.
+func (e CreateSavedViewRequestResource) Valid() bool {
+	switch e {
+	case CreateSavedViewRequestResourceActivities:
+		return true
+	case CreateSavedViewRequestResourceDeals:
+		return true
+	case CreateSavedViewRequestResourceLeads:
+		return true
+	case CreateSavedViewRequestResourceOrganizations:
+		return true
+	case CreateSavedViewRequestResourcePartners:
+		return true
+	case CreateSavedViewRequestResourcePeople:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateSignalRequestEntityType.
 const (
 	CreateSignalRequestEntityTypeDeal         CreateSignalRequestEntityType = "deal"
@@ -1731,6 +1761,57 @@ func (e RunReportRequestAggregatesFn) Valid() bool {
 	case Min:
 		return true
 	case Sum:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SavedViewResource.
+const (
+	SavedViewResourceActivities    SavedViewResource = "activities"
+	SavedViewResourceDeals         SavedViewResource = "deals"
+	SavedViewResourceLeads         SavedViewResource = "leads"
+	SavedViewResourceOrganizations SavedViewResource = "organizations"
+	SavedViewResourcePartners      SavedViewResource = "partners"
+	SavedViewResourcePeople        SavedViewResource = "people"
+)
+
+// Valid indicates whether the value is a known member of the SavedViewResource enum.
+func (e SavedViewResource) Valid() bool {
+	switch e {
+	case SavedViewResourceActivities:
+		return true
+	case SavedViewResourceDeals:
+		return true
+	case SavedViewResourceLeads:
+		return true
+	case SavedViewResourceOrganizations:
+		return true
+	case SavedViewResourcePartners:
+		return true
+	case SavedViewResourcePeople:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SavedViewSharedScope.
+const (
+	SavedViewSharedScopePrivate   SavedViewSharedScope = "private"
+	SavedViewSharedScopeTeam      SavedViewSharedScope = "team"
+	SavedViewSharedScopeWorkspace SavedViewSharedScope = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the SavedViewSharedScope enum.
+func (e SavedViewSharedScope) Valid() bool {
+	switch e {
+	case SavedViewSharedScopePrivate:
+		return true
+	case SavedViewSharedScopeTeam:
+		return true
+	case SavedViewSharedScopeWorkspace:
 		return true
 	default:
 		return false
@@ -2967,6 +3048,36 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 	}
 }
 
+// Defines values for ListSavedViewsParamsResource.
+const (
+	Activities    ListSavedViewsParamsResource = "activities"
+	Deals         ListSavedViewsParamsResource = "deals"
+	Leads         ListSavedViewsParamsResource = "leads"
+	Organizations ListSavedViewsParamsResource = "organizations"
+	Partners      ListSavedViewsParamsResource = "partners"
+	People        ListSavedViewsParamsResource = "people"
+)
+
+// Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
+func (e ListSavedViewsParamsResource) Valid() bool {
+	switch e {
+	case Activities:
+		return true
+	case Deals:
+		return true
+	case Leads:
+		return true
+	case Organizations:
+		return true
+	case Partners:
+		return true
+	case People:
+		return true
+	default:
+		return false
+	}
+}
+
 // Activity A polymorphic timeline item. Mirrors the `activity` table + `activity_link`.
 // **Per-kind field constraints** (enforced server-side to match the DB `activity_task_fields`
 // CHECK; the OpenAPI cannot express these conditionally): `due_at`/`assignee_id`/`is_done`/
@@ -3586,6 +3697,16 @@ type CreateRelationshipRequest struct {
 
 // CreateRelationshipRequestKind defines model for CreateRelationshipRequest.Kind.
 type CreateRelationshipRequestKind string
+
+// CreateSavedViewRequest defines model for CreateSavedViewRequest.
+type CreateSavedViewRequest struct {
+	Name     string                         `json:"name"`
+	Query    map[string]interface{}         `json:"query"`
+	Resource CreateSavedViewRequestResource `json:"resource"`
+}
+
+// CreateSavedViewRequestResource defines model for CreateSavedViewRequest.Resource.
+type CreateSavedViewRequestResource string
 
 // CreateSignalRequest defines model for CreateSignalRequest.
 type CreateSignalRequest struct {
@@ -4695,6 +4816,39 @@ type RunReportRequest struct {
 // RunReportRequestAggregatesFn defines model for RunReportRequest.Aggregates.Fn.
 type RunReportRequestAggregatesFn string
 
+// SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
+type SavedView struct {
+	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
+	CreatedAt  *time.Time         `json:"created_at,omitempty"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       string             `json:"name"`
+	OwnerId    openapi_types.UUID `json:"owner_id"`
+
+	// Query The saved column choice, sort, and filter state (§13.5 vocabulary); persisted verbatim and restored exactly.
+	Query    map[string]interface{} `json:"query"`
+	Resource SavedViewResource      `json:"resource"`
+
+	// SharedScope V1 enforces private.
+	SharedScope *SavedViewSharedScope `json:"shared_scope,omitempty"`
+	UpdatedAt   *time.Time            `json:"updated_at,omitempty"`
+
+	// Version Optimistic-concurrency version; echo it in If-Match on update.
+	Version     int64              `json:"version"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// SavedViewResource defines model for SavedView.Resource.
+type SavedViewResource string
+
+// SavedViewSharedScope V1 enforces private.
+type SavedViewSharedScope string
+
+// SavedViewListResponse defines model for SavedViewListResponse.
+type SavedViewListResponse struct {
+	Data []SavedView `json:"data"`
+	Page PageInfo    `json:"page"`
+}
+
 // SearchResponse defines model for SearchResponse.
 type SearchResponse struct {
 	Data []SearchResult `json:"data"`
@@ -5107,6 +5261,12 @@ type UpdateRelationshipRequest struct {
 	IsCurrentPrimary *bool               `json:"is_current_primary,omitempty"`
 	Role             *string             `json:"role,omitempty"`
 	StartedAt        *openapi_types.Date `json:"started_at,omitempty"`
+}
+
+// UpdateSavedViewRequest A partial update; omitted fields keep their stored value.
+type UpdateSavedViewRequest struct {
+	Name  *string                 `json:"name,omitempty"`
+	Query *map[string]interface{} `json:"query,omitempty"`
 }
 
 // UpdateSignalRequest Triage. A `status` move to acknowledged/resolved/dismissed appends the human-outcome
@@ -6522,6 +6682,27 @@ type ListTagsParams struct {
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
+// ListSavedViewsParams defines parameters for ListSavedViews.
+type ListSavedViewsParams struct {
+	Resource *ListSavedViewsParamsResource `form:"resource,omitempty" json:"resource,omitempty"`
+
+	// IncludeArchived Include soft-deleted (archived) rows. Default false.
+	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
+// ListSavedViewsParamsResource defines parameters for ListSavedViews.
+type ListSavedViewsParamsResource string
+
+// UpdateSavedViewParams defines parameters for UpdateSavedView.
+type UpdateSavedViewParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // ListVoiceProfilesParams defines parameters for ListVoiceProfiles.
 type ListVoiceProfilesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -6713,6 +6894,12 @@ type CreateTagJSONRequestBody = CreateTagRequest
 
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
+
+// CreateSavedViewJSONRequestBody defines body for CreateSavedView for application/json ContentType.
+type CreateSavedViewJSONRequestBody = CreateSavedViewRequest
+
+// UpdateSavedViewJSONRequestBody defines body for UpdateSavedView for application/json ContentType.
+type UpdateSavedViewJSONRequestBody = UpdateSavedViewRequest
 
 // CreateVoiceProfileJSONRequestBody defines body for CreateVoiceProfile for application/json ContentType.
 type CreateVoiceProfileJSONRequestBody = CreateVoiceProfileRequest
@@ -10628,7 +10815,7 @@ type ServerInterface interface {
 	// Get a list by id.
 	// (GET /lists/{id})
 	GetList(w http.ResponseWriter, r *http.Request, id Id)
-	// List a (static) list's members.
+	// List a list's members — explicit rows for a static list, or the live filter evaluation for a dynamic segment.
 	// (GET /lists/{id}/members)
 	ListListMembers(w http.ResponseWriter, r *http.Request, id Id, params ListListMembersParams)
 	// Add a member to a static list.
@@ -10853,6 +11040,21 @@ type ServerInterface interface {
 	// Apply a tag to an entity (person/org/deal/lead).
 	// (POST /tags/{id}/apply)
 	ApplyTag(w http.ResponseWriter, r *http.Request, id Id)
+	// List the caller's saved views (per-user; optionally scoped to one resource).
+	// (GET /views)
+	ListSavedViews(w http.ResponseWriter, r *http.Request, params ListSavedViewsParams)
+	// Save a per-user view (columns, sort, filter state) for a resource.
+	// (POST /views)
+	CreateSavedView(w http.ResponseWriter, r *http.Request)
+	// Archive a saved view.
+	// (DELETE /views/{id})
+	ArchiveSavedView(w http.ResponseWriter, r *http.Request, id Id)
+	// Get one of the caller's saved views by id.
+	// (GET /views/{id})
+	GetSavedView(w http.ResponseWriter, r *http.Request, id Id)
+	// Update a saved view's name or query state.
+	// (PATCH /views/{id})
+	UpdateSavedView(w http.ResponseWriter, r *http.Request, id Id, params UpdateSavedViewParams)
 	// List the voice profiles visible to the caller.
 	// (GET /voice-profiles)
 	ListVoiceProfiles(w http.ResponseWriter, r *http.Request, params ListVoiceProfilesParams)
@@ -11180,7 +11382,7 @@ func (_ Unimplemented) GetList(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List a (static) list's members.
+// List a list's members — explicit rows for a static list, or the live filter evaluation for a dynamic segment.
 // (GET /lists/{id}/members)
 func (_ Unimplemented) ListListMembers(w http.ResponseWriter, r *http.Request, id Id, params ListListMembersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -11627,6 +11829,36 @@ func (_ Unimplemented) ArchiveTag(w http.ResponseWriter, r *http.Request, id Id)
 // Apply a tag to an entity (person/org/deal/lead).
 // (POST /tags/{id}/apply)
 func (_ Unimplemented) ApplyTag(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the caller's saved views (per-user; optionally scoped to one resource).
+// (GET /views)
+func (_ Unimplemented) ListSavedViews(w http.ResponseWriter, r *http.Request, params ListSavedViewsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save a per-user view (columns, sort, filter state) for a resource.
+// (POST /views)
+func (_ Unimplemented) CreateSavedView(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive a saved view.
+// (DELETE /views/{id})
+func (_ Unimplemented) ArchiveSavedView(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get one of the caller's saved views by id.
+// (GET /views/{id})
+func (_ Unimplemented) GetSavedView(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a saved view's name or query state.
+// (PATCH /views/{id})
+func (_ Unimplemented) UpdateSavedView(w http.ResponseWriter, r *http.Request, id Id, params UpdateSavedViewParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -18281,6 +18513,208 @@ func (siw *ServerInterfaceWrapper) ApplyTag(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// ListSavedViews operation middleware
+func (siw *ServerInterfaceWrapper) ListSavedViews(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSavedViewsParams
+
+	// ------------- Optional query parameter "resource" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "resource", r.URL.Query(), &params.Resource, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "resource"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resource", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSavedViews(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSavedView operation middleware
+func (siw *ServerInterfaceWrapper) CreateSavedView(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSavedView(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveSavedView operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveSavedView(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveSavedView(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSavedView operation middleware
+func (siw *ServerInterfaceWrapper) GetSavedView(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSavedView(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSavedView operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSavedView(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateSavedViewParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSavedView(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListVoiceProfiles operation middleware
 func (siw *ServerInterfaceWrapper) ListVoiceProfiles(w http.ResponseWriter, r *http.Request) {
 
@@ -19082,6 +19516,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/tags/{id}/apply", wrapper.ApplyTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/views", wrapper.ListSavedViews)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/views", wrapper.CreateSavedView)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/views/{id}", wrapper.ArchiveSavedView)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/views/{id}", wrapper.GetSavedView)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/views/{id}", wrapper.UpdateSavedView)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/voice-profiles", wrapper.ListVoiceProfiles)
