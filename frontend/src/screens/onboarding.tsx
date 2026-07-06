@@ -28,6 +28,7 @@ import {
 import {
   type ChangeEvent,
   type ReactNode,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -708,12 +709,25 @@ function VoiceStep({
 
   const quality = corpusQuality(corpus.total);
 
+  // The modelling beat must die with the step: a timer surviving unmount
+  // would flip the parent's voiceBuilt after the user navigated away and
+  // make step 4 claim a voice that was never built.
+  const buildTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (buildTimer.current !== null) {
+        globalThis.clearTimeout(buildTimer.current);
+      }
+    },
+    [],
+  );
+
   const build = () => {
     setBuilding(true);
     // A short modelling beat, then the starter-voice card. This is a starter
     // preview built from the corpus you selected — it sharpens for real once
     // sent email is ingested at connect (see the footnote copy).
-    globalThis.setTimeout(() => {
+    buildTimer.current = globalThis.setTimeout(() => {
       setBuilding(false);
       setBuilt(true);
       onBuilt();

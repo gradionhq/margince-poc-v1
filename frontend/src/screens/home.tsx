@@ -333,57 +333,56 @@ export function HomeScreen() {
     (deal) => deal.stalled && deal.status === "open",
   );
 
+  // The three sections are independent surfaces: a transient approvals or
+  // deals failure must never hide a healthy /brief queue (and vice versa),
+  // so each renders under its own gate.
   return (
     <div className="wrap narrow">
       <SectionHeader title={t("home.brief")} sub={t("home.sub")} />
-      <QueryGate query={approvalsQuery}>
-        {(approvals) => (
-          <div>
-            {approvals.data.length > 0 && (
-              <section aria-label={t("home.staged")}>
-                <SectionHeader
-                  title={t("home.staged")}
-                  sub={t("brief.nothingSent")}
-                />
-                {approvals.data.map((approval) => (
-                  <ApprovalRow key={approval.id} approval={approval} />
-                ))}
-              </section>
-            )}
-            <BriefSection />
-            {stalled.length > 0 && (
-              <section aria-label={t("home.stalled")}>
-                <SectionHeader title={t("home.stalled")} />
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
-                >
-                  {stalled.map((deal) => (
-                    <DealCard
-                      key={deal.id}
-                      deal={{
-                        id: deal.id,
-                        name: deal.name,
-                        org: "",
-                        valueMinor: deal.amount_minor ?? 0,
-                        currency: deal.currency ?? "EUR",
-                        ageMs: Math.max(
-                          0,
-                          Date.now() -
-                            new Date(
-                              deal.last_activity_at ?? deal.created_at,
-                            ).getTime(),
-                        ),
-                        stalled: true,
-                      }}
-                      onOpen={() => navigate({ screen: "deals", id: deal.id })}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        )}
+      <QueryGate query={approvalsQuery} empty={() => false}>
+        {(approvals) =>
+          approvals.data.length > 0 ? (
+            <section aria-label={t("home.staged")}>
+              <SectionHeader
+                title={t("home.staged")}
+                sub={t("brief.nothingSent")}
+              />
+              {approvals.data.map((approval) => (
+                <ApprovalRow key={approval.id} approval={approval} />
+              ))}
+            </section>
+          ) : null
+        }
       </QueryGate>
+      <BriefSection />
+      {stalled.length > 0 && (
+        <section aria-label={t("home.stalled")}>
+          <SectionHeader title={t("home.stalled")} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {stalled.map((deal) => (
+              <DealCard
+                key={deal.id}
+                deal={{
+                  id: deal.id,
+                  name: deal.name,
+                  org: "",
+                  valueMinor: deal.amount_minor ?? 0,
+                  currency: deal.currency ?? "EUR",
+                  ageMs: Math.max(
+                    0,
+                    Date.now() -
+                      new Date(
+                        deal.last_activity_at ?? deal.created_at,
+                      ).getTime(),
+                  ),
+                  stalled: true,
+                }}
+                onOpen={() => navigate({ screen: "deals", id: deal.id })}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
