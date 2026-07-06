@@ -163,6 +163,34 @@ jobs:
         with:
           # Full history so SonarCloud can attribute blame / compute new code.
           fetch-depth: 0
+      # The quality gate requires coverage on new code, so the scan must be
+      # handed real coverage reports — both lanes run their unit tests here
+      # with coverage enabled (paths declared in sonar-project.properties).
+      - uses: actions/setup-go@v5
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: pnpm/action-setup@v4
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Go unit coverage
+        if: ${{ env.SONAR_TOKEN != '' }}
+        working-directory: backend
+        run: go test ./... -coverprofile=coverage.out -covermode=atomic
+      - name: Frontend unit coverage
+        if: ${{ env.SONAR_TOKEN != '' }}
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         # Pinned to a full commit SHA (githubactions:S7637 / supply-chain): v5.
