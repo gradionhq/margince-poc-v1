@@ -82,6 +82,10 @@ function inboxBackend(calls: { url: string; body: unknown }[]) {
     if (url.includes("/approvals")) {
       return jsonResponse({ data: [approval], page: { next_cursor: null } });
     }
+    if (url.includes("/brief")) {
+      // no run persisted yet — home renders the honest generate card
+      return jsonResponse({ title: "Not Found" }, 404);
+    }
     return jsonResponse({ data: [], page: { next_cursor: null } });
   });
 }
@@ -139,19 +143,20 @@ describe("HomeScreen (B-EP09.12b)", () => {
     expect(screen.getByText("Nothing sent yet")).toBeTruthy();
   });
 
-  it("renders the honest quiet state when nothing is staged or stalled", async () => {
+  it("renders the honest generate card when no brief run exists yet", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        jsonResponse({ data: [], page: { next_cursor: null } }),
-      ),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/brief")) {
+          return jsonResponse({ title: "Not Found" }, 404);
+        }
+        return jsonResponse({ data: [], page: { next_cursor: null } });
+      }),
     );
     render(<HomeScreen />);
-    await waitFor(() =>
-      expect(
-        screen.getByText("All quiet. Nothing staged, nothing stalled."),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("No brief yet")).toBeTruthy());
+    expect(screen.getByText("Generate my first brief")).toBeTruthy();
   });
 });
 

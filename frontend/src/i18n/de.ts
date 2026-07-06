@@ -141,9 +141,36 @@ export const de = {
 
   "home.brief": "Morgenbriefing",
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
-  "home.quiet": "Alles ruhig. Nichts vorgemerkt, nichts steht still.",
   "home.staged": "Wartet auf dich",
   "home.stalled": "Stillstehende Deals",
+  "home.queue": "Heute dran",
+  "home.asOf": "Stand {at}",
+  "home.refresh": "Briefing aktualisieren",
+  "home.refreshing": "Wird sortiert…",
+  "home.generate": "Erstes Briefing erstellen",
+  "home.noneTitle": "Noch kein Briefing",
+  "home.noneBody":
+    "Dein Morgenbriefing sortiert die Deals, die deine erste Stunde verdienen — Gewinnbarkeit, Umsatz, Timing, Momentum und Wärme, jeder Faktor mit Beleg. Erstell den ersten Lauf, sobald offene Deals da sind.",
+  "home.honestShort":
+    "Nur {count} Deals haben die Schwelle geschafft — die Liste wird nie aufgefüllt.",
+  "home.overflow":
+    "{shown} von {count} qualifizierten Deals — ehrlich kurz, oben die besten.",
+  "home.quietRun":
+    "Heute Morgen hat nichts die Schwelle geschafft. Keine erfundene Dringlichkeit — genieß die Ruhe.",
+  "home.act": "Erledigt",
+  "home.dismiss": "Ausblenden",
+  "home.actedState": "erledigt",
+  "home.dismissedState": "ausgeblendet",
+  "home.why": "Warum das rankt",
+  "home.evidence": "{count} Belege",
+  "home.evidenceOne": "1 Beleg",
+  "home.score": "Score {pct} %",
+  "home.openDeal": "Deal öffnen",
+  "home.factorWinnability": "Gewinnbarkeit",
+  "home.factorRevenue": "Umsatz",
+  "home.factorTiming": "Timing",
+  "home.factorMomentum": "Momentum",
+  "home.factorWarmth": "Wärme",
 
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",
@@ -265,6 +292,17 @@ export const de = {
   "ob.tryAnother": "Andere URL versuchen",
   "ob.fillByHand": "Stattdessen von Hand ausfüllen",
 
+  "ob.field.icp": "Idealkunde",
+  "ob.field.buying_center": "Wer kauft",
+  "ob.field.value_proposition": "Nutzenversprechen",
+  "ob.field.usp": "Was dich unterscheidet",
+  "ob.field.buying_intents": "Kaufanlässe",
+  "ob.field.legal_name": "Firmenname",
+  "ob.field.registered_address": "Anschrift",
+  "ob.field.register_vat": "Register / USt-ID",
+  "ob.field.industry": "Branche",
+  "ob.field.history": "Firmengeschichte",
+
   "ob.s2.kick": "Schritt 2 von 5",
   "ob.s2.title": "Haben wir's richtig verstanden?",
   "ob.s2.sub":
@@ -350,12 +388,17 @@ export const de = {
     "ICP, Nutzenversprechen & USP von deiner Seite erfasst — jeweils mit Quelle.",
   "ob.s4.cardVoice": "Deine Schreibstimme",
   "ob.s4.cardVoiceBody":
-    "Direkt, warm, knapp. Entwürfe klingen ab Tag eins nach dir.",
+    "Gebaut aus dem Korpus, den du uns gerade gegeben hast. Entwürfe klingen ab Tag eins nach dir.",
+  "ob.s4.cardVoiceSkippedBody":
+    "Du hast den Tonfall-Schritt übersprungen — Entwürfe starten in einer neutralen Startstimme, bis du deine baust. Zwei Minuten, jederzeit, in den Einstellungen.",
   "ob.s4.cardPipeline": "Vertriebs-Pipeline",
   "ob.s4.cardPipelineBody":
     "Die Standard-B2B-Vorlage mit 7 Stufen, auf deine Branche vorgestimmt. Leer, bis du verbindest — dann füllen sich Deals aus deiner Post.",
   "ob.s4.cardDraft": "Ein Beispiel-Entwurf, in deiner Stimme",
+  "ob.s4.cardDraftExample": "Ein Beispiel-Entwurf",
   "ob.s4.cardDraftBody": "Sieh ihn unten.",
+  "ob.s4.exampleTag":
+    "Illustratives Beispiel — noch nicht aus deinen Daten geschrieben",
   "ob.s4.draftSample":
     "Betreff: Kurze Frage zu eurer Montagelinie\n\nHallo {{name}} — gesehen, dass {company} diskrete Montage im großen Stil fährt. Wir bringen Teams wie euch in 6 Wochen eine laufende Roboterzelle, ohne eure bestehenden SPS rauszureißen. 15 Minuten wert? Beste Grüße, Lars",
   "ob.s4.originLabel": "Woher diese Pipeline kommt",

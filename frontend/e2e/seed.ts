@@ -117,6 +117,51 @@ export const deals = [
   },
 ];
 
+// One persisted Morning-Brief run over the two seeded deals — the §10.1
+// composite with its factor decomposition, so the home queue's arithmetic
+// reads coherently against the deal amounts above.
+export const briefRun = {
+  id: "br-1",
+  generated_at: "2026-07-05T05:30:00Z",
+  as_of: "2026-07-05T05:00:00Z",
+  candidate_count: 2,
+  revenue_norm_minor: 4_800_000,
+  items: [
+    {
+      id: "bi-1",
+      deal_id: "d-fleet",
+      rank: 1,
+      composite: 0.74,
+      feature_vector: {
+        winnability: 0.4,
+        revenue: 1,
+        timing: 0.75,
+        momentum: 1,
+        warmth: 0.47,
+      },
+      evidence_ids: ["ev-1", "ev-2"],
+      state: "new",
+      state_at: null,
+    },
+    {
+      id: "bi-2",
+      deal_id: "d-service",
+      rank: 2,
+      composite: 0.41,
+      feature_vector: {
+        winnability: 0.2,
+        revenue: 0.26,
+        timing: 0.5,
+        momentum: 0,
+        warmth: 0.3,
+      },
+      evidence_ids: ["ev-3"],
+      state: "new",
+      state_at: null,
+    },
+  ],
+};
+
 export const approval = {
   id: "ap-1",
   workspace_id: "w",
@@ -263,6 +308,11 @@ export async function mockApi(target: Page): Promise<void> {
 
   // per-page automation state so the create→paused→enable flow is coherent
   let automations = [{ ...seededAutomation }];
+  // per-page brief state so act/dismiss marks stick within a test
+  const brief = {
+    ...briefRun,
+    items: briefRun.items.map((item) => ({ ...item })),
+  };
 
   await target.route(/\/v1\//, async (route) => {
     const url = new URL(route.request().url());
@@ -322,6 +372,22 @@ export async function mockApi(target: Page): Promise<void> {
     }
     if (path.startsWith("/deals/")) {
       return json(deals.find((deal) => path.endsWith(deal.id)) ?? deals[0]);
+    }
+    if (path === "/brief" && method === "GET") {
+      return json(brief);
+    }
+    if (path === "/brief" && method === "POST") {
+      return json(brief, 201);
+    }
+    const briefMark = /^\/brief\/items\/([^/]+)\/(act|dismiss)$/.exec(path);
+    if (briefMark && method === "POST") {
+      const item = brief.items.find((entry) => entry.id === briefMark[1]);
+      if (!item) {
+        return json({ title: "Not Found" }, 404);
+      }
+      item.state = briefMark[2] === "act" ? "acted" : "dismissed";
+      item.state_at = "2026-07-05T06:00:00Z";
+      return json(item);
     }
     if (path === "/approvals") {
       return json(page([approval]));

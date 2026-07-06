@@ -150,14 +150,11 @@ test("AC-automations-1 (B-EP09.15): create from the catalog arrives paused; enab
 }) => {
   await page.goto("/#/automations");
   await expect(page.getByText("Stillstands-Erinnerung")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Vorlage verwenden" })
-    .first()
-    .click();
+  await page.getByRole("button", { name: "Vorlage verwenden" }).first().click();
   // the schema default arrives in the one parameter field
-  await expect(page.getByRole("spinbutton", { name: "due_in_days" })).toHaveValue(
-    "3",
-  );
+  await expect(
+    page.getByRole("spinbutton", { name: "due_in_days" }),
+  ).toHaveValue("3");
   await page.getByRole("button", { name: "Anlegen" }).click();
   await expect(
     page.getByText("Pausiert angelegt — es läuft nichts, bis du aktivierst."),
@@ -173,10 +170,7 @@ test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, n
 }) => {
   await page.goto("/#/automations");
   await expect(page.getByText("Stillstands-Erinnerung")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Vorlage verwenden" })
-    .first()
-    .click();
+  await page.getByRole("button", { name: "Vorlage verwenden" }).first().click();
   await expect(page.locator("textarea")).toHaveCount(0);
   // exactly the instance name plus the schema-derived parameter
   await expect(page.getByRole("textbox")).toHaveCount(1);
@@ -253,7 +247,9 @@ test("AC-book-public-409: a taken slot degrades honestly — no fabricated confi
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: /12:00/ }).click();
   await expect(
-    page.getByText("Die Buchung ging nicht durch — es wurde nichts eingetragen."),
+    page.getByText(
+      "Die Buchung ging nicht durch — es wurde nichts eingetragen.",
+    ),
   ).toBeVisible();
   await expect(page.getByText("slot no longer available")).toBeVisible();
   await expect(

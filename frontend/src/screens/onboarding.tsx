@@ -107,6 +107,27 @@ function deriveName(host: string): string {
   return titled || host;
 }
 
+// The cold-start field vocabulary (compose/enrichextract.go) rendered as
+// human labels; an unmapped field falls back to its key with the underscores
+// spaced out — readable, never raw snake_case.
+const COLD_FIELD_LABELS: Record<string, MessageKey> = {
+  icp: "ob.field.icp",
+  buying_center: "ob.field.buying_center",
+  value_proposition: "ob.field.value_proposition",
+  usp: "ob.field.usp",
+  buying_intents: "ob.field.buying_intents",
+  legal_name: "ob.field.legal_name",
+  registered_address: "ob.field.registered_address",
+  register_vat: "ob.field.register_vat",
+  industry: "ob.field.industry",
+  history: "ob.field.history",
+};
+
+function coldFieldLabel(field: string, t: (key: MessageKey) => string): string {
+  const key = COLD_FIELD_LABELS[field];
+  return key ? t(key) : field.replace(/_/g, " ");
+}
+
 function stepState(index: number, current: number): "done" | "active" | "" {
   if (index < current) {
     return "done";
@@ -141,6 +162,7 @@ export function OnboardingScreen() {
   const [url, setUrl] = useState("");
   const [readData, setReadData] = useState<ColdStart | null>(null);
   const [host, setHost] = useState("");
+  const [voiceBuilt, setVoiceBuilt] = useState(false);
 
   const norm = useMemo(() => normalizeUrl(url), [url]);
   const company = host ? deriveName(host) : "";
@@ -223,8 +245,12 @@ export function OnboardingScreen() {
           />
         )}
         {step === 1 && <ConfirmStep readData={readData} />}
-        {step === 2 && <VoiceStep company={company} />}
-        {step === 3 && <ResultsStep company={company} />}
+        {step === 2 && (
+          <VoiceStep company={company} onBuilt={() => setVoiceBuilt(true)} />
+        )}
+        {step === 3 && (
+          <ResultsStep company={company} voiceBuilt={voiceBuilt} />
+        )}
         {step === 4 && <ConnectStep />}
 
         <Footer step={step} canContinue={readData !== null} go={go} />
@@ -413,7 +439,7 @@ function ReadStep({
             return (
               <div key={f.field} className="rfield">
                 <div className="rfhead">
-                  <span className="rflabel">{f.field}</span>
+                  <span className="rflabel">{coldFieldLabel(f.field, t)}</span>
                   {level && <ConfidenceMeter level={level} />}
                   <span className="rfprov">
                     <Bot aria-hidden /> {t("ob.readFromSite")}
@@ -506,7 +532,7 @@ function ConfirmStep({ readData }: Readonly<{ readData: ColdStart | null }>) {
             return (
               <div key={f.field} className="ob-field">
                 <label htmlFor={`s2-${f.field}`}>
-                  {f.field}{" "}
+                  {coldFieldLabel(f.field, t)}{" "}
                   {dirty && <ProvenanceTag provenance={{ kind: "human" }} />}
                 </label>
                 <textarea
@@ -614,7 +640,10 @@ const SOURCES: Source[] = [
 const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
 const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
-function VoiceStep({ company }: Readonly<{ company: string }>) {
+function VoiceStep({
+  company,
+  onBuilt,
+}: Readonly<{ company: string; onBuilt: () => void }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
@@ -687,6 +716,7 @@ function VoiceStep({ company }: Readonly<{ company: string }>) {
     globalThis.setTimeout(() => {
       setBuilding(false);
       setBuilt(true);
+      onBuilt();
     }, 1100);
   };
 
@@ -931,13 +961,25 @@ function VoiceStep({ company }: Readonly<{ company: string }>) {
 
 // ---- step 4: results -------------------------------------------------------
 
-function ResultsStep({ company }: Readonly<{ company: string }>) {
+function ResultsStep({
+  company,
+  voiceBuilt,
+}: Readonly<{ company: string; voiceBuilt: boolean }>) {
   const t = useT();
+  // The cards tell the truth about what the funnel actually did: a skipped
+  // voice step gets the honest "starter voice" card, not a claim that drafts
+  // already sound like the user.
   const cards: { title: MessageKey; body: MessageKey }[] = [
     { title: "ob.s4.cardProfile", body: "ob.s4.cardProfileBody" },
-    { title: "ob.s4.cardVoice", body: "ob.s4.cardVoiceBody" },
+    {
+      title: "ob.s4.cardVoice",
+      body: voiceBuilt ? "ob.s4.cardVoiceBody" : "ob.s4.cardVoiceSkippedBody",
+    },
     { title: "ob.s4.cardPipeline", body: "ob.s4.cardPipelineBody" },
-    { title: "ob.s4.cardDraft", body: "ob.s4.cardDraftBody" },
+    {
+      title: voiceBuilt ? "ob.s4.cardDraft" : "ob.s4.cardDraftExample",
+      body: "ob.s4.cardDraftBody",
+    },
   ];
   return (
     <section className="ob-panel">
@@ -962,6 +1004,9 @@ function ResultsStep({ company }: Readonly<{ company: string }>) {
       <div className="draftbox" style={{ marginTop: 12 }}>
         {t("ob.s4.draftSample", { company: company || "your prospect" })}
       </div>
+      <p className="t-small" style={{ marginTop: 8, fontStyle: "italic" }}>
+        {t("ob.s4.exampleTag")}
+      </p>
       <div className="omit" style={{ marginTop: 16, borderStyle: "solid" }}>
         <GitBranch aria-hidden />
         <div>

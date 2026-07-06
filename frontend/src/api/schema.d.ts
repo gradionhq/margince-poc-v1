@@ -763,6 +763,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/preferences/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The recipient's unguessable preference-center token (carried in the List-Unsubscribe URL; not a session credential). */
+                token: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The recipient's per-purpose consent state (anonymous, token-authed).
+         * @description The no-login preference center behind `preference-center.html` (B-E11.32). The token resolves to
+         *     (workspace, person) before any session exists; the page shows each consent purpose and the
+         *     recipient's current state. A locked purpose (transactional) cannot be withdrawn while a deal is
+         *     live. An unknown or revoked token reads as absent (404) — never a consent-state oracle.
+         */
+        get: operations["getPreferenceCenter"];
+        /**
+         * Save per-purpose choices from the preference center (anonymous, token-authed).
+         * @description Records the recipient's explicit per-purpose choice as a withdrawable `consent_event` (verbatim
+         *     wording + timestamp + a distinct `preference_center` source). Withdrawing one purpose never
+         *     touches another (per-purpose default-deny). A locked purpose (transactional) is refused (422).
+         *     Re-subscribe is an explicit opt-in that writes a fresh grant; a purpose requiring double-opt-in
+         *     cannot be re-granted from this surface without the confirmation round-trip (422).
+         */
+        put: operations["updatePreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/preferences/{token}/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
+         * @description The endpoint the RFC 8058 `List-Unsubscribe-Post: List-Unsubscribe=One-Click` POST hits: no login,
+         *     no confirmation page, a fixed body. Records an immediate per-purpose withdrawal as a `consent_event`
+         *     (source `preference_center`) which the default-deny suppression gate honors on the very next send
+         *     across every path (manual + agent). Idempotent. Only POST acts — a GET/prefetch by a mail scanner
+         *     never unsubscribes anyone (the reason RFC 8058 mandates POST). With `purpose` only that purpose is
+         *     withdrawn (the one the message was sent under); without it every withdrawable purpose is.
+         */
+        post: operations["oneClickUnsubscribe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/automations/catalog": {
         parameters: {
             query?: never;
@@ -1005,11 +1066,76 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List a (static) list's members. */
+        /** List a list's members — explicit rows for a static list, or the live filter evaluation for a dynamic segment. */
         get: operations["listListMembers"];
         put?: never;
         /** Add a member to a static list. */
         post: operations["addListMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the caller's saved views (per-user; optionally scoped to one resource). */
+        get: operations["listSavedViews"];
+        put?: never;
+        /** Save a per-user view (columns, sort, filter state) for a resource. */
+        post: operations["createSavedView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/views/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get one of the caller's saved views by id. */
+        get: operations["getSavedView"];
+        put?: never;
+        post?: never;
+        /** Archive a saved view. */
+        delete: operations["archiveSavedView"];
+        options?: never;
+        head?: never;
+        /** Update a saved view's name or query state. */
+        patch: operations["updateSavedView"];
+        trace?: never;
+    };
+    "/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
+         * @description First-class filtered export (features/10 §3): emits exactly the rows that match the active
+         *     filter AND that the caller may see (row-scoped through the same one filter engine that drives
+         *     lists and saved views), rendered to CSV or JSON. Supply exactly one source — an inline `object`
+         *     with a `filter` (the canonical §13.5 predicate), a `view_id`, or a `list_id`. Bulk record read
+         *     that can exfiltrate at scale, so it is **human-only** (an agent principal is rejected) and every
+         *     export writes one `audit_log` entry (who exported what slice, when — P7/P12).
+         */
+        post: operations["createFilteredExport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1093,6 +1219,39 @@ export interface paths {
          *     Bound by RBAC; an agent caller cannot read beyond the human's scope. Audit-logged.
          */
         post: operations["runReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{report}/derivation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report key (prebuilt) or a saved-report id. */
+                report: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * "Explain This Number" — resolve a derivation handle to its definition + source rows.
+         * @description Resolves the drill-through handle minted as `derivation_url` on every `runReport`
+         *     aggregate row (features/03 §1.3, AC-R6). Returns (a) the exact filter+group+aggregate
+         *     definition **in plain language** and (b) the underlying source rows, row-scoped through
+         *     the SAME RBAC clauses the report itself used — an explanation never out-sees the report.
+         *     The drill-through rows reconcile exactly to the explained aggregate (AC-X1).
+         *
+         *     Query vocabulary: `by` names the plan's grouping dimensions and `agg` its aggregates
+         *     (`fn:field:alias` triplets); **every other query parameter is an equality predicate**
+         *     from the report's closed field vocabulary — the group-key values of the explained row
+         *     plus the plan's filters. An empty predicate value matches SQL NULL (the "no owner"
+         *     group). An out-of-vocabulary key returns `422 code: report_field_not_allowed`.
+         */
+        get: operations["explainReport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1447,6 +1606,543 @@ export interface paths {
          *     matches the `OR EXISTS (record_grant …)` clause). Audited (`action: record_unshare`).
          */
         delete: operations["revokeRecordGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the voice profiles visible to the caller. */
+        get: operations["listVoiceProfiles"];
+        put?: never;
+        /**
+         * Create a voice profile (status=building, empty derived artifact).
+         * @description A `user`-scope profile is owned by the caller — one live profile per user (409 on a second).
+         *     `personality_md` is the human-authored identity half; the derived `voice_profile_md` is
+         *     written only by the profile builder and arrives empty here.
+         */
+        post: operations["createVoiceProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Read one voice profile (derived artifact + human identity). */
+        get: operations["getVoiceProfile"];
+        put?: never;
+        post?: never;
+        /** Archive a voice profile (soft; its corpus stops being read). */
+        delete: operations["deleteVoiceProfile"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit the human-authored personality_md (never the derived artifact).
+         * @description The PATCH surface deliberately carries ONLY `personality_md`: the derived
+         *     `voice_profile_md` + its `profile_version` are written by the rebuild path alone, so the
+         *     human-authored/machine-derived split (features/09 §B0.2) is enforced by the contract shape.
+         */
+        patch: operations["updateVoiceProfile"];
+        trace?: never;
+    };
+    "/voice-profiles/{id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** The corpus manifest — every ingested source plus the live word/register meter. */
+        get: operations["listVoiceCorpusSources"];
+        put?: never;
+        /**
+         * Ingest one corpus source (idempotent on source_ref).
+         * @description Accepts the source text (`.txt`/`.md` as-is; `.vtt`/`.srt`/transcript-JSON are parsed and
+         *     SPEAKER-FILTERED to `speaker_label` — only the owner's own turns enter, features/09 §B1.2),
+         *     tags its register (explicit or defaulted by kind), counts the REAL words of the ingested
+         *     text (never an estimate), and upserts by `source_ref` — re-ingesting a source replaces its
+         *     row, it never double-counts the meter. The V1 corpus is text only (features/09 §B1.1):
+         *     binary documents (`.docx`/`.pdf`) are refused with a 422 — convert or paste the text
+         *     instead. Server-side binary extraction is deferred to B-E07.5c.
+         */
+        post: operations["ingestVoiceCorpusSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice-profiles/{id}/sources/{sourceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Flip a source's manifest opt-out (excluded) or its weight. */
+        patch: operations["updateVoiceCorpusSource"];
+        trace?: never;
+    };
+    "/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List rate-card products (live by default; cursor-paginated). */
+        get: operations["listProducts"];
+        put?: never;
+        /**
+         * Create a rate-card product.
+         * @description Price is integer minor-units + ISO-4217 currency (P11, no float money). `sku` is
+         *     optional; when present it is unique per workspace (409 on a live duplicate).
+         */
+        post: operations["createProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a product by id. */
+        get: operations["getProduct"];
+        put?: never;
+        post?: never;
+        /** Archive (soft-delete) a product. Lines referencing it survive with their snapshot. */
+        delete: operations["archiveProduct"];
+        options?: never;
+        head?: never;
+        /** Update a product (partial). Existing offer lines keep their price snapshot. */
+        patch: operations["updateProduct"];
+        trace?: never;
+    };
+    "/deals/{id}/offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** List a deal's offers, newest revision first. */
+        get: operations["listDealOffers"];
+        put?: never;
+        /**
+         * Create a draft offer under a deal (offer_number minted server-side).
+         * @description Line items may ride the create; each snapshots description/price from its optional
+         *     `product_id` unless given explicitly. Totals are DERIVED — a body carrying
+         *     `net_minor`/`gross_minor`/`line_total` (any spelling) is rejected 422.
+         */
+        post: operations["createOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get an offer with its line items and computed totals. */
+        get: operations["getOffer"];
+        put?: never;
+        post?: never;
+        /** Archive (soft-delete) an offer. */
+        delete: operations["archiveOffer"];
+        options?: never;
+        head?: never;
+        /** Update offer header fields — allowed only while status=draft. */
+        patch: operations["updateOffer"];
+        trace?: never;
+    };
+    "/offers/{id}/line-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a line item to a draft offer (position defaults to next; totals recomputed). */
+        post: operations["addOfferLineItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}/line-items/{lineItemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a line item from a draft offer (totals recomputed). */
+        delete: operations["removeOfferLineItem"];
+        options?: never;
+        head?: never;
+        /** Update a draft offer's line item (totals recomputed; totals themselves are not settable). */
+        patch: operations["updateOfferLineItem"];
+        trace?: never;
+    };
+    "/offers/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
+         * @description draft → sent. Freezes `fx_rate_to_base` as of today (422 `fx_rate_unavailable` when the
+         *     daily rate is missing — never rate=1, RT-PR-C2), captures the buyer/issuer snapshots and
+         *     emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
+         *     `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
+         *     redeems with the X-Approval-Token header (ADR-0036).
+         */
+        post: operations["sendOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the buyer's acceptance — syncs the deal's amount from the offer's gross.
+         * @description sent → accepted; sets `accepted_at`, syncs `deal.amount_minor`/`currency` from the
+         *     accepted offer's `gross_minor` (the offer becomes the deal's value source) and emits
+         *     `offer.accepted`. Recording the buyer's acceptance is a human attestation — an agent
+         *     principal is rejected outright.
+         */
+        post: operations["acceptOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the buyer's decline (sent → rejected; emits offer.rejected). */
+        post: operations["rejectOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint the next revision as a fresh draft; the sent original becomes superseded.
+         * @description The `draft_offer` verb (🟢 — a reversible internal write): copies the sent offer's
+         *     header + lines into revision N+1 as a new `draft`, marks the prior revision
+         *     `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
+         *     mutated in place. The produced draft still cannot leave without the 🟡 send gate.
+         */
+        post: operations["regenerateOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List signals (cursor-paginated), newest first. */
+        get: operations["listSignals"];
+        put?: never;
+        /**
+         * Record a signal (a derived observation, or a raw inbound/web item awaiting resolution).
+         * @description A signal about a known record carries its subject (`entity_type`+`entity_id`, both or
+         *     neither) and enters `resolution_state=resolved`; a raw item (only a `raw_ref` source
+         *     pointer) enters `unresolved` until POST /signals/{id}/resolve attributes it to an
+         *     organization or drops it. Signals are COMPANY-LEVEL: there is no mandatory person
+         *     link, and `resolved_person_id` is only ever set by the resolver under recorded
+         *     consent (P12).
+         */
+        post: operations["createSignal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a signal by id. */
+        get: operations["getSignal"];
+        put?: never;
+        post?: never;
+        /** Archive (soft-delete) a signal. */
+        delete: operations["archiveSignal"];
+        options?: never;
+        head?: never;
+        /**
+         * Triage a signal (acknowledge / resolve / dismiss, severity).
+         * @description A status change to `acknowledged`/`resolved`/`dismissed` appends the human-outcome
+         *     row to `signal_resolution` (`outcome`+`note`+`resolved_by`) — the same append-only
+         *     log that holds the resolver's match basis, distinguished by which columns are set.
+         */
+        patch: operations["updateSignal"];
+        trace?: never;
+    };
+    "/signals/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the signal→company resolver over the signal's raw_ref (inspectable match, never silently confident).
+         * @description Maps the raw source pointer to a specific organization via the domain index,
+         *     exact name, or a prior-interaction email match (B-E08.2), writing the append-only
+         *     `signal_resolution` match-basis row and stamping the signal. Exactly one candidate →
+         *     `resolved`; several plausible candidates → `low_confidence` (surfaced, never silently
+         *     asserted); none → `dropped` — an unattributable signal retains NO person-level
+         *     dossier. `resolved_person_id` is set only where the org match holds AND the person
+         *     has a recorded consent grant; the resolver never creates person rows. Read+resolve
+         *     only, no outbound.
+         */
+        post: operations["resolveSignal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signals/{id}/warmth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The warm/cold classification with the full "why warm" evidence (B-E08.3).
+         * @description A signal resolved to an organization where we hold ≥1 live contact edge
+         *     (employment or deal stakeholder) is WARM and routes to the warm room; a resolved
+         *     organization with no contact is COLD and routes to the cold queue. The answer is
+         *     evidence, not a score: the source signal id, the resolved org id, and the specific
+         *     contact id(s) in our own graph that make it warm, each with its §4 relationship
+         *     strength. Reads only our own relational core — never an external profile.
+         */
+        get: operations["getSignalWarmth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signals/{id}/intro-path": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The proposed warm-intro path for a warm signal (B-E08.4) — an actionable move, not a notification.
+         * @description Names the route-in contact (the strongest live relationship at the resolved
+         *     organization), the relationship we have, and a concrete suggested next move with a
+         *     drafted message carrying the Art. 50 AI-assisted disclosure and evidence back to the
+         *     warm signal. PROPOSAL ONLY: nothing is sent and no record mutates — the outbound
+         *     send rides the 🟡 confirm-first send tool (POST /activities/{id}/send-email); the
+         *     warm room proposes, the rep sends.
+         */
+        get: operations["getSignalIntroPath"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The acting rep's latest Morning-Brief run (the on-open read-model re-read; never re-ranks). */
+        get: operations["getMorningBrief"];
+        put?: never;
+        /**
+         * Generate (refresh) the acting rep's brief now — ranks the candidate set and persists a new run.
+         * @description The on-open / explicit-refresh path (B-E05.3b): ranks the rep's open deals through the
+         *     §10.1 composite + the L2 re-order, and persists one `brief_run` with its ranked
+         *     `brief_item` rows. It reads and stages only — no deal field mutates and nothing is sent.
+         *     This is off the passive home GET; the home route re-reads the persisted run.
+         */
+        post: operations["generateMorningBrief"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brief/items/{itemId}/act": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A brief_item id belonging to one of the acting rep's runs. */
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a brief item acted (B-E05.13) — the deal drops from the next run until it materially changes. */
+        post: operations["markBriefItemActed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brief/items/{itemId}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A brief_item id belonging to one of the acting rep's runs. */
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark. */
+        post: operations["markBriefItemDismissed"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1932,8 +2628,13 @@ export interface components {
             lost_reason?: string | null;
             /** @enum {string|null} */
             forecast_category?: null | "commit" | "best_case" | "pipeline" | "omitted";
-            /** Format: date */
+            /**
+             * Format: date
+             * @description INV-CLOSE-PAST (formulas §11): an open deal never claims a past close date — saving one is rejected 422 (close_date_past); one that ages into the past is corrected by the nightly run.
+             */
             expected_close_date?: string | null;
+            /** @description True while the close date is a machine-computed replacement awaiting human confirmation (formulas §11 🟡 tier); a provisional deal stays out of Commit/Best-case. Cleared when a human sets the date. */
+            readonly close_date_provisional?: boolean;
             /**
              * Format: date
              * @description 'Customer asked us to wait until' date; suppresses the stalled flag but not the overdue close-date flag.
@@ -1977,7 +2678,10 @@ export interface components {
             organization_id?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Deals are born open, so a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11).
+             */
             expected_close_date?: string | null;
             source: string;
         } & {
@@ -2003,7 +2707,10 @@ export interface components {
             fx_rate_date?: string | null;
             /** @enum {string|null} */
             forecast_category?: null | "commit" | "best_case" | "pipeline" | "omitted";
-            /** Format: date */
+            /**
+             * Format: date
+             * @description On an open deal a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11); a human setting it also clears close_date_provisional.
+             */
             expected_close_date?: string | null;
             /** Format: date */
             wait_until?: string | null;
@@ -2153,6 +2860,11 @@ export interface components {
              */
             due_at?: string | null;
             /**
+             * Format: date-time
+             * @description Task only.
+             */
+            remind_at?: string | null;
+            /**
              * Format: uuid
              * @description Task only.
              */
@@ -2205,6 +2917,8 @@ export interface components {
             occurred_at?: string;
             /** Format: date-time */
             due_at?: string | null;
+            /** Format: date-time */
+            remind_at?: string | null;
             /** Format: uuid */
             assignee_id?: string | null;
             duration_seconds?: number | null;
@@ -2232,6 +2946,8 @@ export interface components {
             occurred_at?: string;
             /** Format: date-time */
             due_at?: string | null;
+            /** Format: date-time */
+            remind_at?: string | null;
             /** Format: uuid */
             assignee_id?: string | null;
             /** @description Completing a task writes one audit row + task.completed event. */
@@ -2285,10 +3001,14 @@ export interface components {
              */
             status: "new" | "working" | "promoted" | "disqualified";
             /**
-             * @description Lead-local scoring; never reads the contact graph.
+             * @description Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).
              * @default 0
              */
             score: number;
+            /** @description Non-null when a human has set score as a Commercial Judgement override (formulas §3.1, A68/ADR-0053). A non-empty reason makes score sticky: the §3 recompute stops touching score and tracks the machine value in score_computed instead. Cleared → recompute resumes. */
+            score_override_reason?: string | null;
+            /** @description Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value). */
+            readonly score_computed?: number | null;
             /** Format: uuid */
             owner_id?: string | null;
             source_system?: string | null;
@@ -2348,8 +3068,10 @@ export interface components {
             candidate_org_key?: string | null;
             /** @enum {string} */
             status?: "new" | "working";
-            /** @description Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. */
+            /** @description Human Commercial-Judgement score override (formulas §3.1, AC-S1). Setting it REQUIRES a non-empty score_override_reason in the SAME request — a score with no reason is rejected 422. Establishing an override makes the value sticky (recompute stops overwriting it). Omit to keep the current value. */
             score?: number | null;
+            /** @description The written reason accompanying a score override (mandatory whenever score is set, AC-S1). Two gestures only: a non-empty reason SETS/keeps the override; an explicit empty string CLEARS an in-force override (resumes the §3 recompute so score tracks score_computed again). Omit the field to leave the override untouched. null is not accepted — omit instead. */
+            score_override_reason?: string;
             /** Format: uuid */
             owner_id?: string | null;
         };
@@ -2377,6 +3099,202 @@ export interface components {
         LeadListResponse: {
             data: components["schemas"]["Lead"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
+         *     company-level and consent-gated by construction — the only mandatory attribution is
+         *     organizational (`resolved_org_id` after resolution); `resolved_person_id` is optional
+         *     and set only under a recorded consent grant (P12). Unattributable signals are
+         *     `dropped`, never retained as a person-level dossier.
+         */
+        Signal: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** @enum {string} */
+            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other";
+            /**
+             * @description Where the raw signal came from.
+             * @default derived
+             * @enum {string}
+             */
+            source_channel: "derived" | "inbound" | "web" | "social" | "deal_room_engagement";
+            /** @description Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention. */
+            raw_ref?: string | null;
+            /**
+             * @description The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
+             * @enum {string|null}
+             */
+            entity_type?: "deal" | "organization" | "person" | null;
+            /** Format: uuid */
+            entity_id?: string | null;
+            /**
+             * @description The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.
+             * @enum {string}
+             */
+            resolution_state: "resolved" | "low_confidence" | "unresolved" | "dropped";
+            resolution_confidence?: number | null;
+            /**
+             * Format: uuid
+             * @description The organization the raw signal resolved to (the only required attribution level).
+             */
+            resolved_org_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Optional person resolution — set only under a recorded consent grant
+             */
+            resolved_person_id?: string | null;
+            /**
+             * @default info
+             * @enum {string}
+             */
+            severity: "info" | "warn" | "urgent";
+            summary: string;
+            /** @description Per-claim evidence (evidence-or-omit, features/07 §11 gate 1). */
+            evidence: components["schemas"]["SignalEvidence"][];
+            /**
+             * @default open
+             * @enum {string}
+             */
+            status: "open" | "acknowledged" | "resolved" | "dismissed";
+            /** Format: date-time */
+            detected_at: string;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            version?: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        };
+        SignalEvidence: {
+            snippet: string;
+            /** @enum {string|null} */
+            source_type?: "activity" | "deal" | "signal" | "relationship" | "page" | null;
+            source_id?: string | null;
+        };
+        CreateSignalRequest: {
+            /** @enum {string} */
+            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other";
+            /**
+             * @default derived
+             * @enum {string}
+             */
+            source_channel: "derived" | "inbound" | "web" | "social" | "deal_room_engagement";
+            raw_ref?: string | null;
+            /**
+             * @description Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).
+             * @enum {string|null}
+             */
+            entity_type?: "deal" | "organization" | "person" | null;
+            /** Format: uuid */
+            entity_id?: string | null;
+            /**
+             * @default info
+             * @enum {string}
+             */
+            severity: "info" | "warn" | "urgent";
+            summary: string;
+            evidence?: components["schemas"]["SignalEvidence"][];
+            /**
+             * Format: date-time
+             * @description When the underlying observation happened (defaults to now).
+             */
+            detected_at?: string | null;
+            source: string;
+        };
+        /**
+         * @description Triage. A `status` move to acknowledged/resolved/dismissed appends the human-outcome
+         *     `signal_resolution` row; `note` travels with that outcome. `resolution_state` and the
+         *     resolved ids are resolver-owned and not writable here.
+         */
+        UpdateSignalRequest: {
+            /** @enum {string} */
+            status?: "open" | "acknowledged" | "resolved" | "dismissed";
+            /** @description Optional outcome note recorded with a status change. */
+            note?: string | null;
+            /** @enum {string} */
+            severity?: "info" | "warn" | "urgent";
+        };
+        SignalListResponse: {
+            data: components["schemas"]["Signal"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /** @description One contact edge in our own graph that makes the signal warm — evidence, with its explainable §4 strength. */
+        SignalWarmContact: {
+            /** Format: uuid */
+            person_id: string;
+            full_name?: string | null;
+            /** @enum {string} */
+            relationship_kind: "employment" | "deal_stakeholder";
+            /** @description e.g. cto, champion, economic_buyer. */
+            relationship_role?: string | null;
+            /** @description The deterministic §4 relationship strength (0–100). */
+            strength: number;
+            /** @enum {string} */
+            strength_bucket: "none" | "weak" | "moderate" | "strong";
+        };
+        /**
+         * @description The warm/cold branch with its full evidence: source signal id, resolved org id, and
+         *     the specific contact id(s) that make it warm. No mystery score — a numeric-only
+         *     answer would be a contract violation (features/07 §9).
+         */
+        SignalWarmth: {
+            warm: boolean;
+            /**
+             * @description The real routing branch — warm signals surface in the warm room, cold ones queue separately.
+             * @enum {string}
+             */
+            routing: "warm_room" | "cold_queue";
+            /** Format: uuid */
+            source_signal_id: string;
+            /** Format: uuid */
+            resolved_org_id: string;
+            /** @description Empty exactly when cold. */
+            contact_ids: string[];
+            contacts: components["schemas"]["SignalWarmContact"][];
+        };
+        /**
+         * @description An actionable warm-intro path — names the route-in contact, the relationship we
+         *     have, and a concrete next move with a drafted message. Proposal only: the send is
+         *     the 🟡 confirm-first send tool, never this read.
+         */
+        SignalIntroPath: {
+            /** Format: uuid */
+            signal_id: string;
+            /** Format: uuid */
+            resolved_org_id: string;
+            /**
+             * Format: uuid
+             * @description The route-in contact (the strongest live relationship at the resolved organization).
+             */
+            contact_id: string;
+            contact_name?: string | null;
+            relationship: components["schemas"]["SignalWarmContact"];
+            next_move: {
+                /**
+                 * @description intro_request when the signal resolved (under consent) to a specific person other than the route-in contact; otherwise a direct draft to the contact.
+                 * @enum {string}
+                 */
+                kind: "draft_to_contact" | "intro_request";
+                draft_subject: string;
+                /** @description Renders the Art. 50 AI-assisted disclosure (features/07 §11 gate 9). */
+                draft_body: string;
+                /** @description The machine-readable Art. 50 disclosure line the draft carries. */
+                ai_disclosure: string;
+            };
+            /** @description Provenance back to the warm signal (evidence-or-omit). */
+            evidence: {
+                /** Format: uuid */
+                source_signal_id: string;
+                /** Format: uuid */
+                resolved_org_id: string;
+                contact_ids: string[];
+            };
         };
         /** @description A static membership set or a dynamic segment. Mirrors the `list` table. */
         List: {
@@ -2491,6 +3409,82 @@ export interface components {
         TagListResponse: {
             data: components["schemas"]["Tag"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /** @description A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow. */
+        SavedView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** Format: uuid */
+            owner_id: string;
+            /**
+             * @description V1 enforces private.
+             * @default private
+             * @enum {string}
+             */
+            shared_scope: "private" | "team" | "workspace";
+            /** @enum {string} */
+            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners";
+            name: string;
+            /** @description The saved column choice, sort, and filter state (§13.5 vocabulary); persisted verbatim and restored exactly. */
+            query: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency version; echo it in If-Match on update.
+             */
+            version: number;
+            /** Format: date-time */
+            created_at?: string;
+            /** Format: date-time */
+            updated_at?: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        };
+        CreateSavedViewRequest: {
+            /** @enum {string} */
+            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners";
+            name: string;
+            query: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description A partial update; omitted fields keep their stored value. */
+        UpdateSavedViewRequest: {
+            name?: string;
+            query?: {
+                [key: string]: unknown;
+            };
+        };
+        SavedViewListResponse: {
+            data: components["schemas"]["SavedView"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /** @description A filtered export request. Supply exactly ONE source: an inline `object` (with a required `filter`), a `view_id` (a saved view whose filter state is exported), or a `list_id` (a dynamic list whose definition is exported). The slice is always row-scoped to the caller through the one filter engine. */
+        FilteredExportRequest: {
+            /**
+             * @description The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
+             * @enum {string}
+             */
+            object?: "person" | "organization" | "deal" | "lead";
+            /** @description The canonical §13.5 predicate tree (nested and/or groups over typed leaves). Required with `object`. */
+            filter?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: uuid
+             * @description Export the filter state of one of the caller's saved views. Mutually exclusive with object/list_id.
+             */
+            view_id?: string;
+            /**
+             * Format: uuid
+             * @description Export the definition of a dynamic list. Mutually exclusive with object/view_id.
+             */
+            list_id?: string;
+            /** @enum {string} */
+            format: "csv" | "json";
         };
         /** @description A seat — human or first-party agent. Mirrors `app_user`. */
         User: {
@@ -2672,14 +3666,42 @@ export interface components {
                 [key: string]: unknown;
             };
             columns: string[];
+            /** @description Aggregate rows; each carries its own `derivation_url` handle for the exact cell (group keys bound to the row's values). */
             rows: {
                 [key: string]: unknown;
             }[];
             total_rows?: number;
             /** Format: date-time */
             generated_at?: string;
-            /** @description Handle for "Explain This Number" drill-through to source rows. */
+            /** @description Handle for "Explain This Number" drill-through to source rows (`GET /reports/{report}/derivation`); the result-level handle explains the whole filtered set, each row's handle the single cell. */
             derivation_url?: string | null;
+        };
+        /**
+         * @description The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
+         *     the exact filter+group+aggregate plus the underlying source rows, which reconcile
+         *     exactly to the explained aggregate (AC-X1).
+         */
+        ReportDerivation: {
+            report: string;
+            /** @description Plain-language reading of the exact filter + group + aggregate that produced the number. */
+            definition: string;
+            /** @description The validated predicate/group/aggregate set that was resolved. */
+            plan: {
+                [key: string]: unknown;
+            };
+            columns: string[];
+            /** @description The underlying source rows (drill-through), row-scoped exactly like the report. */
+            rows: {
+                [key: string]: unknown;
+            }[];
+            /** @description The requested aggregates recomputed over exactly these source rows — equals the explained cell. */
+            aggregates?: {
+                [key: string]: unknown;
+            };
+            /** @description Source rows matched (rows is capped at the report row limit). */
+            total_rows?: number;
+            /** Format: date-time */
+            generated_at?: string;
         };
         SearchResult: {
             /** @enum {string} */
@@ -3131,6 +4153,21 @@ export interface components {
             /** @description Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false). */
             double_opt_in_token?: string | null;
         };
+        /**
+         * @description The buyer-facing preference center's per-purpose view (B-E11.32): each tracked consent purpose
+         *     with the recipient's current state and whether it is locked (transactional cannot be withdrawn
+         *     while a deal is live).
+         */
+        PreferenceCenter: {
+            purposes: {
+                key: string;
+                label: string;
+                /** @enum {string} */
+                state: "unknown" | "granted" | "withdrawn";
+                /** @description A locked purpose (transactional) cannot be changed from this surface. */
+                locked: boolean;
+            }[];
+        };
         /** @description An automation *type* in the closed starter library (E15/ADR-0035, feedback/14). */
         AutomationCatalogEntry: {
             /** @description Stable type key, e.g. stalled_deal_nudge. */
@@ -3185,6 +4222,385 @@ export interface components {
             /** @enum {string|null} */
             status?: "enabled" | "paused" | null;
         };
+        /**
+         * @description A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
+         *     `profile_version`, rewritten wholesale on rebuild); `personality_md` is human-AUTHORED
+         *     free text a rebuild never touches.
+         */
+        VoiceProfile: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description null = workspace/team profile.
+             */
+            owner_id?: string | null;
+            /** @enum {string} */
+            scope: "user" | "team" | "workspace";
+            /** @description Derived style descriptor / embedding ref. */
+            model_ref?: string | null;
+            /** @enum {string} */
+            status: "building" | "ready" | "stale";
+            /** @description The derived artifact (Identity · stats · signature moves · patterns · rules · vocabulary · anti-patterns · register notes · few-shot examples). */
+            voice_profile_md: string;
+            /** @description Bumps on every derived rebuild; 0 = never built. */
+            profile_version: number;
+            personality_md: string;
+            version?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        CreateVoiceProfileRequest: {
+            /**
+             * @description Defaults to user (owned by the caller).
+             * @enum {string|null}
+             */
+            scope?: "user" | "team" | "workspace" | null;
+            personality_md?: string | null;
+        };
+        UpdateVoiceProfileRequest: {
+            personality_md: string;
+        };
+        /** @description One corpus manifest row. The ingested text itself is builder-internal and never echoed back. */
+        VoiceCorpusSource: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "post" | "transcript" | "email" | "chat" | "longform" | "voice_memo";
+            /** @enum {string} */
+            register: "spoken" | "written" | "casual" | "formal";
+            weight: number;
+            source_label: string;
+            /** @description The source natural key ingest is idempotent on. */
+            source_ref: string;
+            word_count: number;
+            excluded: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        IngestVoiceCorpusSourceRequest: {
+            /** @enum {string} */
+            kind: "post" | "transcript" | "email" | "chat" | "longform" | "voice_memo";
+            /**
+             * @description Defaults by kind: transcript/voice_memo→spoken, chat→casual, post/longform/email→written.
+             * @enum {string|null}
+             */
+            register?: "spoken" | "written" | "casual" | "formal" | null;
+            /** @description 0.1–5.0; defaults to 1.0. */
+            weight?: number | null;
+            source_label: string;
+            /** @description Natural key (message id, upload name…); defaults to a hash of the content. */
+            source_ref?: string | null;
+            /**
+             * @description Defaults to txt. vtt/srt/json are transcript formats and require speaker_label when turns are speaker-labelled.
+             * @enum {string|null}
+             */
+            format?: "txt" | "md" | "vtt" | "srt" | "json" | null;
+            /** @description The owner's label in a transcript; only matching turns are ingested (features/09 §B1.2). */
+            speaker_label?: string | null;
+            /** @description The raw source text in the declared format. */
+            content: string;
+        };
+        /** @description Any subset; omit a field to leave it unchanged. */
+        UpdateVoiceCorpusSourceRequest: {
+            excluded?: boolean | null;
+            weight?: number | null;
+        };
+        /** @description The live word-count + register-mix meter over the non-excluded manifest (features/09 §B1.4). */
+        VoiceCorpusSummary: {
+            total_words: number;
+            /** @description The ~30k corpus target the meter fills toward. */
+            target_words: number;
+            /** @enum {string} */
+            quality_band: "thin" | "good" | "rich" | "sharp";
+            /** @description Word totals per register (spoken/written/casual/formal mix). */
+            register_words: {
+                [key: string]: number;
+            };
+            source_count: number;
+        };
+        /** @description A rate-card entry. Mirrors the `product` table — data an offer line snapshots from, never a configurator. */
+        Product: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            name: string;
+            /** @description Optional; unique per workspace while live. */
+            sku?: string | null;
+            description?: string | null;
+            /** @description 'unit' | 'hour' | 'day' | … — display only, free text. */
+            unit: string;
+            /**
+             * Format: int64
+             * @description Integer minor units (P11); no float money.
+             */
+            unit_price_minor: number;
+            currency: string;
+            /**
+             * Format: double
+             * @description Percent, e.g. 19.00 (DE USt.); per-line override allowed.
+             */
+            default_tax_rate: number;
+            active: boolean;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            version?: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        ProductListResponse: {
+            data: components["schemas"]["Product"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        CreateProductRequest: {
+            name: string;
+            sku?: string | null;
+            description?: string | null;
+            /** @description Defaults to 'unit'. */
+            unit?: string | null;
+            /** Format: int64 */
+            unit_price_minor: number;
+            currency: string;
+            /**
+             * Format: double
+             * @description Percent; defaults to 0.
+             */
+            default_tax_rate?: number | null;
+            /** @description Defaults to true. */
+            active?: boolean | null;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Any subset; omit a field to leave it unchanged. A price change never re-prices existing offer lines (they hold snapshots). */
+        UpdateProductRequest: {
+            name?: string;
+            sku?: string | null;
+            description?: string | null;
+            unit?: string;
+            /** Format: int64 */
+            unit_price_minor?: number;
+            currency?: string;
+            /** Format: double */
+            default_tax_rate?: number;
+            active?: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * @description A typed offer line. `description`/`unit_price_minor` are SNAPSHOTS (copied from the
+         *     optional product at line creation); `line_net_minor`/`line_tax_minor`/`line_total_minor`
+         *     are DERIVED server-side (formulas §12.6) and never stored or client-settable.
+         */
+        OfferLineItem: {
+            /** Format: uuid */
+            id: string;
+            /** @description Display order */
+            position: number;
+            /**
+             * Format: uuid
+             * @description Optional rate-card ref; the line survives the product.
+             */
+            product_id?: string | null;
+            description: string;
+            unit: string;
+            /**
+             * Format: double
+             * @description Up to 3 decimal places (numeric 14,3); must be > 0.
+             */
+            quantity: number;
+            /**
+             * Format: int64
+             * @description Snapshot — never re-read from product after creation.
+             */
+            unit_price_minor: number;
+            /**
+             * Format: double
+             * @description 0–100, up to 2 decimal places.
+             */
+            discount_pct: number;
+            /**
+             * Format: double
+             * @description Percent, up to 2 decimal places.
+             */
+            tax_rate: number;
+            /**
+             * Format: int64
+             * @description round(qty × unit_price × (1 − discount_pct/100)) — server-computed.
+             */
+            readonly line_net_minor: number;
+            /**
+             * Format: int64
+             * @description round(line_net × tax_rate/100) — server-computed.
+             */
+            readonly line_tax_minor: number;
+            /**
+             * Format: int64
+             * @description line_net + line_tax — server-computed.
+             */
+            readonly line_total_minor: number;
+            /** @description {snippet, source_id} when AI-drafted (evidence-or-omit, features/07). */
+            evidence?: {
+                [key: string]: unknown;
+            } | null;
+            version?: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description A versioned Angebot bound to one deal. Mirrors the `offer` table; totals are derived from the nested line items. */
+        Offer: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** Format: uuid */
+            deal_id: string;
+            /** @description Human-facing Angebot number */
+            readonly offer_number: string;
+            /** @description Bumped when a sent offer is regenerated; the prior revision becomes superseded. */
+            readonly revision: number;
+            /** @enum {string} */
+            status: "draft" | "sent" | "accepted" | "rejected" | "expired" | "superseded";
+            currency: string;
+            /** Format: uuid */
+            buyer_org_id?: string | null;
+            /** @description Buyer legal block captured at send time. */
+            readonly buyer_snapshot?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Seller legal block captured at send time. */
+            readonly issuer_snapshot?: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: date */
+            valid_until?: string | null;
+            intro_text?: string | null;
+            terms_text?: string | null;
+            /**
+             * Format: int64
+             * @description Σ line nets — derived
+             */
+            readonly net_minor: number;
+            /**
+             * Format: int64
+             * @description Σ line taxes — derived
+             */
+            readonly tax_minor: number;
+            /**
+             * Format: int64
+             * @description net + tax — derived
+             */
+            readonly gross_minor: number;
+            /** @description Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding. */
+            readonly fx_rate_to_base?: string | null;
+            /** Format: date */
+            readonly fx_rate_date?: string | null;
+            /** @description Rendered PDF ref (render is the WP7 slice). */
+            pdf_asset_ref?: string | null;
+            /** Format: date-time */
+            readonly accepted_at?: string | null;
+            readonly line_items: components["schemas"]["OfferLineItem"][];
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            version?: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        OfferListResponse: {
+            data: components["schemas"]["Offer"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description One line to add. With `product_id`, description/unit/unit_price_minor/tax_rate default
+         *     from the product (a SNAPSHOT — later product edits never touch the line); without it,
+         *     description and unit_price_minor are required. Totals are never accepted here (422).
+         */
+        OfferLineItemInput: {
+            /** @description Defaults to the next free position. */
+            position?: number | null;
+            /** Format: uuid */
+            product_id?: string | null;
+            description?: string | null;
+            unit?: string | null;
+            /**
+             * Format: double
+             * @description > 0, up to 3 decimal places.
+             */
+            quantity: number;
+            /** Format: int64 */
+            unit_price_minor?: number | null;
+            /** Format: double */
+            discount_pct?: number | null;
+            /** Format: double */
+            tax_rate?: number | null;
+        };
+        /** @description Any subset; omit a field to leave it unchanged. Totals are derived and not settable (422). */
+        UpdateOfferLineItemRequest: {
+            position?: number;
+            description?: string;
+            unit?: string;
+            /** Format: double */
+            quantity?: number;
+            /** Format: int64 */
+            unit_price_minor?: number;
+            /** Format: double */
+            discount_pct?: number;
+            /** Format: double */
+            tax_rate?: number;
+        };
+        CreateOfferRequest: {
+            currency: string;
+            /**
+             * Format: uuid
+             * @description Defaults to the deal's organization.
+             */
+            buyer_org_id?: string | null;
+            /** Format: date */
+            valid_until?: string | null;
+            intro_text?: string | null;
+            terms_text?: string | null;
+            line_items?: components["schemas"]["OfferLineItemInput"][] | null;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Header-field patch; allowed only while status=draft (422 offer_not_draft otherwise). Totals are derived and not settable (422). */
+        UpdateOfferRequest: {
+            currency?: string;
+            /** Format: uuid */
+            buyer_org_id?: string | null;
+            /** Format: date */
+            valid_until?: string | null;
+            intro_text?: string | null;
+            terms_text?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        RejectOfferRequest: {
+            /** @description Optional buyer-given decline reason (rides offer.rejected). */
+            reason?: string | null;
+        };
         IssuePassportRequest: {
             /** @description Which agent this binds, e.g. "Claude Desktop". */
             label?: string | null;
@@ -3225,6 +4641,77 @@ export interface components {
             last_used_at?: string | null;
             /** Format: date-time */
             revoked_at?: string | null;
+        };
+        /**
+         * @description One persisted Morning-Brief run for the acting rep (data-model §12.5 `brief_run` +
+         *     `brief_item`): the ranked, honest-short queue of winnable deals plus the metadata that
+         *     reproduces it. `candidate_count` is how many deals cleared the §10 honest-short bar;
+         *     `items` is the top slice (≤ 7) — genuinely shorter when fewer qualify, never padded.
+         */
+        MorningBrief: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When this run was assembled.
+             */
+            generated_at: string;
+            /**
+             * Format: date-time
+             * @description The data cutoff this brief reflects; the next run derives "changed overnight" from it.
+             */
+            as_of: string;
+            /** @description Deals that cleared the §10 honest-short bar (may exceed the queue length). */
+            candidate_count: number;
+            /**
+             * Format: int64
+             * @description The workspace-P90 (or fallback) base value the revenue factor normalized against.
+             */
+            revenue_norm_minor?: number;
+            /** @description The ranked queue, best-first, capped at the honest-short target (7). */
+            items: components["schemas"]["MorningBriefItem"][];
+        };
+        /**
+         * @description One ranked queue entry: the §10.1 composite, its per-factor decomposition (no mystery
+         *     number), the source rows behind the factors (evidence-or-omit, B-E05.12), and the
+         *     per-rep acted/dismissed state (B-E05.13). `rank` reflects the L2 re-order within the
+         *     deterministic candidate set, so it is not necessarily descending in `composite`.
+         */
+        MorningBriefItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            deal_id: string;
+            /** @description Position in the queue (1 = top) */
+            rank: number;
+            /** @description The deterministic §10.1 composite score. */
+            composite: number;
+            feature_vector: components["schemas"]["MorningBriefFeatureVector"];
+            /** @description The source rows (deal / activity / relationship) behind the factors; never empty (evidence-or-omit). */
+            evidence_ids: string[];
+            /**
+             * @description The acting rep's queue state for this item.
+             * @enum {string}
+             */
+            state: "new" | "acted" | "dismissed";
+            /**
+             * Format: date-time
+             * @description When the rep acted/dismissed; null while new.
+             */
+            state_at?: string | null;
+        };
+        /** @description The §10.1 factor decomposition, each normalized 0..1 — the composite reconciles to it. */
+        MorningBriefFeatureVector: {
+            /** @description stage win probability / 100. */
+            winnability: number;
+            /** @description min(1 */
+            revenue: number;
+            /** @description bucketed days-until-expected-close urgency. */
+            timing: number;
+            /** @description 1.0 with an evidenced overnight change */
+            momentum: number;
+            /** @description strongest visible stakeholder's §4 strength / 100; floor 0 without contributing interactions. */
+            warmth: number;
         };
     };
     responses: {
@@ -5342,6 +6829,97 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    getPreferenceCenter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The recipient's unguessable preference-center token (carried in the List-Unsubscribe URL; not a session credential). */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The per-purpose preference state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceCenter"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updatePreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The recipient's unguessable preference-center token (carried in the List-Unsubscribe URL; not a session credential). */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    choices: {
+                        purpose_key: string;
+                        /** @enum {string} */
+                        state: "granted" | "withdrawn";
+                        /** @description The exact wording shown to the recipient */
+                        wording?: string;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description The updated per-purpose state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceCenter"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    oneClickUnsubscribe: {
+        parameters: {
+            query?: {
+                /** @description The consent purpose key to withdraw. Omit to withdraw every non-transactional purpose. */
+                purpose?: string;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unsubscribed (idempotent). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The purpose keys now withdrawn. */
+                        unsubscribed: string[];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listAutomationCatalog: {
         parameters: {
             query?: never;
@@ -6069,6 +7647,172 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    listSavedViews: {
+        parameters: {
+            query?: {
+                resource?: "people" | "organizations" | "deals" | "activities" | "leads" | "partners";
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved views. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedViewListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createSavedView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSavedViewRequest"];
+            };
+        };
+        responses: {
+            /** @description Created saved view. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedView"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSavedView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The saved view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedView"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveSavedView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived saved view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedView"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateSavedView: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSavedViewRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated saved view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedView"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createFilteredExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FilteredExportRequest"];
+            };
+        };
+        responses: {
+            /** @description The filtered slice as a downloadable attachment (Content-Disposition header set). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/json": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listTags: {
         parameters: {
             query?: {
@@ -6201,6 +7945,46 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description The plan failed validation (out-of-vocabulary field, invalid aggregate). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    explainReport: {
+        parameters: {
+            query?: {
+                /** @description The plan's grouping dimensions (each must also appear as a predicate parameter carrying the explained row's group-key value). */
+                by?: string[];
+                /** @description The plan's aggregates as `fn:field:alias` triplets (field empty for `count`), e.g. `sum:amount_minor:unweighted_minor`. */
+                agg?: string[];
+            };
+            header?: never;
+            path: {
+                /** @description Report key (prebuilt) or a saved-report id. */
+                report: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plain-language definition + drill-through source rows behind the number. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDerivation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description A predicate key, grouping dimension, or aggregate is outside the report's vocabulary. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6928,6 +8712,1270 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listVoiceProfiles: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Voice profiles. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceProfile"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createVoiceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVoiceProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Created (building). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getVoiceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The voice profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteVoiceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateVoiceProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVoiceProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listVoiceCorpusSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Manifest rows + meter summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["VoiceCorpusSource"][];
+                        summary: components["schemas"]["VoiceCorpusSummary"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    ingestVoiceCorpusSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestVoiceCorpusSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Ingested (created or replaced). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source: components["schemas"]["VoiceCorpusSource"];
+                        summary: components["schemas"]["VoiceCorpusSummary"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateVoiceCorpusSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                sourceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateVoiceCorpusSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated manifest row + refreshed meter. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source: components["schemas"]["VoiceCorpusSource"];
+                        summary: components["schemas"]["VoiceCorpusSummary"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listProducts: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
+                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
+                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
+                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
+                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+                active?: boolean;
+                /** @description Case-insensitive name/SKU substring match. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of products. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createProduct: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProductRequest"];
+            };
+        };
+        responses: {
+            /** @description Created product. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The product. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived product. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateProduct: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProductRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated product. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listDealOffers: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                status?: "draft" | "sent" | "accepted" | "rejected" | "expired" | "superseded";
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the deal's offers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferListResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOfferRequest"];
+            };
+        };
+        responses: {
+            /** @description Created draft offer with computed totals. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOfferRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated draft offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Validation error — including any mutation of a non-draft offer (offer_not_draft). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addOfferLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OfferLineItemInput"];
+            };
+        };
+        responses: {
+            /** @description The offer with the new line and recomputed totals. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    removeOfferLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The offer without the line, totals recomputed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateOfferLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOfferLineItemRequest"];
+            };
+        };
+        responses: {
+            /** @description The offer with the updated line and recomputed totals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    sendOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sent offer (frozen totals + FX). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    acceptOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The accepted offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    rejectOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RejectOfferRequest"];
+            };
+        };
+        responses: {
+            /** @description The rejected offer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    regenerateOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new draft revision. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listSignals: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+                status?: "open" | "acknowledged" | "resolved" | "dismissed";
+                kind?: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other";
+                resolution_state?: "resolved" | "low_confidence" | "unresolved" | "dropped";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of signals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignalListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createSignal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSignalRequest"];
+            };
+        };
+        responses: {
+            /** @description Created signal. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The subject entity does not exist or is outside the caller's row scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSignal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The signal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signal"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveSignal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived signal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signal"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateSignal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSignalRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated signal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signal"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    resolveSignal: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stamped signal with its resolution outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signal"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The signal has no raw_ref to resolve, or is already terminally resolved/dropped. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSignalWarmth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The warm/cold branch with its evidence ids. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignalWarmth"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The signal is not resolved to an organization (unresolved / low-confidence / dropped signals have no warmth). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSignalIntroPath: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The proposed intro path. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignalIntroPath"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The signal is cold or not resolved — there is no warm path to propose. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMorningBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest brief run with its ranked queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The rep has no brief run yet (none has been generated). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    generateMorningBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The freshly generated brief run. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    markBriefItemActed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A brief_item id belonging to one of the acting rep's runs. */
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The updated brief item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningBriefItem"];
+                };
+            };
+            /** @description No such item in one of the acting rep's runs (another rep's item reads as not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The item was already acted on or dismissed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    markBriefItemDismissed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A brief_item id belonging to one of the acting rep's runs. */
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The updated brief item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningBriefItem"];
+                };
+            };
+            /** @description No such item in one of the acting rep's runs (another rep's item reads as not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The item was already acted on or dismissed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
 }

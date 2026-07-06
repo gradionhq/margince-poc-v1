@@ -138,9 +138,36 @@ export const en = {
 
   "home.brief": "Morning brief",
   "home.sub": "ranked from live signals — staged actions first",
-  "home.quiet": "All quiet. Nothing staged, nothing stalled.",
   "home.staged": "Waiting on you",
   "home.stalled": "Stalled deals",
+  "home.queue": "Today's queue",
+  "home.asOf": "as of {at}",
+  "home.refresh": "Refresh brief",
+  "home.refreshing": "Ranking…",
+  "home.generate": "Generate my first brief",
+  "home.noneTitle": "No brief yet",
+  "home.noneBody":
+    "Your morning brief ranks the deals worth your first hour — winnability, revenue, timing, momentum, and warmth, each factor with its evidence. Generate the first run once you have open deals.",
+  "home.honestShort":
+    "Only {count} deals cleared the bar — the queue is never padded.",
+  "home.overflow":
+    "{shown} of {count} qualifying deals — the honest-short top slice.",
+  "home.quietRun":
+    "Nothing cleared the bar this morning. No invented urgency — enjoy the quiet.",
+  "home.act": "Done",
+  "home.dismiss": "Dismiss",
+  "home.actedState": "acted",
+  "home.dismissedState": "dismissed",
+  "home.why": "Why this ranks",
+  "home.evidence": "{count} evidence rows",
+  "home.evidenceOne": "1 evidence row",
+  "home.score": "score {pct}%",
+  "home.openDeal": "Open deal",
+  "home.factorWinnability": "Winnability",
+  "home.factorRevenue": "Revenue",
+  "home.factorTiming": "Timing",
+  "home.factorMomentum": "Momentum",
+  "home.factorWarmth": "Warmth",
 
   "tasks.overdue": "Overdue",
   "tasks.today": "Today",
@@ -258,6 +285,17 @@ export const en = {
   "ob.tryAnother": "Try another URL",
   "ob.fillByHand": "Fill it in by hand instead",
 
+  "ob.field.icp": "Ideal customer",
+  "ob.field.buying_center": "Who buys",
+  "ob.field.value_proposition": "Value proposition",
+  "ob.field.usp": "What sets you apart",
+  "ob.field.buying_intents": "Buying intents",
+  "ob.field.legal_name": "Company name",
+  "ob.field.registered_address": "Registered address",
+  "ob.field.register_vat": "Register / VAT ID",
+  "ob.field.industry": "Industry",
+  "ob.field.history": "Company history",
+
   "ob.s2.kick": "Step 2 of 5",
   "ob.s2.title": "Did we get it right?",
   "ob.s2.sub":
@@ -340,12 +378,16 @@ export const en = {
     "ICP, value proposition & USP captured from your site — each with its source.",
   "ob.s4.cardVoice": "Your writing voice",
   "ob.s4.cardVoiceBody":
-    "Direct, warm, concise. Drafts will sound like you from day one.",
+    "Built from the corpus you just gave us. Drafts will sound like you from day one.",
+  "ob.s4.cardVoiceSkippedBody":
+    "You skipped the voice step — drafts start in a neutral starter voice until you build yours. Two minutes, anytime, in Settings.",
   "ob.s4.cardPipeline": "Sales pipeline",
   "ob.s4.cardPipelineBody":
     "The standard 7-stage B2B template, pre-tuned to your industry. Empty until you connect — then deals fill in from your mail.",
   "ob.s4.cardDraft": "A sample draft, in your voice",
+  "ob.s4.cardDraftExample": "A sample draft",
   "ob.s4.cardDraftBody": "See it below.",
+  "ob.s4.exampleTag": "Illustrative example — not written from your data yet",
   "ob.s4.draftSample":
     "Subject: Quick question on your assembly line\n\nHi {{name}} — saw {company} runs discrete assembly at scale. We help teams like yours get a working robotic cell running in 6 weeks without ripping out your existing PLCs. Worth a 15-minute look? Best, Lars",
   "ob.s4.originLabel": "Where this pipeline comes from",
