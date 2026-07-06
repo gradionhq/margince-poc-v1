@@ -235,7 +235,7 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	// Modern browsers stamp the initiator; a cross-site POST is refused
 	// outright (defense in depth over the nonce).
-	if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" {
+	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 		oauthError(w, http.StatusForbidden, "access_denied", "cross-site consent is refused")
 		return
 	}

@@ -171,7 +171,7 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 		t.Fatalf("approved retry → %d, want the archive to execute", status)
 	}
 	// Single-use: the same token cannot authorize a second effect.
-	if status := e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem); status == 200 {
+	if e.call(t, "DELETE", "/v1/people/"+created.ID, nil, withToken, &problem) == 200 {
 		t.Fatal("a consumed approval token authorized a second effect")
 	}
 }

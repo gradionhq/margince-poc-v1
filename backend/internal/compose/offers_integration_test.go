@@ -309,7 +309,7 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 
 	// Reject: a second sent offer takes the decline (with reason).
 	eur := createOffer("EUR")
-	if status := e.call(t, "POST", "/v1/offers/"+eur.ID+"/send", nil, nil, nil); status != http.StatusOK {
+	if e.call(t, "POST", "/v1/offers/"+eur.ID+"/send", nil, nil, nil) != http.StatusOK {
 		t.Fatal("send EUR offer failed")
 	}
 	var rejected offerBody
@@ -320,7 +320,7 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 	// Regenerate: a third sent offer mints revision 2 as a fresh draft
 	// and the original becomes superseded — never mutated in place.
 	third := createOffer("EUR")
-	if status := e.call(t, "POST", "/v1/offers/"+third.ID+"/send", nil, nil, nil); status != http.StatusOK {
+	if e.call(t, "POST", "/v1/offers/"+third.ID+"/send", nil, nil, nil) != http.StatusOK {
 		t.Fatal("send third offer failed")
 	}
 	var nextRev offerBody
@@ -411,7 +411,7 @@ func TestOfferAgentSendRequiresApproval(t *testing.T) {
 	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, withToken, &sent); status != http.StatusOK || sent.Status != "sent" {
 		t.Fatalf("approved send retry → %d %q, want 200 sent", status, sent.Status)
 	}
-	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, withToken, nil); status == http.StatusOK {
+	if e.call(t, "POST", "/v1/offers/"+offer.ID+"/send", nil, withToken, nil) == http.StatusOK {
 		t.Fatal("a consumed approval token authorized a second send")
 	}
 

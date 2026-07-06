@@ -110,7 +110,7 @@ func downgrade(n *yaml.Node) error {
 
 // rewriteTypeUnion turns type: [T, 'null'] into type: T + nullable: true
 // on the mapping that holds it.
-func rewriteTypeUnion(mapping *yaml.Node, union *yaml.Node) error {
+func rewriteTypeUnion(mapping, union *yaml.Node) error {
 	var concrete string
 	sawNull := false
 	for _, t := range union.Content {

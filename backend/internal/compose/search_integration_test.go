@@ -134,7 +134,7 @@ func (e *searchEnv) admin() context.Context {
 	})
 }
 
-func (e *searchEnv) asTeamRep(user ids.UUID, team ids.UUID) context.Context {
+func (e *searchEnv) asTeamRep(user, team ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
