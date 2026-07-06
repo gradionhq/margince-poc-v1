@@ -166,16 +166,19 @@ jobs:
       # The quality gate requires coverage on new code, so the scan must be
       # handed real coverage reports — both lanes run their unit tests here
       # with coverage enabled (paths declared in sonar-project.properties).
-      - uses: actions/setup-go@v5
+      # Setup actions SHA-pinned (githubactions:S7637 / supply-chain), same
+      # versions the other jobs use by tag: setup-go v5, action-setup v4,
+      # setup-node v4.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         if: ${{ env.SONAR_TOKEN != '' }}
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         if: ${{ env.SONAR_TOKEN != '' }}
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         if: ${{ env.SONAR_TOKEN != '' }}
         with:
           node-version: 22
@@ -188,8 +191,11 @@ jobs:
       - name: Frontend unit coverage
         if: ${{ env.SONAR_TOKEN != '' }}
         working-directory: frontend
+        # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at
+        # install; esbuild ships prebuilt platform binaries as optional deps,
+        # so vitest works without its validating postinstall.
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --ignore-scripts
           pnpm exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
