@@ -9,6 +9,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
+// Column references shared across the per-entity segment engines below —
+// one spelling each so the archived filter and owner scope stay identical
+// across person/organization/deal/lead.
+const (
+	whereArchivedNull = "t.archived_at IS NULL"
+	colOwnerID        = "t.owner_id"
+)
+
 // A dynamic (smart) list is a stored filter that the members endpoint
 // evaluates live through the ONE predicate engine (B-E15.10/.11). The
 // filter names fields from the closed per-resource vocabulary
@@ -22,16 +30,16 @@ import (
 var segmentEngines = map[string]storekit.Query{
 	"person": {
 		Table:     "person",
-		BaseWhere: "t.archived_at IS NULL",
+		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"owner_id": {Expr: "t.owner_id", Type: storekit.FieldID},
+			"owner_id": {Expr: colOwnerID, Type: storekit.FieldID},
 		},
 	},
 	"organization": {
 		Table:     "organization",
-		BaseWhere: "t.archived_at IS NULL",
+		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"owner_id":       {Expr: "t.owner_id", Type: storekit.FieldID},
+			"owner_id":       {Expr: colOwnerID, Type: storekit.FieldID},
 			"industry":       {Expr: "t.industry", Type: storekit.FieldText},
 			"size_band":      {Expr: "t.size_band", Type: storekit.FieldPicklist},
 			"classification": {Expr: "t.classification", Type: storekit.FieldPicklist},
@@ -39,11 +47,11 @@ var segmentEngines = map[string]storekit.Query{
 	},
 	"deal": {
 		Table:     "deal",
-		BaseWhere: "t.archived_at IS NULL",
+		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			"pipeline_id":       {Expr: "t.pipeline_id", Type: storekit.FieldID},
 			"stage_id":          {Expr: "t.stage_id", Type: storekit.FieldID},
-			"owner_id":          {Expr: "t.owner_id", Type: storekit.FieldID},
+			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
 			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID},
 			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID},
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
@@ -52,10 +60,10 @@ var segmentEngines = map[string]storekit.Query{
 	},
 	"lead": {
 		Table:     "lead",
-		BaseWhere: "t.archived_at IS NULL",
+		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
-			"owner_id":          {Expr: "t.owner_id", Type: storekit.FieldID},
+			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
 		},
 	},
