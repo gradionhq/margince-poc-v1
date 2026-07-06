@@ -122,35 +122,56 @@ func validateLeadRoutingParams(params map[string]any) error {
 	for key, value := range params {
 		switch key {
 		case "owners":
-			list, ok := value.([]any)
-			if !ok {
-				return &ParamError{Field: "params.owners", Reason: "must be an array of user ids"}
-			}
-			for i, item := range list {
-				if !isUUIDString(item) {
-					return &ParamError{Field: fmt.Sprintf("params.owners[%d]", i), Reason: "must be a UUID"}
-				}
+			if err := validateRoutingOwners(value); err != nil {
+				return err
 			}
 		case "cap_per_owner":
-			n, ok := value.(float64) // decoded JSON numbers arrive as float64
-			if !ok || n != math.Trunc(n) {
-				return &ParamError{Field: "params.cap_per_owner", Reason: "must be an integer"}
-			}
-			if n < 1 {
-				return &ParamError{Field: "params.cap_per_owner", Reason: "must be at least 1"}
+			if err := validateRoutingCap(value); err != nil {
+				return err
 			}
 		case "rules":
-			list, ok := value.([]any)
-			if !ok {
-				return &ParamError{Field: "params.rules", Reason: "must be an array of rules"}
-			}
-			for i, item := range list {
-				if err := validateRoutingRule(i, item); err != nil {
-					return err
-				}
+			if err := validateRoutingRules(value); err != nil {
+				return err
 			}
 		default:
 			return &ParamError{Field: "params." + key, Reason: "not a parameter of this automation type"}
+		}
+	}
+	return nil
+}
+
+func validateRoutingOwners(value any) error {
+	list, ok := value.([]any)
+	if !ok {
+		return &ParamError{Field: "params.owners", Reason: "must be an array of user ids"}
+	}
+	for i, item := range list {
+		if !isUUIDString(item) {
+			return &ParamError{Field: fmt.Sprintf("params.owners[%d]", i), Reason: "must be a UUID"}
+		}
+	}
+	return nil
+}
+
+func validateRoutingCap(value any) error {
+	n, ok := value.(float64) // decoded JSON numbers arrive as float64
+	if !ok || n != math.Trunc(n) {
+		return &ParamError{Field: "params.cap_per_owner", Reason: "must be an integer"}
+	}
+	if n < 1 {
+		return &ParamError{Field: "params.cap_per_owner", Reason: "must be at least 1"}
+	}
+	return nil
+}
+
+func validateRoutingRules(value any) error {
+	list, ok := value.([]any)
+	if !ok {
+		return &ParamError{Field: "params.rules", Reason: "must be an array of rules"}
+	}
+	for i, item := range list {
+		if err := validateRoutingRule(i, item); err != nil {
+			return err
 		}
 	}
 	return nil
