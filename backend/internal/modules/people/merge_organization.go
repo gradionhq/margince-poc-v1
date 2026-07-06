@@ -40,64 +40,86 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 		if err != nil {
 			return err
 		}
-
-		if _, err := relinkDemotingPrimary(ctx, tx, `
-			UPDATE organization_domain a SET organization_id = $2,
-			  is_primary = a.is_primary AND NOT EXISTS (
-			    SELECT 1 FROM organization_domain b
-			    WHERE b.organization_id = $2 AND b.is_primary AND b.archived_at IS NULL)
-			WHERE a.organization_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
-			return fmt.Errorf("relink domains: %w", err)
-		}
-		if err := relinkOrgEdges(ctx, tx, sourceID, targetID); err != nil {
-			return fmt.Errorf("relink relationships: %w", err)
-		}
-		if _, err := relinkLinkRows(ctx, tx, "organization", sourceID, targetID); err != nil {
-			return fmt.Errorf("relink activity/list/tag rows: %w", err)
-		}
-
-		targetIsPartner, err := absorbOrgReferences(ctx, tx, sourceID, targetID)
+		targetIsPartner, err := relinkOrgAssociations(ctx, tx, sourceID, targetID)
 		if err != nil {
 			return err
 		}
-
-		p := storekit.NewPatch()
-		fillString(p, "legal_name", tgt.LegalName, src.LegalName)
-		fillString(p, "industry", tgt.Industry, src.Industry)
-		if targetIsPartner && (tgt.Classification == nil || *tgt.Classification != crmcontracts.OrganizationClassificationPartner) {
-			// The partner invariant (A41): classification='partner' iff a
-			// partner row exists — the survivor gained one, so it flips.
-			p.Set("classification", tgt.Classification, "partner")
-		}
-		if !p.Empty() {
-			if err := p.Apply(ctx, tx, "organization", targetID, nil); err != nil {
-				return fmt.Errorf("apply survivorship fill: %w", err)
-			}
-		}
-
-		if err := archiveMergedAway(ctx, tx, "organization", sourceID, targetID); err != nil {
-			return fmt.Errorf("retire merged-away organization: %w", err)
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "merge", "organization", sourceID,
-			map[string]any{"merged_into_id": nil},
-			map[string]any{"merged_into_id": targetID, "filled": p.After()})
+		filled, err := fillOrgSurvivorship(ctx, tx, src, tgt, targetIsPartner, targetID)
 		if err != nil {
-			return fmt.Errorf("audit organization merge: %w", err)
+			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.merged", "organization", sourceID, map[string]any{
-			"merged_from_id": sourceID,
-			"merged_into_id": targetID,
-		}); err != nil {
-			return fmt.Errorf("emit organization.merged: %w", err)
-		}
-
-		if out, err = readOrganization(ctx, tx, targetID, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read surviving organization: %w", err)
-		}
-		return nil
+		out, err = finalizeOrgMerge(ctx, tx, sourceID, targetID, filled)
+		return err
 	})
 	return out, err
+}
+
+// relinkOrgAssociations moves every association off the merged-away org
+// onto the survivor — domains (demoting a duplicate primary), relationship
+// edges, activity/list/tag rows, and the deal/hierarchy/partner references
+// — and reports whether the survivor ends up holding a partner row.
+func relinkOrgAssociations(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (bool, error) {
+	if _, err := relinkDemotingPrimary(ctx, tx, `
+		UPDATE organization_domain a SET organization_id = $2,
+		  is_primary = a.is_primary AND NOT EXISTS (
+		    SELECT 1 FROM organization_domain b
+		    WHERE b.organization_id = $2 AND b.is_primary AND b.archived_at IS NULL)
+		WHERE a.organization_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
+		return false, fmt.Errorf("relink domains: %w", err)
+	}
+	if err := relinkOrgEdges(ctx, tx, sourceID, targetID); err != nil {
+		return false, fmt.Errorf("relink relationships: %w", err)
+	}
+	if _, err := relinkLinkRows(ctx, tx, "organization", sourceID, targetID); err != nil {
+		return false, fmt.Errorf("relink activity/list/tag rows: %w", err)
+	}
+	return absorbOrgReferences(ctx, tx, sourceID, targetID)
+}
+
+// fillOrgSurvivorship folds the merged-away org's fields into the survivor
+// where the survivor is blank and, when the survivor gained the 1:1 partner
+// extension, flips its classification to 'partner' (the A41 invariant:
+// classification='partner' iff a partner row exists). It returns the
+// applied after-image for the merge audit.
+func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, targetID ids.UUID) (map[string]any, error) {
+	p := storekit.NewPatch()
+	fillString(p, "legal_name", tgt.LegalName, src.LegalName)
+	fillString(p, "industry", tgt.Industry, src.Industry)
+	if targetIsPartner && (tgt.Classification == nil || *tgt.Classification != crmcontracts.OrganizationClassificationPartner) {
+		p.Set("classification", tgt.Classification, "partner")
+	}
+	if !p.Empty() {
+		if err := p.Apply(ctx, tx, "organization", targetID, nil); err != nil {
+			return nil, fmt.Errorf("apply survivorship fill: %w", err)
+		}
+	}
+	return p.After(), nil
+}
+
+// finalizeOrgMerge retires the merged-away org and records the merge on the
+// write shape — audit row plus organization.merged event in the one
+// transaction — then returns the reloaded survivor.
+func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID, filled map[string]any) (crmcontracts.Organization, error) {
+	if err := archiveMergedAway(ctx, tx, "organization", sourceID, targetID); err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("retire merged-away organization: %w", err)
+	}
+	auditID, err := storekit.Audit(ctx, tx, "merge", "organization", sourceID,
+		map[string]any{"merged_into_id": nil},
+		map[string]any{"merged_into_id": targetID, "filled": filled})
+	if err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("audit organization merge: %w", err)
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "organization.merged", "organization", sourceID, map[string]any{
+		"merged_from_id": sourceID,
+		"merged_into_id": targetID,
+	}); err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("emit organization.merged: %w", err)
+	}
+	out, err := readOrganization(ctx, tx, targetID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("read surviving organization: %w", err)
+	}
+	return out, nil
 }
 
 // absorbOrgReferences re-homes everything beyond the relationship and

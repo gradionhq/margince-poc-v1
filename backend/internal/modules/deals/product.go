@@ -107,31 +107,7 @@ func (s *Store) UpdateProduct(ctx context.Context, id ids.UUID, in UpdateProduct
 		if err != nil {
 			return err
 		}
-		p := storekit.NewPatch()
-		if in.Name != nil {
-			p.Set("name", current.Name, *in.Name)
-		}
-		if in.SKU != nil {
-			p.Set("sku", current.Sku, *in.SKU)
-		}
-		if in.Description != nil {
-			p.Set("description", current.Description, *in.Description)
-		}
-		if in.Unit != nil {
-			p.Set("unit", current.Unit, *in.Unit)
-		}
-		if in.UnitPriceMinor != nil {
-			p.Set("unit_price_minor", current.UnitPriceMinor, *in.UnitPriceMinor)
-		}
-		if in.Currency != nil {
-			p.Set("currency", current.Currency, *in.Currency)
-		}
-		if in.DefaultTaxRate != nil {
-			p.Set("default_tax_rate", current.DefaultTaxRate, formatPct(*in.DefaultTaxRate))
-		}
-		if in.Active != nil {
-			p.Set("active", current.Active, *in.Active)
-		}
+		p := buildProductPatch(current, in)
 		if p.Empty() {
 			out = current
 			return nil
@@ -151,6 +127,37 @@ func (s *Store) UpdateProduct(ctx context.Context, id ids.UUID, in UpdateProduct
 		return nil
 	})
 	return out, err
+}
+
+// buildProductPatch folds the caller's sparse product edit into a patch —
+// every set field carries its before/after image for the audit trail.
+func buildProductPatch(current crmcontracts.Product, in UpdateProductInput) *storekit.Patch {
+	p := storekit.NewPatch()
+	if in.Name != nil {
+		p.Set("name", current.Name, *in.Name)
+	}
+	if in.SKU != nil {
+		p.Set("sku", current.Sku, *in.SKU)
+	}
+	if in.Description != nil {
+		p.Set("description", current.Description, *in.Description)
+	}
+	if in.Unit != nil {
+		p.Set("unit", current.Unit, *in.Unit)
+	}
+	if in.UnitPriceMinor != nil {
+		p.Set("unit_price_minor", current.UnitPriceMinor, *in.UnitPriceMinor)
+	}
+	if in.Currency != nil {
+		p.Set("currency", current.Currency, *in.Currency)
+	}
+	if in.DefaultTaxRate != nil {
+		p.Set("default_tax_rate", current.DefaultTaxRate, formatPct(*in.DefaultTaxRate))
+	}
+	if in.Active != nil {
+		p.Set("active", current.Active, *in.Active)
+	}
+	return p
 }
 
 func (s *Store) ArchiveProduct(ctx context.Context, id ids.UUID) (crmcontracts.Product, error) {

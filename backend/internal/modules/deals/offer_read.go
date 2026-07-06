@@ -69,16 +69,11 @@ func (s *Store) ListDealOffers(ctx context.Context, dealID ids.UUID, in ListDeal
 		where := []string{"deal_id = $1", "archived_at IS NULL"}
 		args := []any{dealID}
 		arg := func(v any) int { args = append(args, v); return len(args) }
-		if in.Status != nil && *in.Status != "" {
-			where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
+		extra, err := dealOffersFilters(in, arg)
+		if err != nil {
+			return err
 		}
-		if in.Cursor != nil && *in.Cursor != "" {
-			c, err := storekit.DecodeCursor(*in.Cursor)
-			if err != nil {
-				return err
-			}
-			where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
-		}
+		where = append(where, extra...)
 
 		rows, err := tx.Query(ctx,
 			`SELECT `+offerColumns+` FROM offer WHERE `+strings.Join(where, " AND ")+
@@ -88,14 +83,7 @@ func (s *Store) ListDealOffers(ctx context.Context, dealID ids.UUID, in ListDeal
 			return err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			o, err := scanOffer(rows)
-			if err != nil {
-				return err
-			}
-			offers = append(offers, o)
-		}
-		if err := rows.Err(); err != nil {
+		if offers, err = scanOffers(rows); err != nil {
 			return err
 		}
 		if len(offers) > limit {
@@ -103,19 +91,58 @@ func (s *Store) ListDealOffers(ctx context.Context, dealID ids.UUID, in ListDeal
 			last := offers[len(offers)-1]
 			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
 		}
-		for i := range offers {
-			lines, err := readOfferLines(ctx, tx, ids.UUID(offers[i].Id))
-			if err != nil {
-				return err
-			}
-			offers[i].LineItems = &lines
-		}
-		return nil
+		return attachOfferLines(ctx, tx, offers)
 	})
 	if offers == nil {
 		offers = []crmcontracts.Offer{}
 	}
 	return offers, page, err
+}
+
+// dealOffersFilters renders the status/cursor list filters, binding each
+// value through arg.
+func dealOffersFilters(in ListDealOffersInput, arg func(any) int) ([]string, error) {
+	var where []string
+	if in.Status != nil && *in.Status != "" {
+		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
+	}
+	if in.Cursor != nil && *in.Cursor != "" {
+		c, err := storekit.DecodeCursor(*in.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+	}
+	return where, nil
+}
+
+// scanOffers drains an offer result set into rows (line items attached
+// separately).
+func scanOffers(rows pgx.Rows) ([]crmcontracts.Offer, error) {
+	var offers []crmcontracts.Offer
+	for rows.Next() {
+		o, err := scanOffer(rows)
+		if err != nil {
+			return nil, err
+		}
+		offers = append(offers, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return offers, nil
+}
+
+// attachOfferLines loads and nests each offer's derived line items.
+func attachOfferLines(ctx context.Context, tx pgx.Tx, offers []crmcontracts.Offer) error {
+	for i := range offers {
+		lines, err := readOfferLines(ctx, tx, ids.UUID(offers[i].Id))
+		if err != nil {
+			return err
+		}
+		offers[i].LineItems = &lines
+	}
+	return nil
 }
 
 const offerColumns = `id, workspace_id, deal_id, offer_number, revision, status, currency,

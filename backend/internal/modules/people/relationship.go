@@ -127,35 +127,9 @@ func (s *Store) ListRelationships(ctx context.Context, in ListRelationshipsInput
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
-		where := []string{"true"}
-		if in.Kind != nil {
-			where = append(where, storekit.SQLf("r.kind = $%d", arg(*in.Kind)))
-		}
-		if in.PersonID != nil {
-			where = append(where, storekit.SQLf("r.person_id = $%d", arg(*in.PersonID)))
-		}
-		if in.OrganizationID != nil {
-			where = append(where, storekit.SQLf("(r.organization_id = $%d OR r.counterparty_org_id = $%d)", arg(*in.OrganizationID), len(args)))
-		}
-		if in.DealID != nil {
-			where = append(where, storekit.SQLf("r.deal_id = $%d", arg(*in.DealID)))
-		}
-		if !in.IncludeArchived {
-			where = append(where, "r.archived_at IS NULL")
-		}
-		if in.Cursor != "" {
-			after, err := ids.Parse(in.Cursor)
-			if err != nil {
-				return &RequiredFieldError{Field: "cursor"}
-			}
-			where = append(where, storekit.SQLf("r.id > $%d", arg(after)))
-		}
-		scope, err := relationshipEndpointScope(ctx, "r", arg)
+		where, err := relationshipListWhere(ctx, in, arg)
 		if err != nil {
 			return err
-		}
-		if scope != "" {
-			where = append(where, scope)
 		}
 		rows, err := tx.Query(ctx, storekit.SQLf(
 			`SELECT %s FROM relationship r WHERE %s ORDER BY r.id LIMIT $%d`,
@@ -164,14 +138,7 @@ func (s *Store) ListRelationships(ctx context.Context, in ListRelationshipsInput
 			return err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			rel, err := scanRelationship(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, rel)
-		}
-		if err := rows.Err(); err != nil {
+		if out, err = scanRelationships(rows); err != nil {
 			return err
 		}
 		if len(out) > limit {
@@ -181,6 +148,60 @@ func (s *Store) ListRelationships(ctx context.Context, in ListRelationshipsInput
 		return nil
 	})
 	return out, page, err
+}
+
+// relationshipListWhere renders the list filters (kind/person/org/deal,
+// archived, cursor) plus the endpoint-visibility scope into WHERE clauses,
+// binding each value through arg.
+func relationshipListWhere(ctx context.Context, in ListRelationshipsInput, arg func(any) int) ([]string, error) {
+	where := []string{"true"}
+	if in.Kind != nil {
+		where = append(where, storekit.SQLf("r.kind = $%d", arg(*in.Kind)))
+	}
+	if in.PersonID != nil {
+		where = append(where, storekit.SQLf("r.person_id = $%d", arg(*in.PersonID)))
+	}
+	if in.OrganizationID != nil {
+		pos := arg(*in.OrganizationID)
+		where = append(where, storekit.SQLf("(r.organization_id = $%d OR r.counterparty_org_id = $%d)", pos, pos))
+	}
+	if in.DealID != nil {
+		where = append(where, storekit.SQLf("r.deal_id = $%d", arg(*in.DealID)))
+	}
+	if !in.IncludeArchived {
+		where = append(where, "r.archived_at IS NULL")
+	}
+	if in.Cursor != "" {
+		after, err := ids.Parse(in.Cursor)
+		if err != nil {
+			return nil, &RequiredFieldError{Field: "cursor"}
+		}
+		where = append(where, storekit.SQLf("r.id > $%d", arg(after)))
+	}
+	scope, err := relationshipEndpointScope(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+	return where, nil
+}
+
+// scanRelationships drains a relationship result set into rows.
+func scanRelationships(rows pgx.Rows) ([]relationshipRow, error) {
+	var out []relationshipRow
+	for rows.Next() {
+		rel, err := scanRelationship(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 type CreateRelationshipInput struct {
