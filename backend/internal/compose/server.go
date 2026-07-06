@@ -100,6 +100,17 @@ func WithBusReady(check func(context.Context) error) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.busReady = check }
 }
 
+// WithPublicBaseURL sets the canonical scheme+host the buyer-facing
+// unsubscribe/preference links resolve to (B-E11.32). It is configured at
+// boot, never derived from a request: the link carries the recipient's
+// unsubscribe token. Without it a marketing send refuses rather than emit
+// a forgeable link.
+func WithPublicBaseURL(base string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.activitiesHandlers = s.WithPublicBaseURL(base)
+	}
+}
+
 // WithColdStart enables the cold-start read-back over the given fetch
 // and model seams. Without it the operation stays an explicit 501 —
 // the api role must DECLARE its model path, never pick one silently.
@@ -170,7 +181,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 			// The public booking capture seams (feedback/14): people is the
 			// idempotent-on-email person path, consent records the
 			// passthrough — both injected here, never sibling imports.
-			WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}),
+			WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}).
+			// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
+			// preference token behind the List-Unsubscribe URL.
+			WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}),
 		approvalsHandlers: approvalsHandlersWithEffects(pool),
 		searchHandlers:    search.NewHandlers(pool),
 		// DSR fulfillment executes privacy's erase path — injected here so
@@ -232,10 +246,13 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal))
-	// The anonymous booking edge sits between the session middleware
-	// (which lets /v1/public/ through without session or workspace) and
-	// the router: slug→tenant resolution, throttles, system principal.
-	publicEdge := publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api)
+	// The anonymous public edges sit between the session middleware (which
+	// lets /v1/public/ through without session or workspace) and the
+	// router: each resolves its own token/slug → tenant, throttles, and
+	// binds a confined system principal. The preference edge wraps the
+	// booking edge — each passes a non-matching path straight through.
+	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
+		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api))
 	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(publicEdge))))
 	// The A2 authorization server (ADR-0013): AS endpoints live outside
 	// the generated resource surface but behind the same workspace and

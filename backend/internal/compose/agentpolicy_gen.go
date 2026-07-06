@@ -86,6 +86,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/pipelines":                               {Op: "createPipeline", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/products":                                {Op: "createProduct", Access: "tool", Tool: "create_record", RecordType: "product", Tier: "green"},
 	"POST /v1/public/booking/{host_slug}":              {Op: "bookPublicMeeting", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/public/preferences/{token}/unsubscribe":  {Op: "oneClickUnsubscribe", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/record-grants":                           {Op: "createRecordGrant", Access: "tool", Tool: "share_record", RecordType: "record_grant", Tier: "yellow"},
 	"POST /v1/relationships":                           {Op: "createRelationship", Access: "tool", Tool: "create_record", RecordType: "relationship", Tier: "green"},
 	"POST /v1/reports/{report}":                        {Op: "runReport", Access: "tool", Tool: "run_report", RecordType: "", Tier: "green"},
@@ -98,4 +99,5 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/voice-profiles/{id}/sources":             {Op: "ingestVoiceCorpusSource", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/workspaces":                              {Op: "bootstrapWorkspace", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/organizations/{id}/partner":               {Op: "upsertPartner", Access: "tool", Tool: "update_record", RecordType: "partner", Tier: "green"},
+	"PUT /v1/public/preferences/{token}":               {Op: "updatePreferences", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 }

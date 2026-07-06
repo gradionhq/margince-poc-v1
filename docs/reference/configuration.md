@@ -26,6 +26,7 @@ stdio protocol channel). Log lines carry the per-request
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only) |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host |
 
 With `--inline-relay` (the default) an unreachable Redis fails the boot:
 without a relay every committed write would strand its outbox row.

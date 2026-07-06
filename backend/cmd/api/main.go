@@ -58,6 +58,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fakeBrain := fs.Bool("ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
+	publicBaseURL := fs.String("public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -78,6 +79,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	defer pool.Close()
 
 	var opts []compose.Option
+	if *publicBaseURL != "" {
+		opts = append(opts, compose.WithPublicBaseURL(*publicBaseURL))
+	}
 
 	stopRelay := func() {}
 	if *inlineRelay {

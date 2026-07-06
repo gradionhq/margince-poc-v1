@@ -78,7 +78,11 @@ func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
 	// booking_page is the slug→tenant RESOLVER (0036) — read to discover
 	// which workspace to bind BEFORE any GUC exists, like `workspace`
 	// itself; it carries no CRM record data.
-	exempt := map[string]bool{"booking_page": true}
+	// preference_token is the token→tenant RESOLVER (0048) — read to
+	// discover which workspace to bind for the no-login preference center
+	// BEFORE any GUC exists, exactly like booking_page; it carries no CRM
+	// record data beyond the person link + revocation.
+	exempt := map[string]bool{"booking_page": true, "preference_token": true}
 
 	checked := 0
 	for rows.Next() {

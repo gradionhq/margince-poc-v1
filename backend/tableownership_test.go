@@ -86,6 +86,7 @@ var tableOwners = map[string]string{
 	"consent_doi_token":    "internal/modules/consent",
 	"data_subject_request": "internal/modules/consent",
 	"retention_policy":     "internal/modules/consent",
+	"preference_token":     "internal/modules/consent",
 	// capture
 	"raw_capture":          "internal/modules/capture",
 	"connector_connection": "internal/modules/capture",

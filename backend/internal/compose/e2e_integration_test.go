@@ -79,7 +79,8 @@ func setup(t *testing.T) *env {
 	}
 	t.Cleanup(pool.Close)
 
-	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		compose.WithPublicBaseURL("https://mail.example.test")))
 	t.Cleanup(ts.Close)
 
 	jar, err := cookiejar.New(nil)

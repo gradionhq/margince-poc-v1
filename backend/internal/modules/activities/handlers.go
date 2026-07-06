@@ -27,6 +27,13 @@ type Handlers struct {
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer
 	publicConsent ConsentCapturer
+	// unsubscribe builds the RFC 8058 List-Unsubscribe URL for a marketing
+	// send; nil means no unsubscribe header (WithUnsubscribe wires it).
+	unsubscribe UnsubscribeLinker
+	// publicBaseURL is the canonical scheme+host the tokenized unsubscribe
+	// link resolves to — configured at boot, never taken from the request
+	// (WithPublicBaseURL wires it).
+	publicBaseURL string
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {

@@ -1620,6 +1620,105 @@ paths:
         '409': { description: 'Slot no longer available (`code: slot_taken`).', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ---- Buyer preference center + RFC 8058 one-click unsubscribe (B-E11.32) ----
+  # A no-login public surface over the consent engine. The token in the path
+  # is the recipient's unguessable preference token (carried in the
+  # List-Unsubscribe URL, not a session credential); it resolves to
+  # (workspace, person) before any session exists. An unknown/revoked token
+  # reads as absent (404) so the surface is never a consent-state oracle.
+  /public/preferences/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string }, description: The recipient's unguessable preference-center token (carried in the List-Unsubscribe URL; not a session credential). }
+    get:
+      tags: [Public]
+      operationId: getPreferenceCenter
+      security: []   # anonymous public page — the token is the capability
+      summary: The recipient's per-purpose consent state (anonymous, token-authed).
+      description: |
+        The no-login preference center behind `preference-center.html` (B-E11.32). The token resolves to
+        (workspace, person) before any session exists; the page shows each consent purpose and the
+        recipient's current state. A locked purpose (transactional) cannot be withdrawn while a deal is
+        live. An unknown or revoked token reads as absent (404) — never a consent-state oracle.
+      responses:
+        '200':
+          description: The per-purpose preference state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreferenceCenter' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Public]
+      operationId: updatePreferences
+      security: []   # anonymous public page — the token is the capability
+      x-agent-access: human-only
+      summary: Save per-purpose choices from the preference center (anonymous, token-authed).
+      description: |
+        Records the recipient's explicit per-purpose choice as a withdrawable `consent_event` (verbatim
+        wording + timestamp + a distinct `preference_center` source). Withdrawing one purpose never
+        touches another (per-purpose default-deny). A locked purpose (transactional) is refused (422).
+        Re-subscribe is an explicit opt-in that writes a fresh grant; a purpose requiring double-opt-in
+        cannot be re-granted from this surface without the confirmation round-trip (422).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [choices]
+              properties:
+                choices:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [purpose_key, state]
+                    properties:
+                      purpose_key: { type: string }
+                      state:       { type: string, enum: [granted, withdrawn] }
+                      wording:     { type: string, description: The exact wording shown to the recipient, stored verbatim as proof. }
+      responses:
+        '200':
+          description: The updated per-purpose state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreferenceCenter' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /public/preferences/{token}/unsubscribe:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Public]
+      operationId: oneClickUnsubscribe
+      security: []   # anonymous public page — the token is the capability
+      x-agent-access: human-only
+      summary: RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
+      description: |
+        The endpoint the RFC 8058 `List-Unsubscribe-Post: List-Unsubscribe=One-Click` POST hits: no login,
+        no confirmation page, a fixed body. Records an immediate per-purpose withdrawal as a `consent_event`
+        (source `preference_center`) which the default-deny suppression gate honors on the very next send
+        across every path (manual + agent). Idempotent. Only POST acts — a GET/prefetch by a mail scanner
+        never unsubscribes anyone (the reason RFC 8058 mandates POST). With `purpose` only that purpose is
+        withdrawn (the one the message was sent under); without it every withdrawable purpose is.
+      parameters:
+        - { name: purpose, in: query, required: false, schema: { type: string }, description: The consent purpose key to withdraw. Omit to withdraw every non-transactional purpose. }
+      responses:
+        '200':
+          description: Unsubscribed (idempotent).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unsubscribed]
+                properties:
+                  unsubscribed:
+                    type: array
+                    items: { type: string }
+                    description: The purpose keys now withdrawn.
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ---- Automations (feedback/14 — un-defers E15/ADR-0035 for the EP09.15 editor) ----
   # Deviation from the spec source (recorded in this batch's decision file):
   # the three mutating ops carry `security: cookieAuth` + `x-agent-access:
@@ -5595,6 +5694,25 @@ components:
         policy_version: { type: string, description: Version id of the consent wording shown to the subject. }
         wording: { type: [string, 'null'], description: The exact wording shown, stored with the consent event for demonstrability. }
         double_opt_in_token: { type: [string, 'null'], description: Present when the surface delivered its own DOI confirmation (issueDoubleOptIn with deliver=false). }
+
+    PreferenceCenter:
+      type: object
+      description: |
+        The buyer-facing preference center's per-purpose view (B-E11.32): each tracked consent purpose
+        with the recipient's current state and whether it is locked (transactional cannot be withdrawn
+        while a deal is live).
+      required: [purposes]
+      properties:
+        purposes:
+          type: array
+          items:
+            type: object
+            required: [key, label, state, locked]
+            properties:
+              key:    { type: string }
+              label:  { type: string }
+              state:  { type: string, enum: [unknown, granted, withdrawn] }
+              locked: { type: boolean, description: A locked purpose (transactional) cannot be changed from this surface. }
 
     # ---- Automations (E15/ADR-0035, feedback/14) ----
     AutomationCatalogEntry:

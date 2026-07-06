@@ -400,6 +400,18 @@ func (stubs) GetPublicAvailability(w nethttp.ResponseWriter, r *nethttp.Request,
 	httperr.NotImplemented(w, r, "GetPublicAvailability")
 }
 
+func (stubs) GetPreferenceCenter(w nethttp.ResponseWriter, r *nethttp.Request, token string) {
+	httperr.NotImplemented(w, r, "GetPreferenceCenter")
+}
+
+func (stubs) UpdatePreferences(w nethttp.ResponseWriter, r *nethttp.Request, token string) {
+	httperr.NotImplemented(w, r, "UpdatePreferences")
+}
+
+func (stubs) OneClickUnsubscribe(w nethttp.ResponseWriter, r *nethttp.Request, token string, params crmcontracts.OneClickUnsubscribeParams) {
+	httperr.NotImplemented(w, r, "OneClickUnsubscribe")
+}
+
 func (stubs) ListRecordGrants(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRecordGrantsParams) {
 	httperr.NotImplemented(w, r, "ListRecordGrants")
 }

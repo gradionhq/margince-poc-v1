@@ -1557,6 +1557,27 @@ func (e PersonPhonePhoneType) Valid() bool {
 	}
 }
 
+// Defines values for PreferenceCenterPurposesState.
+const (
+	PreferenceCenterPurposesStateGranted   PreferenceCenterPurposesState = "granted"
+	PreferenceCenterPurposesStateUnknown   PreferenceCenterPurposesState = "unknown"
+	PreferenceCenterPurposesStateWithdrawn PreferenceCenterPurposesState = "withdrawn"
+)
+
+// Valid indicates whether the value is a known member of the PreferenceCenterPurposesState enum.
+func (e PreferenceCenterPurposesState) Valid() bool {
+	switch e {
+	case PreferenceCenterPurposesStateGranted:
+		return true
+	case PreferenceCenterPurposesStateUnknown:
+		return true
+	case PreferenceCenterPurposesStateWithdrawn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PromoteLeadRequestTrigger.
 const (
 	HumanQualify  PromoteLeadRequestTrigger = "human_qualify"
@@ -1583,16 +1604,16 @@ func (e PromoteLeadRequestTrigger) Valid() bool {
 
 // Defines values for RecordConsentRequestNewState.
 const (
-	Granted   RecordConsentRequestNewState = "granted"
-	Withdrawn RecordConsentRequestNewState = "withdrawn"
+	RecordConsentRequestNewStateGranted   RecordConsentRequestNewState = "granted"
+	RecordConsentRequestNewStateWithdrawn RecordConsentRequestNewState = "withdrawn"
 )
 
 // Valid indicates whether the value is a known member of the RecordConsentRequestNewState enum.
 func (e RecordConsentRequestNewState) Valid() bool {
 	switch e {
-	case Granted:
+	case RecordConsentRequestNewStateGranted:
 		return true
-	case Withdrawn:
+	case RecordConsentRequestNewStateWithdrawn:
 		return true
 	default:
 		return false
@@ -2748,6 +2769,24 @@ func (e ListPartnersParamsCertStatus) Valid() bool {
 	case ListPartnersParamsCertStatusCertified:
 		return true
 	case ListPartnersParamsCertStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdatePreferencesJSONBodyChoicesState.
+const (
+	Granted   UpdatePreferencesJSONBodyChoicesState = "granted"
+	Withdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
+)
+
+// Valid indicates whether the value is a known member of the UpdatePreferencesJSONBodyChoicesState enum.
+func (e UpdatePreferencesJSONBodyChoicesState) Valid() bool {
+	switch e {
+	case Granted:
+		return true
+	case Withdrawn:
 		return true
 	default:
 		return false
@@ -4368,6 +4407,23 @@ type PipelineListResponse struct {
 	Data []Pipeline `json:"data"`
 	Page PageInfo   `json:"page"`
 }
+
+// PreferenceCenter The buyer-facing preference center's per-purpose view (B-E11.32): each tracked consent purpose
+// with the recipient's current state and whether it is locked (transactional cannot be withdrawn
+// while a deal is live).
+type PreferenceCenter struct {
+	Purposes []struct {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+
+		// Locked A locked purpose (transactional) cannot be changed from this surface.
+		Locked bool                          `json:"locked"`
+		State  PreferenceCenterPurposesState `json:"state"`
+	} `json:"purposes"`
+}
+
+// PreferenceCenterPurposesState defines model for PreferenceCenter.Purposes.State.
+type PreferenceCenterPurposesState string
 
 // Problem RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type Problem struct {
@@ -6205,6 +6261,26 @@ type GetPublicAvailabilityParams struct {
 	DurationMinutes *int      `form:"duration_minutes,omitempty" json:"duration_minutes,omitempty"`
 }
 
+// UpdatePreferencesJSONBody defines parameters for UpdatePreferences.
+type UpdatePreferencesJSONBody struct {
+	Choices []struct {
+		PurposeKey string                                `json:"purpose_key"`
+		State      UpdatePreferencesJSONBodyChoicesState `json:"state"`
+
+		// Wording The exact wording shown to the recipient
+		Wording *string `json:"wording,omitempty"`
+	} `json:"choices"`
+}
+
+// UpdatePreferencesJSONBodyChoicesState defines parameters for UpdatePreferences.
+type UpdatePreferencesJSONBodyChoicesState string
+
+// OneClickUnsubscribeParams defines parameters for OneClickUnsubscribe.
+type OneClickUnsubscribeParams struct {
+	// Purpose The consent purpose key to withdraw. Omit to withdraw every non-transactional purpose.
+	Purpose *string `form:"purpose,omitempty" json:"purpose,omitempty"`
+}
+
 // ListRecordGrantsParams defines parameters for ListRecordGrants.
 type ListRecordGrantsParams struct {
 	RecordType  *ListRecordGrantsParamsRecordType  `form:"record_type,omitempty" json:"record_type,omitempty"`
@@ -6604,6 +6680,9 @@ type UpdateProductJSONRequestBody = UpdateProductRequest
 
 // BookPublicMeetingJSONRequestBody defines body for BookPublicMeeting for application/json ContentType.
 type BookPublicMeetingJSONRequestBody BookPublicMeetingJSONBody
+
+// UpdatePreferencesJSONRequestBody defines body for UpdatePreferences for application/json ContentType.
+type UpdatePreferencesJSONRequestBody UpdatePreferencesJSONBody
 
 // CreateRecordGrantJSONRequestBody defines body for CreateRecordGrant for application/json ContentType.
 type CreateRecordGrantJSONRequestBody = CreateRecordGrantRequest
@@ -10687,6 +10766,15 @@ type ServerInterface interface {
 	// Free/busy slots for a public booking page (anonymous).
 	// (GET /public/booking/{host_slug}/availability)
 	GetPublicAvailability(w http.ResponseWriter, r *http.Request, hostSlug string, params GetPublicAvailabilityParams)
+	// The recipient's per-purpose consent state (anonymous, token-authed).
+	// (GET /public/preferences/{token})
+	GetPreferenceCenter(w http.ResponseWriter, r *http.Request, token string)
+	// Save per-purpose choices from the preference center (anonymous, token-authed).
+	// (PUT /public/preferences/{token})
+	UpdatePreferences(w http.ResponseWriter, r *http.Request, token string)
+	// RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
+	// (POST /public/preferences/{token}/unsubscribe)
+	OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams)
 	// List manual per-record grants, filtered by record or by subject (A52/ADR-0039).
 	// (GET /record-grants)
 	ListRecordGrants(w http.ResponseWriter, r *http.Request, params ListRecordGrantsParams)
@@ -11365,6 +11453,24 @@ func (_ Unimplemented) BookPublicMeeting(w http.ResponseWriter, r *http.Request,
 // Free/busy slots for a public booking page (anonymous).
 // (GET /public/booking/{host_slug}/availability)
 func (_ Unimplemented) GetPublicAvailability(w http.ResponseWriter, r *http.Request, hostSlug string, params GetPublicAvailabilityParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The recipient's per-purpose consent state (anonymous, token-authed).
+// (GET /public/preferences/{token})
+func (_ Unimplemented) GetPreferenceCenter(w http.ResponseWriter, r *http.Request, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save per-purpose choices from the preference center (anonymous, token-authed).
+// (PUT /public/preferences/{token})
+func (_ Unimplemented) UpdatePreferences(w http.ResponseWriter, r *http.Request, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
+// (POST /public/preferences/{token}/unsubscribe)
+func (_ Unimplemented) OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16672,6 +16778,100 @@ func (siw *ServerInterfaceWrapper) GetPublicAvailability(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// GetPreferenceCenter operation middleware
+func (siw *ServerInterfaceWrapper) GetPreferenceCenter(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPreferenceCenter(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdatePreferences operation middleware
+func (siw *ServerInterfaceWrapper) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdatePreferences(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OneClickUnsubscribe operation middleware
+func (siw *ServerInterfaceWrapper) OneClickUnsubscribe(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params OneClickUnsubscribeParams
+
+	// ------------- Optional query parameter "purpose" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "purpose", r.URL.Query(), &params.Purpose, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "purpose"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "purpose", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OneClickUnsubscribe(w, r, token, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRecordGrants operation middleware
 func (siw *ServerInterfaceWrapper) ListRecordGrants(w http.ResponseWriter, r *http.Request) {
 
@@ -18795,6 +18995,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/public/booking/{host_slug}/availability", wrapper.GetPublicAvailability)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/preferences/{token}", wrapper.GetPreferenceCenter)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/public/preferences/{token}", wrapper.UpdatePreferences)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/preferences/{token}/unsubscribe", wrapper.OneClickUnsubscribe)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/record-grants", wrapper.ListRecordGrants)

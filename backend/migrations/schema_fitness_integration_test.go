@@ -29,7 +29,8 @@ import (
 // entry carries its rationale inline — an entry without one is a
 // finding, and a stale entry (table gone or since enrolled) fails too.
 var rlsExemptTables = map[string]string{
-	"booking_page": "the slug→tenant RESOLVER (0036): it is read to discover which workspace to bind BEFORE any GUC exists, exactly like the workspace table itself (data-model §1.2); it carries no CRM record data — slug, workspace, host, revocation only",
+	"booking_page":     "the slug→tenant RESOLVER (0036): it is read to discover which workspace to bind BEFORE any GUC exists, exactly like the workspace table itself (data-model §1.2); it carries no CRM record data — slug, workspace, host, revocation only",
+	"preference_token": "the token→tenant RESOLVER (0048): the no-login preference center / RFC 8058 unsubscribe reads it to discover which workspace to bind BEFORE any GUC exists, exactly like booking_page; it carries no CRM record data beyond the person link + revocation",
 }
 
 func TestRLS_coversEveryTenantTable(t *testing.T) {
@@ -194,6 +195,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"person_phone.person_id":              "child row: written through the person's own gated paths",
 		"person_consent.person_id":            "child row: written through the person's own gated paths",
 		"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
+		"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
 		// Server-derived pointers: stamped from an operation's outcome,
 		// never accepted from the request body.
 		"lead.promoted_person_id":       "server-derived: stamped by PromoteLead",
