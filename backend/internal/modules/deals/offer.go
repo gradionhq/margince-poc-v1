@@ -172,27 +172,50 @@ func nextOfferNumber(ctx context.Context, tx pgx.Tx, wsID ids.UUID) (string, err
 // price, tax default) and validates the resulting line before it lands.
 // The snapshot is copied ONCE, here — a later product edit never touches
 // the line (B-E03.17).
+// lineSnapshotDefaults carries a line's description/unit/price/tax as the
+// caller supplied them; a nil field falls back to the product snapshot
+// (resolveProductSnapshot) or a stored default (normalizeLineDefaults).
+type lineSnapshotDefaults struct {
+	Description *string
+	Unit        *string
+	Price       *int64
+	TaxRate     *string
+}
+
+// resolvedOfferLine is a fully-resolved line ready to insert: defaults
+// applied and money already validated.
+type resolvedOfferLine struct {
+	Description string
+	Unit        string
+	Price       int64
+	Discount    string
+	Tax         string
+}
+
 func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, offerCurrency string, in OfferLineInputRow) error {
-	description, unit, price, taxRate, err := resolveProductSnapshot(
-		ctx, tx, in.ProductID, offerCurrency, in.Description, in.Unit, in.UnitPriceMinor, in.TaxRate)
+	defaults, err := resolveProductSnapshot(ctx, tx, in.ProductID, offerCurrency, lineSnapshotDefaults{
+		Description: in.Description, Unit: in.Unit, Price: in.UnitPriceMinor, TaxRate: in.TaxRate,
+	})
 	if err != nil {
 		return err
 	}
-	if description == nil || *description == "" {
+	if defaults.Description == nil || *defaults.Description == "" {
 		return &RequiredFieldError{Field: "description"}
 	}
-	if price == nil {
+	if defaults.Price == nil {
 		return &RequiredFieldError{Field: "unit_price_minor"}
 	}
-	unitVal, discount, tax := normalizeLineDefaults(unit, in.DiscountPct, taxRate)
+	unitVal, discount, tax := normalizeLineDefaults(defaults.Unit, in.DiscountPct, defaults.TaxRate)
 	// Validate the money math before the row lands: a malformed decimal
 	// or a nonsense quantity answers 422 here, not a CHECK 500 later.
 	if _, err := LineTotals(OfferLineInput{
-		Quantity: in.Quantity, UnitPriceMinor: *price, DiscountPct: discount, TaxRate: tax,
+		Quantity: in.Quantity, UnitPriceMinor: *defaults.Price, DiscountPct: discount, TaxRate: tax,
 	}); err != nil {
 		return err
 	}
-	return insertOfferLineRow(ctx, tx, wsID, offerID, in, *description, unitVal, *price, discount, tax)
+	return insertOfferLineRow(ctx, tx, wsID, offerID, in, resolvedOfferLine{
+		Description: *defaults.Description, Unit: unitVal, Price: *defaults.Price, Discount: discount, Tax: tax,
+	})
 }
 
 // resolveProductSnapshot fills a line's description/unit/price/tax defaults
@@ -200,9 +223,9 @@ func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, off
 // snapshot is copied ONCE, here — a later product edit never touches the
 // line (B-E03.17). The rate-card price only carries over when the
 // currencies agree; a silent conversion would fabricate a number.
-func resolveProductSnapshot(ctx context.Context, tx pgx.Tx, productID *ids.UUID, offerCurrency string, description, unit *string, price *int64, taxRate *string) (*string, *string, *int64, *string, error) {
+func resolveProductSnapshot(ctx context.Context, tx pgx.Tx, productID *ids.UUID, offerCurrency string, in lineSnapshotDefaults) (lineSnapshotDefaults, error) {
 	if productID == nil {
-		return description, unit, price, taxRate, nil
+		return in, nil
 	}
 	var pName, pUnit, pCurrency, pTax string
 	var pPrice int64
@@ -212,26 +235,26 @@ func resolveProductSnapshot(ctx context.Context, tx pgx.Tx, productID *ids.UUID,
 		Scan(&pName, &pUnit, &pCurrency, &pTax, &pPrice)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, nil, nil, apperrors.ErrNotFound
+			return lineSnapshotDefaults{}, apperrors.ErrNotFound
 		}
-		return nil, nil, nil, nil, fmt.Errorf("read product for snapshot: %w", err)
+		return lineSnapshotDefaults{}, fmt.Errorf("read product for snapshot: %w", err)
 	}
-	if description == nil {
-		description = &pName
+	if in.Description == nil {
+		in.Description = &pName
 	}
-	if unit == nil {
-		unit = &pUnit
+	if in.Unit == nil {
+		in.Unit = &pUnit
 	}
-	if price == nil {
+	if in.Price == nil {
 		if pCurrency != offerCurrency {
-			return nil, nil, nil, nil, &ProductCurrencyMismatchError{Product: pCurrency, Offer: offerCurrency}
+			return lineSnapshotDefaults{}, &ProductCurrencyMismatchError{Product: pCurrency, Offer: offerCurrency}
 		}
-		price = &pPrice
+		in.Price = &pPrice
 	}
-	if taxRate == nil {
-		taxRate = &pTax
+	if in.TaxRate == nil {
+		in.TaxRate = &pTax
 	}
-	return description, unit, price, taxRate, nil
+	return in, nil
 }
 
 // normalizeLineDefaults resolves unit/discount/tax to their stored defaults
@@ -254,7 +277,7 @@ func normalizeLineDefaults(unit, discountPct, taxRate *string) (unitVal, discoun
 
 // insertOfferLineRow assigns the line's position (appending after the last
 // when unset) and inserts it, mapping a position collision to 409.
-func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, in OfferLineInputRow, description, unitVal string, price int64, discount, tax string) error {
+func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, in OfferLineInputRow, line resolvedOfferLine) error {
 	position := in.Position
 	if position == nil {
 		var next int
@@ -269,8 +292,8 @@ func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, 
 		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
 		                              unit, quantity, unit_price_minor, discount_pct, tax_rate)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		ids.NewV7(), wsID, offerID, *position, in.ProductID, description,
-		unitVal, in.Quantity, price, discount, tax)
+		ids.NewV7(), wsID, offerID, *position, in.ProductID, line.Description,
+		line.Unit, in.Quantity, line.Price, line.Discount, line.Tax)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return fmt.Errorf("position %d is already taken on this offer: %w", *position, apperrors.ErrConflict)

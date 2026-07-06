@@ -63,7 +63,9 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			}
 			ctx, err := gate.Admit(ctx, spec, resolve)
 			r = r.WithContext(ctx)
-			admitAgentCall(w, r, next, staging, ownership, pol, body, err)
+			admitAgentCall(w, r, next, admissionOutcome{
+				staging: staging, ownership: ownership, pol: pol, body: body, err: err,
+			})
 		})
 	}
 }
@@ -114,22 +116,32 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 	return spec, resolve, pol, body, true
 }
 
+// admissionOutcome carries the result of the autonomy gate's Admit call
+// (err) plus the fields needed to act on it.
+type admissionOutcome struct {
+	staging   agents.Approvals
+	ownership agents.FieldOwnership
+	pol       agentPolicy
+	body      []byte
+	err       error
+}
+
 // admitAgentCall dispatches a mutating agent call on the admission outcome:
 // admitted 🟢 work runs (a field-shaped update_record edit routes through
 // the per-field owner check first); a 🟡 refusal stages or redeems the
 // approval; any other admission error is surfaced as-is.
-func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte, err error) {
+func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, outcome admissionOutcome) {
 	switch {
-	case err == nil:
-		if pol.Tool == "update_record" && !actionShapedUpdateOps[pol.Op] {
-			splitOrRedeemUpdate(w, r, next, staging, ownership, pol, body)
+	case outcome.err == nil:
+		if outcome.pol.Tool == "update_record" && !actionShapedUpdateOps[outcome.pol.Op] {
+			splitOrRedeemUpdate(w, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
 			return
 		}
 		next.ServeHTTP(w, r)
-	case !errors.Is(err, apperrors.ErrRequiresApproval) || staging == nil:
-		httperr.Write(w, r, err)
+	case !errors.Is(outcome.err, apperrors.ErrRequiresApproval) || outcome.staging == nil:
+		httperr.Write(w, r, outcome.err)
 	default:
-		stageOrRedeem(w, r, next, staging, pol, body)
+		stageOrRedeem(w, r, next, outcome.staging, outcome.pol, outcome.body)
 	}
 }
 
