@@ -233,41 +233,112 @@ func TestBriefQueueIsHonestlyShortNeverPadded(t *testing.T) {
 	}
 }
 
-// The B-E05.12 gate: an unevidenced, below-bar, mis-ordered, or overlong
-// queue is refused rather than shipped.
-func TestBriefEvidenceGateRefusesDishonestQueues(t *testing.T) {
+// The B-E05.12 candidate gate: the deterministic floor the L2 layer
+// re-orders within must be sound — evidenced, above the bar, and in
+// composite-descending order — or the run fails rather than shipping it.
+func TestBriefCandidateGateRefusesADishonestFloor(t *testing.T) {
 	sound := []BriefQueueItem{
 		{DealID: uuidAt(1), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(1)}},
 		{DealID: uuidAt(2), Composite: 0.4, EvidenceIDs: []ids.UUID{uuidAt(2)}},
 	}
-	if err := validateBriefEvidence(sound); err != nil {
-		t.Fatalf("a sound queue must pass: %v", err)
+	if err := validateBriefCandidates(sound); err != nil {
+		t.Fatalf("a sound candidate set must pass: %v", err)
 	}
 
 	noEvidence := []BriefQueueItem{{DealID: uuidAt(1), Composite: 0.8}}
-	if err := validateBriefEvidence(noEvidence); err == nil {
-		t.Error("an item with no evidence ids must be refused (evidence-or-omit)")
+	if err := validateBriefCandidates(noEvidence); err == nil {
+		t.Error("a candidate with no evidence ids must be refused (evidence-or-omit)")
 	}
 
 	padded := []BriefQueueItem{{DealID: uuidAt(1), Composite: 0.10, EvidenceIDs: []ids.UUID{uuidAt(1)}}}
-	if err := validateBriefEvidence(padded); err == nil {
-		t.Error("a below-bar item must be refused (the queue is never padded)")
+	if err := validateBriefCandidates(padded); err == nil {
+		t.Error("a below-bar candidate must be refused (the set is never padded)")
 	}
 
 	misordered := []BriefQueueItem{
 		{DealID: uuidAt(1), Composite: 0.4, EvidenceIDs: []ids.UUID{uuidAt(1)}},
 		{DealID: uuidAt(2), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(2)}},
 	}
-	if err := validateBriefEvidence(misordered); err == nil {
-		t.Error("a queue out of composite order must be refused")
+	if err := validateBriefCandidates(misordered); err == nil {
+		t.Error("a candidate set out of composite order must be refused (the deterministic floor)")
+	}
+}
+
+// The B-E05.2/.12 queue gate over the L2-re-ordered queue: it never
+// exceeds the target, every item is evidenced and above the bar, and —
+// the deterministic guarantee that stays real when the model re-orders —
+// every queued deal is drawn from the candidate set. A re-ordered (not
+// composite-descending) queue is legitimate and must PASS.
+func TestBriefQueueGateBoundsTheL2Reorder(t *testing.T) {
+	candidates := []BriefQueueItem{
+		{DealID: uuidAt(1), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(1)}},
+		{DealID: uuidAt(2), Composite: 0.4, EvidenceIDs: []ids.UUID{uuidAt(2)}},
+	}
+
+	// A re-order that puts the lower composite first is exactly what L2 is
+	// for — it must not be refused for being out of composite order.
+	reordered := []BriefQueueItem{candidates[1], candidates[0]}
+	if err := validateBriefQueue(reordered, candidates); err != nil {
+		t.Fatalf("an L2 re-order within the candidate set must pass: %v", err)
+	}
+
+	noEvidence := []BriefQueueItem{{DealID: uuidAt(1), Composite: 0.8}}
+	if err := validateBriefQueue(noEvidence, candidates); err == nil {
+		t.Error("an item with no evidence ids must be refused (evidence-or-omit)")
+	}
+
+	belowBar := []BriefQueueItem{{DealID: uuidAt(1), Composite: 0.10, EvidenceIDs: []ids.UUID{uuidAt(1)}}}
+	if err := validateBriefQueue(belowBar, candidates); err == nil {
+		t.Error("a below-bar item must be refused (the queue is never padded)")
+	}
+
+	foreign := []BriefQueueItem{{DealID: uuidAt(9), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(9)}}}
+	if err := validateBriefQueue(foreign, candidates); err == nil {
+		t.Error("a deal outside the candidate set must be refused (the L2 layer never breaches the §10 cutoff)")
 	}
 
 	overlong := make([]BriefQueueItem, briefQueueTarget+1)
+	set := make([]BriefQueueItem, briefQueueTarget+1)
 	for i := range overlong {
-		overlong[i] = BriefQueueItem{DealID: uuidAt(byte(20 + i)), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(byte(20 + i))}}
+		item := BriefQueueItem{DealID: uuidAt(byte(20 + i)), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(byte(20 + i))}}
+		overlong[i] = item
+		set[i] = item
 	}
-	if err := validateBriefEvidence(overlong); err == nil {
+	if err := validateBriefQueue(overlong, set); err == nil {
 		t.Errorf("a queue past the %d target must be refused", briefQueueTarget)
+	}
+}
+
+// boundToCandidates is the deterministic guardrail: whatever the model
+// returns, the result is exactly a permutation of the candidate set — a
+// hallucinated id is dropped, a duplicate counts once, and an omitted
+// candidate keeps its deterministic slot at the tail.
+func TestBoundToCandidatesKeepsThePermutationHonest(t *testing.T) {
+	candidates := []BriefQueueItem{
+		{DealID: uuidAt(1), Composite: 0.8, EvidenceIDs: []ids.UUID{uuidAt(1)}},
+		{DealID: uuidAt(2), Composite: 0.5, EvidenceIDs: []ids.UUID{uuidAt(2)}},
+		{DealID: uuidAt(3), Composite: 0.3, EvidenceIDs: []ids.UUID{uuidAt(3)}},
+	}
+
+	// The model promotes deal 3, invents deal 99, repeats deal 1, and never
+	// mentions deal 2 — the bound result is [3, 1, 2]: 99 dropped, the
+	// duplicate ignored, and the omitted deal 2 kept at the tail.
+	model := []ids.UUID{uuidAt(3), uuidAt(99), uuidAt(1), uuidAt(1)}
+	got := boundToCandidates(model, candidates)
+	want := []ids.UUID{uuidAt(3), uuidAt(1), uuidAt(2)}
+	if diff := queueDeals(got); len(diff) != len(want) {
+		t.Fatalf("bound queue = %v, want %v", diff, want)
+	}
+	for i, id := range want {
+		if got[i].DealID != id {
+			t.Fatalf("bound order = %v, want [deal 3, deal 1, deal 2]", queueDeals(got))
+		}
+	}
+
+	// An empty model response falls back to the deterministic order intact.
+	if fallback := boundToCandidates(nil, candidates); len(fallback) != len(candidates) ||
+		fallback[0].DealID != candidates[0].DealID {
+		t.Fatalf("empty model order must fall back to the deterministic set, got %v", queueDeals(fallback))
 	}
 }
 

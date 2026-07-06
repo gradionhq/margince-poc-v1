@@ -112,6 +112,22 @@ func (stubs) BookMeeting(w nethttp.ResponseWriter, r *nethttp.Request, params cr
 	httperr.NotImplemented(w, r, "BookMeeting")
 }
 
+func (stubs) GetMorningBrief(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetMorningBrief")
+}
+
+func (stubs) GenerateMorningBrief(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GenerateMorningBrief")
+}
+
+func (stubs) MarkBriefItemActed(w nethttp.ResponseWriter, r *nethttp.Request, itemId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "MarkBriefItemActed")
+}
+
+func (stubs) MarkBriefItemDismissed(w nethttp.ResponseWriter, r *nethttp.Request, itemId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "MarkBriefItemDismissed")
+}
+
 func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartReadback")
 }

@@ -77,6 +77,7 @@ type Server struct {
 	agentsHandlers
 	voiceHandlers
 	reportHandlers
+	briefHandlers
 	coldstartHandlers
 	scrapeHandlers
 	imapConnectHandlers
@@ -85,6 +86,10 @@ type Server struct {
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.
 	busReady func(context.Context) error
+
+	// log is the process logger, shared with the optional engines an
+	// option wires (e.g. the brief L2 ranker's degradation warnings).
+	log *slog.Logger
 }
 
 var _ crmcontracts.ServerInterface = Server{}
@@ -134,6 +139,16 @@ func WithScrape(fetch PageFetcher, brain runner.Brain) Option {
 			people:    people.NewStore(pool),
 			approvals: approvals.NewService(pool),
 		}}
+	}
+}
+
+// WithBrief enables the Morning-Brief L2 ranker (B-E05.2) over the given
+// model lane. Without it the brief still serves fully on the deterministic
+// §10.1 composite — the L2 layer is advisory over that floor, never a
+// prerequisite for the home surface.
+func WithBrief(brain runner.Brain) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.briefHandlers.engine.WithL2Ranker(brain, s.log)
 	}
 }
 
@@ -199,10 +214,14 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		agentsHandlers:  agents.NewHandlers(pool),
 		voiceHandlers:   ai.NewHandlers(pool),
 		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
+		// The Morning Brief always serves on the deterministic §10.1 floor;
+		// the L2 re-order is opt-in via WithBrief (the api role's model path).
+		briefHandlers: briefHandlers{engine: NewBriefEngine(pool, people.NewStore(pool))},
 		// The one-shot IMAP pull shares the capture registry (Sink + the
 		// live-authority principal swap); credentials arrive per request and
 		// are never persisted, so no standing connection is registered.
 		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool)},
+		log:                 log,
 	}
 	for _, opt := range opts {
 		opt(&srv, pool)

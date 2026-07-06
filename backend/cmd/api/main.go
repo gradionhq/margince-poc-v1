@@ -184,11 +184,13 @@ func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([
 			return nil, err
 		}
 		// The read-back and per-org enrichment share the fetch + extraction
-		// seam, so both light up together on the one declared model path.
+		// seam, so both light up together on the one declared model path;
+		// the Morning-Brief L2 re-order rides its own routed lane.
 		fetch := compose.NewWebFetcher()
 		return []compose.Option{
 			compose.WithColdStart(fetch, modelPath.ColdStart),
 			compose.WithScrape(fetch, modelPath.ColdStart),
+			compose.WithBrief(modelPath.BriefRank),
 		}, nil
 	case fakeBrain:
 		fetch := compose.NewWebFetcher()
@@ -196,6 +198,7 @@ func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([
 		return []compose.Option{
 			compose.WithColdStart(fetch, fake),
 			compose.WithScrape(fetch, fake),
+			compose.WithBrief(fake),
 		}, nil
 	default:
 		return nil, nil

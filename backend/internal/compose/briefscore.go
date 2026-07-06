@@ -175,12 +175,13 @@ func briefTimingScore(expectedClose *time.Time, now time.Time) float64 {
 	}
 }
 
-// briefQueue applies the honest-short cutoff and the §10.1 stable order:
-// composite desc, ties by higher base_value, then sooner expected close,
-// then lowest deal id. It returns the ordered candidates and their count
-// — the queue is the top briefQueueTarget of them, genuinely shorter
-// when fewer clear the bar (padding with stale deals is a test failure).
-func briefQueue(scored []BriefQueueItem, facts map[ids.UUID]briefDealFacts) (queue []BriefQueueItem, candidateCount int) {
+// briefCandidateOrder applies the honest-short cutoff and the §10.1
+// stable order — composite desc, ties by higher base_value, then sooner
+// expected close, then lowest deal id — and returns the FULL ordered
+// candidate set (every deal clearing the bar), the deterministic floor
+// the L2 ranker (B-E05.2) re-orders within. The queue is the top
+// briefQueueTarget of it; the count is len().
+func briefCandidateOrder(scored []BriefQueueItem, facts map[ids.UUID]briefDealFacts) []BriefQueueItem {
 	candidates := make([]BriefQueueItem, 0, len(scored))
 	for _, item := range scored {
 		if item.Composite >= briefCandidateMinScore {
@@ -219,6 +220,16 @@ func briefQueue(scored []BriefQueueItem, facts map[ids.UUID]briefDealFacts) (que
 		}
 		return bytes.Compare(a.DealID[:], b.DealID[:]) < 0
 	})
+	return candidates
+}
+
+// briefQueue is the deterministic queue: the top briefQueueTarget of the
+// ordered candidate set, genuinely shorter when fewer clear the bar
+// (padding with stale deals is a test failure). It is the AI-off
+// fallback rank — the same order the L2 path yields when the model layer
+// is unavailable.
+func briefQueue(scored []BriefQueueItem, facts map[ids.UUID]briefDealFacts) (queue []BriefQueueItem, candidateCount int) {
+	candidates := briefCandidateOrder(scored, facts)
 	if len(candidates) > briefQueueTarget {
 		return candidates[:briefQueueTarget], len(candidates)
 	}
@@ -239,17 +250,46 @@ func timePtrEqual(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-// validateBriefEvidence is the B-E05.12 evidence-or-omit gate over an
-// assembled queue: every item must carry at least one resolvable source
-// id, every composite must clear the candidate bar, the order must be
-// the deterministic rank, and the queue must never exceed its target —
-// a violation means the ranker itself is broken, so it fails the run
-// rather than shipping an unevidenced claim.
-func validateBriefEvidence(queue []BriefQueueItem) error {
+// validateBriefCandidates gates the deterministic floor before the L2
+// layer re-orders it (B-E05.1/.12): every candidate carries at least one
+// resolvable source id (evidence-or-omit), clears the honest-short bar,
+// and the set is in the deterministic composite-descending order. A
+// violation means the deterministic ranker itself is broken, so the run
+// fails rather than handing the L2 layer — or the rep — a padded or
+// unevidenced claim. It does NOT cap the length: this is the full
+// candidate set, which may exceed the queue target.
+func validateBriefCandidates(candidates []BriefQueueItem) error {
+	prevComposite := math.Inf(1)
+	for i, item := range candidates {
+		if len(item.EvidenceIDs) == 0 {
+			return fmt.Errorf("brief: candidate %d (deal %s) carries no evidence — evidence-or-omit forbids shipping it", i+1, item.DealID)
+		}
+		if item.Composite < briefCandidateMinScore {
+			return fmt.Errorf("brief: candidate %d (deal %s) scores %.3f below the %.2f bar — the set must never be padded", i+1, item.DealID, item.Composite, briefCandidateMinScore)
+		}
+		if item.Composite > prevComposite {
+			return fmt.Errorf("brief: candidate %d outranks candidate %d despite a higher composite — the deterministic order was lost", i+1, i)
+		}
+		prevComposite = item.Composite
+	}
+	return nil
+}
+
+// validateBriefQueue gates the queue the L2 ranker produced (B-E05.2/.12):
+// it never exceeds the target, every item still carries evidence and
+// clears the bar, and — the deterministic guarantee that stays real when
+// the model re-orders — every queued deal is drawn from the deterministic
+// candidate set (the AI can re-order but never inject a deal below the
+// §10 cutoff). Composite order is deliberately NOT checked: re-ordering
+// within the candidate set is exactly what the L2 layer is for.
+func validateBriefQueue(queue, candidates []BriefQueueItem) error {
 	if len(queue) > briefQueueTarget {
 		return fmt.Errorf("brief: queue of %d exceeds the %d target — the honest-short cutoff was not applied", len(queue), briefQueueTarget)
 	}
-	prevComposite := math.Inf(1)
+	inCandidateSet := make(map[ids.UUID]bool, len(candidates))
+	for _, c := range candidates {
+		inCandidateSet[c.DealID] = true
+	}
 	for i, item := range queue {
 		if len(item.EvidenceIDs) == 0 {
 			return fmt.Errorf("brief: item %d (deal %s) carries no evidence — evidence-or-omit forbids shipping it", i+1, item.DealID)
@@ -257,10 +297,9 @@ func validateBriefEvidence(queue []BriefQueueItem) error {
 		if item.Composite < briefCandidateMinScore {
 			return fmt.Errorf("brief: item %d (deal %s) scores %.3f below the %.2f bar — the queue must never be padded", i+1, item.DealID, item.Composite, briefCandidateMinScore)
 		}
-		if item.Composite > prevComposite {
-			return fmt.Errorf("brief: item %d outranks item %d despite a higher composite — the deterministic order was lost", i+1, i)
+		if !inCandidateSet[item.DealID] {
+			return fmt.Errorf("brief: item %d (deal %s) is not in the deterministic candidate set — the L2 layer breached the §10 cutoff", i+1, item.DealID)
 		}
-		prevComposite = item.Composite
 	}
 	return nil
 }

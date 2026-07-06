@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -47,14 +48,30 @@ type briefStrengthSource interface {
 }
 
 // BriefEngine ranks a rep's open deals and owns the brief_run/brief_item
-// read model (B-E05.3b/.13).
+// read model (B-E05.3b/.13). The L2 ranker (B-E05.2) is optional: without
+// one the queue is the deterministic §10.1 composite order, which is also
+// the AI-off fallback rank.
 type BriefEngine struct {
 	pool     *pgxpool.Pool
 	strength briefStrengthSource
+	ranker   *briefL2Ranker
+	log      *slog.Logger
 }
 
 func NewBriefEngine(pool *pgxpool.Pool, strength briefStrengthSource) *BriefEngine {
-	return &BriefEngine{pool: pool, strength: strength}
+	return &BriefEngine{pool: pool, strength: strength, log: slog.Default()}
+}
+
+// WithL2Ranker enables the model-bound re-order over the deterministic
+// candidate set. The api role wires it from the brief_ranking model lane;
+// without it the engine stays fully functional on the deterministic floor.
+func (e *BriefEngine) WithL2Ranker(brain briefBrain, log *slog.Logger) *BriefEngine {
+	if log == nil {
+		log = slog.Default()
+	}
+	e.log = log
+	e.ranker = &briefL2Ranker{brain: brain, log: log}
+	return e
 }
 
 // briefBaseValueSQL renders the §6 base-currency value of d (joined to
@@ -124,13 +141,29 @@ func (e *BriefEngine) Rank(ctx context.Context, now time.Time) (BriefRanking, er
 	for _, dealID := range order {
 		scored = append(scored, briefScore(facts[dealID], revenueNorm, now))
 	}
-	queue, candidateCount := briefQueue(scored, facts)
-	if err := validateBriefEvidence(queue); err != nil {
+
+	// The deterministic floor first: the full §10.1 candidate set, ordered
+	// and evidence-gated. The L2 layer re-orders WITHIN it (never below the
+	// cutoff), then the honest-short truncation and the post-L2 gate close
+	// over the result.
+	candidates := briefCandidateOrder(scored, facts)
+	if err := validateBriefCandidates(candidates); err != nil {
+		return BriefRanking{}, err
+	}
+	ordered := candidates
+	if e.ranker != nil {
+		ordered = e.ranker.reorder(ctx, candidates)
+	}
+	queue := ordered
+	if len(queue) > briefQueueTarget {
+		queue = queue[:briefQueueTarget]
+	}
+	if err := validateBriefQueue(queue, candidates); err != nil {
 		return BriefRanking{}, err
 	}
 	return BriefRanking{
 		Queue:            queue,
-		CandidateCount:   candidateCount,
+		CandidateCount:   len(candidates),
 		RevenueNormMinor: revenueNorm,
 		AsOf:             now,
 	}, nil

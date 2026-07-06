@@ -3880,6 +3880,118 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  # -------------------------- /brief (E05 Morning Brief) --------------------
+  # The signature home surface (features/07 §6): a ranked, finite, honestly-short
+  # queue of winnable deals, per rep. The queue is the deterministic §10.1
+  # composite (B-E05.1) re-ordered by the L2 ranker within the same candidate
+  # set (B-E05.2) — the model may re-order but never breaches the honest-short
+  # cutoff or ships a claim without evidence. The brief is a PERSONAL lens: every
+  # read and mark resolves through the acting rep, and another rep's brief reads
+  # as not-found (existence-hiding), never forbidden. Assembly runs off the home
+  # request path (overnight + on-open refresh, B-E05.3b); GET only re-reads the
+  # persisted read-model, so the home route never blocks on ranking (P4).
+  /brief:
+    get:
+      tags: [Brief]
+      operationId: getMorningBrief
+      summary: The acting rep's latest Morning-Brief run (the on-open read-model re-read; never re-ranks).
+      # Read-only, REST-reachable under the same deal-read grant the brief rides
+      # on and scoped to the acting rep's own runs. The brief is a human home
+      # surface, not a datasource-seam entity — not offered as an agent tool.
+      responses:
+        '200':
+          description: The latest brief run with its ranked queue.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningBrief' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: The rep has no brief run yet (none has been generated).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      tags: [Brief]
+      operationId: generateMorningBrief
+      summary: Generate (refresh) the acting rep's brief now — ranks the candidate set and persists a new run.
+      description: |
+        The on-open / explicit-refresh path (B-E05.3b): ranks the rep's open deals through the
+        §10.1 composite + the L2 re-order, and persists one `brief_run` with its ranked
+        `brief_item` rows. It reads and stages only — no deal field mutates and nothing is sent.
+        This is off the passive home GET; the home route re-reads the persisted run.
+      # Generating a rep's own brief is a personal human act on the home surface;
+      # an agent never refreshes a human's morning brief.
+      x-agent-access: human-only
+      responses:
+        '201':
+          description: The freshly generated brief run.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningBrief' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /brief/items/{itemId}/act:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+        description: A brief_item id belonging to one of the acting rep's runs.
+    post:
+      tags: [Brief]
+      operationId: markBriefItemActed
+      summary: Mark a brief item acted (B-E05.13) — the deal drops from the next run until it materially changes.
+      # Per-rep queue state on the human home surface; a second mark on an
+      # already-marked item is a 409 conflict, never a silent overwrite.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: The updated brief item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningBriefItem' }
+        '404':
+          description: No such item in one of the acting rep's runs (another rep's item reads as not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: The item was already acted on or dismissed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /brief/items/{itemId}/dismiss:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+        description: A brief_item id belonging to one of the acting rep's runs.
+    post:
+      tags: [Brief]
+      operationId: markBriefItemDismissed
+      summary: Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: The updated brief item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningBriefItem' }
+        '404':
+          description: No such item in one of the acting rep's runs (another rep's item reads as not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: The item was already acted on or dismissed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # =========================================================================
   # =========================================================================
   # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
@@ -6211,3 +6323,54 @@ components:
         expires_at: { type: [string, 'null'], format: date-time }
         last_used_at: { type: [string, 'null'], format: date-time }
         revoked_at: { type: [string, 'null'], format: date-time }
+
+    MorningBrief:
+      type: object
+      description: |
+        One persisted Morning-Brief run for the acting rep (data-model §12.5 `brief_run` +
+        `brief_item`): the ranked, honest-short queue of winnable deals plus the metadata that
+        reproduces it. `candidate_count` is how many deals cleared the §10 honest-short bar;
+        `items` is the top slice (≤ 7) — genuinely shorter when fewer qualify, never padded.
+      required: [id, generated_at, as_of, candidate_count, items]
+      properties:
+        id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time, description: When this run was assembled. }
+        as_of: { type: string, format: date-time, description: The data cutoff this brief reflects; the next run derives "changed overnight" from it. }
+        candidate_count: { type: integer, minimum: 0, description: Deals that cleared the §10 honest-short bar (may exceed the queue length). }
+        revenue_norm_minor: { type: integer, format: int64, description: The workspace-P90 (or fallback) base value the revenue factor normalized against. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MorningBriefItem' }
+          description: The ranked queue, best-first, capped at the honest-short target (7).
+
+    MorningBriefItem:
+      type: object
+      description: |
+        One ranked queue entry: the §10.1 composite, its per-factor decomposition (no mystery
+        number), the source rows behind the factors (evidence-or-omit, B-E05.12), and the
+        per-rep acted/dismissed state (B-E05.13). `rank` reflects the L2 re-order within the
+        deterministic candidate set, so it is not necessarily descending in `composite`.
+      required: [id, deal_id, rank, composite, feature_vector, evidence_ids, state]
+      properties:
+        id: { type: string, format: uuid }
+        deal_id: { type: string, format: uuid }
+        rank: { type: integer, minimum: 1, description: Position in the queue (1 = top), after the L2 re-order. }
+        composite: { type: number, minimum: 0, maximum: 1, description: The deterministic §10.1 composite score. }
+        feature_vector: { $ref: '#/components/schemas/MorningBriefFeatureVector' }
+        evidence_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: The source rows (deal / activity / relationship) behind the factors; never empty (evidence-or-omit).
+        state: { type: string, enum: [new, acted, dismissed], description: The acting rep's queue state for this item. }
+        state_at: { type: [string, 'null'], format: date-time, description: When the rep acted/dismissed; null while new. }
+
+    MorningBriefFeatureVector:
+      type: object
+      description: The §10.1 factor decomposition, each normalized 0..1 — the composite reconciles to it.
+      required: [winnability, revenue, timing, momentum, warmth]
+      properties:
+        winnability: { type: number, minimum: 0, maximum: 1, description: stage win probability / 100. }
+        revenue: { type: number, minimum: 0, maximum: 1, description: min(1, base value / REVENUE_NORM); floor 0 when no evidencable amount. }
+        timing: { type: number, minimum: 0, maximum: 1, description: bucketed days-until-expected-close urgency. }
+        momentum: { type: number, minimum: 0, maximum: 1, description: 1.0 with an evidenced overnight change, else the 0.4 floor. }
+        warmth: { type: number, minimum: 0, maximum: 1, description: strongest visible stakeholder's §4 strength / 100; floor 0 without contributing interactions. }

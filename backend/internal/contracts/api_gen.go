@@ -1347,6 +1347,27 @@ func (e MeResponsePassportScopes) Valid() bool {
 	}
 }
 
+// Defines values for MorningBriefItemState.
+const (
+	MorningBriefItemStateActed     MorningBriefItemState = "acted"
+	MorningBriefItemStateDismissed MorningBriefItemState = "dismissed"
+	MorningBriefItemStateNew       MorningBriefItemState = "new"
+)
+
+// Valid indicates whether the value is a known member of the MorningBriefItemState enum.
+func (e MorningBriefItemState) Valid() bool {
+	switch e {
+	case MorningBriefItemStateActed:
+		return true
+	case MorningBriefItemStateDismissed:
+		return true
+	case MorningBriefItemStateNew:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OfferStatus.
 const (
 	OfferStatusAccepted   OfferStatus = "accepted"
@@ -2768,22 +2789,22 @@ func (e ListDealOffersParamsStatus) Valid() bool {
 
 // Defines values for ListLeadsParamsStatus.
 const (
-	ListLeadsParamsStatusDisqualified ListLeadsParamsStatus = "disqualified"
-	ListLeadsParamsStatusNew          ListLeadsParamsStatus = "new"
-	ListLeadsParamsStatusPromoted     ListLeadsParamsStatus = "promoted"
-	ListLeadsParamsStatusWorking      ListLeadsParamsStatus = "working"
+	Disqualified ListLeadsParamsStatus = "disqualified"
+	New          ListLeadsParamsStatus = "new"
+	Promoted     ListLeadsParamsStatus = "promoted"
+	Working      ListLeadsParamsStatus = "working"
 )
 
 // Valid indicates whether the value is a known member of the ListLeadsParamsStatus enum.
 func (e ListLeadsParamsStatus) Valid() bool {
 	switch e {
-	case ListLeadsParamsStatusDisqualified:
+	case Disqualified:
 		return true
-	case ListLeadsParamsStatusNew:
+	case New:
 		return true
-	case ListLeadsParamsStatusPromoted:
+	case Promoted:
 		return true
-	case ListLeadsParamsStatusWorking:
+	case Working:
 		return true
 	default:
 		return false
@@ -4125,6 +4146,75 @@ type MeResponse struct {
 
 // MeResponsePassportScopes defines model for MeResponse.Passport.Scopes.
 type MeResponsePassportScopes string
+
+// MorningBrief One persisted Morning-Brief run for the acting rep (data-model §12.5 `brief_run` +
+// `brief_item`): the ranked, honest-short queue of winnable deals plus the metadata that
+// reproduces it. `candidate_count` is how many deals cleared the §10 honest-short bar;
+// `items` is the top slice (≤ 7) — genuinely shorter when fewer qualify, never padded.
+type MorningBrief struct {
+	// AsOf The data cutoff this brief reflects; the next run derives "changed overnight" from it.
+	AsOf time.Time `json:"as_of"`
+
+	// CandidateCount Deals that cleared the §10 honest-short bar (may exceed the queue length).
+	CandidateCount int `json:"candidate_count"`
+
+	// GeneratedAt When this run was assembled.
+	GeneratedAt time.Time          `json:"generated_at"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// Items The ranked queue, best-first, capped at the honest-short target (7).
+	Items []MorningBriefItem `json:"items"`
+
+	// RevenueNormMinor The workspace-P90 (or fallback) base value the revenue factor normalized against.
+	RevenueNormMinor *int64 `json:"revenue_norm_minor,omitempty"`
+}
+
+// MorningBriefFeatureVector The §10.1 factor decomposition, each normalized 0..1 — the composite reconciles to it.
+type MorningBriefFeatureVector struct {
+	// Momentum 1.0 with an evidenced overnight change
+	Momentum float32 `json:"momentum"`
+
+	// Revenue min(1
+	Revenue float32 `json:"revenue"`
+
+	// Timing bucketed days-until-expected-close urgency.
+	Timing float32 `json:"timing"`
+
+	// Warmth strongest visible stakeholder's §4 strength / 100; floor 0 without contributing interactions.
+	Warmth float32 `json:"warmth"`
+
+	// Winnability stage win probability / 100.
+	Winnability float32 `json:"winnability"`
+}
+
+// MorningBriefItem One ranked queue entry: the §10.1 composite, its per-factor decomposition (no mystery
+// number), the source rows behind the factors (evidence-or-omit, B-E05.12), and the
+// per-rep acted/dismissed state (B-E05.13). `rank` reflects the L2 re-order within the
+// deterministic candidate set, so it is not necessarily descending in `composite`.
+type MorningBriefItem struct {
+	// Composite The deterministic §10.1 composite score.
+	Composite float32            `json:"composite"`
+	DealId    openapi_types.UUID `json:"deal_id"`
+
+	// EvidenceIds The source rows (deal / activity / relationship) behind the factors; never empty (evidence-or-omit).
+	EvidenceIds []openapi_types.UUID `json:"evidence_ids"`
+
+	// FeatureVector The §10.1 factor decomposition, each normalized 0..1 — the composite reconciles to it.
+	FeatureVector MorningBriefFeatureVector `json:"feature_vector"`
+	Id            openapi_types.UUID        `json:"id"`
+
+	// Rank Position in the queue (1 = top)
+	Rank int `json:"rank"`
+
+	// State The acting rep's queue state for this item.
+	State MorningBriefItemState `json:"state"`
+
+	// StateAt When the rep acted/dismissed; null while new.
+	StateAt *time.Time `json:"state_at,omitempty"`
+}
+
+// MorningBriefItemState The acting rep's queue state for this item.
+type MorningBriefItemState string
 
 // Offer A versioned Angebot bound to one deal. Mirrors the `offer` table; totals are derived from the nested line items.
 type Offer struct {
@@ -10737,6 +10827,18 @@ type ServerInterface interface {
 	// Book a meeting at a chosen slot — 🟡 confirm-first / gated (the `book_meeting` MCP verb).
 	// (POST /bookings)
 	BookMeeting(w http.ResponseWriter, r *http.Request, params BookMeetingParams)
+	// The acting rep's latest Morning-Brief run (the on-open read-model re-read; never re-ranks).
+	// (GET /brief)
+	GetMorningBrief(w http.ResponseWriter, r *http.Request)
+	// Generate (refresh) the acting rep's brief now — ranks the candidate set and persists a new run.
+	// (POST /brief)
+	GenerateMorningBrief(w http.ResponseWriter, r *http.Request)
+	// Mark a brief item acted (B-E05.13) — the deal drops from the next run until it materially changes.
+	// (POST /brief/items/{itemId}/act)
+	MarkBriefItemActed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
+	// (POST /brief/items/{itemId}/dismiss)
+	MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -11223,6 +11325,30 @@ func (_ Unimplemented) GetAvailability(w http.ResponseWriter, r *http.Request, p
 // Book a meeting at a chosen slot — 🟡 confirm-first / gated (the `book_meeting` MCP verb).
 // (POST /bookings)
 func (_ Unimplemented) BookMeeting(w http.ResponseWriter, r *http.Request, params BookMeetingParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The acting rep's latest Morning-Brief run (the on-open read-model re-read; never re-ranks).
+// (GET /brief)
+func (_ Unimplemented) GetMorningBrief(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Generate (refresh) the acting rep's brief now — ranks the candidate set and persists a new run.
+// (POST /brief)
+func (_ Unimplemented) GenerateMorningBrief(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mark a brief item acted (B-E05.13) — the deal drops from the next run until it materially changes.
+// (POST /brief/items/{itemId}/act)
+func (_ Unimplemented) MarkBriefItemActed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
+// (POST /brief/items/{itemId}/dismiss)
+func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13156,6 +13282,118 @@ func (siw *ServerInterfaceWrapper) BookMeeting(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.BookMeeting(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMorningBrief operation middleware
+func (siw *ServerInterfaceWrapper) GetMorningBrief(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMorningBrief(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GenerateMorningBrief operation middleware
+func (siw *ServerInterfaceWrapper) GenerateMorningBrief(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GenerateMorningBrief(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkBriefItemActed operation middleware
+func (siw *ServerInterfaceWrapper) MarkBriefItemActed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "itemId" -------------
+	var itemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "itemId", chi.URLParam(r, "itemId"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "itemId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkBriefItemActed(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkBriefItemDismissed operation middleware
+func (siw *ServerInterfaceWrapper) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "itemId" -------------
+	var itemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "itemId", chi.URLParam(r, "itemId"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "itemId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkBriefItemDismissed(w, r, itemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19213,6 +19451,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/bookings", wrapper.BookMeeting)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/brief", wrapper.GetMorningBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/brief", wrapper.GenerateMorningBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/brief/items/{itemId}/act", wrapper.MarkBriefItemActed)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/brief/items/{itemId}/dismiss", wrapper.MarkBriefItemDismissed)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

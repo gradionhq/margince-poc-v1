@@ -27,6 +27,7 @@ import (
 type ModelPath struct {
 	Agent     runner.Brain    // the Surface-B reason-act loop
 	ColdStart runner.Brain    // the website read-back extraction
+	BriefRank runner.Brain    // the Morning-Brief L2 re-order (B-E05.2)
 	Embedder  search.Embedder // the retrieval embed lane
 }
 
@@ -40,6 +41,7 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool) (ModelPath, error) {
 	return ModelPath{
 		Agent:     routerBrain{router: router, task: ai.TaskAgentLoop},
 		ColdStart: routerBrain{router: router, task: ai.TaskColdStart},
+		BriefRank: routerBrain{router: router, task: ai.TaskBriefRanking},
 		Embedder:  router,
 	}, nil
 }
@@ -47,7 +49,7 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool) (ModelPath, error) {
 // FakeModelPath drives every lane with one offline fake — the dev/test
 // path behind an explicit flag, never a silent default.
 func FakeModelPath(client *ai.FakeClient) ModelPath {
-	return ModelPath{Agent: client, ColdStart: client, Embedder: client}
+	return ModelPath{Agent: client, ColdStart: client, BriefRank: client, Embedder: client}
 }
 
 type routerBrain struct {
