@@ -17,7 +17,7 @@ export type CreateFieldOption = { value: string; label: string };
 export type CreateField = {
   key: string;
   label: MessageKey;
-  type?: "text" | "email" | "number" | "date" | "select";
+  type?: "text" | "email" | "number" | "date" | "datetime-local" | "select";
   required?: boolean;
   options?: CreateFieldOption[];
   placeholder?: string;
