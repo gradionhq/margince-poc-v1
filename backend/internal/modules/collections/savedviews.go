@@ -34,6 +34,10 @@ import (
 
 const savedViewColumns = `id, workspace_id, owner_id, shared_scope, resource, name, query, version, created_at, updated_at, archived_at`
 
+// selectSavedView is the shared projection prefix for every saved_view read —
+// one spelling so the columns can't drift between the list, get, and delete paths.
+const selectSavedView = "SELECT " + savedViewColumns + " FROM saved_view WHERE "
+
 type savedViewRow struct {
 	ID          ids.UUID
 	WorkspaceID ids.UUID
@@ -112,7 +116,7 @@ func (s *Store) ListSavedViews(ctx context.Context, resource *string, archived s
 			where = append(where, "archived_at IS NULL")
 		}
 		rows, err := tx.Query(ctx,
-			"SELECT "+savedViewColumns+" FROM saved_view WHERE "+strings.Join(where, " AND ")+
+			selectSavedView+strings.Join(where, " AND ")+
 				fmt.Sprintf(" ORDER BY name, id LIMIT $%d", arg(catalogCap+1)), args...)
 		if err != nil {
 			return err
@@ -188,7 +192,7 @@ func (s *Store) GetSavedView(ctx context.Context, id ids.UUID) (savedViewRow, er
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanSavedView(tx.QueryRow(ctx,
-			"SELECT "+savedViewColumns+" FROM saved_view WHERE id = $1 AND owner_id = $2", id, owner))
+			selectSavedView+"id = $1 AND owner_id = $2", id, owner))
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -215,7 +219,7 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.UUID, in UpdateSaved
 	var out savedViewRow
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := scanSavedView(tx.QueryRow(ctx,
-			"SELECT "+savedViewColumns+" FROM saved_view WHERE id = $1 AND owner_id = $2 AND archived_at IS NULL", id, owner))
+			selectSavedView+"id = $1 AND owner_id = $2 AND archived_at IS NULL", id, owner))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -240,7 +244,7 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.UUID, in UpdateSaved
 			return err
 		}
 		out, err = scanSavedView(tx.QueryRow(ctx,
-			"SELECT "+savedViewColumns+" FROM saved_view WHERE id = $1", id))
+			selectSavedView+"id = $1", id))
 		return err
 	})
 	return out, err
