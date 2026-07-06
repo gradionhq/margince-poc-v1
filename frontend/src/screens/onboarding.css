@@ -728,6 +728,11 @@ textarea.ob-in {
 .qual.rich {
   color: var(--online);
 }
+.qual.sharp {
+  color: var(--online);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 .meterbar {
   height: 8px;
   background: var(--bgCard);

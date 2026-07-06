@@ -99,6 +99,20 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	ctx, err = r.gate.Admit(ctx, spec, resolve)
 	switch {
 	case err == nil:
+		// A green call may still carry approval_id: the retry of a
+		// per-field precedence staging (interfaces.md §2.1) admits green,
+		// so its asserted authority is consumed HERE — validated against
+		// the identical-call hash, never ignored. The redeemed mark tells
+		// the handler the overwrite it is about to make was human-released.
+		if !approvalID.IsZero() {
+			if r.approvals == nil {
+				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
+			}
+			if err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
+				return nil, err
+			}
+			ctx = withApprovalRedeemed(ctx)
+		}
 		return t.Handle(ctx, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err

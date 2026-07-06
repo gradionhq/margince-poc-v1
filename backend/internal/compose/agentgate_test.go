@@ -41,6 +41,37 @@ func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 	}
 }
 
+// Human-edit precedence is per FIELD, not per call (interfaces.md §2.1):
+// update_record is 🟢 in the tool registry AND in every contract
+// annotation that rides it — the split into a 🟡 staged residue happens
+// inside the green Update path, never by re-tiering the whole verb. A
+// dynamic or yellow update_record annotation would resurrect whole-patch
+// staging, so both artifacts are pinned.
+func TestUpdateRecordIsGreenOnBothArtifacts(t *testing.T) {
+	registry := agents.NewRegistry(stubApprovals{}, nil)
+	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
+
+	spec, ok := registry.Spec("update_record")
+	if !ok || spec.Tier != mcp.TierGreen {
+		t.Fatalf("update_record registry tier = %v (registered %v), want TierGreen", spec.Tier, ok)
+	}
+	seen := 0
+	for route, pol := range agentPolicies {
+		if pol.Tool != "update_record" {
+			continue
+		}
+		seen++
+		// DELETE-shaped rides may tighten to yellow (archive semantics);
+		// a field-patch op must be green and none may say dynamic.
+		if pol.Tier != "green" && pol.Tier != "yellow" {
+			t.Errorf("%s (%s): update_record annotated %q — the per-field split runs inside the green path", route, pol.Op, pol.Tier)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no update_record operations in the generated policy — the pin no longer covers anything")
+	}
+}
+
 // The self-approval class and the config surface the advance_deal floor
 // reads must stay human-only in the contract: an agent may stage a 🟡
 // action but never approve one — its own least of all — and must not

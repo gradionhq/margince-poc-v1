@@ -102,6 +102,10 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			r = r.WithContext(ctx)
 			switch {
 			case err == nil:
+				if pol.Tool == "update_record" && !actionShapedUpdateOps[pol.Op] {
+					splitOrRedeemUpdate(w, r, next, staging, ownership, pol, body)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			case !errors.Is(err, apperrors.ErrRequiresApproval) || staging == nil:
@@ -121,27 +125,55 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 // it through; otherwise the call is staged as a new approval and refused
 // with the redemption instructions.
 func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) {
+	if redeemIfPresented(w, r, next, staging, pol, body) {
+		return
+	}
+	stageRefusal(w, r, staging, pol, body)
+}
+
+// redeemIfPresented consumes an X-Approval-Token when the request carries
+// one: a valid token bound to this exact call lets it through to the
+// handler; an invalid one is answered with the failure — asserted
+// authority is validated, never ignored. Reports whether the request was
+// fully handled (no token → false, the caller continues its own flow).
+func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) bool {
+	token := r.Header.Get(approvalTokenHeader)
+	if token == "" {
+		return false
+	}
+	approvalID, pErr := ids.Parse(token)
+	if pErr != nil {
+		httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
+		return true
+	}
+	_, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
+	if cErr != nil {
+		httperr.Write(w, r, cErr)
+		return true
+	}
+	if staging == nil {
+		httperr.Write(w, r, fmt.Errorf("agent gate: %s presented but this surface has no approvals engine: %w",
+			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
+		return true
+	}
+	if rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash); rErr != nil {
+		httperr.Write(w, r, rErr)
+		return true
+	}
+	next.ServeHTTP(w, r)
+	return true
+}
+
+// stageRefusal stages the refused call as a pending approval and answers
+// with the redemption instructions — the whole request, unapplied, is the
+// staged change, so the approved retry is this exact request again.
+func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
 	if cErr != nil {
 		httperr.Write(w, r, cErr)
 		return
 	}
-
-	if token := r.Header.Get(approvalTokenHeader); token != "" {
-		approvalID, pErr := ids.Parse(token)
-		if pErr != nil {
-			httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
-			return
-		}
-		if rErr := staging.Redeem(ctx, approvalID, pol.Tool, diffHash); rErr != nil {
-			httperr.Write(w, r, rErr)
-			return
-		}
-		next.ServeHTTP(w, r)
-		return
-	}
-
 	// Stage only what a human can actually decide: a kind with no
 	// decision-grant mapping would sit undecidable in every inbox
 	// — refuse instead of minting a zombie authority object.
@@ -221,8 +253,7 @@ type tierDeps struct {
 // to interpret — its tier question cannot be answered, so tierInput
 // reports a miss and the caller refuses the request (fail-closed).
 var dynamicTierInputs = map[string]func(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error){
-	"advance_deal":  advanceDealTierInput,
-	"update_record": updateRecordTierInput,
+	"advance_deal": advanceDealTierInput,
 }
 
 // advanceDealTierInput: 🟢/🟡 turns on whether the destination stage is a
@@ -239,45 +270,6 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 		return mcp.TierResolverInput{}, err
 	}
 	return mcp.TierResolverInput{Args: body, TargetStageSemantic: semantic, PipelineID: pipelineID.String()}, nil
-}
-
-// updateRecordTierInput: the human-edit-precedence gate on the REST twin
-// (interfaces.md §2.1). The body IS the field patch; the route's
-// record_type annotation and {id} name the audited record. A patch that
-// would overwrite a human-written value resolves 🟡, same as the MCP
-// tool — transport never changes the tier answer.
-// actionShapedUpdateOps are the update_record twins whose body is a
-// membership/apply request naming ANOTHER record, not a field patch on
-// the routed one — there is no human-typed field the call could
-// overwrite, so the ownership probe has nothing to ask and the call
-// resolves 🟢 by design (an op absent here gets the full probe).
-var actionShapedUpdateOps = map[string]bool{
-	"applyTag":      true,
-	"addListMember": true,
-}
-
-func updateRecordTierInput(ctx context.Context, deps tierDeps, pol agentPolicy, r *http.Request, body []byte) (mcp.TierResolverInput, error) {
-	if actionShapedUpdateOps[pol.Op] {
-		return mcp.TierResolverInput{Args: body}, nil
-	}
-	raw := chi.URLParam(r, "id")
-	if raw == "" {
-		// Every field-patch twin routes with {id} today; a future route
-		// without one cannot answer the ownership question, so it is
-		// refused, never admitted unprobed.
-		return mcp.TierResolverInput{}, fmt.Errorf(
-			"agent gate: %s routes update_record without a target id — the ownership probe cannot run: %w",
-			pol.Op, apperrors.ErrPermissionDenied)
-	}
-	targetID, err := ids.Parse(raw)
-	if err != nil {
-		return mcp.TierResolverInput{}, apperrors.ErrNotFound
-	}
-	conflicts, err := deps.ownership.HumanOwnedConflicts(ctx, pol.RecordType, targetID, body)
-	if err != nil {
-		return mcp.TierResolverInput{}, err
-	}
-	return mcp.TierResolverInput{Args: body, HumanOwnedConflicts: conflicts}, nil
 }
 
 // tierInput supplies the lazy TierResolverInput for the admitted spec:

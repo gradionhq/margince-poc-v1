@@ -280,7 +280,9 @@ export const en = {
   "ob.s3.optinSkip": "Skip — I'll do this later in Settings",
   "ob.s3.dropTitle": "Drag & drop files here, or browse",
   "ob.s3.dropFmt":
-    ".txt .vtt .srt .docx .pdf .md · up to 25 MB each · we keep only your turns",
+    ".txt .md .vtt .srt .json · text only · we keep only your turns",
+  "ob.s3.dropSkipped":
+    "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
   "ob.reg.spoken": "spoken",
   "ob.reg.written": "written",
   "ob.reg.casual": "casual",
@@ -304,7 +306,8 @@ export const en = {
   "ob.s3.qualStart": "add a few sources to start",
   "ob.s3.qualThin": "thin — add a transcript or two",
   "ob.s3.qualGood": "good — getting there",
-  "ob.s3.qualRich": "rich — a sharp, distinctive voice",
+  "ob.s3.qualRich": "rich — a distinctive voice takes shape",
+  "ob.s3.qualSharp": "sharp — unmistakably you",
   "ob.s3.mix": "spoken {spoken}% · written {written}% · {sources} sources",
   "ob.s3.spokenHint":
     "A handful of call transcripts beats 30 LinkedIn posts — spoken sources carry your real cadence. For transcripts we keep only your turns.",

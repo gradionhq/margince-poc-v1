@@ -288,7 +288,9 @@ export const de = {
   "ob.s3.optinSkip": "Überspringen — später in den Einstellungen",
   "ob.s3.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
   "ob.s3.dropFmt":
-    ".txt .vtt .srt .docx .pdf .md · je bis 25 MB · wir behalten nur deine Redeanteile",
+    ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
+  "ob.s3.dropSkipped":
+    "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
   "ob.reg.casual": "locker",
@@ -312,7 +314,8 @@ export const de = {
   "ob.s3.qualStart": "füg ein paar Quellen hinzu",
   "ob.s3.qualThin": "dünn — leg ein, zwei Transkripte nach",
   "ob.s3.qualGood": "gut — fast da",
-  "ob.s3.qualRich": "reich — eine scharfe, unverwechselbare Stimme",
+  "ob.s3.qualRich": "reich — eine eigene Stimme nimmt Form an",
+  "ob.s3.qualSharp": "scharf — unverkennbar du",
   "ob.s3.mix":
     "gesprochen {spoken}% · geschrieben {written}% · {sources} Quellen",
   "ob.s3.spokenHint":

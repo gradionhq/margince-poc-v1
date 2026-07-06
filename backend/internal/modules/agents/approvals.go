@@ -58,6 +58,21 @@ type stageableTool interface {
 	StageInfo(ctx context.Context, args json.RawMessage) (StageInfo, error)
 }
 
+// approvalRedeemedKey marks a context whose call already consumed a
+// redeemed approval at the dispatch layer: the handler may perform the
+// exact effect the human released without re-asking the precedence
+// question (the diff_hash binding guarantees the call IS that effect).
+type approvalRedeemedKey struct{}
+
+func withApprovalRedeemed(ctx context.Context) context.Context {
+	return context.WithValue(ctx, approvalRedeemedKey{}, true)
+}
+
+func approvalRedeemed(ctx context.Context) bool {
+	redeemed, ok := ctx.Value(approvalRedeemedKey{}).(bool)
+	return ok && redeemed
+}
+
 // splitApproval pops the approval_id argument and canonicalizes what
 // remains through the shared diffhash spelling: the diff_hash is
 // computed over the SAME bytes on staging, redemption, and

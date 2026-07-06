@@ -8,11 +8,14 @@ package httperr
 // wire concerns every module transport spells identically.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // MaxBodyBytes bounds every JSON request body (1 MiB): no contract
@@ -27,8 +30,8 @@ const MaxBodyBytes = 1 << 20
 //
 //craft:ignore naked-any the JSON deserialization seam: the decode target is whichever contract request struct the handler owns
 func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
-	if err := dec.Decode(into); err != nil {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
+	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			Write(w, r, &DetailedError{Status: http.StatusRequestEntityTooLarge,
@@ -38,11 +41,23 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 		Write(w, r, Validation("body", "malformed_json", err.Error()))
 		return false
 	}
+	// A field key that only case-folds onto a contract field (or is
+	// unknown) is refused rather than matched by encoding/json's
+	// case-insensitive fallback — the same gate the provider seam applies,
+	// so REST and MCP agree on which keys are a field patch.
+	if kErr := datasource.RejectNonCanonicalKeys(raw, into); kErr != nil {
+		Write(w, r, Validation("body", "unknown_field", kErr.Error()))
+		return false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(into); err != nil {
+		Write(w, r, Validation("body", "malformed_json", err.Error()))
+		return false
+	}
 	if dec.More() {
 		Write(w, r, Validation("body", "malformed_json", "trailing content after the JSON value"))
 		return false
 	}
-	_, _ = io.Copy(io.Discard, r.Body)
 	return true
 }
 

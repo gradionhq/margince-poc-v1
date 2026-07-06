@@ -372,9 +372,22 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 	})
 }
 
-// versionTables whitelists the tables a target_version re-check may read.
+// versionTables whitelists the tables a target_version re-check may read:
+// every versioned entity type a staging can target under its own table
+// name. A type outside this set (e.g. the partner extension, which
+// audits on its organization row) cannot be version-pinned — stagers
+// must leave TargetVersion nil for it rather than mint a pin redemption
+// could never verify.
 var versionTables = map[string]bool{
 	"person": true, "organization": true, "deal": true, "lead": true, "activity": true,
+	"offer": true, "product": true, "list": true, "tag": true, "relationship": true,
+}
+
+// TargetVersionCheckable reports whether a staged approval against this
+// entity type can carry a target_version pin that Redeem is able to
+// re-verify (ADR-0036 §2).
+func TargetVersionCheckable(entityType string) bool {
+	return versionTables[entityType]
 }
 
 func targetVersion(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) (int64, error) {

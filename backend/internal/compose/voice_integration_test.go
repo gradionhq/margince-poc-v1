@@ -210,6 +210,44 @@ func TestVoiceCorpusIngestAndMeter(t *testing.T) {
 	}
 }
 
+// The V1 corpus is text only (features/09 §B1.1): a binary document has
+// no honest word count, so the wire answer is a 422 naming the accepted
+// formats — never a size-derived estimate. Real extraction is deferred
+// (B-E07.5c).
+func TestVoiceBinaryDocumentIngestIsRefusedWith422(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	created := createVoiceProfile(t, e)
+
+	for _, format := range []string{"docx", "pdf"} {
+		var problem struct {
+			Code   string `json:"code"`
+			Detail string `json:"detail"`
+		}
+		if status := e.call(t, "POST", "/v1/voice-profiles/"+created.ID+"/sources", anyMap{
+			"kind": "post", "source_label": "office upload", "source_ref": "bin-" + format,
+			"format": format, "content": "opaque binary payload",
+		}, nil, &problem); status != http.StatusUnprocessableEntity {
+			t.Fatalf("%s ingest → %d, want 422", format, status)
+		}
+		if problem.Code != "validation_error" || !strings.Contains(problem.Detail, "txt, md, vtt, srt, json") {
+			t.Fatalf("%s ingest problem = %+v, want validation_error naming the accepted formats", format, problem)
+		}
+	}
+
+	// Nothing was persisted for the refused uploads: the manifest is empty.
+	var manifest struct {
+		Data    []voiceSourceWire `json:"data"`
+		Summary voiceSummaryWire  `json:"summary"`
+	}
+	if status := e.call(t, "GET", "/v1/voice-profiles/"+created.ID+"/sources", nil, nil, &manifest); status != http.StatusOK {
+		t.Fatalf("manifest → %d", status)
+	}
+	if len(manifest.Data) != 0 || manifest.Summary.TotalWords != 0 {
+		t.Fatalf("refused uploads left corpus rows behind: %+v", manifest)
+	}
+}
+
 // A labelled transcript without the owner's label is refused whole —
 // never half-ingested with the other side included (§B1.2).
 func TestVoiceTranscriptIngestRequiresTheOwnersSpeakerLabel(t *testing.T) {

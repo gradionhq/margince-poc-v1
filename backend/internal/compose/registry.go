@@ -80,13 +80,21 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 type approvalsAdapter struct{ svc *approvals.Service }
 
 func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.UUID, error) {
+	targetVersion := in.TargetVersion
+	if !approvals.TargetVersionCheckable(in.TargetType) {
+		// A pin redemption could never re-verify (the partner extension
+		// audits on its organization row and has no table of its own)
+		// would dead-end every approval; the staging carries no pin and
+		// freshness falls back to the diff_hash identical-call binding.
+		targetVersion = nil
+	}
 	return a.svc.Stage(ctx, approvals.StageInput{
 		Kind:           in.Tool,
 		ProposedChange: in.ProposedChange,
 		DiffHash:       in.DiffHash,
 		TargetType:     in.TargetType,
 		TargetID:       in.TargetID,
-		TargetVersion:  in.TargetVersion,
+		TargetVersion:  targetVersion,
 		Summary:        in.Summary,
 	})
 }

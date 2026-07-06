@@ -564,11 +564,17 @@ const SOURCES: Source[] = [
   },
 ];
 
+// The accepted corpus formats, mirroring the contract's format enum
+// (crm.yaml IngestVoiceCorpusSourceRequest.format: txt/md/vtt/srt/json).
+const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
+const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
+
 function VoiceStep({ company }: { company: string }) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [uploads, setUploads] = useState<{ name: string; words: number }[]>([]);
+  const [skipped, setSkipped] = useState<string[]>([]);
   const [built, setBuilt] = useState(false);
   const [building, setBuilding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -608,27 +614,28 @@ function VoiceStep({ company }: { company: string }) {
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
+    const rejected: string[] = [];
     for (const file of files) {
-      // Text-like files get a real word count; binaries are estimated by size.
-      if (/\.(txt|md|vtt|srt)$/i.test(file.name)) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const words = String(reader.result)
-            .split(/\s+/)
-            .filter(Boolean).length;
-          setUploads((prev) => [...prev, { name: file.name, words }]);
-        };
-        reader.readAsText(file);
-      } else {
-        setUploads((prev) => [
-          ...prev,
-          { name: file.name, words: Math.round(file.size / 6) },
-        ]);
+      // V1 corpus is text only (features/09 §B1.1): the meter counts the
+      // real words of what was read — never an estimate. Binary documents
+      // (.docx/.pdf) are refused; deferred: B-E07.5c (server-side extraction).
+      if (!ACCEPTED_CORPUS_FILE.test(file.name)) {
+        rejected.push(file.name);
+        continue;
       }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const words = String(reader.result).split(/\s+/).filter(Boolean).length;
+        setUploads((prev) => [...prev, { name: file.name, words }]);
+      };
+      reader.readAsText(file);
     }
+    setSkipped(rejected);
     e.target.value = "";
   };
 
+  // The pinned CorpusMeterVersion=1 bands (features/09 §B1.4):
+  // thin < 8k · good ≥ 8k · rich ≥ 20k · sharp ≥ 30k.
   const quality: { cls: string; key: MessageKey } =
     corpus.total === 0
       ? { cls: "", key: "ob.s3.qualStart" }
@@ -636,7 +643,9 @@ function VoiceStep({ company }: { company: string }) {
         ? { cls: "thin", key: "ob.s3.qualThin" }
         : corpus.total < 20000
           ? { cls: "good", key: "ob.s3.qualGood" }
-          : { cls: "rich", key: "ob.s3.qualRich" };
+          : corpus.total < VOICE_TARGET
+            ? { cls: "rich", key: "ob.s3.qualRich" }
+            : { cls: "sharp", key: "ob.s3.qualSharp" };
 
   const build = () => {
     setBuilding(true);
@@ -748,6 +757,7 @@ function VoiceStep({ company }: { company: string }) {
           multiple
           hidden
           aria-hidden
+          accept={ACCEPTED_CORPUS_ATTR}
           onChange={onFiles}
         />
         {uploads.length > 0 && (
@@ -758,6 +768,11 @@ function VoiceStep({ company }: { company: string }) {
               </li>
             ))}
           </ul>
+        )}
+        {skipped.length > 0 && (
+          <p className="ob-sub" role="status" style={{ marginTop: 8 }}>
+            {t("ob.s3.dropSkipped", { files: skipped.join(", ") })}
+          </p>
         )}
 
         <div className="meter">

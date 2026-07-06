@@ -9,6 +9,7 @@ package ai
 // filter — a both-sided transcript ingests ZERO other-party text.
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -101,9 +102,72 @@ func TestPlainTextFormatsPassThroughUnchanged(t *testing.T) {
 	}
 }
 
-func TestUnknownFormatIsRejected(t *testing.T) {
-	if _, err := NormalizeCorpusText("docx", "anything", "", false); err == nil {
-		t.Fatal("docx silently accepted — binary formats need real extraction, not a lie")
+// The V1 corpus is text only (features/09 §B1.1): a binary document has
+// no honest word count without real extraction (deferred: B-E07.5c), so
+// it is refused with the field-level 422 shape naming the accepted set.
+func TestBinaryDocumentFormatsAreRefusedNotEstimated(t *testing.T) {
+	for _, format := range []string{"docx", "pdf"} {
+		_, err := NormalizeCorpusText(format, "binary payload", "", false)
+		var ingest *CorpusIngestError
+		if !errors.As(err, &ingest) {
+			t.Fatalf("%s: err = %v, want a CorpusIngestError", format, err)
+		}
+		if ingest.Field != "format" || !strings.Contains(ingest.Reason, "txt, md, vtt, srt, json") {
+			t.Fatalf("%s: error %+v does not name the field and the accepted formats", format, ingest)
+		}
+	}
+}
+
+// The meter's number IS the word count of the text that entered the
+// corpus — computed from the content, never derived from its byte size
+// (features/09 §B1.1: real words, no estimate). One pinned example per
+// accepted format.
+func TestIngestWordCountIsTheRealCountOfTheExtractedText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   IngestSourceInput
+		want int
+	}{
+		{"txt post", IngestSourceInput{
+			Kind: "post", SourceLabel: "post", Format: "txt",
+			Content: "Shipping beats planning, every single quarter.",
+		}, 6},
+		{"md longform", IngestSourceInput{
+			Kind: "longform", SourceLabel: "blog", Format: "md",
+			Content: "# Audit story\n\nLead with the number, close with the ask.",
+		}, 11},
+		{"vtt transcript counts only the owner's turns", IngestSourceInput{
+			Kind: "transcript", SourceLabel: "call", Format: "vtt",
+			SpeakerLabel: "Ada Admin", Content: bothSidedVTT,
+		}, 20},
+		{"srt transcript counts only the owner's turns", IngestSourceInput{
+			Kind: "transcript", SourceLabel: "call", Format: "srt",
+			SpeakerLabel: "Ada Admin", Content: bothSidedSRT,
+		}, 20},
+		{"json transcript counts only the owner's turns", IngestSourceInput{
+			Kind: "transcript", SourceLabel: "call", Format: "json",
+			SpeakerLabel: "Ada",
+			Content:      `[{"speaker":"Ada","text":"I own this deal."},{"speaker":"Klaus","text":"We are still comparing vendors."}]`,
+		}, 4},
+		// Whitespace padding inflates the byte size ~40× without adding a
+		// word; a size-derived number would move, the real count must not.
+		{"count follows words, not bytes", IngestSourceInput{
+			Kind: "post", SourceLabel: "padded post", Format: "txt",
+			Content: "three real words" + strings.Repeat(" ", 600),
+		}, 3},
+	}
+	for _, tc := range cases {
+		prepared, err := prepareSource(tc.in)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if prepared.Words != tc.want {
+			t.Errorf("%s: words = %d, want %d", tc.name, prepared.Words, tc.want)
+		}
+		if prepared.Words != WordCount(prepared.Text) {
+			t.Errorf("%s: stored count %d disagrees with the extracted text's count %d",
+				tc.name, prepared.Words, WordCount(prepared.Text))
+		}
 	}
 }
 
