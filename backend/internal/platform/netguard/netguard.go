@@ -21,9 +21,11 @@ import (
 // IPv4 internals — NAT64 (64:ff9b::/96, e.g. 64:ff9b::a9fe:a9fe → link-local
 // metadata) and IPv4-compatible ::/96 — which To4()/IsPrivate() do not catch.
 var reservedNets = func() []*net.IPNet {
+	// These literal reserved/special-use ranges ARE the guard: the SSRF
+	// denylist must name them explicitly. NOSONAR: hardcoding them is the point.
 	cidrs := []string{
-		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
-		"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+		"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", //NOSONAR
+		"198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", //NOSONAR
 		"2001:db8::/32", "64:ff9b::/96", "::/96",
 	}
 	nets := make([]*net.IPNet, len(cidrs))

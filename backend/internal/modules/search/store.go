@@ -226,6 +226,10 @@ func scanRankedPage(rows pgx.Rows, limit int) (Page, error) {
 // BadQueryError maps to a 422 at the transport.
 type BadQueryError struct{ Reason string }
 
+// reasonMalformedCursor is the BadQueryError reason for any un-decodable
+// keyset cursor — one spelling so the 422 body never drifts between paths.
+const reasonMalformedCursor = "malformed cursor"
+
 func (e *BadQueryError) Error() string { return "search: " + e.Reason }
 
 // rankedCursor is the (score, type, id) keyset position. Encoding keeps
@@ -245,19 +249,19 @@ func encodeCursor(c rankedCursor) string {
 func decodeCursor(s string) (rankedCursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
-		return rankedCursor{}, &BadQueryError{Reason: "malformed cursor"}
+		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
 	}
 	parts := strings.SplitN(string(raw), "|", 3)
 	if len(parts) != 3 {
-		return rankedCursor{}, &BadQueryError{Reason: "malformed cursor"}
+		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
 	}
 	score, err := strconv.ParseFloat(parts[0], 64)
 	if err != nil {
-		return rankedCursor{}, &BadQueryError{Reason: "malformed cursor"}
+		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
 	}
 	id, err := ids.Parse(parts[2])
 	if err != nil {
-		return rankedCursor{}, &BadQueryError{Reason: "malformed cursor"}
+		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
 	}
 	return rankedCursor{Score: score, Type: parts[1], ID: id}, nil
 }

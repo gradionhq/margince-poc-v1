@@ -19,6 +19,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// suffixUp / suffixDown name the two halves of a reversible migration pair.
+const (
+	suffixUp   = ".up.sql"
+	suffixDown = ".down.sql"
+)
+
 // Migration is one reversible schema step: NNNN_name.up.sql + .down.sql.
 type Migration struct {
 	Version string // "0001" (core, sequential) or "20260620143000" (custom, timestamp)
@@ -51,10 +57,10 @@ func Load(fsys fs.FS, dir string) ([]Migration, error) {
 		name := e.Name()
 		var suffix string
 		switch {
-		case strings.HasSuffix(name, ".up.sql"):
-			suffix = ".up.sql"
-		case strings.HasSuffix(name, ".down.sql"):
-			suffix = ".down.sql"
+		case strings.HasSuffix(name, suffixUp):
+			suffix = suffixUp
+		case strings.HasSuffix(name, suffixDown):
+			suffix = suffixDown
 		default:
 			continue
 		}
@@ -75,7 +81,7 @@ func Load(fsys fs.FS, dir string) ([]Migration, error) {
 			m = &Migration{Version: version, Name: title}
 			byKey[key] = m
 		}
-		if suffix == ".up.sql" {
+		if suffix == suffixUp {
 			m.UpSQL = string(sql)
 		} else {
 			m.DownSQL = string(sql)
