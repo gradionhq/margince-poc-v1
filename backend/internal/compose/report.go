@@ -35,6 +35,17 @@ import (
 // export, not a report.
 const reportRowLimit = 1000
 
+// Column references reused across the prebuilt report specs. One spelling
+// each so a dimension, measure, and filter that mean the same column cannot
+// drift apart.
+const (
+	colOwnerID        = "t.owner_id"
+	colAmountMinor    = "t.amount_minor"
+	colPipelineID     = "t.pipeline_id"
+	colStageID        = "t.stage_id"
+	whereArchivedNull = "t.archived_at IS NULL"
+)
+
 type reportAggregate struct {
 	Fn    string `json:"fn"`
 	Field string `json:"field,omitempty"`
@@ -91,9 +102,9 @@ var prebuiltReports = map[string]reportSpec{
 		table:      "deal",
 		baseWhere:  "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain:  "live (unarchived) open deals",
-		dimensions: map[string]string{"organization_id": "t.organization_id", "owner_id": "t.owner_id"},
-		measures:   map[string]string{"amount_minor": "t.amount_minor"},
-		filters:    map[string]string{"owner_id": "t.owner_id", "pipeline_id": "t.pipeline_id"},
+		dimensions: map[string]string{"organization_id": "t.organization_id", "owner_id": colOwnerID},
+		measures:   map[string]string{"amount_minor": colAmountMinor},
+		filters:    map[string]string{"owner_id": colOwnerID, "pipeline_id": colPipelineID},
 		defaultBy:  []string{"organization_id"},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "open_deals"},
@@ -102,11 +113,11 @@ var prebuiltReports = map[string]reportSpec{
 	"deals-by-stage": {
 		entity:     datasource.EntityDeal,
 		table:      "deal",
-		baseWhere:  "t.archived_at IS NULL",
+		baseWhere:  whereArchivedNull,
 		basePlain:  "live (unarchived) deals",
-		dimensions: map[string]string{"stage_id": "t.stage_id", "status": "t.status", "pipeline_id": "t.pipeline_id"},
-		measures:   map[string]string{"amount_minor": "t.amount_minor"},
-		filters:    map[string]string{"pipeline_id": "t.pipeline_id", "status": "t.status", "owner_id": "t.owner_id"},
+		dimensions: map[string]string{"stage_id": colStageID, "status": "t.status", "pipeline_id": colPipelineID},
+		measures:   map[string]string{"amount_minor": colAmountMinor},
+		filters:    map[string]string{"pipeline_id": colPipelineID, "status": "t.status", "owner_id": colOwnerID},
 		defaultBy:  []string{"stage_id"},
 		defaultAggs: []reportAggregate{
 			{Fn: "count", As: "deals"},
@@ -116,7 +127,7 @@ var prebuiltReports = map[string]reportSpec{
 	"activities-by-kind": {
 		entity:       datasource.EntityActivity,
 		table:        "activity",
-		baseWhere:    "t.archived_at IS NULL",
+		baseWhere:    whereArchivedNull,
 		basePlain:    "live (unarchived) activities",
 		activityWalk: true,
 		dimensions:   map[string]string{"kind": "t.kind", "direction": "t.direction"},
@@ -142,21 +153,21 @@ var prebuiltReports = map[string]reportSpec{
 		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
 		basePlain: "open, unarchived deals (win probability read live from the deal's current stage; a commit/best_case deal whose close date is past, missing, or provisional reports as 'slipped' instead, per formulas §11)",
 		dimensions: map[string]string{
-			"owner_id":          "t.owner_id",
-			"stage_id":          "t.stage_id",
-			"pipeline_id":       "t.pipeline_id",
+			"owner_id":          colOwnerID,
+			"stage_id":          colStageID,
+			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
 			"win_probability":   "s.win_probability",
 		},
 		measures: map[string]string{
-			"amount_minor":          "t.amount_minor",
+			"amount_minor":          colAmountMinor,
 			"weighted_amount_minor": "round((t.amount_minor * s.win_probability) / 100.0)::bigint",
 		},
 		filters: map[string]string{
-			"owner_id":          "t.owner_id",
-			"stage_id":          "t.stage_id",
-			"pipeline_id":       "t.pipeline_id",
+			"owner_id":          colOwnerID,
+			"stage_id":          colStageID,
+			"pipeline_id":       colPipelineID,
 			"forecast_category": forecastCategoryExpr,
 			"currency":          "t.currency",
 		},
@@ -432,7 +443,7 @@ func (e *reportEngine) runAdHocPlan(ctx context.Context, plan datasource.ReportP
 	spec := reportSpec{
 		entity:       plan.Entity,
 		table:        string(plan.Entity),
-		baseWhere:    "t.archived_at IS NULL",
+		baseWhere:    whereArchivedNull,
 		activityWalk: plan.Entity == datasource.EntityActivity,
 		dimensions:   map[string]string{},
 		measures:     map[string]string{},

@@ -30,6 +30,10 @@ import (
 
 const dsrColumns = `id, kind, status, subject_ref, assignee_id, due_at, resolution, created_at`
 
+// dsrSelectByID is the single-row fetch shared by GetDSR and UpdateDSR — one
+// spelling so the projected columns cannot drift between the two paths.
+const dsrSelectByID = "SELECT " + dsrColumns + " FROM data_subject_request WHERE id = $1"
+
 type dsrRow struct {
 	ID         ids.UUID
 	Kind       string
@@ -157,7 +161,7 @@ func (s *Store) GetDSR(ctx context.Context, id ids.UUID) (dsrRow, error) {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanDSR(tx.QueryRow(ctx,
-			"SELECT "+dsrColumns+" FROM data_subject_request WHERE id = $1", id))
+			dsrSelectByID, id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -179,7 +183,7 @@ func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (
 	var out dsrRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := scanDSR(tx.QueryRow(ctx,
-			"SELECT "+dsrColumns+" FROM data_subject_request WHERE id = $1", id))
+			dsrSelectByID, id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
