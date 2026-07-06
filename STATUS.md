@@ -5,7 +5,47 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (2026-07-06 evening — product-completeness loop)
+## ▶ RESTART HERE (2026-07-07 — product loop paused; a 5-PR stack awaits merge)
+
+Session ended deliberately mid-pipeline. **Five gate-green-except-Sonar PRs
+are stacked and ready** (each verified live in a browser against the real
+backend, all unit+e2e lanes green):
+
+- **#14** `feat/home-morning-brief` — Home rides the real /brief spine
+  (ranked queue, §10.1 factor bars, act/dismiss); onboarding human field
+  labels + step-4 honesty; **plus the whole Sonar-gate enablement** (see
+  below). ← the stack base; merge this first.
+- **#15** `feat/record-create-flows` — create flows for contact / company /
+  lead / deal (shared CreateAction), styled .input/.field atoms.
+- **#17** `feat/360-enrich-strength` — company-360 enrichment card driving
+  POST /organizations/{id}/enrich (EP05 scrape verb surfaced).
+- **#18** `feat/log-activity` — log a note/task from the three 360s.
+- **#19** `feat/tasks-remind` — task create + remind_at set/clear (B-E16.1
+  surface). #18/#19 were built by parallel worktree agents; both branch off
+  #17's pre-rebase head — REBASE them once #17 merges (i18n adjacency
+  conflicts are likely between the two; both add keys at the same anchors).
+
+**The SonarCloud saga (all fixed, last scan still running at close):** the
+required "SonarCloud Code Analysis" check blocked ALL merges. Chain of
+causes, each fixed on #14: SONAR_TOKEN secret invalid (owner regenerated) →
+sonar.organization was `gradionhq`, real org key is **`gradion`** → quality
+gate failed on new_coverage=0% (scan job now runs go test -coverprofile +
+vitest lcov; properties declare report paths, test.inclusions, generated
+schema.d.ts excluded) → two new-code security findings (setup actions now
+SHA-pinned, pnpm install --ignore-scripts) → remaining duplication was
+en.ts↔de.ts cross-matching (parallel catalogs BY DESIGN; fixed via
+sonar.cpd.exclusions for exactly those two files). **Pickup: check the
+scans on #14/#15/#17 — if green, merge #14 → retarget #15 to main → merge →
+retarget #17 → merge → rebase #18/#19 → merge.** If duplication persists,
+read the per-file blocks via api/duplications/show (the technique that
+found the i18n cause).
+
+Memory `margince-sonarcloud-ci-state` records the whole gate chain for
+future sessions. The dev stack was STOPPED at session close (`make
+dev-tls` to relaunch). Note the api binary must be restarted after backend
+merges or the SPA hits missing routes.
+
+## Prior restart point (2026-07-06 evening — product-completeness loop)
 
 A product-facing loop session (goal: executable, testable product; onboarding
 + first screens beautiful and fully working; PR-per-slice through the CI +
