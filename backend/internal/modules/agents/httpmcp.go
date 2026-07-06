@@ -16,6 +16,11 @@ import (
 	"net/http"
 )
 
+// wwwAuthenticateChallenge is the static RFC 9728 WWW-Authenticate challenge
+// returned on a 401 — a protocol discovery hint (the "Bearer" scheme name plus
+// the resource-metadata path), not a credential or token.
+const wwwAuthenticateChallenge = `Bearer resource_metadata="/.well-known/oauth-protected-resource"` // NOSONAR: RFC 9728 challenge, not a secret
+
 // NewHTTPHandler serves MCP over HTTP. authenticate runs PER REQUEST —
 // each exchange re-derives the passport and the granting human's live
 // authority, so revocation binds between any two calls exactly as the
@@ -30,7 +35,7 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		if err != nil {
 			// RFC 9728: the 401 names where the client can discover the
 			// authorization server.
-			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="/.well-known/oauth-protected-resource"`)
+			w.Header().Set("WWW-Authenticate", wwwAuthenticateChallenge)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			//craft:ignore swallowed-errors a failed write of the 401 body means the client hung up — there is no channel left to report on

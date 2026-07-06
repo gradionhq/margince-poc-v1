@@ -14,8 +14,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PG_PORT="${PG_PORT:-55432}"
-OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:${PG_PORT}/margince}"
-APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:${PG_PORT}/margince}"
+# Local-only throwaway credentials for the dockerized dev database — the same
+# well-known roles scripts/db-init.sql seeds and CI uses. Overridable via env;
+# never a production secret. NOSONAR: not a leaked credential.
+OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:${PG_PORT}/margince}"    # NOSONAR
+APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:${PG_PORT}/margince}"    # NOSONAR
 
 SCRATCH="$(mktemp -d)"
 ROUTING="$SCRATCH/ai-routing.yaml"
