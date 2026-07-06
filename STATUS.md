@@ -5,41 +5,75 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (2026-07-06 PM)
+## ▶ RESTART HERE (2026-07-06 PM — batch-5 CLEARED)
 
 Clean stopping point. `origin/main` builds and carries no half-finished
-code. Everything below is durable context (Codex review, reconciliation
-record, prior sessions).
+code. Migrations at **0049** (saved_view). Everything below is durable
+context (Codex review, reconciliation record, prior sessions).
 
-**State of main:** the three reopened spec-reconciliation tickets
-(`136d1ce`, `e66c59c`) plus **B-E08.1→4 warm-room signals + B-E13.7b lead
-routing** (`cec8646`, CI-green) are shipped. `go build ./...` clean.
-Migrations at **0047** (signals).
+**The whole batch-5 queue is shipped and CI-green on `origin/main`**
+(each: build to spec, full merge gate, FULL integration lane, craft
+static, security review, push, CI watched):
 
-- **Signals (B-E08):** consent-gated company-level `signal` substrate,
-  inspectable resolver (never creates a person; person link only under a
-  recorded consent grant), warm/cold join over the contact graph, warm
-  intro-path proposal (mutates nothing). Signal mutations are
-  `x-agent-access: human-only` (signal is deliberately not a datasource-seam
-  entity — no agent write path). feedback/28 files two low-severity
-  consent-scope notes (purpose-agnostic grant check; resolved_person_id
-  under org scope) for a spec ruling.
-- **Lead routing (B-E13.7b):** workspace-locked round-robin + per-owner cap
-  + ordered rules, TOCTOU-safe, exactly-once. The routable-field vocabulary
-  is bound across people↔agents by a compose fitness test.
+- `cec8646` **B-E08.1→4 warm-room signals** + **B-E13.7b lead routing**
+  — consent-gated company-level signal substrate + inspectable resolver
+  (never creates a person; person link only under a recorded consent
+  grant), warm/cold join, intro-path proposal (mutates nothing), signal
+  mutations `x-agent-access: human-only`; workspace-locked round-robin
+  routing (TOCTOU-safe, exactly-once).
+- `55104f1` **resolver authz fix** — the resolver now row-scopes its
+  attribution via `auth.EnsureLinkTarget` (an invisible best-match drops
+  to unattributable; closed a cross-team id-disclosure the FK-visibility
+  gate caught). feedback/28 = two low-severity consent-scope notes.
+- `356e455` **B-E11.32 preference center + RFC 8058** — no-login token
+  surface on the consent engine (config-only link base after a
+  host-header/token-exfil fix, unguessable revocable tokens, anti-oracle
+  404s, per-purpose withdrawal, rate-limited, choices-array capped);
+  migration 0048 `preference_token` (non-RLS resolver). feedback/29.
+- `6ebb5c9` **B-E11.10a export bundle** — open-format workspace export;
+  each member applies its list endpoint's visibility clause (row-scope is
+  the headline; pinned). feedback/30. No migration.
+- `35ed415` **E15.11/12 smart lists + saved views** — dynamic segments
+  evaluate live through the landed predicate engine (scope clause forced
+  by the bundled executor; pinned), `/views` CRUD; migration 0049
+  `saved_view`. feedback/31.
+- `824b99d` **B-E05.2 L2 ranker + Morning-Brief HTTP surface** — model
+  re-orders but `boundToCandidates` guarantees a permutation of the §10.1
+  set (no below-cutoff injection, no evidence drop), deterministic
+  fallback; `GET/POST /v1/brief` owner-scoped. No migration.
+- `41b20d7` **B-E06.2a overnight reconciliation** — worker-ticked SYSTEM
+  pass (`--reconcile-interval`) stages a 🟡 `deal_follow_up` proposal for
+  an open deal with a recent interaction but no next step; confirm =
+  redeem-then-LogActivity (exactly-once), reject writes nothing,
+  row-scoped. No migration/contract change. feedback/B-E06.2a-notes.
 
-The parked WIP patch (`feedback/wip-…patch`) and branches
-`wip/signals-lead-routing` / `feat/e08-signals-e13-lead-routing` are now
-**obsolete** (their content is on main) — safe to delete.
+Security note (reconciliation): the automated reviewer flagged a
+"gate-action-field-mismatch" — the `deal_follow_up` approval's
+`TargetType` is `deal` while its decision-grant is `{activity, create}`.
+Verified a FALSE POSITIVE: `decidable = requireDecisionGrants ∧
+targetVisible`, so approving needs BOTH seeing the deal AND holding
+activity:create, and the confirm effect's `LogActivity` re-checks both —
+target = visibility anchor, grant = executed action, by design (same as a
+rep's manual "add task").
 
-**Next up — batch-5 queue** (each: build to spec, gate, craft+security
-review, push, watch CI): preference center B-E11.32 (+ RFC 8058
-one-click unsubscribe), export bundle B-E11.10a, brief HTTP surface +
-B-E05.2 L2 ranker, overnight reconciliation B-E06.2a, smart lists /
-saved views E15.11/12 (on the landed predicate engine). Then the larger
-deferred blocks (E18/19/20 adapters, E12 extension, E17 e-invoicing,
-EP08 CRA chain) which need config/accounts/ADRs — see the coverage
-audits.
+**What remains is NOT autonomously doable** — the big greenfield blocks
+need human config / accounts / ADRs: E17 German e-invoicing (XRechnung/
+ZUGFeRD), E18/19/20 CRM-overlay adapters, E12 browser extension, EP08
+supply-chain/CRA release chain, MFA/SSO/SCIM, the OAuth connectors
+(Gmail/Graph/WhatsApp/Telegram), and the transcript/blob-storage
+substrate. Re-audit the backlog for any remaining small human-independent
+leaves before starting one of these.
+
+**⚠ Two-session hazard (recurred this session):** a parallel Codex
+session drove this same working tree (branch-switched it to
+`chore/sonar-*`, merged PRs #1–#5). Worktree isolation does NOT sandbox
+the filesystem — twice an agent `cd`'d into the shared checkout by
+absolute path and left orphaned/stray commits (`30cbfca` captured that
+session's staged sonar work under a wrong message — recoverable via
+`git show`; content is safe, drop it from `chore/sonar-frontend` if
+present). Hardened cwd rules (forbid the main-repo absolute path) held
+for the last three agents. RECOMMENDATION: run one session per checkout,
+or give concurrent sessions separate clones + separate test DBs.
 
 **Codex review items — resolved** (see the "Codex red-team review
 2026-07-06 — RESOLVED" section below). The only carry-over is the P2/advisory
