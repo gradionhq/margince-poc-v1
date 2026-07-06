@@ -50,7 +50,11 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
     case "leads":
       return id ? <LeadScreen id={id} /> : <LeadsScreen />;
     case "deals":
-      return id && id !== "new" ? <DealScreen id={id} /> : <DealsScreen />;
+      return id && id !== "new" ? (
+        <DealScreen id={id} />
+      ) : (
+        <DealsScreen startCreating={id === "new"} />
+      );
     case "home":
       return <HomeScreen />;
     case "inbox":

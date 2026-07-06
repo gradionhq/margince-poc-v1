@@ -268,6 +268,35 @@ test("AC-onboarding-1: the wizard is rail-less and connect is the LAST step", as
   expect(steps[steps.length - 1]).toBe("Verbinden");
 });
 
+test("AC-create-1: a contact is created from the list and lands on its 360", async ({
+  page,
+}) => {
+  await page.goto("/#/contacts");
+  await page.getByRole("button", { name: "Neuer Kontakt" }).click();
+  await page.getByLabel("Vollständiger Name").fill("Peter Neu");
+  await page.getByLabel("E-Mail").fill("peter@neu.example");
+  await page.getByRole("button", { name: "Anlegen" }).click();
+  await expect(page).toHaveURL(/#\/contacts\/p-new$/);
+});
+
+test("AC-create-2: the palette's New-deal action opens the create form; only open stages offered", async ({
+  page,
+}) => {
+  await page.goto("/#/deals/new");
+  const stageSelect = page.getByLabel("Phase");
+  await expect(stageSelect).toBeVisible();
+  const stageNames = await stageSelect.locator("option").allTextContents();
+  expect(stageNames.filter(Boolean)).toEqual([
+    "Qualify",
+    "Proposal",
+    "Negotiation",
+  ]);
+  await page.getByLabel("Deal-Name").fill("Neuer Deal");
+  await page.getByLabel("Wert").fill("480");
+  await page.getByRole("button", { name: "Anlegen" }).click();
+  await expect(page).toHaveURL(/#\/deals\/d-new$/);
+});
+
 test.describe("§3.8: 390px mobile", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

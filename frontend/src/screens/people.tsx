@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -7,6 +8,7 @@ import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
+import { CreateRecordModal, NewRecordButton } from "./create";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -74,9 +76,65 @@ export function activityTimeline(activities: Activity[]): TimelineEntry[] {
 export function ContactsScreen() {
   const t = useT();
   const query = usePeople();
+  const queryClient = useQueryClient();
+  const [creating, setCreating] = useState(false);
+
+  const create = useMutation({
+    mutationFn: async (values: Record<string, string>) => {
+      const email = values.email?.trim();
+      const { data, error } = await api.POST("/people", {
+        body: {
+          full_name: values.full_name.trim(),
+          title: values.title?.trim() || null,
+          ...(email
+            ? {
+                emails: [
+                  {
+                    email,
+                    email_type: "work" as const,
+                    is_primary: true,
+                    position: 0,
+                  },
+                ],
+              }
+            : {}),
+          source: "manual",
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (person) => {
+      queryClient.invalidateQueries({ queryKey: ["people"] });
+      setCreating(false);
+      navigate({ screen: "contacts", id: person.id });
+    },
+  });
+
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.contacts")} />
+      <div className="list-head">
+        <SectionHeader title={t("nav.contacts")} />
+        <NewRecordButton
+          label={t("create.contact")}
+          onClick={() => setCreating(true)}
+        />
+      </div>
+      <CreateRecordModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        title={t("create.contact")}
+        fields={[
+          { key: "full_name", label: "create.fullName", required: true },
+          { key: "title", label: "create.personTitle" },
+          { key: "email", label: "create.email", type: "email" },
+        ]}
+        pending={create.isPending}
+        error={create.isError ? create.error.message : null}
+        onSubmit={(values) => create.mutate(values)}
+      />
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <DataTable

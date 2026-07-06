@@ -335,6 +335,91 @@ export async function mockApi(target: Page): Promise<void> {
     if (path === "/people" && method === "GET") {
       return json(page([anna]));
     }
+    if (path === "/people" && method === "POST") {
+      const body = route.request().postDataJSON();
+      return json(
+        {
+          ...anna,
+          id: "p-new",
+          full_name: String(body.full_name),
+          title: body.title ?? null,
+          emails: body.emails ?? [],
+          captured_by: "human:u1",
+          source: "manual",
+        },
+        201,
+      );
+    }
+    if (path === "/people/p-new") {
+      return json({ ...anna, id: "p-new", full_name: "Peter Neu" });
+    }
+    if (path === "/organizations" && method === "POST") {
+      const body = route.request().postDataJSON();
+      return json(
+        {
+          ...brandt,
+          id: "o-new",
+          display_name: String(body.display_name),
+          industry: body.industry ?? null,
+          captured_by: "human:u1",
+          source: "manual",
+        },
+        201,
+      );
+    }
+    if (path === "/organizations/o-new") {
+      return json({ ...brandt, id: "o-new", display_name: "Neue Firma GmbH" });
+    }
+    if (path === "/leads" && method === "POST") {
+      const body = route.request().postDataJSON();
+      return json(
+        {
+          id: "l-new",
+          workspace_id: "w",
+          full_name: body.full_name ?? null,
+          email: body.email ?? null,
+          company_name: body.company_name ?? null,
+          status: "new",
+          score: 0,
+          captured_by: "human:u1",
+          source: "manual",
+          version: 1,
+          created_at: "2026-07-06T08:00:00Z",
+          updated_at: "2026-07-06T08:00:00Z",
+        },
+        201,
+      );
+    }
+    if (path === "/leads/l-new") {
+      return json({
+        id: "l-new",
+        workspace_id: "w",
+        full_name: "Lena Neu",
+        email: "lena@neu.example",
+        company_name: null,
+        status: "new",
+        score: 0,
+        captured_by: "human:u1",
+        source: "manual",
+        version: 1,
+        created_at: "2026-07-06T08:00:00Z",
+        updated_at: "2026-07-06T08:00:00Z",
+      });
+    }
+    if (path === "/deals" && method === "POST") {
+      const body = route.request().postDataJSON();
+      return json(
+        {
+          ...deals[0],
+          id: "d-new",
+          name: String(body.name),
+          amount_minor: body.amount_minor ?? null,
+          currency: body.currency ?? "EUR",
+          stage_id: String(body.stage_id),
+        },
+        201,
+      );
+    }
     if (path === "/people/p-anna") {
       return json(anna);
     }

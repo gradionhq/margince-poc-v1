@@ -31,6 +31,21 @@
   max-width: 780px;
 }
 
+/* List header row: the section title grows, the create action sits beside it. */
+.list-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.list-head > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.list-head > button {
+  margin-top: 4px;
+  flex: none;
+}
+
 .rail {
   background: linear-gradient(
     180deg,
