@@ -138,6 +138,38 @@ jobs:
           cache-dependency-path: backend/go.sum
       - run: make vuln
 
+  # CI-based SonarCloud scan. Unlike Automatic Analysis, the scanner reads the
+  # committed sonar-project.properties (exclusions + rule tuning), so that file
+  # is the single source of truth for analysis scope. The scan step is guarded
+  # on the SONAR_TOKEN secret: with no token it is a clean no-op (green), so
+  # this job can land before the secret exists; once the secret is added the
+  # scan runs. Add the secret in: repo Settings → Secrets and variables →
+  # Actions → New repository secret, name SONAR_TOKEN (value from SonarCloud →
+  # My Account → Security → Generate Tokens). Then disable Automatic Analysis
+  # in SonarCloud → project → Administration → Analysis Method so the two do
+  # not compete. The "SonarCloud Code Analysis" required check is posted by
+  # SonarCloud either way, so branch protection stays valid.
+  sonarcloud:
+    name: sonarcloud (scan reads sonar-project.properties)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: https://sonarcloud.io
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so SonarCloud can attribute blame / compute new code.
+          fetch-depth: 0
+      - name: SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v5
+      - name: No token yet — scan skipped
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
+
   # The frontend lane: Biome, Vitest, TypeScript, and the Vite production
   # build. The root Makefile promises CI runs both lanes; this is that lane.
   frontend:
