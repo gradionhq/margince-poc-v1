@@ -37,16 +37,16 @@ export function Button({
 export function Badge({
   tone,
   children,
-}: {
+}: Readonly<{
   tone?: "success" | "warn" | "danger" | "ai" | "accent";
   children: ReactNode;
-}) {
+}>) {
   return (
     <span className={tone ? `badge badge-${tone}` : "badge"}>{children}</span>
   );
 }
 
-export function Avatar({ name }: { name: string }) {
+export function Avatar({ name }: Readonly<{ name: string }>) {
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -79,11 +79,11 @@ export function Card({
   inset,
   children,
   className,
-}: {
+}: Readonly<{
   inset?: boolean;
   children: ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <div
       className={["card", inset ? "card-inset" : "", className ?? ""]
@@ -98,18 +98,21 @@ export function Card({
 export function Skeleton({
   width,
   height = 14,
-}: {
+}: Readonly<{
   width: number | string;
   height?: number;
-}) {
+}>) {
   return <div className="skeleton" style={{ width, height }} />;
 }
 
-export function EmptyState({ children }: { children: ReactNode }) {
+export function EmptyState({ children }: Readonly<{ children: ReactNode }>) {
   return <div className="card card-inset empty">{children}</div>;
 }
 
-export function SectionHeader({ title, sub }: { title: string; sub?: string }) {
+export function SectionHeader({
+  title,
+  sub,
+}: Readonly<{ title: string; sub?: string }>) {
   return (
     <div className="section-header">
       <h2>{title}</h2>
@@ -123,12 +126,12 @@ export function SegmentedControl<Option extends string>({
   value,
   onChange,
   labels,
-}: {
+}: Readonly<{
   options: readonly Option[];
   value: Option;
   onChange: (next: Option) => void;
   labels: Record<Option, string>;
-}) {
+}>) {
   return (
     <fieldset className="segmented">
       {options.map((option) => (
@@ -145,7 +148,7 @@ export function SegmentedControl<Option extends string>({
   );
 }
 
-export function Kbd({ children }: { children: ReactNode }) {
+export function Kbd({ children }: Readonly<{ children: ReactNode }>) {
   return <kbd className="kbd">{children}</kbd>;
 }
 
@@ -154,12 +157,12 @@ export function Modal({
   onClose,
   labelledBy,
   children,
-}: {
+}: Readonly<{
   open: boolean;
   onClose: () => void;
   labelledBy: string;
   children: ReactNode;
-}) {
+}>) {
   useEffect(() => {
     if (!open) {
       return;
@@ -169,13 +172,14 @@ export function Modal({
         onClose();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("keydown", onKey);
+    return () => globalThis.removeEventListener("keydown", onKey);
   }, [open, onClose]);
   if (!open) {
     return null;
   }
   return (
+    // NOSONAR: backdrop dismiss only; keyboard path (Esc) handled by the effect above
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
     <div
@@ -187,6 +191,7 @@ export function Modal({
       }}
     >
       <div
+        // NOSONAR: styled modal overlay driven by React state, not a native <dialog>; conversion would change focus/backdrop behavior
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
@@ -203,12 +208,12 @@ export function DataTable<Row>({
   rows,
   rowKey,
   onRowClick,
-}: {
+}: Readonly<{
   columns: { key: string; header: string; render: (row: Row) => ReactNode }[];
   rows: Row[];
   rowKey: (row: Row) => string;
   onRowClick?: (row: Row) => void;
-}) {
+}>) {
   return (
     <div className="table-scroll">
       <table className="table">

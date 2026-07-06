@@ -380,7 +380,7 @@ export const de = {
   "ob.s5.imapHost": "IMAP-Host",
   "ob.s5.imapHostPlaceholder": "imap.gmail.com",
   "ob.s5.imapEmail": "E-Mail",
-  "ob.s5.imapPassword": "App-Passwort",
+  "ob.s5.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
   "ob.s5.imapMailbox": "Postfach",
   "ob.s5.imapMax": "Wie viele aktuelle E-Mails",
   "ob.s5.imapHint":

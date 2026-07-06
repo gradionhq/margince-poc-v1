@@ -24,9 +24,9 @@ export const api = createClient<paths>({
   // same-origin absolute base + the /v1 mount: contract paths are
   // unprefixed, the server serves them under /v1 (same as curl :8080/v1/me)
   baseUrl:
-    typeof window === "undefined"
+    typeof globalThis.window === "undefined"
       ? "http://localhost/v1"
-      : `${window.location.origin}/v1`,
+      : `${globalThis.location.origin}/v1`,
   credentials: "include",
   // resolve the CURRENT global fetch per call (test stubs, SW interception)
   fetch: (request) => globalThis.fetch(request),

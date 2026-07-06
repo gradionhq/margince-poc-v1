@@ -39,7 +39,7 @@ function PendingScreen() {
   );
 }
 
-function ScreenView({ screen, id }: { screen: string; id?: string }) {
+function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
   switch (screen) {
     case "design":
       return <DesignScreen />;
@@ -98,7 +98,9 @@ export function App() {
 // has no session (and maybe no workspace slug) — either way /me is not 200, so
 // we show the signup/login screen. On success the screen refetches and the app
 // renders. No redirect races: the gate owns the authenticated/not decision.
-function AuthedApp({ route }: { route: ReturnType<typeof useRoute> }) {
+function AuthedApp({
+  route,
+}: Readonly<{ route: ReturnType<typeof useRoute> }>) {
   const me = useQuery({
     queryKey: ["me"],
     retry: false,
@@ -152,7 +154,7 @@ function AuthedApp({ route }: { route: ReturnType<typeof useRoute> }) {
 
 // The rail-less page frame (same shape Shell renders for onboarding/booking),
 // so the pre-session screens get the app background and scroll container.
-function RaillessFrame({ children }: { children: ReactNode }) {
+function RaillessFrame({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="app railless">
       <main className="main">

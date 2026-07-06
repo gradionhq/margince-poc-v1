@@ -15,11 +15,12 @@ export type Evidence = {
   source: string;
 };
 
-export function AutonomyDot({ tier }: { tier: "auto" | "confirm" }) {
+export function AutonomyDot({ tier }: Readonly<{ tier: "auto" | "confirm" }>) {
   const t = useT();
   return (
     <span
       className={`dot dot-${tier}`}
+      // NOSONAR: CSS-drawn status glyph (no bitmap); <img> would need a src the design has none of, and .dot styling targets the span
       role="img"
       aria-label={tier === "auto" ? t("autonomy.auto") : t("autonomy.confirm")}
     />
@@ -29,10 +30,10 @@ export function AutonomyDot({ tier }: { tier: "auto" | "confirm" }) {
 export function EvidenceChip({
   evidence,
   onOpen,
-}: {
+}: Readonly<{
   evidence: Evidence;
   onOpen?: () => void;
-}) {
+}>) {
   const text = (
     <>
       "{evidence.snippet}" · {evidence.source}
@@ -50,7 +51,9 @@ export function EvidenceChip({
 
 // Low confidence is shown as low, never hidden (§4.2) — there is no prop to
 // suppress the glyph.
-export function ConfidenceMeter({ level }: { level: ConfidenceLevel }) {
+export function ConfidenceMeter({
+  level,
+}: Readonly<{ level: ConfidenceLevel }>) {
   const t = useT();
   return (
     <span className={`confidence confidence-${level}`}>
@@ -63,7 +66,9 @@ export function ConfidenceMeter({ level }: { level: ConfidenceLevel }) {
 // Provenance is either an agent (`agent:capture`) or the human user.
 export type Provenance = { kind: "agent"; agent: string } | { kind: "human" };
 
-export function ProvenanceTag({ provenance }: { provenance: Provenance }) {
+export function ProvenanceTag({
+  provenance,
+}: Readonly<{ provenance: Provenance }>) {
   const t = useT();
   if (provenance.kind === "agent") {
     return (
@@ -81,11 +86,11 @@ export function ApprovalGate({
   onAccept,
   onEdit,
   onDismiss,
-}: {
+}: Readonly<{
   onAccept: () => void;
   onEdit: () => void;
   onDismiss: () => void;
-}) {
+}>) {
   const t = useT();
   return (
     <div className="approval-gate">
@@ -110,7 +115,7 @@ export function ApprovalGate({
   );
 }
 
-export function StagingCard({ children }: { children: ReactNode }) {
+export function StagingCard({ children }: Readonly<{ children: ReactNode }>) {
   const t = useT();
   return (
     <section className="staging-card" aria-label={t("trust.stagedProposal")}>
@@ -143,10 +148,10 @@ type ProposalState =
 export function StagedProposal({
   proposal,
   onResolve,
-}: {
+}: Readonly<{
   proposal: Proposal;
   onResolve?: (resolution: Resolution) => void;
-}) {
+}>) {
   const t = useT();
   const [state, setState] = useState<ProposalState>({ phase: "staged" });
 

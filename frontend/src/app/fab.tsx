@@ -10,7 +10,7 @@ import type { Route } from "./router";
 // screen/record. The scope copy is load-bearing (03b): the agent reads only
 // the RBAC ∩ Passport intersection — the panel must never imply more.
 
-export function AskFab({ route }: { route: Route }) {
+export function AskFab({ route }: Readonly<{ route: Route }>) {
   const t = useT();
   const [open, setOpen] = useState(false);
 
@@ -26,6 +26,7 @@ export function AskFab({ route }: { route: Route }) {
       {open && (
         <div
           className="askfab-panel card"
+          // NOSONAR: inline anchored panel, not a native modal dialog; styling and conditional mount don't map to <dialog>
           role="dialog"
           aria-label={t("fab.panelAria")}
         >

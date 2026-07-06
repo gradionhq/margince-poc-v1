@@ -108,7 +108,10 @@ function TrustShowcase() {
   );
 }
 
-function Swatches({ title, tokens }: { title: string; tokens: string[] }) {
+function Swatches({
+  title,
+  tokens,
+}: Readonly<{ title: string; tokens: string[] }>) {
   return (
     <section style={{ marginTop: 28 }}>
       <h2 className="t-sub">{title}</h2>

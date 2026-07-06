@@ -7,25 +7,25 @@
  */
 const CACHE = "margince-shell-v1";
 
-self.addEventListener("install", (event) => {
+globalThis.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE).then((cache) => cache.addAll(["/", "/manifest.webmanifest"])),
   );
-  self.skipWaiting();
+  globalThis.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
+globalThis.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
       .then((keys) =>
         Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
       )
-      .then(() => self.clients.claim()),
+      .then(() => globalThis.clients.claim()),
   );
 });
 
-self.addEventListener("fetch", (event) => {
+globalThis.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
@@ -34,7 +34,7 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || url.pathname.startsWith("/v1")) {
     return;
   }
-  if (url.origin !== self.location.origin) {
+  if (url.origin !== globalThis.location.origin) {
     return;
   }
 

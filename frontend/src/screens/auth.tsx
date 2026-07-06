@@ -29,14 +29,14 @@ export function deriveWorkspaceSlug(name: string): string {
       out += "-";
     }
   }
-  return out.replace(/^-+|-+$/g, "");
+  return out.replace(/^-+/, "").replace(/-+$/, "");
 }
 
 const MIN_PASSWORD = 12;
 
 type Mode = "signup" | "login";
 
-export function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
+export function AuthScreen({ onAuthed }: Readonly<{ onAuthed: () => void }>) {
   const t = useT();
   const [mode, setMode] = useState<Mode>("signup");
 
@@ -85,10 +85,10 @@ export function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
 function SignupForm({
   onAuthed,
   onToLogin,
-}: {
+}: Readonly<{
   onAuthed: () => void;
   onToLogin: () => void;
-}) {
+}>) {
   const t = useT();
   const nameId = useId();
   const displayId = useId();
@@ -202,10 +202,10 @@ function SignupForm({
 function LoginForm({
   onAuthed,
   onToSignup,
-}: {
+}: Readonly<{
   onAuthed: () => void;
   onToSignup: () => void;
-}) {
+}>) {
   const t = useT();
   const slugId = useId();
   const emailId = useId();
@@ -295,12 +295,12 @@ function Field({
   label,
   hint,
   children,
-}: {
+}: Readonly<{
   id: string;
   label: string;
   hint?: string;
   children: ReactNode;
-}) {
+}>) {
   // The <label> names only the label text, so the input's accessible name is
   // exactly the label — the hint is a sibling below the input, not part of it.
   return (
@@ -312,7 +312,7 @@ function Field({
   );
 }
 
-function ErrorNote({ message }: { message: string | null }) {
+function ErrorNote({ message }: Readonly<{ message: string | null }>) {
   const t = useT();
   return (
     <div className="auth-error">

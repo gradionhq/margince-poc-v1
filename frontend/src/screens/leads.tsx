@@ -98,7 +98,7 @@ export function LeadsScreen() {
   );
 }
 
-export function LeadScreen({ id }: { id: string }) {
+export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const queryClient = useQueryClient();
   const leadQuery = useQuery({

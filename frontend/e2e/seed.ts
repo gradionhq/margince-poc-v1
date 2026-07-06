@@ -253,7 +253,7 @@ export async function mockApi(target: Page): Promise<void> {
   // must seed a slug in localStorage or every authed screen renders auth. The
   // value is a dev-side setting, not tenant authority (the mocked /me is).
   await target.addInitScript(() => {
-    window.localStorage.setItem("margince.workspaceSlug", "seed");
+    globalThis.localStorage.setItem("margince.workspaceSlug", "seed");
   });
   // hermetic runs: no external font fetches
   await target.route("https://fonts.googleapis.com/**", (route) =>

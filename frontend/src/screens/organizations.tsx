@@ -78,7 +78,7 @@ export function CompaniesScreen() {
   );
 }
 
-export function CompanyScreen({ id }: { id: string }) {
+export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const orgQuery = useQuery({
     queryKey: ["organization", id],

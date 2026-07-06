@@ -22,18 +22,18 @@ export function routeHash(route: Route): string {
 }
 
 export function navigate(route: Route): void {
-  window.location.hash = routeHash(route);
+  globalThis.location.hash = routeHash(route);
 }
 
 function subscribe(onChange: () => void): () => void {
-  window.addEventListener("hashchange", onChange);
-  return () => window.removeEventListener("hashchange", onChange);
+  globalThis.addEventListener("hashchange", onChange);
+  return () => globalThis.removeEventListener("hashchange", onChange);
 }
 
 export function useRoute(): Route {
   const hash = useSyncExternalStore(
     subscribe,
-    () => window.location.hash,
+    () => globalThis.location.hash,
     () => "",
   );
   return parseHash(hash);
