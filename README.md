@@ -32,7 +32,7 @@ Sub-100ms interactions is the budget, not the marketing line.
 
 Built by [Gradion](https://gradion.com), licensed BUSL-1.1. We replace
 our own HubSpot with it first. If it can't carry our pipeline, it
-doesn't ship.
+doesn't ship
 
 ---
 
