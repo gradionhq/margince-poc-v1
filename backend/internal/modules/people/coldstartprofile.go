@@ -74,64 +74,86 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 
 	var orgID ids.UUID
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
-
-		created := false
-		err := tx.QueryRow(ctx,
-			`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
-			host).Scan(&orgID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			created = true
-			orgID = ids.NewV7()
-			displayName := host
-			if legal := fieldValue(in.Fields, "legal_name"); legal != "" {
-				displayName = legal
-			}
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-				 VALUES ($1, $2, $3, 'coldstart', $4)`,
-				orgID, wsID, displayName, by); err != nil {
-				return fmt.Errorf("insert coldstart organization: %w", err)
-			}
-			if _, err := tx.Exec(ctx,
-				`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-				 VALUES ($1, $2, lower($3), true, 'coldstart', $4)`,
-				wsID, orgID, host, by); err != nil {
-				return fmt.Errorf("insert coldstart organization domain: %w", err)
-			}
-		} else if err != nil {
-			return fmt.Errorf("resolve organization by domain: %w", err)
-		}
-
-		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "coldstart", by, in.Fields)
-		if err != nil {
-			return err
-		}
-
-		action, eventType := "update", "organization.updated"
-		if created {
-			action, eventType = "create", "organization.created"
-		}
-		auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID, nil, map[string]any{
-			"source": "coldstart", "source_url": in.SourceURL, "fields": applied,
-		})
-		if err != nil {
-			return fmt.Errorf("audit coldstart apply: %w", err)
-		}
-		payload := map[string]any{"delta": applied, "source": "coldstart", "source_url": in.SourceURL}
-		if created {
-			payload = map[string]any{"display_name": fieldValue(in.Fields, "legal_name"), "primary_domain": host,
-				"source": "coldstart", "captured_by": by}
-		}
-		if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID, payload); err != nil {
-			return fmt.Errorf("emit %s: %w", eventType, err)
-		}
-		return nil
+		var err error
+		orgID, err = applyColdStartTx(ctx, tx, in, host, by)
+		return err
 	})
 	if err != nil {
 		return ids.Nil, err
 	}
 	return orgID, nil
+}
+
+// applyColdStartTx resolves-or-creates the target organization, fills the
+// accepted fields (evidence for every one, columns only when empty), and
+// runs the write shape — create vs update chosen by whether the org was
+// just minted — all inside the caller's transaction.
+func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.UUID, error) {
+	wsID := storekit.MustWorkspace(ctx)
+	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, wsID, host, by, in.Fields)
+	if err != nil {
+		return ids.Nil, err
+	}
+	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "coldstart", by, in.Fields)
+	if err != nil {
+		return ids.Nil, err
+	}
+
+	action, eventType := "update", "organization.updated"
+	if created {
+		action, eventType = "create", "organization.created"
+	}
+	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID, nil, map[string]any{
+		"source": "coldstart", "source_url": in.SourceURL, "fields": applied,
+	})
+	if err != nil {
+		return ids.Nil, fmt.Errorf("audit coldstart apply: %w", err)
+	}
+	payload := map[string]any{"delta": applied, "source": "coldstart", "source_url": in.SourceURL}
+	if created {
+		payload = map[string]any{"display_name": fieldValue(in.Fields, "legal_name"), "primary_domain": host,
+			"source": "coldstart", "captured_by": by}
+	}
+	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID, payload); err != nil {
+		return ids.Nil, fmt.Errorf("emit %s: %w", eventType, err)
+	}
+	return orgID, nil
+}
+
+// resolveOrCreateColdStartOrg finds the organization the source domain
+// names, or creates it (with its primary domain) when absent. It reports
+// whether it created the org so the caller selects the create/update audit
+// action and event.
+func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.UUID, host, by string, fields []ColdStartFieldInput) (ids.UUID, bool, error) {
+	var orgID ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
+		host).Scan(&orgID)
+	if err == nil {
+		return orgID, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return ids.Nil, false, fmt.Errorf("resolve organization by domain: %w", err)
+	}
+
+	orgID = ids.NewV7()
+	displayName := host
+	if legal := fieldValue(fields, "legal_name"); legal != "" {
+		displayName = legal
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
+		 VALUES ($1, $2, $3, 'coldstart', $4)`,
+		orgID, wsID, displayName, by); err != nil {
+		return ids.Nil, false, fmt.Errorf("insert coldstart organization: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+		 VALUES ($1, $2, lower($3), true, 'coldstart', $4)`,
+		wsID, orgID, host, by); err != nil {
+		return ids.Nil, false, fmt.Errorf("insert coldstart organization domain: %w", err)
+	}
+	return orgID, true, nil
 }
 
 // coldStartColumns whitelists the identifier a fillEmptyOrgColumn UPDATE

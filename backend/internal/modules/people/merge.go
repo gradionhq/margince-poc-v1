@@ -87,59 +87,70 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		src, tgt, err := mergePair(ctx, tx, "person", sourceID, targetID, readPersonMergeState)
-		if err != nil {
-			return err
-		}
-
-		counts, err := relinkPersonReferences(ctx, tx, sourceID, targetID)
-		if err != nil {
-			return err
-		}
-
-		// Survivorship is fill-only: A never overwrites what B has.
-		p := storekit.NewPatch()
-		fillString(p, "first_name", tgt.FirstName, src.FirstName)
-		fillString(p, "last_name", tgt.LastName, src.LastName)
-		fillString(p, "title", tgt.Title, src.Title)
-		if tgt.ConvertedFromLeadId == nil && src.ConvertedFromLeadId != nil {
-			p.Set("converted_from_lead_id", nil, ids.UUID(*src.ConvertedFromLeadId))
-		}
-		if (tgt.Social == nil || len(*tgt.Social) == 0) && src.Social != nil && len(*src.Social) > 0 {
-			p.Set("social", nil, storekit.JSONArg(*src.Social))
-		}
-		if !p.Empty() {
-			if err := p.Apply(ctx, tx, "person", targetID, nil); err != nil {
-				return fmt.Errorf("apply survivorship fill: %w", err)
-			}
-		}
-
-		if err := archiveMergedAway(ctx, tx, "person", sourceID, targetID); err != nil {
-			return fmt.Errorf("retire merged-away person: %w", err)
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID,
-			map[string]any{"merged_into_id": nil},
-			map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
-		if err != nil {
-			return fmt.Errorf("audit person merge: %w", err)
-		}
-		// One event, its own verb: the context graph collapses two nodes,
-		// which neither person.updated nor person.archived can say.
-		if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID, map[string]any{
-			"merged_from_id": sourceID,
-			"merged_into_id": targetID,
-			"relinked":       counts,
-		}); err != nil {
-			return fmt.Errorf("emit person.merged: %w", err)
-		}
-
-		if out, err = readPerson(ctx, tx, targetID, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read surviving person: %w", err)
-		}
-		return nil
+		var err error
+		out, err = s.mergePersonTx(ctx, tx, sourceID, targetID)
+		return err
 	})
 	return out, err
+}
+
+// mergePersonTx resolves both ends, relinks every reference, fills the
+// survivor's gaps, retires the source, and runs the write shape — all
+// inside the caller's transaction.
+func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
+	src, tgt, err := mergePair(ctx, tx, "person", sourceID, targetID, readPersonMergeState)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
+	counts, err := relinkPersonReferences(ctx, tx, sourceID, targetID)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
+	p := buildSurvivorshipPatch(tgt, src)
+	if !p.Empty() {
+		if err := p.Apply(ctx, tx, "person", targetID, nil); err != nil {
+			return crmcontracts.Person{}, fmt.Errorf("apply survivorship fill: %w", err)
+		}
+	}
+	if err := archiveMergedAway(ctx, tx, "person", sourceID, targetID); err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("retire merged-away person: %w", err)
+	}
+	auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID,
+		map[string]any{"merged_into_id": nil},
+		map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("audit person merge: %w", err)
+	}
+	// One event, its own verb: the context graph collapses two nodes,
+	// which neither person.updated nor person.archived can say.
+	if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID, map[string]any{
+		"merged_from_id": sourceID,
+		"merged_into_id": targetID,
+		"relinked":       counts,
+	}); err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("emit person.merged: %w", err)
+	}
+	out, err := readPerson(ctx, tx, targetID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("read surviving person: %w", err)
+	}
+	return out, nil
+}
+
+// buildSurvivorshipPatch folds A's values onto B fill-only: B never loses
+// what it already holds; only its empty fields take A's non-empty values.
+func buildSurvivorshipPatch(target, source crmcontracts.Person) *storekit.Patch {
+	p := storekit.NewPatch()
+	fillString(p, "first_name", target.FirstName, source.FirstName)
+	fillString(p, "last_name", target.LastName, source.LastName)
+	fillString(p, "title", target.Title, source.Title)
+	if target.ConvertedFromLeadId == nil && source.ConvertedFromLeadId != nil {
+		p.Set("converted_from_lead_id", nil, ids.UUID(*source.ConvertedFromLeadId))
+	}
+	if (target.Social == nil || len(*target.Social) == 0) && source.Social != nil && len(*source.Social) > 0 {
+		p.Set("social", nil, storekit.JSONArg(*source.Social))
+	}
+	return p
 }
 
 // relinkPersonReferences re-homes everything that points at the source

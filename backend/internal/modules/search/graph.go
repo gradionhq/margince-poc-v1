@@ -188,63 +188,36 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 	return touches, openTasks, activityIDs, nil
 }
 
+// graphHop names one hop-2 target type: the entity, the activity_link
+// column that reaches it, and its human-facing title column.
+type graphHop struct {
+	entity string
+	column string
+	title  string
+}
+
+// relatedHops is the fixed set of hop-2 neighbor types, in the order the
+// related_* sections are emitted.
+var relatedHops = []graphHop{
+	{entity: "person", column: "person_id", title: "full_name"},
+	{entity: "organization", column: "organization_id", title: "display_name"},
+	{entity: "deal", column: "deal_id", title: "name"},
+}
+
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.UUID, maxItems int) ([]graphSection, error) {
 	if len(activityIDs) == 0 {
 		return nil, nil
 	}
 	sectionsByType := map[string][]graphItem{}
-	for _, hop := range []struct {
-		entity string
-		column string
-		title  string
-	}{
-		{entity: "person", column: "person_id", title: "full_name"},
-		{entity: "organization", column: "organization_id", title: "display_name"},
-		{entity: "deal", column: "deal_id", title: "name"},
-	} {
+	for _, hop := range relatedHops {
 		if hop.entity == anchorType {
 			continue // the anchor is not its own neighbor
 		}
-		// Bounded like the activity leg: the id order makes the window
-		// deterministic before the per-row visibility probe thins it.
-		rows, err := tx.Query(ctx, fmt.Sprintf(`
-			SELECT DISTINCT t.id, t.%s
-			FROM activity_link l JOIN %s t ON t.id = l.%s
-			WHERE l.activity_id = ANY($1) AND t.archived_at IS NULL AND l.%s IS NOT NULL AND t.id <> $2
-			ORDER BY t.id LIMIT %d`,
-			hop.title, hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
+		items, err := hopNeighbors(ctx, tx, hop, anchorID, activityIDs)
 		if err != nil {
 			return nil, err
 		}
-		type candidate struct {
-			id    ids.UUID
-			title string
-		}
-		var candidates []candidate
-		for rows.Next() {
-			var c candidate
-			if err := rows.Scan(&c.id, &c.title); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			candidates = append(candidates, c)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		for _, c := range candidates {
-			visible, err := auth.VisibleTo(ctx, tx, hop.entity, c.id)
-			if err != nil {
-				return nil, err
-			}
-			if !visible {
-				continue
-			}
-			sectionsByType[hop.entity] = append(sectionsByType[hop.entity], graphItem{
-				entityType: hop.entity, id: c.id, summary: c.title,
-			})
-		}
+		sectionsByType[hop.entity] = items
 	}
 	var out []graphSection
 	for _, entity := range []string{"person", "organization", "deal"} {
@@ -259,6 +232,52 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		out = append(out, graphSection{name: "related_" + plural(entity), items: items})
 	}
 	return out, nil
+}
+
+// hopNeighbors reads one hop's bounded, deterministic candidate window and
+// returns the visible ones as graph items. Each candidate is
+// visibility-probed individually: the walk widens context, never authority.
+func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUID, activityIDs []ids.UUID) ([]graphItem, error) {
+	// Bounded like the activity leg: the id order makes the window
+	// deterministic before the per-row visibility probe thins it.
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT t.id, t.%s
+		FROM activity_link l JOIN %s t ON t.id = l.%s
+		WHERE l.activity_id = ANY($1) AND t.archived_at IS NULL AND l.%s IS NOT NULL AND t.id <> $2
+		ORDER BY t.id LIMIT %d`,
+		hop.title, hop.entity, hop.column, hop.column, graphExpansionLimit), activityIDs, anchorID)
+	if err != nil {
+		return nil, err
+	}
+	type candidate struct {
+		id    ids.UUID
+		title string
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.title); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		candidates = append(candidates, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var items []graphItem
+	for _, c := range candidates {
+		visible, err := auth.VisibleTo(ctx, tx, hop.entity, c.id)
+		if err != nil {
+			return nil, err
+		}
+		if !visible {
+			continue
+		}
+		items = append(items, graphItem{entityType: hop.entity, id: c.id, summary: c.title})
+	}
+	return items, nil
 }
 
 // sortAndTrim orders by score descending with the §10.7.2 id-ascending

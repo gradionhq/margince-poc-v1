@@ -119,120 +119,150 @@ func (s *Store) Resolve(ctx context.Context, signalID ids.UUID) (crmcontracts.Si
 	}
 	var out crmcontracts.Signal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureSignalVisible(ctx, tx, signalID); err != nil {
-			return err
-		}
-		sig, err := readSignal(ctx, tx, signalID, storekit.LiveOnly)
-		if err != nil {
-			return err
-		}
-		switch sig.ResolutionState {
-		case "unresolved", "low_confidence":
-		default:
-			return &NotResolvableError{Reason: fmt.Sprintf("signal is already %s; resolution is terminal", sig.ResolutionState)}
-		}
-		if sig.RawRef == nil || strings.TrimSpace(*sig.RawRef) == "" {
-			return &RequiredFieldError{Field: "raw_ref"}
-		}
-
-		attribution := parseRawRef(*sig.RawRef)
-		candidates, err := matchCandidates(ctx, tx, attribution)
-		if err != nil {
-			return err
-		}
-		// Row-scope the attribution: a resolver may only attribute a signal
-		// to an organization the caller can see. Stamping resolved_org_id
-		// (a read of that org) for an org outside the caller's scope would
-		// leak its existence and id, so an invisible match is dropped —
-		// leaving the signal unattributable rather than disclosing it.
-		if candidates, err = visibleCandidates(ctx, tx, candidates); err != nil {
-			return err
-		}
-
-		var auditID ids.UUID
-		before := map[string]any{"resolution_state": sig.ResolutionState}
-		switch len(candidates) {
-		case 0:
-			// Drop-the-orphan guard (B-E08.1): unattributable
-			// → dropped, with the "why" on record — and NO person link.
-			if err := appendMatchBasis(ctx, tx, actor, signalID, "none", nil, nil,
-				`{"candidates": [], "reason": "no organization matched the raw_ref"}`); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx,
-				`UPDATE signal SET resolution_state = 'dropped', resolution_confidence = NULL WHERE id = $1`,
-				signalID); err != nil {
-				return fmt.Errorf("drop unattributable signal: %w", err)
-			}
-			auditID, err = storekit.Audit(ctx, tx, "resolve", "signal", signalID, before,
-				map[string]any{"resolution_state": "dropped"})
-			if err != nil {
-				return fmt.Errorf("audit signal drop: %w", err)
-			}
-		case 1:
-			chosen := candidates[0]
-			// Consent-gated person link: only an EXISTING person, only
-			// where the org match holds, only under a recorded grant.
-			personID, err := consentedPerson(ctx, tx, attribution.Email, chosen.OrgID)
-			if err != nil {
-				return err
-			}
-			detail, err := candidateDetail(candidates, &chosen)
-			if err != nil {
-				return err
-			}
-			if err := appendMatchBasis(ctx, tx, actor, signalID, chosen.MatchedOn, &chosen.OrgID, &chosen.Confidence, detail); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx,
-				`UPDATE signal SET resolution_state = 'resolved', resolution_confidence = $2,
-				        resolved_org_id = $3, resolved_person_id = $4,
-				        entity_type = COALESCE(entity_type, 'organization'),
-				        entity_id = COALESCE(entity_id, $3)
-				 WHERE id = $1`,
-				signalID, chosen.Confidence, chosen.OrgID, personID); err != nil {
-				return fmt.Errorf("stamp resolved signal: %w", err)
-			}
-			after := map[string]any{"resolution_state": "resolved", "resolved_org_id": chosen.OrgID, "matched_on": chosen.MatchedOn}
-			if personID != nil {
-				after["resolved_person_id"] = *personID
-			}
-			auditID, err = storekit.Audit(ctx, tx, "resolve", "signal", signalID, before, after)
-			if err != nil {
-				return fmt.Errorf("audit signal resolve: %w", err)
-			}
-		default:
-			// Ambiguity is surfaced, not asserted: several plausible orgs
-			// flag the signal for review; resolved_org_id stays NULL.
-			top := candidates[0]
-			detail, err := candidateDetail(candidates, nil)
-			if err != nil {
-				return err
-			}
-			if err := appendMatchBasis(ctx, tx, actor, signalID, top.MatchedOn, nil, &top.Confidence, detail); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx,
-				`UPDATE signal SET resolution_state = 'low_confidence', resolution_confidence = $2 WHERE id = $1`,
-				signalID, top.Confidence); err != nil {
-				return fmt.Errorf("flag ambiguous signal: %w", err)
-			}
-			auditID, err = storekit.Audit(ctx, tx, "resolve", "signal", signalID, before,
-				map[string]any{"resolution_state": "low_confidence", "candidates": len(candidates)})
-			if err != nil {
-				return fmt.Errorf("audit signal ambiguity: %w", err)
-			}
-		}
-
-		if out, err = readSignal(ctx, tx, signalID, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read resolved signal: %w", err)
-		}
-		if err := storekit.Emit(ctx, tx, auditID, "signal.resolved", "signal", signalID, resolvedPayload(out, candidates)); err != nil {
-			return fmt.Errorf("emit signal.resolved: %w", err)
-		}
-		return nil
+		var err error
+		out, err = s.resolveTx(ctx, tx, actor, signalID)
+		return err
 	})
 	return out, err
+}
+
+// resolveTx runs the resolver over one signal inside the caller's
+// transaction: the visibility gate, the terminal-state guard, candidate
+// matching narrowed to visible orgs, the state stamp, and the write shape.
+func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID) (crmcontracts.Signal, error) {
+	if err := auth.EnsureSignalVisible(ctx, tx, signalID); err != nil {
+		return crmcontracts.Signal{}, err
+	}
+	sig, err := readSignal(ctx, tx, signalID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Signal{}, err
+	}
+	switch sig.ResolutionState {
+	case "unresolved", "low_confidence":
+	default:
+		return crmcontracts.Signal{}, &NotResolvableError{Reason: fmt.Sprintf("signal is already %s; resolution is terminal", sig.ResolutionState)}
+	}
+	if sig.RawRef == nil || strings.TrimSpace(*sig.RawRef) == "" {
+		return crmcontracts.Signal{}, &RequiredFieldError{Field: "raw_ref"}
+	}
+
+	attribution := parseRawRef(*sig.RawRef)
+	candidates, err := matchCandidates(ctx, tx, attribution)
+	if err != nil {
+		return crmcontracts.Signal{}, err
+	}
+	// Row-scope the attribution: a resolver may only attribute a signal
+	// to an organization the caller can see. Stamping resolved_org_id
+	// (a read of that org) for an org outside the caller's scope would
+	// leak its existence and id, so an invisible match is dropped —
+	// leaving the signal unattributable rather than disclosing it.
+	if candidates, err = visibleCandidates(ctx, tx, candidates); err != nil {
+		return crmcontracts.Signal{}, err
+	}
+
+	before := map[string]any{"resolution_state": sig.ResolutionState}
+	after, err := stampResolution(ctx, tx, actor, signalID, attribution.Email, candidates)
+	if err != nil {
+		return crmcontracts.Signal{}, err
+	}
+	auditID, err := storekit.Audit(ctx, tx, "resolve", "signal", signalID, before, after)
+	if err != nil {
+		return crmcontracts.Signal{}, fmt.Errorf("audit signal resolution: %w", err)
+	}
+	out, err := readSignal(ctx, tx, signalID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Signal{}, fmt.Errorf("read resolved signal: %w", err)
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "signal.resolved", "signal", signalID, resolvedPayload(out, candidates)); err != nil {
+		return crmcontracts.Signal{}, fmt.Errorf("emit signal.resolved: %w", err)
+	}
+	return out, nil
+}
+
+// stampResolution applies the resolver's verdict for this candidate set and
+// returns the audit after-image. The count IS the verdict (P12): zero
+// candidates drop the signal and link no person; exactly one resolves it to
+// that org under the consent-gated person link; several surface it as
+// low_confidence for review — resolved_org_id stays NULL unless exactly one
+// org matched, and no branch ever creates a person.
+func stampResolution(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID, email string, candidates []candidate) (map[string]any, error) {
+	switch len(candidates) {
+	case 0:
+		return dropUnattributable(ctx, tx, actor, signalID)
+	case 1:
+		return resolveToOrg(ctx, tx, actor, signalID, email, candidates)
+	default:
+		return flagAmbiguous(ctx, tx, actor, signalID, candidates)
+	}
+}
+
+// dropUnattributable is the drop-the-orphan guard (B-E08.1): an
+// unattributable signal is dropped with the "why" on record, and NO person
+// link. Returns the audit after-image.
+func dropUnattributable(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID) (map[string]any, error) {
+	if err := appendMatchBasis(ctx, tx, actor, signalID, "none", nil, nil,
+		`{"candidates": [], "reason": "no organization matched the raw_ref"}`); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE signal SET resolution_state = 'dropped', resolution_confidence = NULL WHERE id = $1`,
+		signalID); err != nil {
+		return nil, fmt.Errorf("drop unattributable signal: %w", err)
+	}
+	return map[string]any{"resolution_state": "dropped"}, nil
+}
+
+// resolveToOrg stamps the single-candidate match: the consent-gated person
+// link (only an EXISTING person, only where the org match holds, only under
+// a recorded grant — never a person creation), the inspectable match basis,
+// and the resolved signal row. Returns the audit after-image.
+func resolveToOrg(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID, email string, candidates []candidate) (map[string]any, error) {
+	chosen := candidates[0]
+	personID, err := consentedPerson(ctx, tx, email, chosen.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := candidateDetail(candidates, &chosen)
+	if err != nil {
+		return nil, err
+	}
+	if err := appendMatchBasis(ctx, tx, actor, signalID, chosen.MatchedOn, &chosen.OrgID, &chosen.Confidence, detail); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE signal SET resolution_state = 'resolved', resolution_confidence = $2,
+		        resolved_org_id = $3, resolved_person_id = $4,
+		        entity_type = COALESCE(entity_type, 'organization'),
+		        entity_id = COALESCE(entity_id, $3)
+		 WHERE id = $1`,
+		signalID, chosen.Confidence, chosen.OrgID, personID); err != nil {
+		return nil, fmt.Errorf("stamp resolved signal: %w", err)
+	}
+	after := map[string]any{"resolution_state": "resolved", "resolved_org_id": chosen.OrgID, "matched_on": chosen.MatchedOn}
+	if personID != nil {
+		after["resolved_person_id"] = *personID
+	}
+	return after, nil
+}
+
+// flagAmbiguous surfaces ambiguity rather than asserting it: several
+// plausible orgs flag the signal for review, resolved_org_id stays NULL,
+// and no person is linked. Returns the audit after-image.
+func flagAmbiguous(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID, candidates []candidate) (map[string]any, error) {
+	top := candidates[0]
+	detail, err := candidateDetail(candidates, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := appendMatchBasis(ctx, tx, actor, signalID, top.MatchedOn, nil, &top.Confidence, detail); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE signal SET resolution_state = 'low_confidence', resolution_confidence = $2 WHERE id = $1`,
+		signalID, top.Confidence); err != nil {
+		return nil, fmt.Errorf("flag ambiguous signal: %w", err)
+	}
+	return map[string]any{"resolution_state": "low_confidence", "candidates": len(candidates)}, nil
 }
 
 // matchCandidates gathers the distinct plausible organizations, best
