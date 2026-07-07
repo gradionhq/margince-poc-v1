@@ -18,22 +18,10 @@ func (h Handlers) ListDeals(w http.ResponseWriter, r *http.Request, params crmco
 		Limit:           params.Limit,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 	}
-	if params.PipelineId != nil {
-		v := ids.UUID(*params.PipelineId)
-		in.PipelineID = &v
-	}
-	if params.StageId != nil {
-		v := ids.UUID(*params.StageId)
-		in.StageID = &v
-	}
-	if params.OwnerId != nil {
-		v := ids.UUID(*params.OwnerId)
-		in.OwnerID = &v
-	}
-	if params.OrganizationId != nil {
-		v := ids.UUID(*params.OrganizationId)
-		in.OrganizationID = &v
-	}
+	in.PipelineID = idArg[ids.PipelineKind](params.PipelineId)
+	in.StageID = idArg[ids.StageKind](params.StageId)
+	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
+	in.OrganizationID = idArg[ids.OrganizationKind](params.OrganizationId)
 	in.Stalled = params.Stalled
 	if params.Status != nil {
 		s := string(*params.Status)
@@ -73,7 +61,7 @@ func (h Handlers) CreateDeal(w http.ResponseWriter, r *http.Request, _ crmcontra
 }
 
 func (h Handlers) GetDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	deal, err := h.store.GetDeal(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	deal, err := h.store.GetDeal(r.Context(), pathID[ids.DealKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -91,7 +79,7 @@ func (h Handlers) UpdateDeal(w http.ResponseWriter, r *http.Request, id crmcontr
 		return
 	}
 
-	deal, err := h.store.UpdateDeal(r.Context(), ids.UUID(id), dealUpdateInput(req, ifVersion))
+	deal, err := h.store.UpdateDeal(r.Context(), pathID[ids.DealKind](id), dealUpdateInput(req, ifVersion))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -112,8 +100,8 @@ func (h Handlers) AdvanceDeal(w http.ResponseWriter, r *http.Request, id crmcont
 		return
 	}
 
-	deal, err := h.store.AdvanceDeal(r.Context(), ids.UUID(id), AdvanceDealInput{
-		ToStageID:  ids.UUID(req.ToStageId),
+	deal, err := h.store.AdvanceDeal(r.Context(), pathID[ids.DealKind](id), AdvanceDealInput{
+		ToStageID:  pathID[ids.StageKind](req.ToStageId),
 		LostReason: req.LostReason,
 		IfVersion:  ifVersion,
 	})
@@ -125,7 +113,7 @@ func (h Handlers) AdvanceDeal(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 func (h Handlers) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	deal, err := h.store.ArchiveDeal(r.Context(), ids.UUID(id))
+	deal, err := h.store.ArchiveDeal(r.Context(), pathID[ids.DealKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

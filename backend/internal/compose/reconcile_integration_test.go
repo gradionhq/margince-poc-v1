@@ -37,8 +37,8 @@ import (
 type reconcileEnv struct {
 	*integration.Env
 	owner      *pgx.Conn
-	pipeline   ids.UUID
-	open       ids.UUID
+	pipeline   ids.PipelineID
+	open       ids.StageID
 	reconciler *deals.FollowUpReconciler
 	svc        *approvals.Service
 }
@@ -194,7 +194,7 @@ func TestFollowUpReconcileStagesProposalAndCommitsNothing(t *testing.T) {
 
 	// The proposal is grounded in the real interaction and dated ahead.
 	_, proposal := e.followUpApproval(t, deal)
-	if proposal.EvidenceActivityID != call {
+	if proposal.EvidenceActivityID.UUID != call {
 		t.Errorf("evidence activity = %s, want the seeded call %s", proposal.EvidenceActivityID, call)
 	}
 	if proposal.EvidenceKind != "call" {

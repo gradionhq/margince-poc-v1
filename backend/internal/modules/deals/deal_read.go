@@ -23,13 +23,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-func (s *Store) GetDeal(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
+func (s *Store) GetDeal(ctx context.Context, id ids.DealID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
 		out, err = readDeal(ctx, tx, id, archived)
@@ -42,10 +42,10 @@ type ListDealsInput struct {
 	Cursor          *string
 	Limit           *int
 	Query           *string
-	PipelineID      *ids.UUID
-	StageID         *ids.UUID
-	OwnerID         *ids.UUID
-	OrganizationID  *ids.UUID
+	PipelineID      *ids.PipelineID
+	StageID         *ids.StageID
+	OwnerID         *ids.UserID
+	OrganizationID  *ids.OrganizationID
 	Status          *string
 	Stalled         *bool
 	IncludeArchived bool
@@ -155,7 +155,7 @@ const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
-func readDeal(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
+func readDeal(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
 	q := `SELECT ` + dealColumns + ` FROM deal WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`

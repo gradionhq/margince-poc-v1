@@ -39,7 +39,7 @@ func (e *OfferNotSentError) Error() string {
 // when the daily rate is missing — never rate=1, RT-PR-C2), captures the
 // buyer/issuer snapshots and emits offer.sent. An empty offer has
 // nothing to send and is refused.
-func (s *Store) SendOffer(ctx context.Context, id ids.UUID, ifVersion *int64) (crmcontracts.Offer, error) {
+func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -76,15 +76,15 @@ func (s *Store) SendOffer(ctx context.Context, id ids.UUID, ifVersion *int64) (c
 		p.Set("fx_rate_date", current.FxRateDate, rateDate)
 		p.Set("buyer_snapshot", nil, storekit.JSONArg(buyer))
 		p.Set("issuer_snapshot", nil, storekit.JSONArg(issuer))
-		if err := p.ApplyGuarded(ctx, tx, "offer", id, ifVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id.UUID, ifVersion); err != nil {
 			return fmt.Errorf("apply send transition: %w", err)
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "update", "offer", id, p.Before(), p.After())
+		auditID, err := storekit.Audit(ctx, tx, "update", "offer", id.UUID, p.Before(), p.After())
 		if err != nil {
 			return fmt.Errorf("audit offer send: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.sent", "offer", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "offer.sent", "offer", id.UUID, map[string]any{
 			"offer_id": id, "deal_id": current.DealId, "revision": current.Revision,
 			"gross_minor": current.GrossMinor, "fx_rate_to_base": rate, "valid_until": current.ValidUntil,
 		}); err != nil {
@@ -133,7 +133,7 @@ func sendSnapshots(ctx context.Context, tx pgx.Tx, offer crmcontracts.Offer) (bu
 // row; the paired deal.updated event rides the same correlation), and
 // emits offer.accepted. Accepting re-prices the deal, so the caller
 // needs the deal update grant as well as the offer's.
-func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) (crmcontracts.Offer, error) {
+func (s *Store) AcceptOffer(ctx context.Context, id ids.OfferID, ifVersion *int64) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -154,29 +154,29 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) 
 		p := storekit.NewPatch()
 		p.Set("status", current.Status, "accepted")
 		p.Set("accepted_at", nil, now)
-		if err := p.ApplyGuarded(ctx, tx, "offer", id, ifVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id.UUID, ifVersion); err != nil {
 			return fmt.Errorf("apply accept transition: %w", err)
 		}
 
-		dealID := ids.UUID(current.DealId)
+		dealID := ids.From[ids.DealKind](ids.UUID(current.DealId))
 		if err := syncDealAmountFromOffer(ctx, tx, dealID, current); err != nil {
 			return err
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "update", "offer", id, p.Before(), map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "update", "offer", id.UUID, p.Before(), map[string]any{
 			"status": "accepted", "accepted_at": now,
 			"deal_amount_minor": current.GrossMinor, "deal_currency": current.Currency,
 		})
 		if err != nil {
 			return fmt.Errorf("audit offer accept: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.accepted", "offer", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "offer.accepted", "offer", id.UUID, map[string]any{
 			"offer_id": id, "deal_id": current.DealId, "revision": current.Revision,
 			"gross_minor": current.GrossMinor,
 		}); err != nil {
 			return fmt.Errorf("emit offer.accepted: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", dealID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", dealID.UUID, map[string]any{
 			"amount_minor": current.GrossMinor, "currency": current.Currency,
 		}); err != nil {
 			return fmt.Errorf("emit paired deal.updated: %w", err)
@@ -194,11 +194,11 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) 
 // must re-freeze FX as of its close date or the amount change would trip
 // deal_closed_fx / corrupt the frozen base-currency roll-up — the same
 // invariant applyMoneyInvariants enforces on direct deal edits.
-func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.UUID, offer crmcontracts.Offer) error {
+func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.DealID, offer crmcontracts.Offer) error {
 	// The row lock makes the status read and the amount write below one
 	// race-free unit. IncludeArchived preserves the read below, which
 	// follows the deal row regardless of archived state.
-	if _, err := storekit.LockRow(ctx, tx, "deal", dealID, storekit.IncludeArchived); err != nil {
+	if _, err := storekit.LockRow(ctx, tx, "deal", dealID.UUID, storekit.IncludeArchived); err != nil {
 		return fmt.Errorf("lock deal for amount sync: %w", err)
 	}
 	var status string
@@ -230,7 +230,7 @@ func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.UUID, of
 
 // RejectOffer runs sent → rejected. The optional reason rides the event
 // and the audit trail; the row itself only records the state.
-func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, ifVersion *int64) (crmcontracts.Offer, error) {
+func (s *Store) RejectOffer(ctx context.Context, id ids.OfferID, reason *string, ifVersion *int64) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -246,14 +246,14 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, if
 
 		p := storekit.NewPatch()
 		p.Set("status", current.Status, "rejected")
-		if err := p.ApplyGuarded(ctx, tx, "offer", id, ifVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id.UUID, ifVersion); err != nil {
 			return fmt.Errorf("apply reject transition: %w", err)
 		}
 		after := p.After()
 		if reason != nil {
 			after["reason"] = *reason
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "offer", id, p.Before(), after)
+		auditID, err := storekit.Audit(ctx, tx, "update", "offer", id.UUID, p.Before(), after)
 		if err != nil {
 			return fmt.Errorf("audit offer reject: %w", err)
 		}
@@ -263,7 +263,7 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, if
 		if reason != nil {
 			payload["reason"] = *reason
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.rejected", "offer", id, payload); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "offer.rejected", "offer", id.UUID, payload); err != nil {
 			return fmt.Errorf("emit offer.rejected: %w", err)
 		}
 		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -279,7 +279,7 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, if
 // superseded. A sent offer is never mutated in place (B-E03.19); the
 // produced draft is a reversible internal write (🟢) that still cannot
 // leave without the send gate.
-func (s *Store) RegenerateOffer(ctx context.Context, id ids.UUID) (crmcontracts.Offer, error) {
+func (s *Store) RegenerateOffer(ctx context.Context, id ids.OfferID) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionCreate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -317,7 +317,7 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.UUID) (crmcontracts.
 			return fmt.Errorf("mint next revision: %w", err)
 		}
 
-		newID := ids.NewV7()
+		newID := ids.New[ids.OfferKind]()
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
 			                    buyer_org_id, valid_until, intro_text, terms_text,
@@ -345,19 +345,19 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.UUID) (crmcontracts.
 			return fmt.Errorf("mark prior revision superseded: %w", err)
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "create", "offer", newID, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "create", "offer", newID.UUID, nil, map[string]any{
 			"offer_number": current.OfferNumber, "from_revision": current.Revision, "revision": nextRevision,
 		})
 		if err != nil {
 			return fmt.Errorf("audit offer regenerate: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.superseded", "offer", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "offer.superseded", "offer", id.UUID, map[string]any{
 			"offer_id": id, "deal_id": current.DealId,
 			"from_revision": current.Revision, "to_revision": nextRevision,
 		}); err != nil {
 			return fmt.Errorf("emit offer.superseded: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", newID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", newID.UUID, map[string]any{
 			"offer_id": newID, "deal_id": current.DealId, "revision": nextRevision,
 			"currency": current.Currency, "source": current.Source, "captured_by": by,
 		}); err != nil {

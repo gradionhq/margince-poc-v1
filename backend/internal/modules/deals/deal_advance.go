@@ -25,14 +25,14 @@ import (
 )
 
 type AdvanceDealInput struct {
-	ToStageID  ids.UUID
+	ToStageID  ids.StageID
 	LostReason *string
 	IfVersion  *int64
 }
 
 // StagePipelineMismatchError maps to 422: the target stage exists but
 // belongs to another pipeline.
-type StagePipelineMismatchError struct{ StageID ids.UUID }
+type StagePipelineMismatchError struct{ StageID ids.StageID }
 
 func (e *StagePipelineMismatchError) Error() string {
 	return "stage " + e.StageID.String() + " does not belong to the deal's pipeline"
@@ -48,7 +48,7 @@ func (e *LostReasonRequiredError) Error() string { return "lost_reason is requir
 // stage's semantic (never from client-supplied status), appending the
 // stage history snapshot and emitting the first-class deal.stage_changed
 // event — never a generic deal.updated (events.md §1).
-func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInput) (crmcontracts.Deal, error) {
+func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealInput) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
@@ -59,7 +59,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
 		current, err := readDeal(ctx, tx, id, storekit.LiveOnly)
@@ -68,7 +68,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 		}
 
 		var semantic string
-		var stagePipeline ids.UUID
+		var stagePipeline ids.PipelineID
 		var winProbability int
 		err = tx.QueryRow(ctx,
 			`SELECT semantic, pipeline_id, win_probability FROM stage WHERE id = $1 AND archived_at IS NULL`,
@@ -79,7 +79,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 		if err != nil {
 			return fmt.Errorf("resolve target stage: %w", err)
 		}
-		if stagePipeline != ids.UUID(current.PipelineId) {
+		if stagePipeline.UUID != ids.UUID(current.PipelineId) {
 			return &StagePipelineMismatchError{StageID: in.ToStageID}
 		}
 
@@ -87,7 +87,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 		if err != nil {
 			return err
 		}
-		if err := p.ApplyGuarded(ctx, tx, "deal", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "deal", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply stage advance: %w", err)
 		}
 
@@ -99,14 +99,14 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 			return fmt.Errorf("record stage history: %w", err)
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "advance_stage", "deal", id, p.Before(), p.After())
+		auditID, err := storekit.Audit(ctx, tx, "advance_stage", "deal", id.UUID, p.Before(), p.After())
 		if err != nil {
 			return fmt.Errorf("audit stage advance: %w", err)
 		}
 		// The §5.3 payload carries the amount snapshot so as-of-date
 		// pipeline reports and the overnight stalled/forecast sweep react
 		// without a read-back; to_status records the 🟡 won/lost class.
-		if err := storekit.Emit(ctx, tx, auditID, "deal.stage_changed", "deal", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "deal.stage_changed", "deal", id.UUID, map[string]any{
 			"from_stage_id":          current.StageId,
 			"to_stage_id":            in.ToStageID,
 			"from_status":            current.Status,

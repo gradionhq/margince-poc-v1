@@ -83,7 +83,7 @@ func TestDealHealthReproducesTheWorkedExampleOverSeededRows(t *testing.T) {
 	deal, engaged, freshest := seedHealthyDeal(t, e, owner)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 
-	got, err := e.Deals.DealHealth(ctx, deal, healthClock)
+	got, err := e.Deals.DealHealth(ctx, ids.From[ids.DealKind](deal), healthClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestDealHealthReproducesTheWorkedExampleOverSeededRows(t *testing.T) {
 	}
 
 	// Determinism: the same seed + clock reproduces the same score.
-	again, err := e.Deals.DealHealth(ctx, deal, healthClock)
+	again, err := e.Deals.DealHealth(ctx, ids.From[ids.DealKind](deal), healthClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestDealHealthComputationNeverMutatesTheDeal(t *testing.T) {
 		return row
 	}
 	before := snapshot()
-	if _, err := e.Deals.DealHealth(ctx, deal, healthClock); err != nil {
+	if _, err := e.Deals.DealHealth(ctx, ids.From[ids.DealKind](deal), healthClock); err != nil {
 		t.Fatal(err)
 	}
 	if after := snapshot(); after != before {
@@ -187,7 +187,7 @@ func TestStalledDealReadsAtRisk(t *testing.T) {
 		VALUES ($1, $2, 'task', 'never followed up', '2026-03-06T12:00:00Z', '2026-03-20T12:00:00Z', 'manual', 'human:x')`, e.WS)
 	LinkActivity(t, owner, e.WS, overdue, "deal", deal)
 
-	got, err := e.Deals.DealHealth(ctx, deal, healthClock)
+	got, err := e.Deals.DealHealth(ctx, ids.From[ids.DealKind](deal), healthClock)
 	if err != nil {
 		t.Fatal(err)
 	}

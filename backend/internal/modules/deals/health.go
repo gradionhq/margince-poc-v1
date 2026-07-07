@@ -74,10 +74,13 @@ type DealHealthWeights struct {
 type DealHealthEvidence struct {
 	// MostRecentActivityID backs the recency factor; nil when the deal
 	// has never seen an activity (recency 0.0 by definition).
+	// note: the health evidence ids (activity/person refs below) are
+	// operational explainability pointers gathered through the generic
+	// collectIDs helper, not typed entity handles — they stay ids.UUID.
 	MostRecentActivityID *ids.UUID
 
 	// StageVelocity: where the deal sits and how its pace compares.
-	CurrentStageID      ids.UUID
+	CurrentStageID      ids.StageID
 	DaysInStage         float64
 	ExpectedDaysInStage float64
 
@@ -93,7 +96,7 @@ type DealHealthEvidence struct {
 
 // DealHealth is the explainable §10.5 output.
 type DealHealth struct {
-	DealID   ids.UUID
+	DealID   ids.DealID
 	Health   float64
 	AtRisk   bool
 	Factors  DealHealthFactors
@@ -105,12 +108,12 @@ type DealHealth struct {
 // folds them deterministically so the formula is testable without a
 // database.
 type dealHealthInputs struct {
-	dealID         ids.UUID
+	dealID         ids.DealID
 	status         string
 	createdAt      time.Time
 	lastActivityAt *time.Time
 	waitUntil      *time.Time
-	stageID        ids.UUID
+	stageID        ids.StageID
 
 	// stageEnteredAt is the latest history entry into the current stage,
 	// falling back to createdAt when the deal never moved.
@@ -247,13 +250,13 @@ const healthActivityKinds = `('email','call','meeting')`
 // row-scoped exactly like GetDeal — a deal the caller cannot see has no
 // health to disclose — and the whole path is read-only (B-E09.17): the
 // transaction issues SELECTs only.
-func (s *Store) DealHealth(ctx context.Context, dealID ids.UUID, now time.Time) (DealHealth, error) {
+func (s *Store) DealHealth(ctx context.Context, dealID ids.DealID, now time.Time) (DealHealth, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return DealHealth{}, err
 	}
 	in := dealHealthInputs{dealID: dealID}
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "deal", dealID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", dealID.UUID); err != nil {
 			return err
 		}
 		return healthInputs(ctx, tx, now, &in)
@@ -268,7 +271,7 @@ func (s *Store) DealHealth(ctx context.Context, dealID ids.UUID, now time.Time) 
 // transaction: the deal row, its stage-entry instant, the won-deal
 // stage-duration median, and the per-factor evidence rows.
 func healthInputs(ctx context.Context, tx pgx.Tx, now time.Time, in *dealHealthInputs) error {
-	var pipelineID ids.UUID
+	var pipelineID ids.PipelineID
 	err := tx.QueryRow(ctx, `
 		SELECT status, created_at, last_activity_at, wait_until, stage_id, pipeline_id
 		FROM deal WHERE id = $1 AND archived_at IS NULL`, in.dealID).

@@ -58,7 +58,7 @@ func (h Handlers) CreateProduct(w http.ResponseWriter, r *http.Request, _ crmcon
 }
 
 func (h Handlers) GetProduct(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	product, err := h.store.GetProduct(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	product, err := h.store.GetProduct(r.Context(), pathID[ids.ProductKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -86,7 +86,7 @@ func (h Handlers) UpdateProduct(w http.ResponseWriter, r *http.Request, id crmco
 		Active:         req.Active,
 		IfVersion:      ifVersion,
 	}
-	product, err := h.store.UpdateProduct(r.Context(), ids.UUID(id), in)
+	product, err := h.store.UpdateProduct(r.Context(), pathID[ids.ProductKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -95,7 +95,7 @@ func (h Handlers) UpdateProduct(w http.ResponseWriter, r *http.Request, id crmco
 }
 
 func (h Handlers) ArchiveProduct(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	product, err := h.store.ArchiveProduct(r.Context(), ids.UUID(id))
+	product, err := h.store.ArchiveProduct(r.Context(), pathID[ids.ProductKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

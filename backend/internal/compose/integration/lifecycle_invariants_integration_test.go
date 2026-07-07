@@ -38,7 +38,7 @@ func TestUpdateDealRejectsAStrandedAmount(t *testing.T) {
 	}
 
 	amount := int64(5000)
-	_, err = e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{AmountMinor: &amount})
+	_, err = e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{AmountMinor: &amount})
 	var pairErr *deals.AmountCurrencyPairError
 	if !errors.As(err, &pairErr) {
 		t.Fatalf("amount without currency → %v, want deals.AmountCurrencyPairError", err)
@@ -46,7 +46,7 @@ func TestUpdateDealRejectsAStrandedAmount(t *testing.T) {
 
 	// The paired update is accepted, and clearing neither alone either.
 	currency := "EUR"
-	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{AmountMinor: &amount, Currency: &currency}); err != nil {
+	if _, err := e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{AmountMinor: &amount, Currency: &currency}); err != nil {
 		t.Fatalf("paired amount+currency: %v", err)
 	}
 }
@@ -64,10 +64,10 @@ func TestReopeningAWonDealClearsTerminalFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Deals.AdvanceDeal(admin, ids.UUID(d.Id), deals.AdvanceDealInput{ToStageID: won}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won}); err != nil {
 		t.Fatalf("closing as won: %v", err)
 	}
-	if _, err := e.Deals.AdvanceDeal(admin, ids.UUID(d.Id), deals.AdvanceDealInput{ToStageID: open}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: open}); err != nil {
 		t.Fatalf("reopening: %v", err)
 	}
 
@@ -96,13 +96,13 @@ func TestOwnerReassignmentEmitsOwnerChanged(t *testing.T) {
 	admin := e.Admin()
 
 	d, err := e.Deals.CreateDeal(admin, deals.CreateDealInput{
-		Name: "Handover", PipelineID: pipeline, StageID: open, Source: "manual", OwnerID: &e.Rep1,
+		Name: "Handover", PipelineID: pipeline, StageID: open, Source: "manual", OwnerID: userIDPtr(&e.Rep1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	name := "Handover (renamed)"
-	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{OwnerID: &e.Rep2, Name: &name}); err != nil {
+	if _, err := e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{OwnerID: userIDPtr(&e.Rep2), Name: &name}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -276,7 +276,7 @@ func repPermsWithActivity() principal.Permissions {
 }
 
 // lostStage resolves the seeded pipeline's lost stage.
-func lostStage(t *testing.T, e *Env) ids.UUID {
+func lostStage(t *testing.T, e *Env) ids.StageID {
 	t.Helper()
 	p, err := e.Deals.DefaultPipeline(e.Admin())
 	if err != nil {
@@ -284,11 +284,11 @@ func lostStage(t *testing.T, e *Env) ids.UUID {
 	}
 	for _, st := range *p.Stages {
 		if st.Semantic == "lost" {
-			return ids.UUID(st.Id)
+			return ids.From[ids.StageKind](ids.UUID(st.Id))
 		}
 	}
 	t.Fatal("seeded pipeline has no lost stage")
-	return ids.Nil
+	return ids.StageID{}
 }
 
 // A closed deal's frozen FX must track its amount/currency: adding an
@@ -307,7 +307,7 @@ func TestRepricingAClosedDealRefreezesFx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Deals.AdvanceDeal(admin, ids.UUID(d.Id), deals.AdvanceDealInput{ToStageID: won}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: won}); err != nil {
 		t.Fatalf("closing amountless: %v", err)
 	}
 
@@ -330,7 +330,7 @@ func TestRepricingAClosedDealRefreezesFx(t *testing.T) {
 
 	// Adding an amount to the closed deal freezes a rate (base currency → 1).
 	amount, eur := int64(48000), "EUR"
-	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{AmountMinor: &amount, Currency: &eur}); err != nil {
+	if _, err := e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{AmountMinor: &amount, Currency: &eur}); err != nil {
 		t.Fatalf("adding amount to a closed deal: %v", err)
 	}
 	rate, _ := readFx()
@@ -340,7 +340,7 @@ func TestRepricingAClosedDealRefreezesFx(t *testing.T) {
 
 	// Switching the closed deal's currency re-freezes for the NEW pair.
 	usd := "USD"
-	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{Currency: &usd}); err != nil {
+	if _, err := e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{Currency: &usd}); err != nil {
 		t.Fatalf("re-currencying a closed deal: %v", err)
 	}
 	rate, _ = readFx()
@@ -380,10 +380,10 @@ func TestReopeningWithARedundantLostReasonStillCleans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Deals.AdvanceDeal(admin, ids.UUID(d.Id), deals.AdvanceDealInput{ToStageID: lost, LostReason: strPtr("price")}); err != nil {
+	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: lost, LostReason: strPtr("price")}); err != nil {
 		t.Fatalf("closing as lost: %v", err)
 	}
-	reopened, err := e.Deals.AdvanceDeal(admin, ids.UUID(d.Id), deals.AdvanceDealInput{ToStageID: open, LostReason: strPtr("price")})
+	reopened, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.AdvanceDealInput{ToStageID: open, LostReason: strPtr("price")})
 	if err != nil {
 		t.Fatalf("reopen with redundant lost_reason: %v", err)
 	}

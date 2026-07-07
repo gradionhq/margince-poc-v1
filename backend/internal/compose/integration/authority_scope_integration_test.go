@@ -54,36 +54,37 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 
 	foreignOrg := e.SeedOrg(t, "Their Org", &e.Rep3) // team2's record
 	visibleOrg := e.SeedOrg(t, "Our Org", &e.Rep1)   // rep1's own
-	myDeal := e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1)
+	foreignOrgID := ids.From[ids.OrganizationKind](foreignOrg)
+	visibleOrgID := ids.From[ids.OrganizationKind](visibleOrg)
+	myDeal := ids.From[ids.DealKind](e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithOrg())
 
 	// Create paths.
 	if _, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
-		Name: "Sneaky", PipelineID: pipeline, StageID: open, OrganizationID: &foreignOrg,
+		Name: "Sneaky", PipelineID: pipeline, StageID: open, OrganizationID: &foreignOrgID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("CreateDeal with out-of-scope organization → %v, want ErrNotFound", err)
 	}
-	foreignParent := ids.From[ids.OrganizationKind](foreignOrg)
 	if _, err := e.People.CreateOrganization(rep, people.CreateOrganizationInput{
-		DisplayName: "Sneaky Child", ParentOrgID: &foreignParent,
+		DisplayName: "Sneaky Child", ParentOrgID: &foreignOrgID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("CreateOrganization with out-of-scope parent → %v, want ErrNotFound", err)
 	}
 
 	// Update paths — organization, partner, and parent reattachment.
-	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &foreignOrgID}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateDeal attaching out-of-scope organization → %v, want ErrNotFound", err)
 	}
-	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{PartnerOrganizationID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{PartnerOrganizationID: &foreignOrgID}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateDeal attaching out-of-scope partner → %v, want ErrNotFound", err)
 	}
-	if _, err := e.People.UpdateOrganization(rep, ids.From[ids.OrganizationKind](visibleOrg), people.UpdateOrganizationInput{ParentOrgID: &foreignParent}); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.People.UpdateOrganization(rep, visibleOrgID, people.UpdateOrganizationInput{ParentOrgID: &foreignOrgID}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateOrganization reparenting under out-of-scope org → %v, want ErrNotFound", err)
 	}
 
 	// The same references succeed when the target IS visible — the gate
 	// narrows scope, it does not break the feature.
-	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &visibleOrg}); err != nil {
+	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &visibleOrgID}); err != nil {
 		t.Errorf("UpdateDeal attaching own-team organization → %v, want ok", err)
 	}
 }

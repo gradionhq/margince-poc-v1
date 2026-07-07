@@ -55,7 +55,7 @@ func (s *Store) CreatePipeline(ctx context.Context, in CreatePipelineInput) (crm
 // workspace (C5), so a seed failure rolls the whole tenant back.
 func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (crmcontracts.Pipeline, error) {
 	wsID := storekit.MustWorkspace(ctx)
-	id := ids.NewV7()
+	id := ids.New[ids.PipelineKind]()
 	_, err := tx.Exec(ctx,
 		`INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, $3, $4, $5)`,
 		id, wsID, in.Name, in.IsDefault, in.Position)
@@ -75,7 +75,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 		}
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "create", "pipeline", id, nil, map[string]any{"name": in.Name})
+	auditID, err := storekit.Audit(ctx, tx, "create", "pipeline", id.UUID, nil, map[string]any{"name": in.Name})
 	if err != nil {
 		return crmcontracts.Pipeline{}, fmt.Errorf("audit pipeline create: %w", err)
 	}
@@ -85,7 +85,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 	for _, st := range in.Stages {
 		stages = append(stages, map[string]any{"name": st.Name, "position": st.Position, "semantic": st.Semantic})
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "pipeline.created", "pipeline", id, map[string]any{
+	if err := storekit.Emit(ctx, tx, auditID, "pipeline.created", "pipeline", id.UUID, map[string]any{
 		"name": in.Name, "is_default": in.IsDefault, "stages": stages,
 	}); err != nil {
 		return crmcontracts.Pipeline{}, fmt.Errorf("emit pipeline.created: %w", err)
@@ -97,7 +97,7 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 	return out, nil
 }
 
-func (s *Store) GetPipeline(ctx context.Context, id ids.UUID) (crmcontracts.Pipeline, error) {
+func (s *Store) GetPipeline(ctx context.Context, id ids.PipelineID) (crmcontracts.Pipeline, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
@@ -120,9 +120,9 @@ func (s *Store) ListPipelines(ctx context.Context) ([]crmcontracts.Pipeline, err
 		if err != nil {
 			return err
 		}
-		var pipelineIDs []ids.UUID
+		var pipelineIDs []ids.PipelineID
 		for rows.Next() {
-			var id ids.UUID
+			var id ids.PipelineID
 			if err := rows.Scan(&id); err != nil {
 				rows.Close()
 				return err
@@ -156,7 +156,7 @@ func (s *Store) DefaultPipeline(ctx context.Context) (crmcontracts.Pipeline, err
 	}
 	var out crmcontracts.Pipeline
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		var id ids.UUID
+		var id ids.PipelineID
 		err := tx.QueryRow(ctx,
 			`SELECT id FROM pipeline WHERE is_default AND archived_at IS NULL`).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -171,7 +171,7 @@ func (s *Store) DefaultPipeline(ctx context.Context) (crmcontracts.Pipeline, err
 	return out, err
 }
 
-func readPipeline(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Pipeline, error) {
+func readPipeline(ctx context.Context, tx pgx.Tx, id ids.PipelineID) (crmcontracts.Pipeline, error) {
 	var p crmcontracts.Pipeline
 	var pid, wsID ids.UUID
 	err := tx.QueryRow(ctx,

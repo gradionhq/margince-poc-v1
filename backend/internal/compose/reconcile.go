@@ -113,7 +113,7 @@ func followUpConfirmEffect(svc *approvals.Service, store *activities.Store) appr
 			SourceSystem: &sourceSystem,
 			SourceID:     &sourceID,
 			Source:       "overnight-reconcile",
-			Links:        []activities.ActivityLinkInput{{EntityType: "deal", EntityID: proposal.DealID}},
+			Links:        []activities.ActivityLinkInput{{EntityType: "deal", EntityID: proposal.DealID.UUID}},
 		})
 		return err
 	}

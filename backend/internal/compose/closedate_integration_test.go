@@ -149,7 +149,7 @@ func TestCloseDatePastRejectedOnOpenDealWrites(t *testing.T) {
 	tomorrow := today().AddDate(0, 0, 1)
 
 	_, err := e.Deals.CreateDeal(admin, deals.CreateDealInput{
-		Name: "Born invalid", PipelineID: e.pipeline, StageID: e.early, Source: "manual",
+		Name: "Born invalid", PipelineID: ids.From[ids.PipelineKind](e.pipeline), StageID: ids.From[ids.StageKind](e.early), Source: "manual",
 		ExpectedClose: &yesterday,
 	})
 	var pastClose *deals.PastCloseDateError
@@ -159,17 +159,17 @@ func TestCloseDatePastRejectedOnOpenDealWrites(t *testing.T) {
 
 	closingToday := today()
 	d, err := e.Deals.CreateDeal(admin, deals.CreateDealInput{
-		Name: "Closing today is fine", PipelineID: e.pipeline, StageID: e.early, Source: "manual",
+		Name: "Closing today is fine", PipelineID: ids.From[ids.PipelineKind](e.pipeline), StageID: ids.From[ids.StageKind](e.early), Source: "manual",
 		ExpectedClose: &closingToday,
 	})
 	if err != nil {
 		t.Fatalf("create closing today: %v (overdue is strict <)", err)
 	}
 
-	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{ExpectedClose: &yesterday}); !errors.As(err, &pastClose) {
+	if _, err := e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{ExpectedClose: &yesterday}); !errors.As(err, &pastClose) {
 		t.Fatalf("update to a past close date → %v, want PastCloseDateError", err)
 	}
-	if _, err := e.Deals.UpdateDeal(admin, ids.UUID(d.Id), deals.UpdateDealInput{ExpectedClose: &tomorrow}); err != nil {
+	if _, err := e.Deals.UpdateDeal(admin, ids.From[ids.DealKind](ids.UUID(d.Id)), deals.UpdateDealInput{ExpectedClose: &tomorrow}); err != nil {
 		t.Fatalf("update to tomorrow: %v", err)
 	}
 }

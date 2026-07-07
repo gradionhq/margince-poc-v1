@@ -59,7 +59,7 @@ func (e *ProductCurrencyMismatchError) Error() string {
 // units, with product-snapshot defaults resolved here.
 type OfferLineInputRow struct {
 	Position       *int
-	ProductID      *ids.UUID
+	ProductID      *ids.ProductID
 	Description    *string
 	Unit           *string
 	Quantity       string
@@ -70,7 +70,7 @@ type OfferLineInputRow struct {
 
 type CreateOfferInput struct {
 	Currency   string
-	BuyerOrgID *ids.UUID
+	BuyerOrgID *ids.OrganizationID
 	ValidUntil *string // ISO date
 	IntroText  *string
 	TermsText  *string
@@ -78,7 +78,7 @@ type CreateOfferInput struct {
 	Source     string
 }
 
-func (s *Store) CreateOffer(ctx context.Context, dealID ids.UUID, in CreateOfferInput) (crmcontracts.Offer, error) {
+func (s *Store) CreateOffer(ctx context.Context, dealID ids.DealID, in CreateOfferInput) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionCreate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -99,11 +99,11 @@ func (s *Store) CreateOffer(ctx context.Context, dealID ids.UUID, in CreateOffer
 // createOfferTx resolves the buyer org, mints the offer number, inserts
 // the offer and its lines, derives the totals, and runs the write shape —
 // all inside the caller's transaction.
-func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.UUID, in CreateOfferInput, by string) (crmcontracts.Offer, error) {
+func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.DealID, in CreateOfferInput, by string) (crmcontracts.Offer, error) {
 	wsID := storekit.MustWorkspace(ctx)
 	// The deal anchors the offer's visibility: it must exist, be live
 	// and sit inside the caller's row scope (miss = 404).
-	if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID); err != nil {
+	if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID.UUID); err != nil {
 		return crmcontracts.Offer{}, err
 	}
 	buyerOrg, err := resolveBuyerOrg(ctx, tx, dealID, in.BuyerOrgID)
@@ -115,7 +115,7 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.UUID, in CreateOff
 		return crmcontracts.Offer{}, err
 	}
 
-	id := ids.NewV7()
+	id := ids.New[ids.OfferKind]()
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
 		                    buyer_org_id, valid_until, intro_text, terms_text, source, captured_by)
@@ -130,12 +130,12 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.UUID, in CreateOff
 		return crmcontracts.Offer{}, err
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "create", "offer", id,
+	auditID, err := storekit.Audit(ctx, tx, "create", "offer", id.UUID,
 		nil, map[string]any{"offer_number": number, "deal_id": dealID, "currency": in.Currency})
 	if err != nil {
 		return crmcontracts.Offer{}, fmt.Errorf("audit offer create: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", id, map[string]any{
+	if err := storekit.Emit(ctx, tx, auditID, "offer.created", "offer", id.UUID, map[string]any{
 		"offer_id": id, "deal_id": dealID, "revision": 1,
 		"currency": in.Currency, "source": in.Source, "captured_by": by,
 	}); err != nil {
@@ -151,14 +151,14 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.UUID, in CreateOff
 // resolveBuyerOrg picks the offer's buyer org: an explicit org is
 // row-scope probed (a client-supplied FK, H1); absent one, the offer
 // inherits the deal's organization.
-func resolveBuyerOrg(ctx context.Context, tx pgx.Tx, dealID ids.UUID, buyerOrgID *ids.UUID) (*ids.UUID, error) {
+func resolveBuyerOrg(ctx context.Context, tx pgx.Tx, dealID ids.DealID, buyerOrgID *ids.OrganizationID) (*ids.OrganizationID, error) {
 	if buyerOrgID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", *buyerOrgID); err != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", buyerOrgID.UUID); err != nil {
 			return nil, err
 		}
 		return buyerOrgID, nil
 	}
-	var dealOrg *ids.UUID
+	var dealOrg *ids.OrganizationID
 	if err := tx.QueryRow(ctx,
 		`SELECT organization_id FROM deal WHERE id = $1`, dealID).Scan(&dealOrg); err != nil {
 		return nil, fmt.Errorf("read deal organization: %w", err)
@@ -168,7 +168,7 @@ func resolveBuyerOrg(ctx context.Context, tx pgx.Tx, dealID ids.UUID, buyerOrgID
 
 // insertOfferLines inserts each input line in order, numbering the 422
 // error by the caller's 1-based line position.
-func insertOfferLines(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, currency string, lines []OfferLineInputRow) error {
+func insertOfferLines(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, currency string, lines []OfferLineInputRow) error {
 	for i, line := range lines {
 		if err := insertOfferLine(ctx, tx, wsID, offerID, currency, line); err != nil {
 			return fmt.Errorf("line %d: %w", i+1, err)
@@ -218,7 +218,7 @@ type resolvedOfferLine struct {
 	Tax         string
 }
 
-func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, offerCurrency string, in OfferLineInputRow) error {
+func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, offerCurrency string, in OfferLineInputRow) error {
 	defaults, err := resolveProductSnapshot(ctx, tx, in.ProductID, offerCurrency, lineSnapshotDefaults{
 		Description: in.Description, Unit: in.Unit, Price: in.UnitPriceMinor, TaxRate: in.TaxRate,
 	})
@@ -249,7 +249,7 @@ func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, off
 // snapshot is copied ONCE, here — a later product edit never touches the
 // line (B-E03.17). The rate-card price only carries over when the
 // currencies agree; a silent conversion would fabricate a number.
-func resolveProductSnapshot(ctx context.Context, tx pgx.Tx, productID *ids.UUID, offerCurrency string, in lineSnapshotDefaults) (lineSnapshotDefaults, error) {
+func resolveProductSnapshot(ctx context.Context, tx pgx.Tx, productID *ids.ProductID, offerCurrency string, in lineSnapshotDefaults) (lineSnapshotDefaults, error) {
 	if productID == nil {
 		return in, nil
 	}
@@ -303,7 +303,7 @@ func normalizeLineDefaults(unit, discountPct, taxRate *string) (unitVal, discoun
 
 // insertOfferLineRow assigns the line's position (appending after the last
 // when unset) and inserts it, mapping a position collision to 409.
-func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, in OfferLineInputRow, line resolvedOfferLine) error {
+func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, in OfferLineInputRow, line resolvedOfferLine) error {
 	position := in.Position
 	if position == nil {
 		var next int
@@ -314,6 +314,8 @@ func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, 
 		}
 		position = &next
 	}
+	// note: an offer_line_item is not a first-class entity (no LineItemKind),
+	// so its row id stays an untyped ids.UUID.
 	_, err := tx.Exec(ctx,
 		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
 		                              unit, quantity, unit_price_minor, discount_pct, tax_rate)
@@ -332,7 +334,7 @@ func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID, offerID ids.UUID, 
 // recomputeOfferTotals re-derives net/tax/gross from the offer's live
 // lines through the totals engine — the ONE writer of the stored totals,
 // called inside every transaction that touches a line.
-func recomputeOfferTotals(ctx context.Context, tx pgx.Tx, offerID ids.UUID) error {
+func recomputeOfferTotals(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) error {
 	rows, err := tx.Query(ctx,
 		`SELECT quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
 		 FROM offer_line_item WHERE offer_id = $1`, offerID)
@@ -367,7 +369,7 @@ func recomputeOfferTotals(ctx context.Context, tx pgx.Tx, offerID ids.UUID) erro
 
 // visibleOffer loads one offer and applies the deal-derived row scope:
 // the caller sees the offer iff they can see its deal (miss = 404).
-func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
 	offer, err := readOffer(ctx, tx, id, archived)
 	if err != nil {
 		return crmcontracts.Offer{}, err
@@ -383,8 +385,8 @@ func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit
 // concurrent editors — or an edit racing a send — linearize and the
 // stored totals can never miss a committed line. The returned witness
 // lets the caller patch under the held lock (storekit.ApplyLocked).
-func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, storekit.RowLock, error) {
-	lock, err := storekit.LockRow(ctx, tx, "offer", id, storekit.LiveOnly)
+func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, storekit.RowLock, error) {
+	lock, err := storekit.LockRow(ctx, tx, "offer", id.UUID, storekit.LiveOnly)
 	if err != nil {
 		return crmcontracts.Offer{}, storekit.RowLock{}, err
 	}
@@ -405,14 +407,14 @@ func ensureDraft(offer crmcontracts.Offer) error {
 
 type UpdateOfferInput struct {
 	Currency   *string
-	BuyerOrgID *ids.UUID
+	BuyerOrgID *ids.OrganizationID
 	ValidUntil *string // ISO date
 	IntroText  *string
 	TermsText  *string
 	IfVersion  *int64
 }
 
-func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInput) (crmcontracts.Offer, error) {
+func (s *Store) UpdateOffer(ctx context.Context, id ids.OfferID, in UpdateOfferInput) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -431,7 +433,7 @@ func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInpu
 			p.Set("currency", current.Currency, *in.Currency)
 		}
 		if in.BuyerOrgID != nil {
-			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.BuyerOrgID); err != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.BuyerOrgID.UUID); err != nil {
 				return err
 			}
 			p.Set("buyer_org_id", current.BuyerOrgId, *in.BuyerOrgID)
@@ -449,10 +451,10 @@ func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInpu
 			out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly)
 			return err
 		}
-		if err := p.ApplyGuarded(ctx, tx, "offer", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply offer patch: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "offer", id, p.Before(), p.After()); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", id.UUID, p.Before(), p.After()); err != nil {
 			return fmt.Errorf("audit offer update: %w", err)
 		}
 		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -463,7 +465,7 @@ func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInpu
 	return out, err
 }
 
-func (s *Store) ArchiveOffer(ctx context.Context, id ids.UUID) (crmcontracts.Offer, error) {
+func (s *Store) ArchiveOffer(ctx context.Context, id ids.OfferID) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionDelete); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -476,7 +478,7 @@ func (s *Store) ArchiveOffer(ctx context.Context, id ids.UUID) (crmcontracts.Off
 			`UPDATE offer SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id); err != nil {
 			return fmt.Errorf("archive offer: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "archive", "offer", id, nil, nil); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "archive", "offer", id.UUID, nil, nil); err != nil {
 			return fmt.Errorf("audit offer archive: %w", err)
 		}
 		var err error
@@ -488,7 +490,7 @@ func (s *Store) ArchiveOffer(ctx context.Context, id ids.UUID) (crmcontracts.Off
 	return out, err
 }
 
-func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.UUID, in OfferLineInputRow) (crmcontracts.Offer, error) {
+func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.OfferID, in OfferLineInputRow) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -507,7 +509,7 @@ func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.UUID, in Offer
 		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
 			return err
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID,
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID.UUID,
 			nil, map[string]any{"line_added": true}); err != nil {
 			return fmt.Errorf("audit line add: %w", err)
 		}
@@ -529,7 +531,9 @@ type UpdateOfferLineInput struct {
 	TaxRate        *string
 }
 
-func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUID, in UpdateOfferLineInput) (crmcontracts.Offer, error) {
+// note: lineID is an offer_line_item row id; it has no first-class
+// entity kind (LineItemKind), so it stays an untyped ids.UUID.
+func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID ids.OfferID, lineID ids.UUID, in UpdateOfferLineInput) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -568,7 +572,7 @@ func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
 			return err
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID, before, after); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID.UUID, before, after); err != nil {
 			return fmt.Errorf("audit line update: %w", err)
 		}
 		if out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly); err != nil {
@@ -581,7 +585,7 @@ func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 
 // readOfferLineForUpdate loads the line's current snapshot for a patch;
 // a missing line (or one on another offer) is 404, not a fault.
-func readOfferLineForUpdate(ctx context.Context, tx pgx.Tx, offerID, lineID ids.UUID) (curPosition int, curDescription, curUnit string, line OfferLineInput, err error) {
+func readOfferLineForUpdate(ctx context.Context, tx pgx.Tx, offerID ids.OfferID, lineID ids.UUID) (curPosition int, curDescription, curUnit string, line OfferLineInput, err error) {
 	err = tx.QueryRow(ctx,
 		`SELECT position, description, unit, quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
 		 FROM offer_line_item WHERE id = $1 AND offer_id = $2`, lineID, offerID).
@@ -637,7 +641,7 @@ func buildOfferLinePatch(lineID ids.UUID, in UpdateOfferLineInput, curPosition i
 	return sets, args, before, after, line
 }
 
-func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID, lineID ids.UUID) (crmcontracts.Offer, error) {
+func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID ids.OfferID, lineID ids.UUID) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -661,7 +665,7 @@ func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
 			return err
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID,
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID.UUID,
 			map[string]any{"line_id": lineID}, map[string]any{"line_removed": true}); err != nil {
 			return fmt.Errorf("audit line remove: %w", err)
 		}

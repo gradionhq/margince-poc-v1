@@ -30,11 +30,11 @@ func daysAgoPtr(days float64) *time.Time {
 func healthyInputs() dealHealthInputs {
 	median := 14.0
 	return dealHealthInputs{
-		dealID:                ids.NewV7(),
+		dealID:                ids.New[ids.DealKind](),
 		status:                "open",
 		createdAt:             daysAgo(40),
 		lastActivityAt:        daysAgoPtr(5),
-		stageID:               ids.NewV7(),
+		stageID:               ids.New[ids.StageKind](),
 		stageEnteredAt:        daysAgo(1.2 * 14.0),
 		medianWonStageDays:    &median,
 		engagedStakeholderIDs: []ids.UUID{ids.NewV7(), ids.NewV7()},
@@ -91,10 +91,10 @@ func TestDealHealthDecomposesToItsWeightedFactors(t *testing.T) {
 // → health 0, flagged at-risk.
 func TestDealHealthFlagsTheSilentParkedDealAtRisk(t *testing.T) {
 	in := dealHealthInputs{
-		dealID:         ids.NewV7(),
+		dealID:         ids.New[ids.DealKind](),
 		status:         "open",
 		createdAt:      daysAgo(90),
-		stageID:        ids.NewV7(),
+		stageID:        ids.New[ids.StageKind](),
 		stageEnteredAt: daysAgo(90),
 	}
 	got := healthFromInputs(in, healthFixedNow())

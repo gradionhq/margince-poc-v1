@@ -238,10 +238,10 @@ func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 }
 
 // SeedDeal creates a deal owned by the given user, acting as admin.
-func (e *Env) SeedDeal(t *testing.T, name string, pipeline, stage ids.UUID, owner *ids.UUID) ids.UUID {
+func (e *Env) SeedDeal(t *testing.T, name string, pipeline ids.PipelineID, stage ids.StageID, owner *ids.UUID) ids.UUID {
 	t.Helper()
 	d, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
-		Name: name, PipelineID: pipeline, StageID: stage, OwnerID: owner,
+		Name: name, PipelineID: pipeline, StageID: stage, OwnerID: userIDPtr(owner),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +277,7 @@ func (e *Env) WsCount(t *testing.T, sql string, args ...any) int {
 
 // DealFixture provisions the workspace with the seeded default pipeline
 // and returns the pipeline plus the open + won stage ids.
-func DealFixture(t *testing.T, e *Env) (pipeline, open, won ids.UUID) {
+func DealFixture(t *testing.T, e *Env) (pipeline ids.PipelineID, open, won ids.StageID) {
 	t.Helper()
 	admin := e.Admin()
 	if err := e.Deals.SeedDefaults(admin); err != nil {
@@ -291,13 +291,13 @@ func DealFixture(t *testing.T, e *Env) (pipeline, open, won ids.UUID) {
 		switch st.Semantic {
 		case "open":
 			if open.IsZero() {
-				open = ids.UUID(st.Id)
+				open = ids.From[ids.StageKind](ids.UUID(st.Id))
 			}
 		case "won":
-			won = ids.UUID(st.Id)
+			won = ids.From[ids.StageKind](ids.UUID(st.Id))
 		}
 	}
-	return ids.UUID(p.Id), open, won
+	return ids.From[ids.PipelineKind](ids.UUID(p.Id)), open, won
 }
 
 // SeedStakeholder creates a person, ties them to the deal as a

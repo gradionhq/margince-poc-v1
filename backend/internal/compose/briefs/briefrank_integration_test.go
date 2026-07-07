@@ -42,7 +42,7 @@ type briefEnv struct {
 	dealB       ids.UUID // 25% win, no amount, closes in 200 days, no activity
 	dealC       ids.UUID // 10% win, no amount, closes in 200 days — below the bar
 	activityOnA ids.UUID
-	pipeline    ids.UUID
+	pipeline    ids.PipelineID
 	stageA      ids.UUID
 	repCtx      context.Context
 }
@@ -99,9 +99,14 @@ func closeOn(clock time.Time, days int) *time.Time {
 // (amounts in the workspace base currency, so no FX row is needed).
 func (b *briefEnv) seedBriefDeal(t *testing.T, owner *pgx.Conn, name string, stage ids.UUID, amountMinor *int64, close *time.Time, ownerID *ids.UUID) ids.UUID {
 	t.Helper()
-	d, err := b.Deals.CreateDeal(b.Admin(), deals.CreateDealInput{
-		Name: name, PipelineID: b.pipeline, StageID: stage, OwnerID: ownerID, Source: "manual",
-	})
+	in := deals.CreateDealInput{
+		Name: name, PipelineID: b.pipeline, StageID: ids.From[ids.StageKind](stage), Source: "manual",
+	}
+	if ownerID != nil {
+		oid := ids.From[ids.UserKind](*ownerID)
+		in.OwnerID = &oid
+	}
+	d, err := b.Deals.CreateDeal(b.Admin(), in)
 	if err != nil {
 		t.Fatal(err)
 	}

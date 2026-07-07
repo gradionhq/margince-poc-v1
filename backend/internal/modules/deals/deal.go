@@ -25,10 +25,10 @@ type CreateDealInput struct {
 	Name           string
 	AmountMinor    *int64
 	Currency       *string
-	PipelineID     ids.UUID
-	StageID        ids.UUID
-	OrganizationID *ids.UUID
-	OwnerID        *ids.UUID
+	PipelineID     ids.PipelineID
+	StageID        ids.StageID
+	OrganizationID *ids.OrganizationID
+	OwnerID        *ids.UserID
 	ExpectedClose  *time.Time
 	Source         string
 }
@@ -78,12 +78,12 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 		// app_user, which carries no row scope: any workspace member may be
 		// an owner, so the FK check alone governs them.
 		if in.OrganizationID != nil {
-			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.OrganizationID); err != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 				return err
 			}
 		}
 
-		id := ids.NewV7()
+		id := ids.New[ids.DealKind]()
 		_, err = tx.Exec(ctx,
 			`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
 			                   organization_id, owner_id, expected_close_date, source, captured_by)
@@ -106,11 +106,11 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			return fmt.Errorf("record stage history: %w", err)
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "create", "deal", id, nil, map[string]any{"name": in.Name})
+		auditID, err := storekit.Audit(ctx, tx, "create", "deal", id.UUID, nil, map[string]any{"name": in.Name})
 		if err != nil {
 			return fmt.Errorf("audit deal create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.created", "deal", id, map[string]any{"name": in.Name}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.created", "deal", id.UUID, map[string]any{"name": in.Name}); err != nil {
 			return fmt.Errorf("emit deal.created: %w", err)
 		}
 		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -126,7 +126,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 // closed_at/lost_reason/FX invariants. Creating straight onto a terminal
 // stage would put an "open" deal on a won column — silent forecast
 // corruption, no CHECK trips.
-func ensureOpenBirthStage(ctx context.Context, tx pgx.Tx, stageID, pipelineID ids.UUID) error {
+func ensureOpenBirthStage(ctx context.Context, tx pgx.Tx, stageID ids.StageID, pipelineID ids.PipelineID) error {
 	var semantic string
 	err := tx.QueryRow(ctx,
 		`SELECT semantic FROM stage WHERE id = $1 AND pipeline_id = $2 AND archived_at IS NULL`,
@@ -147,22 +147,22 @@ type UpdateDealInput struct {
 	Name                  *string
 	AmountMinor           *int64
 	Currency              *string
-	OrganizationID        *ids.UUID
-	OwnerID               *ids.UUID
-	PartnerOrganizationID *ids.UUID
+	OrganizationID        *ids.OrganizationID
+	OwnerID               *ids.UserID
+	PartnerOrganizationID *ids.OrganizationID
 	ExpectedClose         *time.Time
 	ForecastCategory      *string
 	WaitUntil             *time.Time
 	IfVersion             *int64
 }
 
-func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput) (crmcontracts.Deal, error) {
+func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInput) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
 		current, err := readDeal(ctx, tx, id, storekit.LiveOnly)
@@ -183,7 +183,7 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 			return err
 		}
 
-		if err := p.ApplyGuarded(ctx, tx, "deal", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "deal", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply deal patch: %w", err)
 		}
 		if err := recordDealUpdate(ctx, tx, id, current, in, p); err != nil {
@@ -202,19 +202,19 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 // reassignment is a first-class fact, so it emits deal.owner_changed for
 // the owner transition and deal.updated only for the other fields — both
 // on this request's correlation_id when they co-occur.
-func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch) error {
-	auditID, err := storekit.Audit(ctx, tx, "update", "deal", id, p.Before(), p.After())
+func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.DealID, current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch) error {
+	auditID, err := storekit.Audit(ctx, tx, "update", "deal", id.UUID, p.Before(), p.After())
 	if err != nil {
 		return fmt.Errorf("audit deal update: %w", err)
 	}
 	after := p.After()
-	ownerChanged := in.OwnerID != nil && (current.OwnerId == nil || ids.UUID(*current.OwnerId) != *in.OwnerID)
+	ownerChanged := in.OwnerID != nil && (current.OwnerId == nil || ids.UUID(*current.OwnerId) != in.OwnerID.UUID)
 	if ownerChanged {
 		payload := map[string]any{"to_owner_id": *in.OwnerID}
 		if current.OwnerId != nil {
 			payload["from_owner_id"] = *current.OwnerId
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.owner_changed", "deal", id, payload); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.owner_changed", "deal", id.UUID, payload); err != nil {
 			return fmt.Errorf("emit deal.owner_changed: %w", err)
 		}
 	}
@@ -226,7 +226,7 @@ func recordDealUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, current crmco
 		rest[field] = v
 	}
 	if len(rest) > 0 {
-		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", id, rest); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", id.UUID, rest); err != nil {
 			return fmt.Errorf("emit deal.updated: %w", err)
 		}
 	}
@@ -249,7 +249,7 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 		p.Set("currency", current.Currency, *in.Currency)
 	}
 	if in.OrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.OrganizationID); err != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 			return nil, err
 		}
 		p.Set("organization_id", current.OrganizationId, *in.OrganizationID)
@@ -258,7 +258,7 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
 	}
 	if in.PartnerOrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.PartnerOrganizationID); err != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
 			return nil, err
 		}
 		p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)
@@ -386,13 +386,13 @@ func (e *TerminalStageOnCreateError) Error() string {
 	return "deals cannot be created on a " + e.Semantic + " stage; create open, then advance"
 }
 
-func (s *Store) ArchiveDeal(ctx context.Context, id ids.UUID) (crmcontracts.Deal, error) {
+func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	var out crmcontracts.Deal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "deal", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
 		if _, err := readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -416,11 +416,11 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.UUID) (crmcontracts.Deal
 			return fmt.Errorf("detach tags: %w", err)
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "archive", "deal", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "deal", id.UUID, nil, nil)
 		if err != nil {
 			return fmt.Errorf("audit deal archive: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.archived", "deal", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.archived", "deal", id.UUID, nil); err != nil {
 			return fmt.Errorf("emit deal.archived: %w", err)
 		}
 		if out, err = readDeal(ctx, tx, id, storekit.IncludeArchived); err != nil {
