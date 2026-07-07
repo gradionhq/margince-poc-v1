@@ -154,6 +154,74 @@ func TestParseSlug(t *testing.T) {
 	}
 }
 
+// TestValueObjectDBSeams exercises the driver.Valuer / sql.Scanner /
+// IsZero surface every value object carries so it can round-trip through
+// storekit. A broken Scan here silently corrupts a persisted email/phone/
+// domain/slug, so each seam is pinned: Value emits the canonical string,
+// Scan accepts both the string and the []byte the pgx text protocol hands
+// back and rejects an unsupported source type, and IsZero reports empty.
+func TestValueObjectDBSeams(t *testing.T) {
+	email, _ := ParseEmail("ada@example.com")
+	phone, _ := ParsePhone("+493012345678")
+	domain, _ := ParseDomain("example.com")
+	slug, _ := ParseSlug("acme-corp")
+
+	// Value() emits the canonical string form on each type.
+	if v, err := email.Value(); err != nil || v != "ada@example.com" {
+		t.Fatalf("Email.Value = %v (%v)", v, err)
+	}
+	if v, err := phone.Value(); err != nil || v != "+493012345678" {
+		t.Fatalf("Phone.Value = %v (%v)", v, err)
+	}
+	if v, err := domain.Value(); err != nil || v != "example.com" {
+		t.Fatalf("Domain.Value = %v (%v)", v, err)
+	}
+	if v, err := slug.Value(); err != nil || v != "acme-corp" {
+		t.Fatalf("Slug.Value = %v (%v)", v, err)
+	}
+
+	// Scan() accepts the string form and the []byte form, and rejects junk.
+	var e Email
+	if err := e.Scan("bob@example.com"); err != nil || e.String() != "bob@example.com" {
+		t.Fatalf("Email.Scan(string) = %q (%v)", e, err)
+	}
+	if err := e.Scan([]byte("cid@example.com")); err != nil || e.String() != "cid@example.com" {
+		t.Fatalf("Email.Scan([]byte) = %q (%v)", e, err)
+	}
+	if err := e.Scan(42); err == nil {
+		t.Fatal("Email.Scan(int) must reject an unsupported source type")
+	}
+	var p Phone
+	if err := p.Scan([]byte("+441234567890")); err != nil || p.String() != "+441234567890" {
+		t.Fatalf("Phone.Scan([]byte) = %q (%v)", p, err)
+	}
+	if err := p.Scan(0.5); err == nil {
+		t.Fatal("Phone.Scan(float) must reject an unsupported source type")
+	}
+	var d Domain
+	if err := d.Scan([]byte("gradion.com")); err != nil || d.String() != "gradion.com" {
+		t.Fatalf("Domain.Scan([]byte) = %q (%v)", d, err)
+	}
+	if err := d.Scan(nil); err == nil {
+		t.Fatal("Domain.Scan(nil) must reject an unsupported source type")
+	}
+	var s Slug
+	if err := s.Scan("team-x"); err != nil || s.String() != "team-x" {
+		t.Fatalf("Slug.Scan(string) = %q (%v)", s, err)
+	}
+	if err := s.Scan(struct{}{}); err == nil {
+		t.Fatal("Slug.Scan(struct) must reject an unsupported source type")
+	}
+
+	// IsZero reports the empty value on each type, false once parsed.
+	if !(Email{}).IsZero() || !(Phone{}).IsZero() || !(Domain{}).IsZero() || !(Slug{}).IsZero() {
+		t.Fatal("zero value objects must report IsZero()==true")
+	}
+	if email.IsZero() || phone.IsZero() || domain.IsZero() || slug.IsZero() {
+		t.Fatal("parsed value objects must report IsZero()==false")
+	}
+}
+
 func TestParseTimezone(t *testing.T) {
 	tz, err := ParseTimezone("Europe/Berlin")
 	if err != nil || tz.String() != "Europe/Berlin" {
