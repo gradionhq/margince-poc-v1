@@ -218,6 +218,10 @@ jobs:
           MARGINCE_TEST_DSN: postgres://margince_owner:dev@localhost:55432/margince
           MARGINCE_TEST_APP_DSN: postgres://margince_app:margince_app_dev@localhost:55432/margince
           MARGINCE_TEST_REDIS: localhost:56379
+          # The HTTP e2e suites resolve the workspace from the
+          # X-Workspace-Slug header, which only the dev trust switch
+          # honors — same export make test-integration sets.
+          MARGINCE_ENV: dev
         run: go test -tags integration -p 1 ./... -coverprofile=coverage.out -covermode=atomic
       - name: Frontend unit coverage
         if: ${{ env.SONAR_TOKEN != '' }}
