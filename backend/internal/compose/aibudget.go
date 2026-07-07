@@ -37,9 +37,9 @@ type seatBudget struct {
 // NewSeatBudget is the production BudgetPolicy.
 func NewSeatBudget(pool *pgxpool.Pool) ai.BudgetPolicy { return seatBudget{pool: pool} }
 
-func (b seatBudget) MonthlyTokenBudget(ctx context.Context, workspaceID ids.UUID) (int64, error) {
+func (b seatBudget) MonthlyTokenBudget(ctx context.Context, workspaceID ids.WorkspaceID) (int64, error) {
 	var fullSeats int64
-	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, workspaceID), b.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, workspaceID.UUID), b.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM app_user
 			WHERE seat_type = 'full' AND status = 'active'

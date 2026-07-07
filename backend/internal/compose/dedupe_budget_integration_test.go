@@ -98,7 +98,7 @@ func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
 func TestSeatDerivedBudget(t *testing.T) {
 	e := integration.Setup(t)
 	// setupAuthz seeds three full-seat humans.
-	budget, err := NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), e.WS)
+	budget, err := NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestSeatDerivedBudget(t *testing.T) {
 	// An empty workspace floors at one seat rather than refusing. The
 	// workspace table sits outside RLS and is owner-seeded, so the seed
 	// goes through the owner connection like every other fixture.
-	empty := ids.NewV7()
+	empty := ids.New[ids.WorkspaceKind]()
 	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Empty', 'empty-budget', 'EUR')`, empty); err != nil {

@@ -205,7 +205,7 @@ func wireVoiceProfile(p VoiceProfile) crmcontracts.VoiceProfile {
 		UpdatedAt:      p.UpdatedAt,
 	}
 	if p.OwnerID != nil {
-		owner := openapi_types.UUID(*p.OwnerID)
+		owner := openapi_types.UUID(p.OwnerID.UUID)
 		wire.OwnerId = &owner
 	}
 	return wire

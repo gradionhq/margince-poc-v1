@@ -85,10 +85,11 @@ func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (mo
 // the task default, the structured-output pipeline passes an escalated
 // suffix.
 func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
-	wsID, ok := principal.WorkspaceID(ctx)
+	rawWS, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: task %s outside workspace context", task)
 	}
+	wsID := ids.From[ids.WorkspaceKind](rawWS)
 	if req.SecretStripper == nil {
 		req.SecretStripper = r.stripper
 	}
@@ -168,11 +169,11 @@ func (r *Router) EmbedDims() int { return r.embedder.Caps().EmbedDims }
 
 // Invalidate drops a workspace's cached results — the hook the §6
 // record-change invalidation rides (wired from event consumers).
-func (r *Router) Invalidate(workspaceID ids.UUID) { r.cache.invalidate(workspaceID) }
+func (r *Router) Invalidate(workspaceID ids.WorkspaceID) { r.cache.invalidate(workspaceID) }
 
 // applyBudget bends the ladder per §1.3: soft-degrade one tier at 80%,
 // queue non-interactive / pin interactive to local-small at 100%.
-func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.UUID, ladder []Tier) ([]Tier, bool, error) {
+func (r *Router) applyBudget(ctx context.Context, task Task, wsID ids.WorkspaceID, ladder []Tier) ([]Tier, bool, error) {
 	budgetTokens, err := r.budget.MonthlyTokenBudget(ctx, wsID)
 	if err != nil {
 		return nil, false, fmt.Errorf("ai: budget policy: %w", err)
@@ -245,7 +246,7 @@ func embedTokenEstimate(inputs []string) int {
 // plaintext workspace id: a hash collision may spoil a cache hit but can
 // never cross a tenant boundary, because the workspace segment is
 // compared literally (and re-checked against the stored entry on read).
-func cacheKey(wsID ids.UUID, task Task, req model.Request) string {
+func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) string {
 	material, _ := json.Marshal(struct {
 		System    string          `json:"system"`
 		Messages  []model.Message `json:"messages"`
@@ -267,7 +268,7 @@ type resultCache struct {
 }
 
 type cacheEntry struct {
-	workspaceID ids.UUID
+	workspaceID ids.WorkspaceID
 	resp        model.Response
 	tier        Tier
 	expires     time.Time
@@ -277,7 +278,7 @@ func newResultCache(ttl time.Duration) *resultCache {
 	return &resultCache{ttl: ttl, now: time.Now, entries: map[string]cacheEntry{}}
 }
 
-func (c *resultCache) get(key string, wsID ids.UUID) (model.Response, Tier, bool) {
+func (c *resultCache) get(key string, wsID ids.WorkspaceID) (model.Response, Tier, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	entry, ok := c.entries[key]
@@ -293,13 +294,13 @@ func (c *resultCache) get(key string, wsID ids.UUID) (model.Response, Tier, bool
 	return entry.resp, entry.tier, true
 }
 
-func (c *resultCache) put(key string, wsID ids.UUID, resp model.Response, tier Tier) {
+func (c *resultCache) put(key string, wsID ids.WorkspaceID, resp model.Response, tier Tier) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[key] = cacheEntry{workspaceID: wsID, resp: resp, tier: tier, expires: c.now().Add(c.ttl)}
 }
 
-func (c *resultCache) invalidate(wsID ids.UUID) {
+func (c *resultCache) invalidate(wsID ids.WorkspaceID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for key, entry := range c.entries {

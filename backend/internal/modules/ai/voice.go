@@ -49,8 +49,11 @@ func NewVoiceStore(pool *pgxpool.Pool) *VoiceStore {
 // VoiceProfile is the §B0.2 artifact pair: derived voice_profile_md
 // (versioned by ProfileVersion) + human-authored PersonalityMD.
 type VoiceProfile struct {
+	// note: voice_profile is not in the kernel entity vocabulary (no
+	// VoiceProfileKind), so its own id stays untyped; OwnerID names the
+	// owning app_user and carries the typed user id.
 	ID             ids.UUID
-	OwnerID        *ids.UUID
+	OwnerID        *ids.UserID
 	Scope          string
 	ModelRef       *string
 	Status         string
@@ -190,7 +193,7 @@ func ownerOnly(ctx context.Context, p VoiceProfile) error {
 		return nil
 	}
 	actor, ok := principal.Actor(ctx)
-	if !ok || actor.UserID != *p.OwnerID {
+	if !ok || actor.UserID != p.OwnerID.UUID {
 		return fmt.Errorf("a personal voice profile is written only by its owner: %w", apperrors.ErrPermissionDenied)
 	}
 	return nil
