@@ -56,6 +56,7 @@ var tableOwners = map[string]string{
 	// people
 	"person":                     "internal/modules/people",
 	"person_email":               "internal/modules/people",
+	"person_social":              "internal/modules/people",
 	"person_phone":               "internal/modules/people",
 	"organization":               "internal/modules/people",
 	"organization_domain":        "internal/modules/people",
@@ -170,6 +171,7 @@ var crossStoreWrites = map[string]string{
 	// the guarantee for boundary hygiene.
 	"internal/modules/privacy:person":           "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17, decisions/0011 exception)",
 	"internal/modules/privacy:person_email":     "erasure deletes the subject's email channel rows in the single erasure transaction",
+	"internal/modules/privacy:person_social":    "erasure and retention delete the subject's social-handle rows in the same anonymization transaction",
 	"internal/modules/privacy:person_phone":     "erasure deletes the subject's phone channel rows in the single erasure transaction",
 	"internal/modules/privacy:lead":             "erasure/retention anonymize the subject's segregated lead rows in the same transaction",
 	"internal/modules/privacy:activity":         "retention archives/erases over-age timeline rows, and Art. 17 erasure redacts subject-only activity subject/body, in the single erasure/per-record transaction",

@@ -104,8 +104,11 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 		}
 
 		subject, err := rowMaps(ctx, tx, `
-			SELECT id, full_name, first_name, last_name, title, social, address, source, created_at
-			FROM person WHERE id = $1`, personID)
+			SELECT p.id, p.full_name, p.first_name, p.last_name, p.title,
+			       (SELECT jsonb_object_agg(ps.platform, ps.handle) FROM person_social ps WHERE ps.person_id = p.id) AS social,
+			       p.address_line1, p.address_line2, p.address_city, p.address_region, p.address_postal_code, p.address_country,
+			       p.source, p.created_at
+			FROM person p WHERE p.id = $1`, personID)
 		if err != nil {
 			return err
 		}

@@ -58,9 +58,44 @@ type CreatePersonInput struct {
 	Title     *string
 	OwnerID   *ids.UUID
 	Social    map[string]any
+	Address   *crmcontracts.Address
 	Emails    []PersonEmailInput
 	Phones    []PersonPhoneInput
 	Source    string
+}
+
+// addressColumns destructures the contract's Address into the six
+// person/organization columns; a nil address is six NULLs.
+func addressColumns(a *crmcontracts.Address) crmcontracts.Address {
+	if a == nil {
+		return crmcontracts.Address{}
+	}
+	return *a
+}
+
+// replacePersonSocial makes the person_social relation mirror the given
+// (platform → handle) map — the queryable form of what used to hide in
+// a jsonb column. nil means "not supplied": existing rows stand.
+func replacePersonSocial(ctx context.Context, tx pgx.Tx, wsID, personID ids.UUID, social map[string]any) error {
+	if social == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
+		return fmt.Errorf("clear person social rows: %w", err)
+	}
+	for platform, handle := range social {
+		text := fmt.Sprintf("%v", handle)
+		if strings.TrimSpace(platform) == "" || strings.TrimSpace(text) == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO person_social (workspace_id, person_id, platform, handle) VALUES ($1, $2, $3, $4)`,
+			wsID, personID, platform, text); err != nil {
+			return fmt.Errorf("insert person social row: %w", err)
+		}
+	}
+	return nil
 }
 
 // parsePersonContacts is the parse-don't-validate seam for a person's
@@ -109,14 +144,22 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 
 		wsID := storekit.MustWorkspace(ctx)
 		id := ids.NewV7()
+		addr := addressColumns(in.Address)
 		_, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id, social, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8, '{}'::jsonb), $9, $10)`,
-			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID, storekit.JSONArg(in.Social), in.Source, by)
+			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
+			                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
+			                     source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID,
+			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
+			in.Source, by)
 		if err != nil {
 			return fmt.Errorf("insert person: %w", err)
 		}
 
+		if err := replacePersonSocial(ctx, tx, wsID, id, in.Social); err != nil {
+			return err
+		}
 		if err := insertPersonEmails(ctx, tx, wsID, id, in.Source, by, in.Emails); err != nil {
 			return err
 		}
@@ -308,6 +351,7 @@ type UpdatePersonInput struct {
 	Title     *string
 	OwnerID   *ids.UUID
 	Social    map[string]any
+	Address   *crmcontracts.Address
 	IfVersion *int64
 	Source    string
 }
@@ -327,6 +371,12 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		}
 
 		p := buildPersonPatch(current, in)
+		if in.Social != nil {
+			// The relation replacement rides the person row's version
+			// bump (updated_at below), so If-Match still guards it and
+			// the audit row still records the transition.
+			p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+		}
 		if p.Empty() {
 			out = current
 			return nil
@@ -335,11 +385,21 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		if err := p.ApplyGuarded(ctx, tx, "person", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply person patch: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "person", id, p.Before(), p.After())
+		if in.Social != nil {
+			if err := replacePersonSocial(ctx, tx, storekit.MustWorkspace(ctx), id, in.Social); err != nil {
+				return err
+			}
+		}
+		before, after := p.Before(), p.After()
+		if in.Social != nil {
+			before["social"] = current.Social
+			after["social"] = in.Social
+		}
+		auditID, err := storekit.Audit(ctx, tx, "update", "person", id, before, after)
 		if err != nil {
 			return fmt.Errorf("audit person update: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id, p.After()); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id, after); err != nil {
 			return fmt.Errorf("emit person.updated: %w", err)
 		}
 		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -370,8 +430,14 @@ func buildPersonPatch(current crmcontracts.Person, in UpdatePersonInput) *storek
 	if in.OwnerID != nil {
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
 	}
-	if in.Social != nil {
-		p.Set("social", current.Social, storekit.JSONArg(in.Social))
+	if in.Address != nil {
+		cur := addressColumns(current.Address)
+		p.Set("address_line1", cur.Line1, in.Address.Line1)
+		p.Set("address_line2", cur.Line2, in.Address.Line2)
+		p.Set("address_city", cur.City, in.Address.City)
+		p.Set("address_region", cur.Region, in.Address.Region)
+		p.Set("address_postal_code", cur.PostalCode, in.Address.PostalCode)
+		p.Set("address_country", cur.Country, in.Address.Country)
 	}
 	return p
 }
@@ -427,7 +493,8 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Pe
 }
 
 const personColumns = `id, workspace_id, full_name, first_name, last_name, title, owner_id,
-	social, merged_into_id, converted_from_lead_id, source, captured_by,
+	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
+	merged_into_id, converted_from_lead_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
 func readPerson(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
@@ -455,11 +522,12 @@ func scanPerson(row pgx.Row) (crmcontracts.Person, error) {
 	var p crmcontracts.Person
 	var id, wsID ids.UUID
 	var ownerID, mergedInto, fromLead *ids.UUID
-	var social map[string]any
+	var addr crmcontracts.Address
 	var version int64
 
 	err := row.Scan(&id, &wsID, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
-		&social, &mergedInto, &fromLead, &p.Source, &p.CapturedBy,
+		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
+		&mergedInto, &fromLead, &p.Source, &p.CapturedBy,
 		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
 	if err != nil {
 		return p, err
@@ -470,11 +538,21 @@ func scanPerson(row pgx.Row) (crmcontracts.Person, error) {
 	p.OwnerId = uuidPtr(ownerID)
 	p.MergedIntoId = uuidPtr(mergedInto)
 	p.ConvertedFromLeadId = uuidPtr(fromLead)
-	if social != nil {
-		p.Social = &social
+	if a := addressOrNil(addr); a != nil {
+		p.Address = a
 	}
 	p.Version = &version
 	return p, nil
+}
+
+// addressOrNil collapses six all-NULL columns back to "no address" so
+// the wire shape stays a null, not an empty object.
+func addressOrNil(a crmcontracts.Address) *crmcontracts.Address {
+	if a.Line1 == nil && a.Line2 == nil && a.City == nil && a.Region == nil &&
+		a.PostalCode == nil && a.Country == nil {
+		return nil
+	}
+	return &a
 }
 
 // attachPersonChildren loads emails + phones for a page in two queries,
@@ -538,7 +616,32 @@ func attachPersonChildren(ctx context.Context, tx pgx.Tx, people []crmcontracts.
 		}
 		*p.Phones = append(*p.Phones, ph)
 	}
-	return phoneRows.Err()
+	if err := phoneRows.Err(); err != nil {
+		return err
+	}
+
+	// The wire keeps social as the (platform → handle) map; the relation
+	// is the stored form.
+	socialRows, err := tx.Query(ctx,
+		`SELECT person_id, platform, handle FROM person_social WHERE person_id = ANY($1)
+		 ORDER BY platform`, personIDs)
+	if err != nil {
+		return err
+	}
+	defer socialRows.Close()
+	for socialRows.Next() {
+		var personID ids.UUID
+		var platform, handle string
+		if err := socialRows.Scan(&personID, &platform, &handle); err != nil {
+			return err
+		}
+		p := idx[openapi_types.UUID(personID)]
+		if p.Social == nil {
+			p.Social = &map[string]any{}
+		}
+		(*p.Social)[platform] = handle
+	}
+	return socialRows.Err()
 }
 
 // EnsurePersonByEmail resolves the live person who owns email, or

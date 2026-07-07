@@ -159,10 +159,32 @@ func buildSurvivorshipPatch(target, source crmcontracts.Person) *storekit.Patch 
 	if target.ConvertedFromLeadId == nil && source.ConvertedFromLeadId != nil {
 		p.Set("converted_from_lead_id", nil, ids.UUID(*source.ConvertedFromLeadId))
 	}
-	if (target.Social == nil || len(*target.Social) == 0) && source.Social != nil && len(*source.Social) > 0 {
-		p.Set("social", nil, storekit.JSONArg(*source.Social))
+	if target.Address == nil && source.Address != nil {
+		p.Set("address_line1", nil, source.Address.Line1)
+		p.Set("address_line2", nil, source.Address.Line2)
+		p.Set("address_city", nil, source.Address.City)
+		p.Set("address_region", nil, source.Address.Region)
+		p.Set("address_postal_code", nil, source.Address.PostalCode)
+		p.Set("address_country", nil, source.Address.Country)
 	}
 	return p
+}
+
+// mergePersonSocial re-homes A's social rows onto B: a platform the
+// survivor already has keeps B's handle and drops A's (same
+// survivor-wins rule as the primary-slot demotions), the rest relink.
+func mergePersonSocial(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) error {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM person_social a
+		WHERE a.person_id = $1 AND EXISTS (
+		  SELECT 1 FROM person_social b
+		  WHERE b.person_id = $2 AND b.platform = a.platform)`,
+		sourceID, targetID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE person_social SET person_id = $2 WHERE person_id = $1`, sourceID, targetID)
+	return err
 }
 
 // relinkPersonReferences re-homes everything that points at the source
@@ -196,6 +218,9 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 	}
 	if counts.ActivityLinks, err = relinkLinkRows(ctx, tx, "person", sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("relink activity/list/tag rows: %w", err)
+	}
+	if err := mergePersonSocial(ctx, tx, sourceID, targetID); err != nil {
+		return counts, fmt.Errorf("merge social rows: %w", err)
 	}
 	if err := mergeConsent(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("merge consent: %w", err)

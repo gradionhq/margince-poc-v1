@@ -39,9 +39,28 @@ func memberScope(ctx context.Context, m exportMember, alias string, arg func(any
 		return auditExportScope(ctx, alias, arg)
 	case scopeWorkspace:
 		return "", nil
+	case scopePersonChild:
+		return personChildExportScope(ctx, alias, arg)
 	default:
 		return "", fmt.Errorf("export: unknown scope mode %d for %q", m.scope, m.table)
 	}
+}
+
+// personChildExportScope scopes a person child row by its parent
+// person's visibility — the child discloses nothing its parent read
+// would not.
+func personChildExportScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return "", errors.New("compose: no actor bound to export context")
+	}
+	if auth.Unbounded(actor) {
+		return "", nil
+	}
+	predicate := auth.VisiblePredicate(actor, "person", arg)
+	return fmt.Sprintf(
+		`EXISTS (SELECT 1 FROM person pp WHERE pp.id = %s.person_id AND pp.archived_at IS NULL AND %s)`,
+		alias, predicate("pp")), nil
 }
 
 // relationshipExportScope mirrors the relationship list's

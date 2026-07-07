@@ -43,6 +43,7 @@ func personCreateInput(req crmcontracts.CreatePersonRequest) (CreatePersonInput,
 	if req.Social != nil {
 		in.Social = *req.Social
 	}
+	in.Address = req.Address
 	if req.Emails != nil {
 		for i, e := range *req.Emails {
 			email := PersonEmailInput{Email: string(e.Email), EmailType: "work", Position: i}
@@ -88,6 +89,7 @@ func personUpdateInput(req crmcontracts.UpdatePersonRequest, ifVersion *int64) U
 	if req.Social != nil {
 		in.Social = *req.Social
 	}
+	in.Address = req.Address
 	return in
 }
 
@@ -103,6 +105,7 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 		OwnerID:     uuidArg(req.OwnerId),
 		ParentOrgID: uuidArg(req.ParentOrgId),
 	}
+	in.Address = req.Address
 	if req.SizeBand != nil {
 		band := string(*req.SizeBand)
 		in.SizeBand = &band
@@ -127,6 +130,7 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 		ParentOrgID: uuidArg(req.ParentOrgId),
 		IfVersion:   ifVersion,
 	}
+	in.Address = req.Address
 	if req.SizeBand != nil {
 		band := string(*req.SizeBand)
 		in.SizeBand = &band

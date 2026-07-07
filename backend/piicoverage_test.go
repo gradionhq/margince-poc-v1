@@ -43,14 +43,15 @@ type piiHandling struct {
 // PII-bearing, and the test then proves erasure and SAR reach it. Keep it
 // in step with the subject data in data-model §3.
 var piiTables = map[string]piiHandling{
-	"person":       {erasureWrite: true, sarRead: true},
-	"person_email": {erasureWrite: true, sarRead: true},
-	"person_phone": {erasureWrite: true, sarRead: true},
-	"lead":         {erasureWrite: true, sarRead: true},
-	"activity":     {erasureWrite: true, sarRead: true},
-	"attachment":   {erasureWrite: true, sarRead: true},
-	"raw_capture":  {erasureWrite: true, sarRead: true},
-	"embedding":    {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
+	"person":        {erasureWrite: true, sarRead: true},
+	"person_email":  {erasureWrite: true, sarRead: true},
+	"person_social": {erasureWrite: true, sarRead: true},
+	"person_phone":  {erasureWrite: true, sarRead: true},
+	"lead":          {erasureWrite: true, sarRead: true},
+	"activity":      {erasureWrite: true, sarRead: true},
+	"attachment":    {erasureWrite: true, sarRead: true},
+	"raw_capture":   {erasureWrite: true, sarRead: true},
+	"embedding":     {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},

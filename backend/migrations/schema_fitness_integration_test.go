@@ -216,6 +216,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		"signal.resolved_org_id":                     "gated: the resolver attributes only to a caller-visible org (visibleCandidates → auth.EnsureLinkTarget)",
 		"signal.resolved_person_id":                  "gated: consentedPerson links only a caller-visible person (auth.EnsureLinkTarget); else company-level",
 		"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
+		"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
 	}
 
 	ownerDSN, _ := dsns(t)

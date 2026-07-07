@@ -47,6 +47,7 @@ type CreateOrganizationInput struct {
 	SizeBand    *string
 	OwnerID     *ids.UUID
 	ParentOrgID *ids.UUID
+	Address     *crmcontracts.Address
 	Domains     []OrgDomainInput
 	Source      string
 }
@@ -97,10 +98,15 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		}
 
 		id := ids.NewV7()
+		addr := addressColumns(in.Address)
 		_, err := tx.Exec(ctx,
-			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID, in.Source, by)
+			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id,
+			                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
+			                           source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID,
+			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
+			in.Source, by)
 		if err != nil {
 			return fmt.Errorf("insert organization: %w", err)
 		}
@@ -277,6 +283,7 @@ type UpdateOrganizationInput struct {
 	SizeBand    *string
 	OwnerID     *ids.UUID
 	ParentOrgID *ids.UUID
+	Address     *crmcontracts.Address
 	IfVersion   *int64
 }
 
@@ -332,6 +339,15 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 			return nil, err
 		}
 		p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
+	}
+	if in.Address != nil {
+		cur := addressColumns(current.Address)
+		p.Set("address_line1", cur.Line1, in.Address.Line1)
+		p.Set("address_line2", cur.Line2, in.Address.Line2)
+		p.Set("address_city", cur.City, in.Address.City)
+		p.Set("address_region", cur.Region, in.Address.Region)
+		p.Set("address_postal_code", cur.PostalCode, in.Address.PostalCode)
+		p.Set("address_country", cur.Country, in.Address.Country)
 	}
 	return p, nil
 }
@@ -403,6 +419,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontra
 }
 
 const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_band, owner_id,
+	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 	classification, relevance, parent_org_id, merged_into_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
@@ -431,9 +448,11 @@ func scanOrganization(row pgx.Row) (crmcontracts.Organization, error) {
 	var ownerID, parentID, mergedInto *ids.UUID
 	var classification string
 	var relevance *int16
+	var addr crmcontracts.Address
 	var version int64
 
 	err := row.Scan(&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
+		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&classification, &relevance, &parentID, &mergedInto, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt)
 	if err != nil {
@@ -447,6 +466,9 @@ func scanOrganization(row pgx.Row) (crmcontracts.Organization, error) {
 	o.MergedIntoId = uuidPtr(mergedInto)
 	cls := crmcontracts.OrganizationClassification(classification)
 	o.Classification = &cls
+	if a := addressOrNil(addr); a != nil {
+		o.Address = a
+	}
 	o.Version = &version
 	return o, nil
 }

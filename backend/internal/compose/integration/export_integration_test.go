@@ -73,9 +73,12 @@ func (e *searchEnv) seedExportFixture(t *testing.T) exportFixture {
 	stageID := e.seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
 
 	var f exportFixture
-	// rep1 (team1) carries a jsonb column to prove the dump nests it.
-	f.rep1Person = e.seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, social, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep1 Person', $4::jsonb, 'manual', 'human:x')`, e.Rep1, `{"linkedin":"in/rep1"}`)
+	// rep1 (team1) carries a social row to prove the child relation
+	// travels with its parent.
+	f.rep1Person = e.seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, $3, 'Rep1 Person', 'manual', 'human:x')`, e.Rep1)
+	e.seed(t, `INSERT INTO person_social (id, workspace_id, person_id, platform, handle)
+		VALUES ($1, $2, $3, 'linkedin', 'in/rep1')`, f.rep1Person)
 	f.rep3Person = e.seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep3 Person', 'manual', 'human:x')`, e.Rep3)
 	f.rep1Org = e.seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
@@ -216,14 +219,14 @@ func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
 	if dump.Format == "" || len(dump.Objects["person"]) != 2 {
 		t.Fatalf("data.json dump incomplete: format=%q persons=%d", dump.Format, len(dump.Objects["person"]))
 	}
-	var social map[string]any
-	for _, p := range dump.Objects["person"] {
-		if p["full_name"] == "Rep1 Person" {
-			social, _ = p["social"].(map[string]any)
+	var handle any
+	for _, s := range dump.Objects["person_social"] {
+		if s["platform"] == "linkedin" {
+			handle = s["handle"]
 		}
 	}
-	if social == nil || social["linkedin"] != "in/rep1" {
-		t.Fatalf("jsonb column did not round-trip as nested JSON: %v", social)
+	if handle != "in/rep1" {
+		t.Fatalf("the person_social child relation did not travel with its parent: handle=%v", handle)
 	}
 
 	// The files manifest lists both attachments.

@@ -112,9 +112,14 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.UUID, emails []string) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
-		  title = NULL, social = '{}'::jsonb, address = NULL, raw = NULL,
+		  title = NULL, raw = NULL,
+		  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
+		  address_region = NULL, address_postal_code = NULL, address_country = NULL,
 		  archived_at = coalesce(archived_at, now())
 		WHERE id = $1`, personID, erasedName); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {

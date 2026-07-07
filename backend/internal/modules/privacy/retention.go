@@ -223,9 +223,14 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			// suppression list — the subject may lawfully return.
 			_, err = tx.Exec(ctx, `
 				UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
-				  title = NULL, social = '{}'::jsonb, address = NULL, raw = NULL,
+				  title = NULL, raw = NULL,
+				  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
+				  address_region = NULL, address_postal_code = NULL, address_country = NULL,
 				  archived_at = coalesce(archived_at, now())
 				WHERE id = $1`, id, erasedName)
+			if err == nil {
+				_, err = tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, id)
+			}
 			if err == nil {
 				_, err = tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, id)
 			}

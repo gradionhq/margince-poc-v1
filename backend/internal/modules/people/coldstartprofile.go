@@ -161,7 +161,10 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 var coldStartColumns = map[string]string{
 	"legal_name": `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
 	"industry":   `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
-	"address":    `UPDATE organization SET address = jsonb_build_object('formatted', $2::text) WHERE id = $1 AND address IS NULL`,
+	// A scraped registered address arrives as one formatted line; it
+	// fills line1 only when no structured address exists yet.
+	"address": `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS NULL
+	            AND address_city IS NULL AND address_postal_code IS NULL`,
 }
 
 // applyEvidenceFields fills the column-backed fields (only when empty) and
