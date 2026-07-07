@@ -29,6 +29,22 @@ marked POCV1 DONE, `HANDOFF-to-code-session-2026-07-06.md` — committed on the
 spec repo's local `main` as `da05f3e` (push was outside this session's
 permissions — push it).
 
+The sonar new-code coverage gate initially failed the PR (the scan read
+unit-lane coverage only, so the MOVED brief engine reported a false 0%);
+fixed in-PR: the sonarcloud CI job now stands up PG/Redis and produces one
+coverage profile over `-tags integration -p 1 ./...`, and
+`internal/compose/integration/**` is classified as test scope.
+
+**⚠ Orphaned worktree residue stashed (2026-07-07).** This shared checkout
+carried uncommitted files belonging to no branch: an OLD pre-#13 copy of
+`.github/workflows/ci.yml` + `sonar-project.properties` (d37594e-era
+content) and ~3k lines of frontend WIP matching neither `origin/main`
+post-#14/#15 nor any `feat/*` stack branch. Both are preserved as stashes
+on this clone — `git stash list` (descriptive messages); recover with
+`git stash apply <ref>`. If the frontend stack session is still alive it
+should reclaim the frontend stash; otherwise drop both once the rest of
+the 5-PR stack has landed.
+
 ## Prior restart point (2026-07-06 PM — batch-5 CLEARED)
 
 Clean stopping point. `origin/main` builds and carries no half-finished
