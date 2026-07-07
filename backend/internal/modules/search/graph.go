@@ -142,7 +142,7 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 // anchorTimeline is hop 1: the anchor's activity timeline, scope-walked
 // and ranked by recency × trust (§10.7.2 with similarity = 0), split
 // into recent touches and open tasks.
-func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time) (touches, openTasks []graphItem, activityIDs []ids.UUID, err error) {
+func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time) (touches, openTasks []graphItem, activityIDs []ids.ActivityID, err error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	anchorPos := arg(anchorID)
@@ -164,7 +164,7 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id ids.UUID
+		var id ids.ActivityID
 		var summary, kind, source string
 		var isDone bool
 		var occurredAt time.Time
@@ -172,7 +172,10 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 			return nil, nil, nil, err
 		}
 		activityIDs = append(activityIDs, id)
-		item := graphItem{entityType: "activity", id: id, summary: summary,
+		// graphItem.id is the polymorphic result column (activity here,
+		// person/organization/deal on the hop-2 sections), so it carries
+		// the untyped UUID.
+		item := graphItem{entityType: "activity", id: id.UUID, summary: summary,
 			score: rankScore(0, occurredAt, source, now)}
 		if kind == "task" && !isDone {
 			openTasks = append(openTasks, item)
@@ -204,7 +207,7 @@ var relatedHops = []graphHop{
 	{entity: "deal", column: "deal_id", title: "name"},
 }
 
-func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.UUID, maxItems int) ([]graphSection, error) {
+func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.ActivityID, maxItems int) ([]graphSection, error) {
 	if len(activityIDs) == 0 {
 		return nil, nil
 	}
@@ -237,7 +240,7 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 // hopNeighbors reads one hop's bounded, deterministic candidate window and
 // returns the visible ones as graph items. Each candidate is
 // visibility-probed individually: the walk widens context, never authority.
-func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUID, activityIDs []ids.UUID) ([]graphItem, error) {
+func hopNeighbors(ctx context.Context, tx pgx.Tx, hop graphHop, anchorID ids.UUID, activityIDs []ids.ActivityID) ([]graphItem, error) {
 	// Bounded like the activity leg: the id order makes the window
 	// deterministic before the per-row visibility probe thins it.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
