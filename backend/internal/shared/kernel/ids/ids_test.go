@@ -54,3 +54,27 @@ func TestParse_rejectsMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestMustParse(t *testing.T) {
+	u := NewV7()
+	if MustParse(u.String()) != u {
+		t.Error("MustParse did not round-trip a valid uuid")
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("MustParse(malformed) must panic")
+		}
+	}()
+	MustParse("not-a-uuid")
+}
+
+func TestUnmarshalText(t *testing.T) {
+	u := NewV7()
+	var back UUID
+	if err := back.UnmarshalText([]byte(u.String())); err != nil || back != u {
+		t.Fatalf("UnmarshalText round-trip = %v (%v)", back, err)
+	}
+	if err := back.UnmarshalText([]byte("not-a-uuid")); err == nil {
+		t.Error("UnmarshalText(malformed) must error")
+	}
+}
