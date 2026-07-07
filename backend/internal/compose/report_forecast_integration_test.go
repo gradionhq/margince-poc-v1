@@ -138,7 +138,7 @@ func (e *forecastEnv) seed(t *testing.T, sql string, args ...any) ids.UUID {
 func (e *forecastEnv) seedOpenDeal(t *testing.T, name string, probability int, owner *ids.UUID, amountMinor *int64, category *string) ids.UUID {
 	t.Helper()
 	return e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, amount_minor, currency, forecast_category, expected_close_date, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'EUR', $8, (now() + interval '30 days')::date, 'manual', 'human:x')`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'EUR' END, $8, (now() + interval '30 days')::date, 'manual', 'human:x')`,
 		name, e.pipeline, e.stages[probability], owner, amountMinor, category)
 }
 
