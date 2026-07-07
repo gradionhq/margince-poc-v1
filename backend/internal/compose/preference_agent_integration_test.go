@@ -46,7 +46,7 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 		t.Fatalf("create purpose: %v", err)
 	}
 	if _, err := consentStore.Record(admin, consent.RecordInput{
-		PersonID: personID, PurposeID: purpose.ID, NewState: "granted",
+		PersonID: ids.From[ids.PersonKind](personID), PurposeID: purpose.ID, NewState: "granted",
 	}); err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 	publicCtx = principal.WithActor(publicCtx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:public_preferences",
 	})
-	if _, err := consentStore.PublicSetConsent(publicCtx, personID, "newsletter", "withdrawn", nil); err != nil {
+	if _, err := consentStore.PublicSetConsent(publicCtx, ids.From[ids.PersonKind](personID), "newsletter", "withdrawn", nil); err != nil {
 		t.Fatalf("one-click withdrawal: %v", err)
 	}
 

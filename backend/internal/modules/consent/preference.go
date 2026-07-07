@@ -46,8 +46,8 @@ func LockedPurpose(key string) bool {
 
 // PreferenceRef is a token's resolution: which workspace, whose consent.
 type PreferenceRef struct {
-	WorkspaceID ids.UUID
-	PersonID    ids.UUID
+	WorkspaceID ids.WorkspaceID
+	PersonID    ids.PersonID
 }
 
 // PurposeChoice is one row of the preference center: the purpose, the
@@ -91,7 +91,7 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var personID ids.UUID
+		var personID ids.PersonID
 		lookup := tx.QueryRow(ctx, `
 			SELECT pe.person_id
 			FROM person_email pe
@@ -118,7 +118,7 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 // none exists. The partial unique index guarantees at most one live token
 // per person; a concurrent minter that wins the INSERT is read back rather
 // than duplicated.
-func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.UUID) (string, error) {
+func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (string, error) {
 	var token string
 	err := tx.QueryRow(ctx, `
 		SELECT token FROM preference_token
@@ -162,13 +162,13 @@ func newPreferenceToken() (string, error) {
 // system principal the public middleware binds is unbounded, so the read
 // answers for the resolved person; a caller without the token never
 // reaches this method.
-func (s *Store) PublicPurposeStates(ctx context.Context, personID ids.UUID) ([]PurposeChoice, error) {
+func (s *Store) PublicPurposeStates(ctx context.Context, personID ids.PersonID) ([]PurposeChoice, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return nil, err
 	}
 	var out []PurposeChoice
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `
@@ -201,7 +201,7 @@ func (s *Store) PublicPurposeStates(ctx context.Context, personID ids.UUID) ([]P
 // token holder is the data subject, so NeverOverrideExisting is NOT set:
 // an explicit re-grant is their own opt-in, and a withdrawal always
 // applies.
-func (s *Store) PublicSetConsent(ctx context.Context, personID ids.UUID, purposeKey, newState string, wording *string) (State, error) {
+func (s *Store) PublicSetConsent(ctx context.Context, personID ids.PersonID, purposeKey, newState string, wording *string) (State, error) {
 	purposeKey = strings.TrimSpace(strings.ToLower(purposeKey))
 	if LockedPurpose(purposeKey) {
 		return State{}, &ValidationError{Field: "purpose_key", Reason: "transactional consent is locked and cannot be changed from the preference center"}
@@ -222,8 +222,8 @@ func (s *Store) PublicSetConsent(ctx context.Context, personID ids.UUID, purpose
 
 // purposeByKey resolves a purpose key to its id within the bound
 // workspace; an unknown key is a client fault, not a 500.
-func (s *Store) purposeByKey(ctx context.Context, key string) (ids.UUID, error) {
-	var id ids.UUID
+func (s *Store) purposeByKey(ctx context.Context, key string) (ids.PurposeID, error) {
+	var id ids.PurposeID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
 			`SELECT id FROM consent_purpose WHERE key = $1 AND archived_at IS NULL`, key).Scan(&id)

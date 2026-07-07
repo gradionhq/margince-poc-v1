@@ -32,7 +32,7 @@ func (a bookingConsentAdapter) ValidatePurpose(ctx context.Context, purposeID id
 		return err
 	}
 	for _, p := range purposes {
-		if p.ID == purposeID {
+		if p.ID.UUID == purposeID {
 			return nil
 		}
 	}
@@ -42,8 +42,8 @@ func (a bookingConsentAdapter) ValidatePurpose(ctx context.Context, purposeID id
 func (a bookingConsentAdapter) CaptureBookingConsent(ctx context.Context, personID ids.UUID, c activities.BookingConsent) error {
 	source := "public_booking"
 	_, err := a.store.Record(ctx, consent.RecordInput{
-		PersonID:         personID,
-		PurposeID:        c.PurposeID,
+		PersonID:         ids.From[ids.PersonKind](personID),
+		PurposeID:        ids.From[ids.PurposeKind](c.PurposeID),
 		NewState:         "granted",
 		Source:           &source,
 		DoubleOptInToken: c.DoubleOptInToken,

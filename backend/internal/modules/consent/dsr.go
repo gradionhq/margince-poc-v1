@@ -35,11 +35,13 @@ const dsrColumns = `id, kind, status, subject_ref, assignee_id, due_at, resoluti
 const dsrSelectByID = "SELECT " + dsrColumns + " FROM data_subject_request WHERE id = $1"
 
 type dsrRow struct {
+	// ID is the data_subject_request case id — a compliance workflow row,
+	// not a kernel entity, so it stays untyped.
 	ID         ids.UUID
 	Kind       string
 	Status     string
 	SubjectRef string
-	AssigneeID *ids.UUID
+	AssigneeID *ids.UserID
 	DueAt      time.Time
 	Resolution *string
 	CreatedAt  time.Time
@@ -121,7 +123,7 @@ func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string) ([]dsrR
 type CreateDSRInput struct {
 	Kind       string
 	SubjectRef string
-	AssigneeID *ids.UUID
+	AssigneeID *ids.UserID
 	DueAt      time.Time
 }
 
@@ -172,7 +174,7 @@ func (s *Store) GetDSR(ctx context.Context, id ids.UUID) (dsrRow, error) {
 
 type UpdateDSRInput struct {
 	Status     *string
-	AssigneeID *ids.UUID
+	AssigneeID *ids.UserID
 	Resolution *string
 }
 
@@ -232,7 +234,7 @@ func wireDSR(d dsrRow) crmcontracts.DataSubjectRequest {
 		CreatedAt:  d.CreatedAt,
 	}
 	if d.AssigneeID != nil {
-		assignee := openapi_types.UUID(*d.AssigneeID)
+		assignee := openapi_types.UUID(d.AssigneeID.UUID)
 		out.AssigneeId = &assignee
 	}
 	return out
