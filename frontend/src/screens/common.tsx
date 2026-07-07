@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
 import type { Provenance } from "../design-system/trust";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 
 // Shared screen plumbing: honest loading / error / empty states (§3a screen-
 // state matrix) and the captured_by → provenance mapping every list reuses.
@@ -67,4 +68,28 @@ export function problemMessage(problem: unknown): string {
     }
   }
   return "request failed";
+}
+
+// The cold-start / enrichment field vocabulary (compose/enrichextract.go)
+// rendered as human labels; an unmapped field falls back to its key with the
+// underscores spaced out — readable, never raw snake_case.
+const COLD_FIELD_LABELS: Record<string, MessageKey> = {
+  icp: "ob.field.icp",
+  buying_center: "ob.field.buying_center",
+  value_proposition: "ob.field.value_proposition",
+  usp: "ob.field.usp",
+  buying_intents: "ob.field.buying_intents",
+  legal_name: "ob.field.legal_name",
+  registered_address: "ob.field.registered_address",
+  register_vat: "ob.field.register_vat",
+  industry: "ob.field.industry",
+  history: "ob.field.history",
+};
+
+export function coldFieldLabel(
+  field: string,
+  t: (key: MessageKey) => string,
+): string {
+  const key = COLD_FIELD_LABELS[field];
+  return key ? t(key) : field.replace(/_/g, " ");
 }

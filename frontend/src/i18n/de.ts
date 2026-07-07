@@ -172,6 +172,16 @@ export const de = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Wärme",
 
+  "enrich.title": "Von der Website lesen",
+  "enrich.sub":
+    "belegt oder weggelassen — füllt nur leere Felder, und nur nach deiner Freigabe",
+  "enrich.cta": "Jetzt lesen",
+  "enrich.reading": "Liest…",
+  "enrich.staged":
+    "Vorgemerkt — noch nichts geschrieben. Übernimm es im Eingang; nur leere Felder werden gefüllt.",
+  "enrich.toInbox": "Eingang öffnen",
+  "enrich.from": "gelesen von {url}",
+
   "create.cancel": "Abbrechen",
   "create.save": "Anlegen",
   "create.saving": "Wird angelegt…",
