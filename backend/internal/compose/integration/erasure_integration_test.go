@@ -147,7 +147,7 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	admin := e.Admin()
 
 	// The SAR sees the full picture BEFORE erasure — Art. 15 assembly.
-	pkg, err := privacy.AssembleSAR(admin, e.Pool, personID)
+	pkg, err := privacy.AssembleSAR(admin, e.Pool, ids.From[ids.PersonKind](personID))
 	if err != nil {
 		t.Fatal(err)
 	}

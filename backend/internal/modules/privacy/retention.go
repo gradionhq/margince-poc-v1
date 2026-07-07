@@ -107,12 +107,12 @@ func (s *RetentionService) Evaluate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.WorkspaceID])
 	if err != nil {
 		return err
 	}
 	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
+		wsCtx := principal.WithWorkspaceID(ctx, wsID.UUID)
 		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 		if err := s.evaluateWorkspace(wsCtx); err != nil {
@@ -124,6 +124,8 @@ func (s *RetentionService) Evaluate(ctx context.Context) error {
 }
 
 type retentionPolicy struct {
+	// ID stays ids.UUID: a retention policy is a config row, not a
+	// first-class entity, so the kernel mints no kind for it.
 	ID         ids.UUID
 	ObjectType string
 	Category   *string
@@ -166,6 +168,9 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 			}
 			args = append(args, floor)
 		}
+		// due stays untyped: the selector's entity varies by policy scope
+		// (lead, activity, person, deal), so the id kind is only known one
+		// dispatch deeper, in apply.
 		var due []ids.UUID
 		err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 			rows, err := tx.Query(ctx, selector, args...)

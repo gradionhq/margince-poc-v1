@@ -68,7 +68,7 @@ func (h Handlers) ListAuditLog(w http.ResponseWriter, r *http.Request, params cr
 func auditEntryToWire(e AuditEntry) (crmcontracts.AuditLogEntry, error) {
 	out := crmcontracts.AuditLogEntry{
 		Id:                openapi_types.UUID(e.ID),
-		WorkspaceId:       openapi_types.UUID(e.WorkspaceID),
+		WorkspaceId:       openapi_types.UUID(e.WorkspaceID.UUID),
 		ActorType:         crmcontracts.AuditLogEntryActorType(e.ActorType),
 		ActorId:           e.ActorID,
 		Action:            crmcontracts.AuditLogEntryAction(e.Action),
@@ -77,11 +77,11 @@ func auditEntryToWire(e AuditEntry) (crmcontracts.AuditLogEntry, error) {
 		OccurredAt:        e.OccurredAt,
 	}
 	if e.PassportID != nil {
-		id := openapi_types.UUID(*e.PassportID)
+		id := openapi_types.UUID(e.PassportID.UUID)
 		out.PassportId = &id
 	}
 	if e.OnBehalfOf != nil {
-		id := openapi_types.UUID(*e.OnBehalfOf)
+		id := openapi_types.UUID(e.OnBehalfOf.UUID)
 		out.OnBehalfOf = &id
 	}
 	if e.EntityID != nil {

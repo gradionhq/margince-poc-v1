@@ -48,17 +48,23 @@ func NewEraser(pool *pgxpool.Pool) *Eraser { return &Eraser{pool: pool} }
 // tombstone written. Deleting a person row outright would cascade into
 // business records other subjects appear in; anonymize-in-place is the
 // A13 posture.
+//
+// personID stays untyped ids.UUID: this is the consent.Eraser seam
+// (compose injects it into the DSR handler) and the retention engine's
+// polymorphic due-list — both hand over a bare UUID. The subject is
+// widened to a typed person id once here and threaded typed from then on.
 func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason string) error {
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return err
 	}
+	subject := ids.From[ids.PersonKind](personID)
 	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", subject.UUID); err != nil {
 			return err
 		}
 		var held bool
 		if err := tx.QueryRow(ctx,
-			`SELECT legal_hold FROM person WHERE id = $1`, personID).Scan(&held); err != nil {
+			`SELECT legal_hold FROM person WHERE id = $1`, subject).Scan(&held); err != nil {
 			if err == pgx.ErrNoRows {
 				return apperrors.ErrNotFound
 			}
@@ -71,33 +77,33 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// Collect identifiers BEFORE wiping — the suppression list needs
 		// their hashes, and afterwards nothing holds them.
 		emails, err := collectStrings(ctx, tx,
-			`SELECT email FROM person_email WHERE person_id = $1`, personID)
+			`SELECT email FROM person_email WHERE person_id = $1`, subject)
 		if err != nil {
 			return err
 		}
 
-		if err := anonymizeSubjectRows(ctx, tx, personID, emails); err != nil {
+		if err := anonymizeSubjectRows(ctx, tx, subject, emails); err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, personID)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject)
 		if err != nil {
 			return err
 		}
-		rawPurged, err := purgeDerivedTraces(ctx, tx, personID, emails)
+		rawPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
 		if err != nil {
 			return err
 		}
 
 		// The tombstone: action=erase with counts only — proof without
 		// PII. The paired event tells consumers the subject is gone.
-		auditID, err := storekit.Audit(ctx, tx, "erase", "person", personID, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "erase", "person", subject.UUID, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
 			"activities_redacted": activitiesRedacted,
 		})
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "retention.applied", "person", personID, map[string]any{
+		return storekit.Emit(ctx, tx, auditID, "retention.applied", "person", subject.UUID, map[string]any{
 			"action": "erase", "reason": reason,
 		})
 	})
@@ -109,7 +115,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 // SEGREGATED lead twin — the lead they were promoted from, and any lead
 // row carrying one of their addresses — anonymizes the same way, and
 // the subject's own embeddings drop.
-func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.UUID, emails []string) error {
+func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
 		  title = NULL, raw = NULL,
@@ -178,7 +184,7 @@ const subjectOnlyActivities = `
 // the subject or one of those activities is deleted. Mirrors the
 // retention engine's activity/erase redaction — the on-demand Art. 17
 // path must reach the timeline the nightly evaluator already reaches.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.UUID) (int64, error) {
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (int64, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE activity SET subject = $2, body = NULL,
 		  archived_at = coalesce(archived_at, now())
@@ -217,7 +223,7 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.UUID) (i
 // of activities on the subject's timeline embed text ABOUT them; the
 // vector store must not keep what a similarity probe could partially
 // reconstruct.
-func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.UUID, emails []string) (int64, error) {
+func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) (int64, error) {
 	var rawPurged int64
 	for _, email := range emails {
 		tag, err := tx.Exec(ctx,

@@ -32,22 +32,27 @@ import (
 type AuditFilter struct {
 	Actor      *string
 	EntityType *string
-	EntityID   *ids.UUID
-	Action     *string
-	From       *time.Time
-	To         *time.Time
-	Cursor     *string
-	Limit      *int
+	// EntityID stays ids.UUID: it filters the audit envelope's polymorphic
+	// (entity_type, entity_id) pair, which addresses any entity kind.
+	EntityID *ids.UUID
+	Action   *string
+	From     *time.Time
+	To       *time.Time
+	Cursor   *string
+	Limit    *int
 }
 
-// AuditEntry mirrors one audit_log row (contract AuditLogEntry).
+// AuditEntry mirrors one audit_log row (contract AuditLogEntry). ID
+// stays ids.UUID — the audit row is a ledger line, not a first-class
+// entity — and EntityID stays untyped as the envelope's polymorphic
+// target; the concrete workspace/passport/on-behalf ids type cleanly.
 type AuditEntry struct {
 	ID                ids.UUID
-	WorkspaceID       ids.UUID
+	WorkspaceID       ids.WorkspaceID
 	ActorType         string
 	ActorID           string
-	PassportID        *ids.UUID
-	OnBehalfOf        *ids.UUID
+	PassportID        *ids.PassportID
+	OnBehalfOf        *ids.UserID
 	Action            string
 	EntityType        string
 	EntityID          *ids.UUID
@@ -124,10 +129,21 @@ func ListAuditLog(ctx context.Context, pool *pgxpool.Pool, f AuditFilter) (Audit
 		defer rows.Close()
 		for rows.Next() {
 			var e AuditEntry
+			// The nullable envelope ids scan through untyped locals, then
+			// widen to their kind — a NULL column stays a nil typed pointer.
+			var passportID, onBehalfOf *ids.UUID
 			if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.ActorType, &e.ActorID,
-				&e.PassportID, &e.OnBehalfOf, &e.Action, &e.EntityType, &e.EntityID,
+				&passportID, &onBehalfOf, &e.Action, &e.EntityType, &e.EntityID,
 				&e.Before, &e.After, &e.AuthorizationRule, &e.Evidence, &e.OccurredAt); err != nil {
 				return err
+			}
+			if passportID != nil {
+				v := ids.From[ids.PassportKind](*passportID)
+				e.PassportID = &v
+			}
+			if onBehalfOf != nil {
+				v := ids.From[ids.UserKind](*onBehalfOf)
+				e.OnBehalfOf = &v
 			}
 			page.Entries = append(page.Entries, e)
 		}

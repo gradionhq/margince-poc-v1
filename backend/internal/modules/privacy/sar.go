@@ -45,7 +45,7 @@ type SARPackage struct {
 // AssembleSAR builds the package. It is a privileged read: the caller
 // needs the person.delete grant (the same trust level erasure needs)
 // AND an unbounded row scope — see the admin check below.
-func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SARPackage, error) {
+func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID) (SARPackage, error) {
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return SARPackage{}, err
 	}
@@ -58,7 +58,7 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 	}
 	var pkg SARPackage
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		sections := []struct {
@@ -125,7 +125,7 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.UUID) (SA
 			*section.dest = rows
 		}
 
-		_, err = storekit.Audit(ctx, tx, "export", "person", personID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "export", "person", personID.UUID, nil, map[string]any{
 			"kind": "sar", "activities": len(pkg.Activities), "raw_rows": len(pkg.RawCapture),
 		})
 		return err
