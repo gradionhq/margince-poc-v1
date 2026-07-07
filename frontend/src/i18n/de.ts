@@ -233,8 +233,7 @@ export const de = {
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
-  "settings.tokenOnce":
-    "Jetzt kopieren — dieses Token siehst du nur einmal.",
+  "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
   "settings.autonomy": "Autonomie-Stufen",
   "settings.autonomySub": "was sofort läuft und was im Eingang wartet",
   "settings.tierRead":

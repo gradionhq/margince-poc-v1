@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // DuplicateDomainError carries the org already owning a domain: a domain
@@ -50,8 +51,26 @@ type CreateOrganizationInput struct {
 	Source      string
 }
 
+// parseOrgDomains is the parse-don't-validate seam for an org's domain
+// rows: URL forms, www. prefixes, ports and case all reduce to the one
+// normalized host the dedupe index compares (the SQL lower() stays as
+// defense in depth). Values are written back in place.
+func parseOrgDomains(domains []OrgDomainInput) error {
+	for i, d := range domains {
+		parsed, err := values.ParseDomain(d.Domain)
+		if err != nil {
+			return err
+		}
+		domains[i].Domain = parsed.String()
+	}
+	return nil
+}
+
 func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInput) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionCreate); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	if err := parseOrgDomains(in.Domains); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)

@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // DuplicateEmailError carries the existing person for the 409 dedupe
@@ -62,10 +63,37 @@ type CreatePersonInput struct {
 	Source    string
 }
 
+// parsePersonContacts is the parse-don't-validate seam for a person's
+// contact rows: addresses normalize to the lowercased form the dedupe
+// index compares (the SQL lower() below stays as defense in depth) and
+// phones normalize to E.164 — making the schema's "E.164 normalized at
+// write" contract true instead of documentary. Values are written back
+// in place so everything downstream handles only normalized strings.
+func parsePersonContacts(emails []PersonEmailInput, phones []PersonPhoneInput) error {
+	for i, e := range emails {
+		parsed, err := values.ParseEmail(e.Email)
+		if err != nil {
+			return err
+		}
+		emails[i].Email = parsed.String()
+	}
+	for i, p := range phones {
+		parsed, err := values.ParsePhone(p.Phone)
+		if err != nil {
+			return err
+		}
+		phones[i].Phone = parsed.String()
+	}
+	return nil
+}
+
 // CreatePerson inserts the person + child rows + audit + event atomically.
 // The email dedupe unique index turns a duplicate into the 409 contract.
 func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
+		return crmcontracts.Person{}, err
+	}
+	if err := parsePersonContacts(in.Emails, in.Phones); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)

@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // Session lifetimes (ADR-0043: idle + absolute, both enforced at lookup).
@@ -86,6 +87,24 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 	if in.Timezone == "" {
 		in.Timezone = "UTC"
 	}
+	// Parse-don't-validate at the tenant root: the slug becomes the
+	// workspace's subdomain and the timezone drives every date-boundary
+	// sweep — a malformed value here haunts the whole tenant lifetime.
+	slug, err := values.ParseSlug(in.Slug)
+	if err != nil {
+		return Identity{}, "", err
+	}
+	in.Slug = slug.String()
+	tz, err := values.ParseTimezone(in.Timezone)
+	if err != nil {
+		return Identity{}, "", err
+	}
+	in.Timezone = tz.String()
+	adminEmail, err := values.ParseEmail(in.AdminEmail)
+	if err != nil {
+		return Identity{}, "", err
+	}
+	in.AdminEmail = adminEmail.String()
 	hash, err := password.Hash(in.AdminPassword)
 	if err != nil {
 		return Identity{}, "", err

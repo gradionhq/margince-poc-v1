@@ -229,7 +229,7 @@ export const en = {
     "an agent acts as you, never above you — every call re-checks your RBAC",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
-  "settings.tokenOnce": "Copy it now — this token is shown once.",
+  "settings.tokenOnce": "Copy it now — you'll only see this token once.",
   "settings.autonomy": "Autonomy tiers",
   "settings.autonomySub": "what runs instantly vs. what waits in the inbox",
   "settings.tierRead": "Read, summarize, draft — runs instantly, fully logged.",
@@ -376,7 +376,7 @@ export const en = {
   "ob.s3.modelling": "Modelling your voice from {count} words…",
   "ob.s3.starterVoice": "your starter voice",
   "ob.s3.vpMeta": "{count} words · {sources} sources · good",
-  "ob.s3.vpLead": "Direct, warm, practitioner-operator.",
+  "ob.s3.vpLead": "Direct, warm, straight from the work.",
   "ob.s3.vpRest":
     "Short declarative sentences with the occasional long build-up. Backs opinions with specific numbers and names, not abstractions. Low on corporate filler.",
   "ob.s3.movesLabel": "Signature moves",

@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // DuplicateLeadError carries the live lead already holding an email
@@ -59,6 +60,17 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	}
 	if in.Status == "" {
 		in.Status = "new"
+	}
+	// Parse-don't-validate: the address normalizes once here, so the
+	// dedupe probe, the insert and the audit image all see one spelling
+	// (the SQL lower() stays as defense in depth).
+	if in.Email != nil {
+		parsed, err := values.ParseEmail(*in.Email)
+		if err != nil {
+			return crmcontracts.Lead{}, false, err
+		}
+		normalized := parsed.String()
+		in.Email = &normalized
 	}
 
 	var out crmcontracts.Lead
@@ -378,7 +390,11 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 		p.Set("full_name", current.FullName, *in.FullName)
 	}
 	if in.Email != nil {
-		p.Set("email", current.Email, strings.ToLower(*in.Email))
+		parsed, err := values.ParseEmail(*in.Email)
+		if err != nil {
+			return nil, false, err
+		}
+		p.Set("email", current.Email, parsed.String())
 	}
 	if in.Title != nil {
 		p.Set("title", current.Title, *in.Title)

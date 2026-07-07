@@ -9,6 +9,10 @@
 package main
 
 import (
+	// Embedded tzdata: workspace timezones must resolve on scratch
+	// containers that ship no zoneinfo.
+	_ "time/tzdata"
+
 	"context"
 	"errors"
 	"flag"

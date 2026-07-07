@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 type CreateDealInput struct {
@@ -42,9 +43,16 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	}
 	// The money pair holds from birth (data-model §6): a deal with an
 	// amount and no currency would silently skip the FX freeze at close
-	// and trip the deal_closed_fx CHECK far from the cause.
+	// and trip the deal_closed_fx CHECK far from the cause. values.Money
+	// is the one spelling of "a valid amount+currency" — the same rule
+	// the schema CHECKs repeat.
 	if (in.AmountMinor == nil) != (in.Currency == nil) {
 		return crmcontracts.Deal{}, &AmountCurrencyPairError{}
+	}
+	if in.AmountMinor != nil {
+		if _, err := values.NewMoney(*in.AmountMinor, *in.Currency); err != nil {
+			return crmcontracts.Deal{}, err
+		}
 	}
 
 	var out crmcontracts.Deal
@@ -299,6 +307,13 @@ func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	}
 	if (resultingAmount == nil) != (resultingCurrency == nil) {
 		return &AmountCurrencyPairError{}
+	}
+	if resultingAmount != nil {
+		// One spelling of "a valid amount+currency" (values.Money), the
+		// same rule the schema CHECKs repeat.
+		if _, err := values.NewMoney(*resultingAmount, string(*resultingCurrency)); err != nil {
+			return err
+		}
 	}
 
 	if string(current.Status) != "open" && resultingAmount != nil &&
