@@ -306,8 +306,8 @@ future work in this repo (mirrored in [AGENTS.md](AGENTS.md)):
 ## License
 
 **Business Source License 1.1** (`BUSL-1.1`) — see [LICENSE](LICENSE). Licensor:
-Gradion. Source-available, **not** OSI open source: the full source is public and
-free to read, run, and modify.
+Gradion Pte. Ltd. (Singapore). Source-available, **not** OSI open source: the full
+source is public and free to read, run, and modify.
 
 - **Free** for your own internal production use up to **10 Seats** (a Seat is an
   identified person with credentials; AI agents, service accounts, and external
@@ -321,5 +321,6 @@ free to read, run, and modify.
 The Additional Use Grant fills only BUSL's parameter fields; the license body is
 the verbatim canonical text, so SPDX/GitHub detect it as `BUSL-1.1`. The full
 model, rationale, and enforcement design live in the spec's
-[`business/12-license.md`](../margince/specs/business/12-license.md). The exact
-Additional Use Grant wording is **provisional pending counsel** (12-license.md §10).
+[`business/12-license.md`](../margince/specs/business/12-license.md). Each tagged
+release restamps the Change Date to its publication date + 2 years — the rule is
+[docs/reference/license-release-rule.md](docs/reference/license-release-rule.md).
