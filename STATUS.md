@@ -96,6 +96,40 @@ organization:
   `pnpm lint` + `pnpm test` (15) + `pnpm build` green; walked the live funnel
   through Playwright against the real `/coldstart` read of gradion.com.
 
+### ⚠ PR #21 gate state — two RED gates, DO NOT MERGE (checked 2026-07-07 PM)
+
+PR #21 ("Feedback Lars Stroiny", branch `feat/lars-strojny-feedback`) carries
+this whole branch — the backend Strojny workstream (WS1–10, WS9 still PARTIAL,
+see above) AND my one frontend commit `9f08a6e`. It is **work-in-progress and
+not mergeable.** After I pushed, the branch owner's session pushed the WS9
+status commit `3ef0b8e` on top — so this is a **shared, actively-worked branch;
+do not force-push or rewrite its history without confirming that session is
+paused.**
+
+Gates (all others green — frontend, integration, deterministic, craft,
+govulncheck, Analyze, GitGuardian; CodeRabbit skipped: 189 files > 150 limit):
+
+- **`dco` FAIL — branch-wide.** ALL 12 commits (base `3ed7929` → head
+  `3ef0b8e`) lack a `Signed-off-by` trailer; every one is authored by
+  `lars@gradion.com`. Not caused by my commit — it's a pre-existing branch
+  policy miss. Fix, once the branch is quiescent:
+  `git rebase --signoff 3ed7929 && git push --force-with-lease origin feat/lars-strojny-feedback`
+  (safe author-wise — single author; the risk is only the force-push on a
+  shared branch).
+- **SonarCloud quality gate FAIL — ONE condition:** new-code coverage
+  **79.0% < 80%** threshold. Everything else (reliability/security/
+  maintainability/duplication/hotspots) is OK. Aggregate over all 189 changed
+  files — dominated by the in-progress backend workstream, not the ~50 frontend
+  lines. Closing it is the WS9/backend owner's job (finish + cover the
+  remaining typed-id module conversions). My onboarding.tsx new branches (the
+  409-already-decided path, the saved-note render, the skipped-profile results
+  card) are NOT yet covered — a good-citizen follow-up is ~3 more frontend
+  tests, but they won't move the aggregate 79→80 alone.
+
+**Merge only after:** WS9 finished, DCO signed-off across the branch, and
+new-code coverage ≥ 80%. I took no destructive action (no rebase, no
+force-push, no merge).
+
 ## ▶ RESTART HERE (2026-07-07 — Niraj architecture feedback implemented)
 
 The accepted Codex/Niraj architecture-readability review is implemented on
