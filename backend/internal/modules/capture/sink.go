@@ -34,12 +34,18 @@ type Sink struct {
 // existing record NEVER auto-merges — it stages a 🟡 merge_records
 // proposal for the inbox. Compose injects the approvals engine.
 type MergeStager interface {
+	// note: the returned id is the staged approval's — it stays untyped
+	// because the approvals engine behind this seam is the caller's, not
+	// this module's, and the value is discarded here.
 	StageMerge(ctx context.Context, in MergeProposal) (ids.UUID, error)
 }
 
 // MergeProposal names the collision: the surviving record and the
 // captured fields that would fold into it.
 type MergeProposal struct {
+	// note: TargetType + TargetID are the polymorphic pair the approvals
+	// merge target carries — this is a discriminated ref, not a single
+	// entity's id, so it stays untyped (kernel Ref semantics).
 	TargetType     string
 	TargetID       ids.UUID
 	ProposedChange json.RawMessage
@@ -76,7 +82,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	}
 
 	var ref datasource.EntityRef
-	var dedupeHit *ids.UUID
+	var dedupeHit *ids.LeadID
 	var dedupeFields json.RawMessage
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if len(rec.Raw) > 0 {
@@ -125,7 +131,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// proposal must survive independently for the inbox.
 		if _, err := s.stager.StageMerge(ctx, MergeProposal{
 			TargetType:     "lead",
-			TargetID:       *dedupeHit,
+			TargetID:       dedupeHit.UUID,
 			ProposedChange: dedupeFields,
 			Summary:        fmt.Sprintf("Captured %s/%s duplicates an existing lead", rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID),
 		}); err != nil {
@@ -142,18 +148,18 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	ref := datasource.EntityRef{Type: datasource.EntityActivity, ID: id}
+	ref := datasource.EntityRef{Type: datasource.EntityActivity, ID: id.UUID}
 	if !created {
 		return ref, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id, nil, fields)
+	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, fields)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{
+	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{
 		"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
 	}); err != nil {
 		return datasource.EntityRef{}, err
@@ -166,7 +172,7 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // this transaction: it returns the incumbent's ref plus the collision
 // (the incumbent's id and the captured fields) for the caller to stage
 // after commit.
-func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (datasource.EntityRef, *ids.UUID, json.RawMessage, error) {
+func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (datasource.EntityRef, *ids.LeadID, json.RawMessage, error) {
 	// Provider payloads carry whitespace; every downstream email
 	// comparison (suppression, dedupe, the DB lower()) assumes a
 	// trimmed address.
@@ -187,7 +193,7 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 		// source is a collision, not a second row — remember it and
 		// stage the merge after this transaction commits (a replay
 		// of the same natural key is the idempotent path below).
-		var existing ids.UUID
+		var existing ids.LeadID
 		err = tx.QueryRow(ctx, `
 			SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
 			  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
@@ -197,7 +203,7 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 			if err != nil {
 				return datasource.EntityRef{}, nil, nil, err
 			}
-			return datasource.EntityRef{Type: datasource.EntityLead, ID: existing}, &existing, captured, nil
+			return datasource.EntityRef{Type: datasource.EntityLead, ID: existing.UUID}, &existing, captured, nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return datasource.EntityRef{}, nil, nil, err
@@ -207,15 +213,15 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	if err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
-	ref := datasource.EntityRef{Type: datasource.EntityLead, ID: id}
+	ref := datasource.EntityRef{Type: datasource.EntityLead, ID: id.UUID}
 	if !created {
 		return ref, nil, nil, nil
 	}
-	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id, nil, fields)
+	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, fields)
 	if err != nil {
 		return datasource.EntityRef{}, nil, nil, err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id, map[string]any{
+	if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id.UUID, map[string]any{
 		"source_system": rec.NaturalKey.SourceSystem,
 	}); err != nil {
 		return datasource.EntityRef{}, nil, nil, err
@@ -223,12 +229,12 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	return ref, nil, nil, nil
 }
 
-func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.UUID, bool, error) {
+func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
-		return ids.Nil, false, err
+		return ids.ActivityID{}, false, err
 	}
 	occurredAt := defaultOccurredAt(fields.OccurredAt)
-	var id ids.UUID
+	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
 		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
@@ -249,29 +255,29 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 				stamps = append(stamps, storekit.FieldStamp{Field: f.field})
 			}
 		}
-		if err := storekit.StampFields(ctx, tx, "activity", id, captureSource(rec), rec.CapturedBy, stamps); err != nil {
-			return ids.Nil, false, err
+		if err := storekit.StampFields(ctx, tx, "activity", id.UUID, captureSource(rec), rec.CapturedBy, stamps); err != nil {
+			return ids.ActivityID{}, false, err
 		}
 		return id, true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return ids.Nil, false, fmt.Errorf("capture: activity upsert: %w", err)
+		return ids.ActivityID{}, false, fmt.Errorf("capture: activity upsert: %w", err)
 	}
 	// Replay: the natural key already landed — return the incumbent.
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&id)
 	if err != nil {
-		return ids.Nil, false, fmt.Errorf("capture: activity replay lookup: %w", err)
+		return ids.ActivityID{}, false, fmt.Errorf("capture: activity replay lookup: %w", err)
 	}
 	return id, false, nil
 }
 
-func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (ids.UUID, bool, error) {
+func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (ids.LeadID, bool, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionCreate); err != nil {
-		return ids.Nil, false, err
+		return ids.LeadID{}, false, err
 	}
-	var id ids.UUID
+	var id ids.LeadID
 	err := tx.QueryRow(ctx, `
 		INSERT INTO lead (workspace_id, full_name, email, company_name, title, source_system, source_id, source, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
@@ -291,19 +297,19 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 				stamps = append(stamps, storekit.FieldStamp{Field: f.field})
 			}
 		}
-		if err := storekit.StampFields(ctx, tx, "lead", id, captureSource(rec), rec.CapturedBy, stamps); err != nil {
-			return ids.Nil, false, err
+		if err := storekit.StampFields(ctx, tx, "lead", id.UUID, captureSource(rec), rec.CapturedBy, stamps); err != nil {
+			return ids.LeadID{}, false, err
 		}
 		return id, true, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return ids.Nil, false, fmt.Errorf("capture: lead upsert: %w", err)
+		return ids.LeadID{}, false, fmt.Errorf("capture: lead upsert: %w", err)
 	}
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&id)
 	if err != nil {
-		return ids.Nil, false, fmt.Errorf("capture: lead replay lookup: %w", err)
+		return ids.LeadID{}, false, fmt.Errorf("capture: lead replay lookup: %w", err)
 	}
 	return id, false, nil
 }
@@ -312,7 +318,7 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 // is an FK argument naming a row-scoped record, so every one passes the
 // visibility probe (H1) — a connector cannot plant a link to a row its
 // granting human could not see.
-func (s *Sink) linkActivity(ctx context.Context, tx pgx.Tx, activityID ids.UUID, links []datasource.EntityRef) error {
+func (s *Sink) linkActivity(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, links []datasource.EntityRef) error {
 	for _, link := range links {
 		column, ok := map[datasource.EntityType]string{
 			datasource.EntityPerson:       "person_id",
