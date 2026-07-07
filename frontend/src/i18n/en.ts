@@ -200,6 +200,17 @@ export const en = {
   "create.organization": "Company",
   "create.expectedClose": "Expected close",
 
+  "log.title": "Log activity",
+  "log.sub": "a note or task, straight onto this timeline",
+  "log.kind": "Type",
+  "log.kindNote": "Note",
+  "log.kindTask": "Task",
+  "log.subject": "Subject",
+  "log.body": "Details",
+  "log.dueAt": "Due date",
+  "log.save": "Log",
+  "log.saving": "Logging…",
+
   "tasks.overdue": "Overdue",
   "tasks.today": "Today",
   "tasks.upcoming": "Upcoming",

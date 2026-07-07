@@ -203,6 +203,17 @@ export const de = {
   "create.organization": "Firma",
   "create.expectedClose": "Erwarteter Abschluss",
 
+  "log.title": "Aktivität erfassen",
+  "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",
+  "log.kind": "Art",
+  "log.kindNote": "Notiz",
+  "log.kindTask": "Aufgabe",
+  "log.subject": "Betreff",
+  "log.body": "Details",
+  "log.dueAt": "Fällig am",
+  "log.save": "Erfassen",
+  "log.saving": "Wird erfasst…",
+
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",
   "tasks.upcoming": "Demnächst",
