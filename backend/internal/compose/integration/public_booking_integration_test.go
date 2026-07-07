@@ -24,6 +24,8 @@ import (
 
 // publicCall hits the API with NO cookie jar and NO workspace header —
 // the anonymous booker's actual shape.
+//
+//craft:ignore naked-any generic JSON test helper: body and out are each call's own shape
 func publicCall(t *testing.T, e *env, method, path string, body any, headers map[string]string, out any) int {
 	t.Helper()
 	var reqBody io.Reader

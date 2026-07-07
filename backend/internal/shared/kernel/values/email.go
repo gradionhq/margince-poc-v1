@@ -44,6 +44,7 @@ func (e Email) Domain() string {
 
 func (e Email) Value() (driver.Value, error) { return e.s, nil }
 
+//craft:ignore naked-any sql.Scanner mandates the any source parameter
 func (e *Email) Scan(src any) error {
 	switch v := src.(type) {
 	case string:

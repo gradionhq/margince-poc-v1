@@ -51,6 +51,7 @@ func (id ID[K]) Ref() Ref { return Ref{Type: id.EntityType(), ID: id.UUID} }
 
 func (id ID[K]) Value() (driver.Value, error) { return id.String(), nil }
 
+//craft:ignore naked-any sql.Scanner mandates the any source parameter
 func (id *ID[K]) Scan(src any) error {
 	switch v := src.(type) {
 	case string:

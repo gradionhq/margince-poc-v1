@@ -47,6 +47,7 @@ func (p Phone) IsZero() bool   { return p.s == "" }
 
 func (p Phone) Value() (driver.Value, error) { return p.s, nil }
 
+//craft:ignore naked-any sql.Scanner mandates the any source parameter
 func (p *Phone) Scan(src any) error {
 	switch v := src.(type) {
 	case string:

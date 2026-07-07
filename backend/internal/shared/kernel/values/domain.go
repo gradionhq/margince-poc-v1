@@ -74,6 +74,7 @@ func (d Domain) IsZero() bool   { return d.s == "" }
 
 func (d Domain) Value() (driver.Value, error) { return d.s, nil }
 
+//craft:ignore naked-any sql.Scanner mandates the any source parameter
 func (d *Domain) Scan(src any) error {
 	switch v := src.(type) {
 	case string:

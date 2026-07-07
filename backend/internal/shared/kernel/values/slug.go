@@ -31,6 +31,7 @@ func (s Slug) IsZero() bool   { return s.s == "" }
 
 func (s Slug) Value() (driver.Value, error) { return s.s, nil }
 
+//craft:ignore naked-any sql.Scanner mandates the any source parameter
 func (s *Slug) Scan(src any) error {
 	switch v := src.(type) {
 	case string:
