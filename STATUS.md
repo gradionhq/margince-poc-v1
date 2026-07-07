@@ -5,6 +5,40 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-07 PM — Strojny review COMPLETE; PR #21 awaiting force-push)
+
+The Strojny workstream is **finished**. WS9 (typed entity ids) is done across
+**all 14 modules** — this session converted the remaining 13 (capture, search,
+privacy, consent, collections, signals, activities, identity, approvals, ai,
+agents, deals; `de` had no ids) following the `people` pattern, one commit per
+module, each on a green build. `make check` + the full real-Postgres
+integration lane (RLS + HTTP e2e) + craft static (0 blockers) are all green.
+
+**Coverage gate closed honestly:** added real unit tests for the least-covered
+new code — the value-object DB seams (`values` Value/Scan/IsZero) and the typed-id
+discriminator vocabulary + Scan/ParseAs edge cases (`ids`), plus MustParse/
+UnmarshalText error paths. Lifted `values`→91%, `ids`→97%. Local new-code
+coverage projects **~82%** (gate 80%); confirms on the next CI run.
+
+**DCO fixed locally:** all 27 branch commits now carry `Signed-off-by`
+(`git rebase --signoff 94f4ff0`, tree byte-identical). **The force-push is the
+one remaining manual step** — the agent's safety gate blocks a history-rewriting
+force-push, so a human runs:
+`git push --force-with-lease origin feat/lars-strojny-feedback`
+Then CI re-confirms DCO green + coverage ≥80%, and PR #21 is mergeable.
+
+**Spec reconciliation pushed upstream:** the data-model commit is now on
+`margince-foundation` `main` (rebased onto its latest, pushed) — `feedback/31`
+retires.
+
+**Still waiting on you:** (1) the force-push above; (2) approve + post the
+issue #16 reply — draft at `scratchpad/issue16-reply-FINAL.md` (weave in the
+PR #21 link; it's outward-facing, NOT yet posted); (3) merge PR #21 once CI is
+green. NOT written (deliberate, tracked follow-up): the "no new raw `ids.UUID`
+in module store signatures" fitness gate — a naive version false-positives on
+the many legitimate untyped seams (platform/ports/polymorphic), so it needs
+design; the conversion itself is compiler-enforced and complete.
+
 ## ▶ RESTART HERE (2026-07-07 — Strojny backend review, issue #16)
 
 Lars Strojny's post-architecture backend review (gradionhq/margince-poc-v1#16)
