@@ -61,9 +61,35 @@ widen with `ids.From`; polymorphic link tables keep untyped `entity_type`/
 notes). A signature-erosion fitness gate (no new raw `ids.UUID` params in
 module store signatures) is planned but NOT written.
 
-**Still TODO this workstream:** finish WS9; then reply on issue #16 (draft
-ready at scratchpad `issue16-reply.md` — needs the PR number and user approval
-before posting, it's outward-facing); open the PR "Feedback Lars Stroiny".
+**Spec reconciliation — DONE, committed to the spec repo.** The four
+`feedback/31` touchpoints are now in `../margince/specs` (commit `37b385b` on
+its local `main`, **not pushed** — push it): data-model §1.9a (new FTS
+linguistics section), §1.3a (guard-not-version note + the mandatory-If-Match
+open question), the `deal_amount_currency_pair` CHECK, the person_phone
+E.164-at-seam note, the activity `language` column + language-aware
+`search_tsv`, the name-entity `search_tsv`/trgm-index blocks, and the
+person_consent MERGE semantics. `feedback/31` retires once that spec commit
+lands upstream.
+
+**PR #21 "Feedback Lars Stroiny"** is open (base `main`) with commits WS1–8,
+WS10, decisions/0019, and the people typed-id conversion.
+
+**Still TODO this workstream:**
+1. **Finish WS9** (the big one) — convert the remaining modules to typed ids:
+   deals, activities, signals, collections, identity, approvals, agents, ai,
+   capture, privacy, consent, de, search, + compose glue. A deals-conversion
+   subagent was launched this session but **stopped in its read/planning phase
+   (spend limit); it wrote nothing — tree clean, build green.** Resume one
+   module (or small group) per subagent, commit each as it goes green
+   (`go build ./... && go vet -tags integration ./...`). Kernel gaps to fill
+   when hit: no `RelationshipKind`/`PartnerKind`/offer-line-item kind (people
+   left those `ids.UUID` with in-source notes). The planned signature-erosion
+   fitness gate (no new raw `ids.UUID` params in module store signatures) is
+   still unwritten.
+2. **Reply on issue #16** — draft ready at scratchpad `issue16-reply.md`;
+   needs PR #21's link woven in and **user approval before posting** (it's
+   outward-facing). NOT posted.
+3. **Push the spec commit** `37b385b` in `../margince/specs`.
 
 ## Frontend session (2026-07-07 PM — onboarding confirm now writes)
 
