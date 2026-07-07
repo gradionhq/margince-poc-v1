@@ -196,11 +196,29 @@ func (e *Env) AgentCtx() context.Context {
 	})
 }
 
+// personIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
+// the entity a people-store call targets — the suites' spelling of the
+// contracts-edge ids.From widening (the harness keeps its fixture ids
+// untyped so every module's suite can share them).
+func personIDOf(u ids.UUID) ids.PersonID    { return ids.From[ids.PersonKind](u) }
+func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
+func leadIDOf(u ids.UUID) ids.LeadID        { return ids.From[ids.LeadKind](u) }
+
+// userIDPtr types an optional harness user id (Env keeps its fixture ids
+// untyped so every module's suite can use them) for people's typed inputs.
+func userIDPtr(owner *ids.UUID) *ids.UserID {
+	if owner == nil {
+		return nil
+	}
+	id := ids.From[ids.UserKind](*owner)
+	return &id
+}
+
 // SeedPerson creates a person owned by the given user (nil = ownerless),
 // acting as admin.
 func (e *Env) SeedPerson(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 	t.Helper()
-	p, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{FullName: name, OwnerID: owner, Source: "manual"})
+	p, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{FullName: name, OwnerID: userIDPtr(owner), Source: "manual"})
 	if err != nil {
 		t.Fatalf("seeding %s: %v", name, err)
 	}
@@ -211,7 +229,7 @@ func (e *Env) SeedPerson(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 	t.Helper()
 	org, err := e.People.CreateOrganization(e.Admin(), people.CreateOrganizationInput{
-		DisplayName: name, OwnerID: owner,
+		DisplayName: name, OwnerID: userIDPtr(owner),
 	})
 	if err != nil {
 		t.Fatal(err)

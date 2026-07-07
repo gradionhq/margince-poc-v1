@@ -145,7 +145,7 @@ func TestDynamicList_reEvaluatesLiveAsRecordsChange(t *testing.T) {
 
 	// Reassign p1 so it no longer matches the filter (rep2 is on the same
 	// team, so p1 stays VISIBLE — it leaves by the filter, not the scope).
-	if _, err := e.People.UpdatePerson(e.Admin(), p1, people.UpdatePersonInput{OwnerID: &e.Rep2}); err != nil {
+	if _, err := e.People.UpdatePerson(e.Admin(), personIDOf(p1), people.UpdatePersonInput{OwnerID: userIDPtr(&e.Rep2)}); err != nil {
 		t.Fatalf("reassign p1: %v", err)
 	}
 	if has(p1) {

@@ -23,9 +23,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-func seedLead(t *testing.T, e *Env, name, email string, owner *ids.UUID) ids.UUID {
+func seedLead(t *testing.T, e *Env, name, email string, owner *ids.UUID) ids.LeadID {
 	t.Helper()
-	in := people.CreateLeadInput{Source: "import", OwnerID: owner}
+	in := people.CreateLeadInput{Source: "import", OwnerID: userIDPtr(owner)}
 	if name != "" {
 		in.FullName = &name
 	}
@@ -36,7 +36,7 @@ func seedLead(t *testing.T, e *Env, name, email string, owner *ids.UUID) ids.UUI
 	if err != nil {
 		t.Fatalf("seeding lead %s: %v", name, err)
 	}
-	return ids.UUID(l.Id)
+	return leadIDOf(ids.UUID(l.Id))
 }
 
 func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
@@ -53,7 +53,7 @@ func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
 	if merged {
 		t.Error("fresh email should create, not merge")
 	}
-	if person.ConvertedFromLeadId == nil || ids.UUID(*person.ConvertedFromLeadId) != leadID {
+	if person.ConvertedFromLeadId == nil || leadIDOf(ids.UUID(*person.ConvertedFromLeadId)) != leadID {
 		t.Error("person lost the converted_from_lead_id origin pointer")
 	}
 	if person.OwnerId == nil || ids.UUID(*person.OwnerId) != e.Rep1 {
@@ -114,7 +114,7 @@ func TestPromoteCreatesAPersonCarryingProvenance(t *testing.T) {
 	if !errors.As(err, &already) {
 		t.Fatalf("re-promote → %v, want people.AlreadyPromotedError", err)
 	}
-	if already.PersonID != ids.UUID(person.Id) {
+	if already.PersonID != personIDOf(ids.UUID(person.Id)) {
 		t.Error("409 lost the promoted_person_id pointer")
 	}
 }
@@ -123,7 +123,7 @@ func TestPromoteMergesIntoAnExistingPersonNotADuplicate(t *testing.T) {
 	e := Setup(t)
 	admin := e.Admin()
 	existing, err := e.People.CreatePerson(admin, people.CreatePersonInput{
-		FullName: "Grace Known", OwnerID: &e.Rep1, Source: "manual",
+		FullName: "Grace Known", OwnerID: userIDPtr(&e.Rep1), Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: "grace@known.test", EmailType: "work", IsPrimary: true, Position: 1}},
 	})
 	if err != nil {
@@ -138,7 +138,7 @@ func TestPromoteMergesIntoAnExistingPersonNotADuplicate(t *testing.T) {
 	if !merged || ids.UUID(person.Id) != ids.UUID(existing.Id) {
 		t.Fatalf("merged=%v into %s, want merge into the one existing person %s", merged, person.Id, existing.Id)
 	}
-	if person.ConvertedFromLeadId == nil || ids.UUID(*person.ConvertedFromLeadId) != leadID {
+	if person.ConvertedFromLeadId == nil || leadIDOf(ids.UUID(*person.ConvertedFromLeadId)) != leadID {
 		t.Error("merge did not record the lead origin")
 	}
 	if person.FullName != "Grace Known" {
@@ -160,7 +160,7 @@ func TestPromoteMergesIntoAnExistingPersonNotADuplicate(t *testing.T) {
 func TestPromoteDoesNotDiscloseAnOutOfScopeMergeTarget(t *testing.T) {
 	e := Setup(t)
 	if _, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{
-		FullName: "Foreign Match", OwnerID: &e.Rep3, Source: "manual",
+		FullName: "Foreign Match", OwnerID: userIDPtr(&e.Rep3), Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: "match@foreign.test", EmailType: "work", IsPrimary: true, Position: 1}},
 	}); err != nil {
 		t.Fatal(err)

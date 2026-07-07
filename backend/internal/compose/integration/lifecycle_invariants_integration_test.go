@@ -223,7 +223,7 @@ func TestDuplicate409DoesNotDiscloseOutOfScopeIDs(t *testing.T) {
 	e := Setup(t)
 	admin := e.Admin()
 	if _, err := e.People.CreatePerson(admin, people.CreatePersonInput{
-		FullName: "Owned elsewhere", OwnerID: &e.Rep3, Source: "manual",
+		FullName: "Owned elsewhere", OwnerID: userIDPtr(&e.Rep3), Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: "taken@example.com", EmailType: "work", IsPrimary: true, Position: 1}},
 	}); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestDuplicate409DoesNotDiscloseOutOfScopeIDs(t *testing.T) {
 	// The same conflict against a row the rep CAN see keeps the id — the
 	// dedupe UX ("open the existing record") survives for legit cases.
 	if _, err := e.People.CreatePerson(admin, people.CreatePersonInput{
-		FullName: "Teammate's", OwnerID: &e.Rep2, Source: "manual",
+		FullName: "Teammate's", OwnerID: userIDPtr(&e.Rep2), Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: "team@example.com", EmailType: "work", IsPrimary: true, Position: 1}},
 	}); err != nil {
 		t.Fatal(err)
@@ -410,7 +410,7 @@ func TestIdempotentReplayDoesNotDiscloseOutOfScopeRecords(t *testing.T) {
 	}
 	leadSrc, leadKey := "apollo", "lead-9"
 	if _, _, err := e.People.CreateLead(admin, people.CreateLeadInput{
-		FullName: strPtr("Foreign lead"), OwnerID: &e.Rep3, Source: "import",
+		FullName: strPtr("Foreign lead"), OwnerID: userIDPtr(&e.Rep3), Source: "import",
 		SourceSystem: &leadSrc, SourceID: &leadKey,
 	}); err != nil {
 		t.Fatal(err)

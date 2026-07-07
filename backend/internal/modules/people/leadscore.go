@@ -44,15 +44,15 @@ var (
 type BehavioralSignal struct {
 	Kind       string // reply | meeting_held | meeting_booked | link_click | email_open
 	OccurredAt time.Time
-	ActivityID ids.UUID
+	ActivityID ids.ActivityID
 }
 
 // ScoreFactor is one Explain-This-Score row; the breakdown sums to the
 // returned score before clamping and rounding at the end.
 type ScoreFactor struct {
-	Factor            string     `json:"factor"`
-	Points            float64    `json:"points"`
-	SourceActivityIDs []ids.UUID `json:"source_activity_ids,omitempty"`
+	Factor            string           `json:"factor"`
+	Points            float64          `json:"points"`
+	SourceActivityIDs []ids.ActivityID `json:"source_activity_ids,omitempty"`
 }
 
 var behavioralBasePoints = map[string]float64{

@@ -26,29 +26,6 @@ func ParseSlug(raw string) (Slug, error) {
 	return Slug{s: trimmed}, nil
 }
 
-// Slugify derives a best-effort slug from free text (the fallback when
-// a human name seeds an identifier); an input with no usable characters
-// yields the zero Slug for the caller to reject or replace.
-func Slugify(raw string) Slug {
-	var b strings.Builder
-	lastHyphen := true // suppress a leading hyphen
-	for _, r := range strings.ToLower(strings.TrimSpace(raw)) {
-		switch {
-		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
-			b.WriteRune(r)
-			lastHyphen = false
-		case !lastHyphen:
-			b.WriteByte('-')
-			lastHyphen = true
-		}
-	}
-	s := strings.Trim(b.String(), "-")
-	if len(s) > 63 {
-		s = strings.Trim(s[:63], "-")
-	}
-	return Slug{s: s}
-}
-
 func (s Slug) String() string { return s.s }
 func (s Slug) IsZero() bool   { return s.s == "" }
 

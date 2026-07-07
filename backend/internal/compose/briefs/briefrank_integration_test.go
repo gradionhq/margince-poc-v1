@@ -184,7 +184,7 @@ func TestBriefWarmthComesFromTheStrengthSeam(t *testing.T) {
 	owner := integration.OwnerConn(t)
 	stakeholder := integration.SeedStakeholder(t, b.Env, owner, b.dealA, "inbound", "outbound")
 
-	strength, err := b.People.PersonStrength(b.repCtx, stakeholder, briefClock)
+	strength, err := b.People.PersonStrength(b.repCtx, ids.From[ids.PersonKind](stakeholder), briefClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestBriefWarmthComesFromTheStrengthSeam(t *testing.T) {
 		evidence[id] = true
 	}
 	for _, id := range strength.ContributingIDs {
-		if !evidence[id] {
+		if !evidence[id.UUID] {
 			t.Fatalf("warmth evidence %s missing from the item's evidence %v", id, itemA.EvidenceIDs)
 		}
 	}

@@ -80,7 +80,7 @@ type relinkCounts struct {
 }
 
 // MergePerson merges person source→target and returns the survivor.
-func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
+func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
 	// authz.go maps the merge verb to update: rewriting where records
 	// point is curation of both rows, not deletion of one.
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
@@ -105,8 +105,8 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 // is what makes the target check hold until commit: without it a
 // concurrent merge(target→elsewhere) could archive the survivor
 // mid-merge, leaving relinked children pointing at a dead record.
-func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
-	_, tgtLock, err := storekit.LockPair(ctx, tx, "person", sourceID, targetID)
+func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
+	_, tgtLock, err := storekit.LockPair(ctx, tx, "person", sourceID.UUID, targetID.UUID)
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
@@ -124,10 +124,10 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 			return crmcontracts.Person{}, fmt.Errorf("apply survivorship fill: %w", err)
 		}
 	}
-	if err := archiveMergedAway(ctx, tx, "person", sourceID, targetID); err != nil {
+	if err := archiveMergedAway(ctx, tx, "person", sourceID.UUID, targetID.UUID); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("retire merged-away person: %w", err)
 	}
-	auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID,
+	auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID.UUID,
 		map[string]any{"merged_into_id": nil},
 		map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
 	if err != nil {
@@ -135,7 +135,7 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 	}
 	// One event, its own verb: the context graph collapses two nodes,
 	// which neither person.updated nor person.archived can say.
-	if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID, map[string]any{
+	if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID.UUID, map[string]any{
 		"merged_from_id": sourceID,
 		"merged_into_id": targetID,
 		"relinked":       counts,
@@ -173,7 +173,7 @@ func buildSurvivorshipPatch(target, source crmcontracts.Person) *storekit.Patch 
 // mergePersonSocial re-homes A's social rows onto B: a platform the
 // survivor already has keeps B's handle and drops A's (same
 // survivor-wins rule as the primary-slot demotions), the rest relink.
-func mergePersonSocial(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) error {
+func mergePersonSocial(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) error {
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM person_social a
 		WHERE a.person_id = $1 AND EXISTS (
@@ -192,7 +192,7 @@ func mergePersonSocial(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UU
 // the slot), relationship edges, the pure link tables, consent (the
 // restrictive rule), the lead promotion pointer, and the merge redirect
 // chain — and returns the accounting the person.merged event carries.
-func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (relinkCounts, error) {
+func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (relinkCounts, error) {
 	counts := relinkCounts{}
 	var err error
 	if counts.Emails, err = relinkDemotingPrimary(ctx, tx, `
@@ -201,7 +201,7 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 		    SELECT 1 FROM person_email b
 		    WHERE b.person_id = $2 AND b.email_type = a.email_type
 		      AND b.is_primary AND b.archived_at IS NULL)
-		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
+		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink emails: %w", err)
 	}
 	if counts.Phones, err = relinkDemotingPrimary(ctx, tx, `
@@ -210,13 +210,13 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 		    SELECT 1 FROM person_phone b
 		    WHERE b.person_id = $2 AND b.phone_type = a.phone_type
 		      AND b.is_primary AND b.archived_at IS NULL)
-		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
+		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink phones: %w", err)
 	}
 	if counts.Relationships, err = relinkPersonEdges(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("relink relationships: %w", err)
 	}
-	if counts.ActivityLinks, err = relinkLinkRows(ctx, tx, "person", sourceID, targetID); err != nil {
+	if counts.ActivityLinks, err = relinkLinkRows(ctx, tx, "person", sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink activity/list/tag rows: %w", err)
 	}
 	if err := mergePersonSocial(ctx, tx, sourceID, targetID); err != nil {
@@ -246,7 +246,7 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 // returns itself; an archived one returns its redirect pointer (nil when
 // it was plain-archived, not merged). readOrgMergeState (merge_organization.go)
 // is its organization twin.
-func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Person, *ids.UUID, error) {
+func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.PersonID) (crmcontracts.Person, *ids.UUID, error) {
 	p, err := readPerson(ctx, tx, id, storekit.IncludeArchived)
 	if err != nil {
 		return crmcontracts.Person{}, nil, err
@@ -264,10 +264,10 @@ func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontr
 // target must be live too: merging is a read of the survivor it returns,
 // so an out-of-scope target answers a bare conflict, and an archived one
 // can survive nothing.
-func mergePair[T any](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.UUID,
-	read func(context.Context, pgx.Tx, ids.UUID) (T, *ids.UUID, error)) (source, target T, err error) {
+func mergePair[T any, K ids.EntityKind](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.ID[K],
+	read func(context.Context, pgx.Tx, ids.ID[K]) (T, *ids.UUID, error)) (source, target T, err error) {
 	var zero T
-	if err := auth.EnsureVisible(ctx, tx, kind, sourceID); err != nil {
+	if err := auth.EnsureVisible(ctx, tx, kind, sourceID.UUID); err != nil {
 		return zero, zero, err
 	}
 	source, mergedInto, err := read(ctx, tx, sourceID)
@@ -278,7 +278,7 @@ func mergePair[T any](ctx context.Context, tx pgx.Tx, kind string, sourceID, tar
 		return zero, zero, err
 	}
 
-	visible, err := auth.VisibleTo(ctx, tx, kind, targetID)
+	visible, err := auth.VisibleTo(ctx, tx, kind, targetID.UUID)
 	if err != nil {
 		return zero, zero, err
 	}
@@ -305,7 +305,7 @@ func relinkDemotingPrimary(ctx context.Context, tx pgx.Tx, stmt string, sourceID
 // relinkPersonEdges moves A's relationship edges to B: duplicates of an
 // edge B already has archive, the rest relink with the current-primary
 // employer flag demoted when B already has one.
-func relinkPersonEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (int64, error) {
+func relinkPersonEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (int64, error) {
 	if _, err := tx.Exec(ctx, `
 		UPDATE relationship a SET archived_at = $3
 		WHERE a.person_id = $1 AND a.archived_at IS NULL AND EXISTS (
@@ -374,7 +374,7 @@ func relinkLinkRows(ctx context.Context, tx pgx.Tx, entityType string, sourceID,
 // with an appended consent_event proof row in the same statement; A's
 // remaining rows (purposes B has no state for) relink to B with their
 // original proof chain intact.
-func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) error {
+func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) error {
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return err

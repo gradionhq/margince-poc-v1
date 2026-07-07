@@ -20,11 +20,20 @@ type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
 
-func uuidArg(u *openapi_types.UUID) *ids.UUID {
+// pathID asserts a contract path id as entity K's id — the widening
+// point between the wire and the typed store surface (the route already
+// names the entity, so the assertion lives here, not in the store).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
+}
+
+// idArg asserts an optional wire UUID (body field or query parameter)
+// as entity K's id; nil stays nil.
+func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 	if u == nil {
 		return nil
 	}
-	v := ids.UUID(*u)
+	v := ids.From[K](ids.UUID(*u))
 	return &v
 }
 
@@ -38,7 +47,7 @@ func personCreateInput(req crmcontracts.CreatePersonRequest) (CreatePersonInput,
 		LastName:  req.LastName,
 		Title:     req.Title,
 		Source:    req.Source,
-		OwnerID:   uuidArg(req.OwnerId),
+		OwnerID:   idArg[ids.UserKind](req.OwnerId),
 	}
 	if req.Social != nil {
 		in.Social = *req.Social
@@ -83,7 +92,7 @@ func personUpdateInput(req crmcontracts.UpdatePersonRequest, ifVersion *int64) U
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
 		Title:     req.Title,
-		OwnerID:   uuidArg(req.OwnerId),
+		OwnerID:   idArg[ids.UserKind](req.OwnerId),
 		IfVersion: ifVersion,
 	}
 	if req.Social != nil {
@@ -102,8 +111,8 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 		LegalName:   req.LegalName,
 		Industry:    req.Industry,
 		Source:      req.Source,
-		OwnerID:     uuidArg(req.OwnerId),
-		ParentOrgID: uuidArg(req.ParentOrgId),
+		OwnerID:     idArg[ids.UserKind](req.OwnerId),
+		ParentOrgID: idArg[ids.OrganizationKind](req.ParentOrgId),
 	}
 	in.Address = req.Address
 	if req.SizeBand != nil {
@@ -126,8 +135,8 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 		DisplayName: req.DisplayName,
 		LegalName:   req.LegalName,
 		Industry:    req.Industry,
-		OwnerID:     uuidArg(req.OwnerId),
-		ParentOrgID: uuidArg(req.ParentOrgId),
+		OwnerID:     idArg[ids.UserKind](req.OwnerId),
+		ParentOrgID: idArg[ids.OrganizationKind](req.ParentOrgId),
 		IfVersion:   ifVersion,
 	}
 	in.Address = req.Address
@@ -146,7 +155,7 @@ func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
 		SourceSystem:    req.SourceSystem,
 		SourceID:        req.SourceId,
 		Source:          req.Source,
-		OwnerID:         uuidArg(req.OwnerId),
+		OwnerID:         idArg[ids.UserKind](req.OwnerId),
 	}
 	if req.Email != nil {
 		email := string(*req.Email)
@@ -166,7 +175,7 @@ func leadUpdateInput(req crmcontracts.UpdateLeadRequest, ifVersion *int64) Updat
 		CandidateOrgKey:     req.CandidateOrgKey,
 		Score:               req.Score,
 		ScoreOverrideReason: req.ScoreOverrideReason,
-		OwnerID:             uuidArg(req.OwnerId),
+		OwnerID:             idArg[ids.UserKind](req.OwnerId),
 		IfVersion:           ifVersion,
 	}
 	if req.Email != nil {

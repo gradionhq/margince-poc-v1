@@ -47,7 +47,7 @@ func (e *scrapeEngine) Propose(ctx context.Context, orgID ids.UUID, override str
 	if rawURL == "" {
 		var err error
 		// EnrichTargetURL enforces visibility AND yields the domain.
-		rawURL, err = e.people.EnrichTargetURL(ctx, orgID)
+		rawURL, err = e.people.EnrichTargetURL(ctx, ids.From[ids.OrganizationKind](orgID))
 		if err != nil {
 			return crmcontracts.EnrichmentProposal{}, err
 		}
@@ -55,7 +55,7 @@ func (e *scrapeEngine) Propose(ctx context.Context, orgID ids.UUID, override str
 		// An override skips the domain lookup, so visibility must be proven
 		// on its own — reading the org row-scoped 404s a hidden id before any
 		// egress happens on the caller's behalf.
-		if _, err := e.people.GetOrganization(ctx, orgID, storekit.LiveOnly); err != nil {
+		if _, err := e.people.GetOrganization(ctx, ids.From[ids.OrganizationKind](orgID), storekit.LiveOnly); err != nil {
 			return crmcontracts.EnrichmentProposal{}, err
 		}
 	}

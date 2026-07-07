@@ -152,12 +152,6 @@ func TestParseSlug(t *testing.T) {
 	if err != nil || s.String() != "acme-corp-2" {
 		t.Fatalf("ParseSlug = %q (%v)", s, err)
 	}
-	if got := Slugify("  Müller & Söhne GmbH "); got.String() != "m-ller-s-hne-gmbh" {
-		t.Errorf("Slugify = %q, want m-ller-s-hne-gmbh", got)
-	}
-	if !Slugify("&&&").IsZero() {
-		t.Error("Slugify of pure punctuation must yield the zero Slug")
-	}
 }
 
 func TestParseTimezone(t *testing.T) {

@@ -45,7 +45,7 @@ type BriefRanking struct {
 // briefStrengthSource is the compose-injected §4 warmth seam —
 // people.Store satisfies it; the brief never reaches into people's SQL.
 type briefStrengthSource interface {
-	PersonStrength(ctx context.Context, personID ids.UUID, now time.Time) (people.RelationshipStrength, error)
+	PersonStrength(ctx context.Context, personID ids.PersonID, now time.Time) (people.RelationshipStrength, error)
 }
 
 // BriefEngine ranks a rep's open deals and owns the brief_run/brief_item
@@ -322,7 +322,7 @@ func (e *BriefEngine) resolveWarmth(ctx context.Context, now time.Time, facts ma
 			st, ok := cache[personID]
 			if !ok {
 				var err error
-				st, err = e.strength.PersonStrength(ctx, personID, now)
+				st, err = e.strength.PersonStrength(ctx, ids.From[ids.PersonKind](personID), now)
 				switch {
 				case errors.Is(err, apperrors.ErrNotFound), errors.Is(err, apperrors.ErrPermissionDenied):
 					// Invisible to this caller: no strength to disclose.
@@ -334,7 +334,10 @@ func (e *BriefEngine) resolveWarmth(ctx context.Context, now time.Time, facts ma
 			}
 			if st.Strength > f.warmthStrength {
 				f.warmthStrength = st.Strength
-				f.warmthEvidence = st.ContributingIDs
+				f.warmthEvidence = make([]ids.UUID, len(st.ContributingIDs))
+				for i, activityID := range st.ContributingIDs {
+					f.warmthEvidence[i] = activityID.UUID
+				}
 			}
 		}
 		facts[dealID] = f

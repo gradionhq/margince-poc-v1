@@ -63,7 +63,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := store.PersonStrength(ctx, person, now)
+	got, err := store.PersonStrength(ctx, personIDOf(person), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,13 +77,13 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 		t.Fatalf("contributing ids = %d, want the 12 qualifying touches", len(got.ContributingIDs))
 	}
 	for _, id := range got.ContributingIDs {
-		if id == leadTouch {
+		if id.UUID == leadTouch {
 			t.Fatal("a lead-linked activity leaked into the person computation (ADR-0008)")
 		}
 	}
 
 	// Determinism: the same seed + clock reproduces the same value.
-	again, err := store.PersonStrength(ctx, person, now)
+	again, err := store.PersonStrength(ctx, personIDOf(person), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 	}
 
 	// Org roll-up: max over current employees — here, the one person.
-	orgStrength, err := store.OrganizationStrength(ctx, org, now)
+	orgStrength, err := store.OrganizationStrength(ctx, orgIDOf(org), now)
 	if err != nil {
 		t.Fatal(err)
 	}

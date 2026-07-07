@@ -63,8 +63,9 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("CreateDeal with out-of-scope organization → %v, want ErrNotFound", err)
 	}
+	foreignParent := ids.From[ids.OrganizationKind](foreignOrg)
 	if _, err := e.People.CreateOrganization(rep, people.CreateOrganizationInput{
-		DisplayName: "Sneaky Child", ParentOrgID: &foreignOrg,
+		DisplayName: "Sneaky Child", ParentOrgID: &foreignParent,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("CreateOrganization with out-of-scope parent → %v, want ErrNotFound", err)
 	}
@@ -76,7 +77,7 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{PartnerOrganizationID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateDeal attaching out-of-scope partner → %v, want ErrNotFound", err)
 	}
-	if _, err := e.People.UpdateOrganization(rep, visibleOrg, people.UpdateOrganizationInput{ParentOrgID: &foreignOrg}); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.People.UpdateOrganization(rep, ids.From[ids.OrganizationKind](visibleOrg), people.UpdateOrganizationInput{ParentOrgID: &foreignParent}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("UpdateOrganization reparenting under out-of-scope org → %v, want ErrNotFound", err)
 	}
 

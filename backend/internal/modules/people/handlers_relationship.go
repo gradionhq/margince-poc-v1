@@ -15,7 +15,7 @@ import (
 // the relationship table this module owns; the deal itself must be
 // visible (the endpoint-scope rule then re-applies per edge).
 func (h Handlers) ListDealStakeholders(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	dealID := ids.UUID(id)
+	dealID := pathID[ids.DealKind](id)
 	kind := "deal_stakeholder"
 	rels, page, err := h.store.ListRelationships(r.Context(), ListRelationshipsInput{
 		Kind:   &kind,
@@ -49,9 +49,9 @@ func (h Handlers) ListRelationships(w http.ResponseWriter, r *http.Request, para
 		kind := string(*params.Kind)
 		in.Kind = &kind
 	}
-	in.PersonID = uuidArg(params.PersonId)
-	in.OrganizationID = uuidArg(params.OrganizationId)
-	in.DealID = uuidArg(params.DealId)
+	in.PersonID = idArg[ids.PersonKind](params.PersonId)
+	in.OrganizationID = idArg[ids.OrganizationKind](params.OrganizationId)
+	in.DealID = idArg[ids.DealKind](params.DealId)
 	if params.Cursor != nil {
 		in.Cursor = *params.Cursor
 	}
@@ -77,10 +77,10 @@ func (h Handlers) CreateRelationship(w http.ResponseWriter, r *http.Request) {
 		Role:              req.Role,
 		Source:            req.Source,
 		IsCurrentPrimary:  req.IsCurrentPrimary != nil && *req.IsCurrentPrimary,
-		PersonID:          uuidArg(req.PersonId),
-		OrganizationID:    uuidArg(req.OrganizationId),
-		CounterpartyOrgID: uuidArg(req.CounterpartyOrgId),
-		DealID:            uuidArg(req.DealId),
+		PersonID:          idArg[ids.PersonKind](req.PersonId),
+		OrganizationID:    idArg[ids.OrganizationKind](req.OrganizationId),
+		CounterpartyOrgID: idArg[ids.OrganizationKind](req.CounterpartyOrgId),
+		DealID:            idArg[ids.DealKind](req.DealId),
 	}
 	if req.StartedAt != nil {
 		in.StartedAt = &req.StartedAt.Time
@@ -143,7 +143,7 @@ func (h Handlers) UpsertPartner(w http.ResponseWriter, r *http.Request, id crmco
 		return
 	}
 	in := UpsertPartnerInput{
-		OrganizationID: ids.UUID(id),
+		OrganizationID: pathID[ids.OrganizationKind](id),
 		PartnerRole:    string(req.PartnerRole),
 		IfVersion:      ifVersion,
 	}
@@ -174,7 +174,7 @@ func (h Handlers) UpsertPartner(w http.ResponseWriter, r *http.Request, id crmco
 }
 
 func (h Handlers) GetPartner(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	partner, err := h.store.GetPartner(r.Context(), ids.UUID(id))
+	partner, err := h.store.GetPartner(r.Context(), pathID[ids.OrganizationKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

@@ -53,13 +53,13 @@ const relationshipColumns = `id, workspace_id, kind, person_id, organization_id,
 	role, is_current_primary, started_at, ended_at, source, captured_by, version, created_at, updated_at, archived_at`
 
 type relationshipRow struct {
-	ID                ids.UUID
-	WorkspaceID       ids.UUID
+	ID                ids.UUID // no RelationshipKind in the kernel vocabulary: edges stay untyped
+	WorkspaceID       ids.WorkspaceID
 	Kind              string
-	PersonID          *ids.UUID
-	OrganizationID    *ids.UUID
-	CounterpartyOrgID *ids.UUID
-	DealID            *ids.UUID
+	PersonID          *ids.PersonID
+	OrganizationID    *ids.OrganizationID
+	CounterpartyOrgID *ids.OrganizationID
+	DealID            *ids.DealID
 	Role              *string
 	IsCurrentPrimary  bool
 	StartedAt         *time.Time
@@ -109,9 +109,9 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 
 type ListRelationshipsInput struct {
 	Kind            *string
-	PersonID        *ids.UUID
-	OrganizationID  *ids.UUID
-	DealID          *ids.UUID
+	PersonID        *ids.PersonID
+	OrganizationID  *ids.OrganizationID
+	DealID          *ids.DealID
 	IncludeArchived bool
 	Limit           *int
 	Cursor          string
@@ -206,10 +206,10 @@ func scanRelationships(rows pgx.Rows) ([]relationshipRow, error) {
 
 type CreateRelationshipInput struct {
 	Kind              string
-	PersonID          *ids.UUID
-	OrganizationID    *ids.UUID
-	CounterpartyOrgID *ids.UUID
-	DealID            *ids.UUID
+	PersonID          *ids.PersonID
+	OrganizationID    *ids.OrganizationID
+	CounterpartyOrgID *ids.OrganizationID
+	DealID            *ids.DealID
 	Role              *string
 	IsCurrentPrimary  bool
 	StartedAt         *time.Time
@@ -274,8 +274,8 @@ func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelati
 		table string
 		id    *ids.UUID
 	}{
-		{"person", in.PersonID}, {"organization", in.OrganizationID},
-		{"organization", in.CounterpartyOrgID}, {"deal", in.DealID},
+		{"person", untypedPtr(in.PersonID)}, {"organization", untypedPtr(in.OrganizationID)},
+		{"organization", untypedPtr(in.CounterpartyOrgID)}, {"deal", untypedPtr(in.DealID)},
 	} {
 		if ref.id == nil {
 			continue
@@ -285,6 +285,15 @@ func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelati
 		}
 	}
 	return nil
+}
+
+// untypedPtr narrows an optional typed id back to the kernel UUID for
+// the platform seams (auth, storekit) that speak untyped ids.
+func untypedPtr[K ids.EntityKind](id *ids.ID[K]) *ids.UUID {
+	if id == nil {
+		return nil
+	}
+	return &id.UUID
 }
 
 // mapRelationshipConstraint turns the insert's constraint failures into
@@ -423,11 +432,11 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 	var anchorID ids.UUID
 	switch anchorObject {
 	case "person":
-		anchorID = *rel.PersonID
+		anchorID = rel.PersonID.UUID
 	case "deal":
-		anchorID = *rel.DealID
+		anchorID = rel.DealID.UUID
 	default:
-		anchorID = *rel.OrganizationID
+		anchorID = rel.OrganizationID.UUID
 	}
 	auditID, err := storekit.Audit(ctx, tx, action, "relationship", rel.ID, nil, map[string]any{
 		"kind": rel.Kind, "role": rel.Role,
@@ -443,14 +452,14 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 // EnsureDealVisible probes a deal id under the caller's row scope —
 // the deal-scoped stakeholder view needs the anchor's own answer when
 // the edge list is empty (owned SQL on the deal row, decisions/0011).
-func (s *Store) EnsureDealVisible(ctx context.Context, dealID ids.UUID) error {
+func (s *Store) EnsureDealVisible(ctx context.Context, dealID ids.DealID) error {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		// EnsureLinkTarget, not EnsureVisible: the anchor must EXIST for
 		// everyone — unbounded actors skip only the scope half.
-		return auth.EnsureLinkTarget(ctx, tx, "deal", dealID)
+		return auth.EnsureLinkTarget(ctx, tx, "deal", dealID.UUID)
 	})
 }
 
@@ -466,7 +475,7 @@ func aliased(columns, alias string) string {
 func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
 	out := crmcontracts.Relationship{
 		Id:          openapi_types.UUID(rel.ID),
-		WorkspaceId: openapi_types.UUID(rel.WorkspaceID),
+		WorkspaceId: openapi_types.UUID(rel.WorkspaceID.UUID),
 		Kind:        crmcontracts.RelationshipKind(rel.Kind),
 		Source:      rel.Source,
 		CapturedBy:  &rel.CapturedBy,
@@ -478,10 +487,10 @@ func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
 	version := crmcontracts.RowVersion(rel.Version)
 	out.Version = &version
 	out.IsCurrentPrimary = &rel.IsCurrentPrimary
-	out.PersonId = uuidPtr(rel.PersonID)
-	out.OrganizationId = uuidPtr(rel.OrganizationID)
-	out.CounterpartyOrgId = uuidPtr(rel.CounterpartyOrgID)
-	out.DealId = uuidPtr(rel.DealID)
+	out.PersonId = uuidPtr(untypedPtr(rel.PersonID))
+	out.OrganizationId = uuidPtr(untypedPtr(rel.OrganizationID))
+	out.CounterpartyOrgId = uuidPtr(untypedPtr(rel.CounterpartyOrgID))
+	out.DealId = uuidPtr(untypedPtr(rel.DealID))
 	if rel.StartedAt != nil {
 		out.StartedAt = &openapi_types.Date{Time: *rel.StartedAt}
 	}

@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -35,4 +36,10 @@ func uuidPtr(id *ids.UUID) *openapi_types.UUID {
 	}
 	converted := openapi_types.UUID(*id)
 	return &converted
+}
+
+// workspaceID types the tx-bound workspace GUC (storekit hands it out
+// untyped) for the helpers that carry it as an entity parameter.
+func workspaceID(ctx context.Context) ids.WorkspaceID {
+	return ids.From[ids.WorkspaceKind](storekit.MustWorkspace(ctx))
 }

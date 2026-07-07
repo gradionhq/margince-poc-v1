@@ -97,7 +97,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	}
 
 	// (1) A human score with no reason is rejected (AC-S1).
-	if _, err := store.UpdateLead(ctx, leadID, people.UpdateLeadInput{Score: intp(90)}); err == nil {
+	if _, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{Score: intp(90)}); err == nil {
 		t.Fatal("score without a reason was accepted; want ScoreOverrideReasonRequiredError")
 	} else {
 		var want *people.ScoreOverrideReasonRequiredError
@@ -108,7 +108,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 
 	// (2) A human score WITH a reason persists both and retains the prior
 	// machine value (0) in score_computed.
-	overridden, err := store.UpdateLead(ctx, leadID, people.UpdateLeadInput{
+	overridden, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{
 		Score: intp(90), ScoreOverrideReason: strp("strategic account — board-level sponsor"),
 	})
 	if err != nil {
@@ -125,7 +125,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	// A subsequent activity-driven recompute must NOT move the sticky score;
 	// it updates the retained machine value only (fit 23 + fresh reply 25 = 48).
 	dispatch(logReply())
-	afterEvent, err := store.GetLead(ctx, leadID, storekit.LiveOnly)
+	afterEvent, err := store.GetLead(ctx, leadIDOf(leadID), storekit.LiveOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 
 	// (3) Clearing the reason (explicit empty string) resumes recompute:
 	// score tracks the machine value and both override columns go null.
-	cleared, err := store.UpdateLead(ctx, leadID, people.UpdateLeadInput{ScoreOverrideReason: strp("")})
+	cleared, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{ScoreOverrideReason: strp("")})
 	if err != nil {
 		t.Fatalf("clearing the override: %v", err)
 	}

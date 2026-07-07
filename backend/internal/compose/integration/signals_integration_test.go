@@ -36,7 +36,7 @@ import (
 type signalStrengthAdapter struct{ people *people.Store }
 
 func (a signalStrengthAdapter) PersonStrength(ctx context.Context, id ids.UUID, now time.Time) (signals.RelationshipStrength, error) {
-	rs, err := a.people.PersonStrength(ctx, id, now)
+	rs, err := a.people.PersonStrength(ctx, personIDOf(id), now)
 	if err != nil {
 		return signals.RelationshipStrength{}, err
 	}

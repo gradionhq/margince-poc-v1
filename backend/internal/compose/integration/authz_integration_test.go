@@ -32,21 +32,21 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 	if _, err := e.People.CreatePerson(reader, people.CreatePersonInput{FullName: "X", Source: "manual"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only create → %v, want ErrPermissionDenied", err)
 	}
-	if _, err := e.People.UpdatePerson(reader, target, people.UpdatePersonInput{Title: strPtr("CEO")}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.People.UpdatePerson(reader, personIDOf(target), people.UpdatePersonInput{Title: strPtr("CEO")}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only update → %v, want ErrPermissionDenied", err)
 	}
-	if _, err := e.People.ArchivePerson(reader, target); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.People.ArchivePerson(reader, personIDOf(target)); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only archive → %v, want ErrPermissionDenied", err)
 	}
 	// …but reading is granted, and row_scope=all sees the foreign-owned row.
-	if _, err := e.People.GetPerson(reader, target, storekit.LiveOnly); err != nil {
+	if _, err := e.People.GetPerson(reader, personIDOf(target), storekit.LiveOnly); err != nil {
 		t.Errorf("read_only get → %v, want success", err)
 	}
 
 	// A rep (no delete grant on person) cannot archive even an OWN record:
 	// object-level denial precedes row scope.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
-	if _, err := e.People.ArchivePerson(rep, target); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.People.ArchivePerson(rep, personIDOf(target)); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("rep archive own → %v, want ErrPermissionDenied", err)
 	}
 }
@@ -76,11 +76,11 @@ func TestRowScopeTeamNeverShowsAnotherTeamsRecord(t *testing.T) {
 
 	// Single fetch: the foreign row answers 404 — never the row, and
 	// never a 403 that would disclose its existence.
-	if _, err := e.People.GetPerson(rep, foreign, storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.People.GetPerson(rep, personIDOf(foreign), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("get another team's record → %v, want ErrNotFound", err)
 	}
 	// Nor can it be mutated blind by id.
-	if _, err := e.People.UpdatePerson(rep, foreign, people.UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.People.UpdatePerson(rep, personIDOf(foreign), people.UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("update another team's record → %v, want ErrNotFound", err)
 	}
 

@@ -74,7 +74,7 @@ func TestConcurrentMergesNeverStrandChildrenOnADeadRecord(t *testing.T) {
 	e := Setup(t)
 	admin := e.Admin()
 
-	mkPerson := func(name, email string) ids.UUID {
+	mkPerson := func(name, email string) ids.PersonID {
 		t.Helper()
 		p, err := e.People.CreatePerson(admin, people.CreatePersonInput{
 			FullName: name, Source: "manual",
@@ -83,7 +83,7 @@ func TestConcurrentMergesNeverStrandChildrenOnADeadRecord(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
-		return ids.UUID(p.Id)
+		return personIDOf(ids.UUID(p.Id))
 	}
 	a := mkPerson("Person A", "a@merge-race.test")
 	b := mkPerson("Person B", "b@merge-race.test")
@@ -139,7 +139,7 @@ func TestMergeWithdrawalCarriesAConsentProofEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create target: %v", err)
 	}
-	srcID, tgtID := ids.UUID(src.Id), ids.UUID(tgt.Id)
+	srcID, tgtID := personIDOf(ids.UUID(src.Id)), personIDOf(ids.UUID(tgt.Id))
 
 	purpose := ids.NewV7()
 	e.WsExec(t, `INSERT INTO consent_purpose (id, workspace_id, key, label) VALUES ($1, $2, 'marketing_email', 'Marketing')`, purpose, e.WS)

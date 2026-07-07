@@ -47,6 +47,11 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if !strings.Contains(dsn, "pool_health_check_period") {
 		cfg.HealthCheckPeriod = time.Minute
 	}
+	// Typed entity ids ride uuid/uuid[] on every connection.
+	cfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+		RegisterIDTypes(conn)
+		return nil
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

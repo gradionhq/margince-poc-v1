@@ -27,7 +27,7 @@ import (
 // (uq_lead_email_dedupe → 409, features/01 §6.2).
 type DuplicateLeadError struct {
 	Email      string
-	ExistingID ids.UUID
+	ExistingID ids.LeadID
 }
 
 func (e *DuplicateLeadError) Error() string        { return "lead with email " + e.Email + " already exists" }
@@ -40,7 +40,7 @@ type CreateLeadInput struct {
 	CompanyName     *string
 	CandidateOrgKey *string
 	Status          string
-	OwnerID         *ids.UUID
+	OwnerID         *ids.UserID
 	SourceSystem    *string
 	SourceID        *string
 	Source          string
@@ -79,7 +79,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	var out crmcontracts.Lead
 	created := true
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
+		wsID := workspaceID(ctx)
 
 		replay, err := replayedLead(ctx, tx, in)
 		if err != nil {
@@ -93,7 +93,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			return err
 		}
 
-		id := ids.NewV7()
+		id := ids.New[ids.LeadKind]()
 		// The initial score is the §3 fit component — a fresh lead has no
 		// behavioral history yet; signal recompute moves it later.
 		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
@@ -115,11 +115,11 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			return fmt.Errorf("insert lead: %w", err)
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "create", "lead", id, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
+		auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
 		if err != nil {
 			return fmt.Errorf("audit lead create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id.UUID, nil); err != nil {
 			return fmt.Errorf("emit lead.created: %w", err)
 		}
 		if out, err = readLead(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -139,7 +139,7 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput) (*crmcontr
 	if in.SourceSystem == nil || in.SourceID == nil {
 		return nil, nil
 	}
-	var existing ids.UUID
+	var existing ids.LeadID
 	err := tx.QueryRow(ctx,
 		`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
 		*in.SourceSystem, *in.SourceID).Scan(&existing)
@@ -149,7 +149,7 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput) (*crmcontr
 	if err != nil {
 		return nil, fmt.Errorf("probe source-key idempotency: %w", err)
 	}
-	visible, err := auth.VisibleTo(ctx, tx, "lead", existing)
+	visible, err := auth.VisibleTo(ctx, tx, "lead", existing.UUID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) err
 	if email == nil {
 		return nil
 	}
-	var existing ids.UUID
+	var existing ids.LeadID
 	err := tx.QueryRow(ctx,
 		`SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL`,
 		*email).Scan(&existing)
@@ -181,7 +181,7 @@ func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) err
 		return fmt.Errorf("probe email dedupe: %w", err)
 	}
 	dup := &DuplicateLeadError{Email: *email}
-	visible, err := auth.VisibleTo(ctx, tx, "lead", existing)
+	visible, err := auth.VisibleTo(ctx, tx, "lead", existing.UUID)
 	if err != nil {
 		return err
 	}
@@ -191,13 +191,13 @@ func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) err
 	return dup
 }
 
-func (s *Store) GetLead(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
+func (s *Store) GetLead(ctx context.Context, id ids.LeadID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	var out crmcontracts.Lead
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 			return err
 		}
 		out, err = readLead(ctx, tx, id, archived)
@@ -210,7 +210,7 @@ type ListLeadsInput struct {
 	Cursor          *string
 	Limit           *int
 	Status          *string
-	OwnerID         *ids.UUID
+	OwnerID         *ids.UserID
 	Query           *string
 	IncludeArchived bool
 }
@@ -299,7 +299,7 @@ type UpdateLeadInput struct {
 	// change); a non-nil empty string = the explicit CLEAR gesture; a
 	// non-nil non-empty string = the written reason for a score override.
 	ScoreOverrideReason *string
-	OwnerID             *ids.UUID
+	OwnerID             *ids.UserID
 	IfVersion           *int64
 }
 
@@ -312,7 +312,7 @@ func (e *ScoreOverrideReasonRequiredError) Error() string {
 	return "a score override requires a non-empty score_override_reason"
 }
 
-func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput) (crmcontracts.Lead, error) {
+func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInput) (crmcontracts.Lead, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return crmcontracts.Lead{}, err
 	}
@@ -328,8 +328,8 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.UUID, in UpdateLeadInput)
 // updateLeadTx runs the visibility gate, the sparse-patch fold, the write
 // shape, and the cleared-override recompute for one lead update inside the
 // caller's transaction.
-func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.UUID, in UpdateLeadInput) (crmcontracts.Lead, error) {
-	if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in UpdateLeadInput) (crmcontracts.Lead, error) {
+	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	current, err := readLead(ctx, tx, id, storekit.LiveOnly)
@@ -343,17 +343,17 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.UUID, in Upd
 	if p.Empty() {
 		return current, nil
 	}
-	if err := p.ApplyGuarded(ctx, tx, "lead", id, in.IfVersion); err != nil {
+	if err := p.ApplyGuarded(ctx, tx, "lead", id.UUID, in.IfVersion); err != nil {
 		if mapped, ok := leadUniqueViolation(err, in.Email); ok {
 			return crmcontracts.Lead{}, mapped
 		}
 		return crmcontracts.Lead{}, err
 	}
-	auditID, err := storekit.Audit(ctx, tx, "update", "lead", id, p.Before(), p.After())
+	auditID, err := storekit.Audit(ctx, tx, "update", "lead", id.UUID, p.Before(), p.After())
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", id, p.After()); err != nil {
+	if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", id.UUID, p.After()); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	// Clearing an override immediately recomputes from current signals
@@ -480,18 +480,18 @@ func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateL
 
 // DisqualifyLead is the one path enforcing "disqualified ⇒ archived"
 // (DELETE /leads/{id} in the contract).
-func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.Lead, error) {
+func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts.Lead, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionDelete); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	var out crmcontracts.Lead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 			return err
 		}
 		// The row lock makes the status read and the update below one
 		// race-free unit.
-		if _, err := storekit.LockRow(ctx, tx, "lead", id, storekit.LiveOnly); err != nil {
+		if _, err := storekit.LockRow(ctx, tx, "lead", id.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		current, err := readLead(ctx, tx, id, storekit.LiveOnly)
@@ -503,12 +503,12 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.L
 			id); err != nil {
 			return err
 		}
-		auditID, err := storekit.Audit(ctx, tx, "archive", "lead", id,
+		auditID, err := storekit.Audit(ctx, tx, "archive", "lead", id.UUID,
 			map[string]any{"status": current.Status}, map[string]any{"status": "disqualified"})
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.disqualified", "lead", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "lead.disqualified", "lead", id.UUID, nil); err != nil {
 			return err
 		}
 		out, err = readLead(ctx, tx, id, storekit.IncludeArchived)
@@ -521,7 +521,7 @@ const leadColumns = `id, workspace_id, full_name, email, title, company_name, ca
 	status, score, score_override_reason, score_computed, owner_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at`
 
-func readLead(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
+func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
 	q := `SELECT ` + leadColumns + ` FROM lead WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`

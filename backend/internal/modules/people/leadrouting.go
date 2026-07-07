@@ -33,16 +33,16 @@ import (
 // RoutingRule assigns leads whose field matches a literal value to one
 // named owner — territory/segment/source routing in its V1 shape.
 type RoutingRule struct {
-	Field   string   `json:"field"` // one of RoutableLeadFields; an unknown name never matches
-	Equals  string   `json:"equals"`
-	OwnerID ids.UUID `json:"owner_id"`
+	Field   string     `json:"field"` // one of RoutableLeadFields; an unknown name never matches
+	Equals  string     `json:"equals"`
+	OwnerID ids.UserID `json:"owner_id"`
 }
 
 // RoutingConfig is the route_lead automation's params blob, decoded.
 // The catalog's params_schema (agents module) is the editor-facing
 // mirror of this shape; both name the same knobs.
 type RoutingConfig struct {
-	Owners      []ids.UUID    `json:"owners"`        // round-robin pool, in rotation order
+	Owners      []ids.UserID  `json:"owners"`        // round-robin pool, in rotation order
 	CapPerOwner int           `json:"cap_per_owner"` // max open leads per owner; 0 = uncapped
 	Rules       []RoutingRule `json:"rules"`         // evaluated in order, before round-robin
 }
@@ -77,7 +77,7 @@ func (c RoutingConfig) Configured() bool {
 // RoutingDecision is the audited outcome of one routing pass.
 type RoutingDecision struct {
 	Assigned bool
-	OwnerID  ids.UUID
+	OwnerID  ids.UserID
 	Reason   string
 }
 
@@ -107,8 +107,8 @@ func (f leadRoutingFacts) field(name string) string {
 // pointer) is what makes the rotation self-correcting: a promoted or
 // disqualified lead frees capacity, and the distribution stays within
 // ±1 across eligible owners.
-func chooseOwner(cfg RoutingConfig, lead leadRoutingFacts, openLoad map[ids.UUID]int, active map[ids.UUID]bool) (ids.UUID, string, bool) {
-	underCap := func(id ids.UUID) bool {
+func chooseOwner(cfg RoutingConfig, lead leadRoutingFacts, openLoad map[ids.UserID]int, active map[ids.UserID]bool) (ids.UserID, string, bool) {
+	underCap := func(id ids.UserID) bool {
 		return cfg.CapPerOwner <= 0 || openLoad[id] < cfg.CapPerOwner
 	}
 	for i, rule := range cfg.Rules {
@@ -122,7 +122,7 @@ func chooseOwner(cfg RoutingConfig, lead leadRoutingFacts, openLoad map[ids.UUID
 			return rule.OwnerID, fmt.Sprintf("rule:%d:%s", i, rule.Field), true
 		}
 	}
-	chosen := ids.Nil
+	var chosen ids.UserID
 	for _, id := range cfg.Owners {
 		if !active[id] || !underCap(id) {
 			continue
@@ -132,7 +132,7 @@ func chooseOwner(cfg RoutingConfig, lead leadRoutingFacts, openLoad map[ids.UUID
 		}
 	}
 	if chosen.IsZero() {
-		return ids.Nil, "", false
+		return ids.UserID{}, "", false
 	}
 	return chosen, "round_robin", true
 }
@@ -143,7 +143,7 @@ func chooseOwner(cfg RoutingConfig, lead leadRoutingFacts, openLoad map[ids.UUID
 // unroutable lead (everyone capped or inactive) stays unowned and the
 // decision is still audit-logged — AC-S5 wants the decision on record,
 // and no event fires because nothing on the lead changed.
-func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfig) (RoutingDecision, error) {
+func (s *Store) RouteLead(ctx context.Context, leadID ids.LeadID, cfg RoutingConfig) (RoutingDecision, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return RoutingDecision{}, err
 	}
@@ -159,7 +159,7 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 			return err
 		}
 
-		lock, err := storekit.LockRow(ctx, tx, "lead", leadID, storekit.LiveOnly)
+		lock, err := storekit.LockRow(ctx, tx, "lead", leadID.UUID, storekit.LiveOnly)
 		if errors.Is(err, apperrors.ErrNotFound) {
 			decision = RoutingDecision{Reason: "lead_gone"} // archived or erased before routing ran
 			return nil
@@ -168,7 +168,7 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 			return err
 		}
 
-		var currentOwner *ids.UUID
+		var currentOwner *ids.UserID
 		var status string
 		var facts leadRoutingFacts
 		if err := tx.QueryRow(ctx, `
@@ -195,7 +195,7 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 		chosen, reason, ok := chooseOwner(cfg, facts, openLoad, active)
 		if !ok {
 			decision = RoutingDecision{Reason: "no_capacity"}
-			_, err := storekit.Audit(ctx, tx, "assign", "lead", leadID,
+			_, err := storekit.Audit(ctx, tx, "assign", "lead", leadID.UUID,
 				map[string]any{"owner_id": nil},
 				map[string]any{"owner_id": nil, "routed": false, "reason": decision.Reason})
 			return err
@@ -206,13 +206,13 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 		if err := p.ApplyLocked(ctx, tx, lock); err != nil {
 			return err
 		}
-		auditID, err := storekit.Audit(ctx, tx, "assign", "lead", leadID,
+		auditID, err := storekit.Audit(ctx, tx, "assign", "lead", leadID.UUID,
 			map[string]any{"owner_id": nil},
 			map[string]any{"owner_id": chosen, "routed": true, "reason": reason})
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID,
+		if err := storekit.Emit(ctx, tx, auditID, "lead.updated", "lead", leadID.UUID,
 			map[string]any{"delta": map[string]any{"owner_id": chosen}}); err != nil {
 			return err
 		}
@@ -224,10 +224,10 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 
 // candidateOwners is the deduplicated union of the pool and every rule
 // target — the set whose activity and load the decision needs.
-func candidateOwners(cfg RoutingConfig) []ids.UUID {
-	seen := map[ids.UUID]bool{}
-	var out []ids.UUID
-	add := func(id ids.UUID) {
+func candidateOwners(cfg RoutingConfig) []ids.UserID {
+	seen := map[ids.UserID]bool{}
+	var out []ids.UserID
+	add := func(id ids.UserID) {
 		if !id.IsZero() && !seen[id] {
 			seen[id] = true
 			out = append(out, id)
@@ -245,9 +245,9 @@ func candidateOwners(cfg RoutingConfig) []ids.UUID {
 // ownerCapacity answers, for each candidate, whether the user can take
 // work (active, unarchived) and how many open leads they already hold —
 // the cap counts new/working, live leads, however they were assigned.
-func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UUID) (active map[ids.UUID]bool, openLoad map[ids.UUID]int, err error) {
-	active = map[ids.UUID]bool{}
-	openLoad = map[ids.UUID]int{}
+func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UserID) (active map[ids.UserID]bool, openLoad map[ids.UserID]int, err error) {
+	active = map[ids.UserID]bool{}
+	openLoad = map[ids.UserID]int{}
 	if len(candidates) == 0 {
 		return active, openLoad, nil
 	}
@@ -263,7 +263,7 @@ func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UUID) (activ
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id ids.UUID
+		var id ids.UserID
 		var load int
 		if err := rows.Scan(&id, &load); err != nil {
 			return nil, nil, err
@@ -318,7 +318,7 @@ func (w leadRouting) Apply(ctx context.Context, ev workflow.Event, eff workflow.
 	if err != nil {
 		return workflow.RunResult{}, err
 	}
-	decision, err := w.store.RouteLead(ctx, ids.UUID(ev.Entity.ID), cfg)
+	decision, err := w.store.RouteLead(ctx, ids.From[ids.LeadKind](ev.Entity.ID), cfg)
 	if err != nil {
 		return workflow.RunResult{}, err
 	}

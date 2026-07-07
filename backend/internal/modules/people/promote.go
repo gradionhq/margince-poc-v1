@@ -50,13 +50,13 @@ func ParsePromoteTrigger(raw string) (PromoteTrigger, error) {
 // evidence pointer the audit row records.
 type PromoteLeadInput struct {
 	Trigger            string
-	EvidenceActivityID *ids.UUID
+	EvidenceActivityID *ids.ActivityID
 	EvidenceNote       *string
 }
 
 // AlreadyPromotedError maps to 409: promotion happened once; the pointer
 // to its outcome lives on the lead row.
-type AlreadyPromotedError struct{ PersonID ids.UUID }
+type AlreadyPromotedError struct{ PersonID ids.PersonID }
 
 func (e *AlreadyPromotedError) Error() string { return "lead is already promoted" }
 
@@ -76,7 +76,7 @@ func (e *PromoteNeedsIdentityError) Error() string {
 // lead list, all in one transaction with ONE audit row (action=promote on
 // the lead, recording trigger + evidence + the resulting person) and the
 // first-class lead.promoted event alongside the person.* it caused.
-func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInput) (crmcontracts.Person, bool, error) {
+func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadInput) (crmcontracts.Person, bool, error) {
 	// Promotion mutates the lead AND writes the person side, so it needs
 	// both grants — a rep who may work leads but not create contacts
 	// cannot mint contacts through this door.
@@ -102,7 +102,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		// loser re-reads status=promoted and answers 409 instead of
 		// minting a second person. IncludeArchived keeps the re-promote
 		// 409-with-pointer diagnostic reachable.
-		if _, err := storekit.LockRow(ctx, tx, "lead", id, storekit.IncludeArchived); err != nil {
+		if _, err := storekit.LockRow(ctx, tx, "lead", id.UUID, storekit.IncludeArchived); err != nil {
 			return err
 		}
 		lead, err := promotableLead(ctx, tx, id, in)
@@ -144,7 +144,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		if in.EvidenceNote != nil {
 			after["evidence_note"] = *in.EvidenceNote
 		}
-		auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id,
+		auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
 			map[string]any{"status": lead.Status}, after)
 		if err != nil {
 			return fmt.Errorf("audit lead promote: %w", err)
@@ -157,7 +157,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 
 		// lead.promoted is the first-class verb (events.md §5.5) — the
 		// moment the context graph adds the node; never a lead.updated.
-		if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id.UUID, map[string]any{
 			"promoted_person_id": personID,
 			"dedupe_outcome":     outcome,
 			"trigger":            in.Trigger,
@@ -169,7 +169,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		if merged {
 			personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
 		}
-		if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID, personPayload); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID.UUID, personPayload); err != nil {
 			return fmt.Errorf("emit %s: %w", personEvent, err)
 		}
 		return nil
@@ -183,8 +183,8 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 // 409 with the outcome pointer instead of a misleading 404; a
 // disqualified (archived, unpromoted) lead stays 404 like any archived
 // row.
-func promotableLead(ctx context.Context, tx pgx.Tx, id ids.UUID, in PromoteLeadInput) (crmcontracts.Lead, error) {
-	if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+func promotableLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput) (crmcontracts.Lead, error) {
+	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	lead, err := readLead(ctx, tx, id, storekit.IncludeArchived)
@@ -194,7 +194,7 @@ func promotableLead(ctx context.Context, tx pgx.Tx, id ids.UUID, in PromoteLeadI
 	if lead.Status == crmcontracts.LeadStatusPromoted {
 		e := &AlreadyPromotedError{}
 		if lead.PromotedPersonId != nil {
-			e.PersonID = ids.UUID(*lead.PromotedPersonId)
+			e.PersonID = ids.From[ids.PersonKind](ids.UUID(*lead.PromotedPersonId))
 		}
 		return crmcontracts.Lead{}, e
 	}
@@ -207,7 +207,7 @@ func promotableLead(ctx context.Context, tx pgx.Tx, id ids.UUID, in PromoteLeadI
 	if in.EvidenceActivityID != nil {
 		// The evidence must be a real, in-scope activity — a promotion
 		// justified by a record the promoter cannot see is not evidence.
-		if err := auth.EnsureActivityVisible(ctx, tx, *in.EvidenceActivityID); err != nil {
+		if err := auth.EnsureActivityVisible(ctx, tx, in.EvidenceActivityID.UUID); err != nil {
 			return crmcontracts.Lead{}, err
 		}
 	}
@@ -217,9 +217,9 @@ func promotableLead(ctx context.Context, tx pgx.Tx, id ids.UUID, in PromoteLeadI
 // promoteTarget resolves where the lead lands: the §1.3 dedupe path — a
 // live person already holding the lead's email is merged into, anything
 // else creates. Returns the person id and sets *merged.
-func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, by string, merged *bool) (ids.UUID, error) {
+func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, by string, merged *bool) (ids.PersonID, error) {
 	if lead.Email != nil {
-		var existing ids.UUID
+		var existing ids.PersonID
 		err := tx.QueryRow(ctx,
 			`SELECT person_id FROM person_email WHERE email = lower($1) AND archived_at IS NULL`,
 			string(*lead.Email)).Scan(&existing)
@@ -227,17 +227,17 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		case err == nil:
 			// Merging returns the person, so it is a read: a match the
 			// promoter cannot see answers a bare conflict, not the record.
-			visible, verr := auth.VisibleTo(ctx, tx, "person", existing)
+			visible, verr := auth.VisibleTo(ctx, tx, "person", existing.UUID)
 			if verr != nil {
-				return ids.Nil, verr
+				return ids.PersonID{}, verr
 			}
 			if !visible {
-				return ids.Nil, apperrors.ErrConflict
+				return ids.PersonID{}, apperrors.ErrConflict
 			}
 			*merged = true
 			return existing, s.mergeLeadIntoPerson(ctx, tx, lead, existing)
 		case !errors.Is(err, pgx.ErrNoRows):
-			return ids.Nil, fmt.Errorf("probe person email dedupe: %w", err)
+			return ids.PersonID{}, fmt.Errorf("probe person email dedupe: %w", err)
 		}
 	}
 
@@ -247,20 +247,20 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 		// needs SOME name until enrichment fills it.
 		name = string(*lead.Email)
 	}
-	wsID := storekit.MustWorkspace(ctx)
-	id := ids.NewV7()
+	wsID := workspaceID(ctx)
+	id := ids.New[ids.PersonKind]()
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO person (id, workspace_id, full_name, title, owner_id, source, captured_by, converted_from_lead_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, wsID, name, lead.Title, uuidPtrToIDs(lead.OwnerId), lead.Source, by, ids.UUID(lead.Id)); err != nil {
-		return ids.Nil, fmt.Errorf("insert promoted person: %w", err)
+		return ids.PersonID{}, fmt.Errorf("insert promoted person: %w", err)
 	}
 	if lead.Email != nil {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
 			 VALUES ($1, $2, lower($3), 'work', true, 1, $4, $5)`,
 			wsID, id, string(*lead.Email), lead.Source, by); err != nil {
-			return ids.Nil, fmt.Errorf("insert promoted person email: %w", err)
+			return ids.PersonID{}, fmt.Errorf("insert promoted person email: %w", err)
 		}
 	}
 	return id, nil
@@ -269,8 +269,8 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 // mergeLeadIntoPerson is the non-lossy merge half: the person gains the
 // origin pointer and any identity the lead has that the person lacks
 // (fill-only — a promotion never overwrites human-curated contact data).
-func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, personID ids.UUID) error {
-	lock, err := storekit.LockRow(ctx, tx, "person", personID, storekit.LiveOnly)
+func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, personID ids.PersonID) error {
+	lock, err := storekit.LockRow(ctx, tx, "person", personID.UUID, storekit.LiveOnly)
 	if err != nil {
 		return fmt.Errorf("lock merge-target person: %w", err)
 	}

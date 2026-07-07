@@ -21,7 +21,7 @@ func (h Handlers) MergeOrganization(w http.ResponseWriter, r *http.Request, id c
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	survivor, err := h.store.MergeOrganization(r.Context(), ids.UUID(id), ids.UUID(req.TargetId))
+	survivor, err := h.store.MergeOrganization(r.Context(), pathID[ids.OrganizationKind](id), ids.From[ids.OrganizationKind](ids.UUID(req.TargetId)))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -36,10 +36,7 @@ func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, para
 		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 	}
-	if params.OwnerId != nil {
-		owner := ids.UUID(*params.OwnerId)
-		in.OwnerID = &owner
-	}
+	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 
 	orgs, page, err := h.store.ListOrganizations(r.Context(), in)
 	if err != nil {
@@ -70,7 +67,7 @@ func (h Handlers) CreateOrganization(w http.ResponseWriter, r *http.Request, _ c
 }
 
 func (h Handlers) GetOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	org, err := h.store.GetOrganization(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	org, err := h.store.GetOrganization(r.Context(), pathID[ids.OrganizationKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -88,7 +85,7 @@ func (h Handlers) UpdateOrganization(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	org, err := h.store.UpdateOrganization(r.Context(), ids.UUID(id), organizationUpdateInput(req, ifVersion))
+	org, err := h.store.UpdateOrganization(r.Context(), pathID[ids.OrganizationKind](id), organizationUpdateInput(req, ifVersion))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -97,7 +94,7 @@ func (h Handlers) UpdateOrganization(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (h Handlers) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	org, err := h.store.ArchiveOrganization(r.Context(), ids.UUID(id))
+	org, err := h.store.ArchiveOrganization(r.Context(), pathID[ids.OrganizationKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
