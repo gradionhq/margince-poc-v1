@@ -158,6 +158,30 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: https://sonarcloud.io
+    # The Go coverage handed to the scan runs the FULL test story — unit AND
+    # the integration lane — so code proven by real-Postgres suites (stores,
+    # cross-module orchestration like compose/briefs) reports its true
+    # coverage instead of a false 0%. Hence the same PG/Redis services the
+    # integration job uses.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: margince_owner
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: margince
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U margince_owner"
+          --health-interval 2s --health-timeout 5s --health-retries 15
+      redis:
+        image: redis:7
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 5s --health-retries 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -184,10 +208,17 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - name: Go unit coverage
+      - name: Create the non-owner app role
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f scripts/db-init.sql
+      - name: Go coverage (unit + integration lane)
         if: ${{ env.SONAR_TOKEN != '' }}
         working-directory: backend
-        run: go test ./... -coverprofile=coverage.out -covermode=atomic
+        env:
+          MARGINCE_TEST_DSN: postgres://margince_owner:dev@localhost:55432/margince
+          MARGINCE_TEST_APP_DSN: postgres://margince_app:margince_app_dev@localhost:55432/margince
+          MARGINCE_TEST_REDIS: localhost:56379
+        run: go test -tags integration -p 1 ./... -coverprofile=coverage.out -covermode=atomic
       - name: Frontend unit coverage
         if: ${{ env.SONAR_TOKEN != '' }}
         working-directory: frontend
