@@ -186,10 +186,10 @@ func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithActivity())
 
 	// Get: the activity attached to another team's person answers 404.
-	if _, err := e.Activities.GetActivity(rep, ids.UUID(secret.Id), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.Activities.GetActivity(rep, ids.From[ids.ActivityKind](ids.UUID(secret.Id)), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("foreign-linked activity → %v, want ErrNotFound", err)
 	}
-	if _, err := e.Activities.GetActivity(rep, ids.UUID(visible.Id), storekit.LiveOnly); err != nil {
+	if _, err := e.Activities.GetActivity(rep, ids.From[ids.ActivityKind](ids.UUID(visible.Id)), storekit.LiveOnly); err != nil {
 		t.Errorf("team-linked activity → %v, want success", err)
 	}
 

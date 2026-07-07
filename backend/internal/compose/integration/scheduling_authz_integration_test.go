@@ -27,12 +27,12 @@ func TestBookingAnotherHostNeedsUnboundedScope(t *testing.T) {
 
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, SchedulerPerms)
 	if _, err := e.Activities.BookMeeting(rep1, activities.BookMeetingInput{
-		Host: e.Rep1, Start: slotStart, End: slotStart.Add(time.Hour),
+		Host: ids.From[ids.UserKind](e.Rep1), Start: slotStart, End: slotStart.Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("self-booking: %v", err)
 	}
 	if _, err := e.Activities.BookMeeting(rep1, activities.BookMeetingInput{
-		Host: e.Rep2, Start: slotStart, End: slotStart.Add(time.Hour),
+		Host: ids.From[ids.UserKind](e.Rep2), Start: slotStart, End: slotStart.Add(time.Hour),
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("booking rep2's calendar as rep1 → %v, want ErrPermissionDenied", err)
 	}
@@ -40,13 +40,13 @@ func TestBookingAnotherHostNeedsUnboundedScope(t *testing.T) {
 	// guard like anyone else.
 	admin := e.Admin()
 	if _, err := e.Activities.BookMeeting(admin, activities.BookMeetingInput{
-		Host: e.Rep2, Start: slotStart, End: slotStart.Add(time.Hour),
+		Host: ids.From[ids.UserKind](e.Rep2), Start: slotStart, End: slotStart.Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("admin booking for rep2: %v", err)
 	}
 	var slotTaken *activities.SlotTakenError
 	if _, err := e.Activities.BookMeeting(rep1, activities.BookMeetingInput{
-		Host: e.Rep1, Start: slotStart, End: slotStart.Add(time.Hour),
+		Host: ids.From[ids.UserKind](e.Rep1), Start: slotStart, End: slotStart.Add(time.Hour),
 	}); !errors.As(err, &slotTaken) {
 		t.Fatalf("double self-booking → %v, want SlotTakenError", err)
 	}
@@ -61,7 +61,7 @@ func TestAvailabilityBusyReadHonorsRowScope(t *testing.T) {
 	target := e.SeedPerson(t, "Scoped Client", &e.Rep1)
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, SchedulerPerms)
 	if _, err := e.Activities.BookMeeting(rep1, activities.BookMeetingInput{
-		Host: e.Rep1, Start: slotStart, End: slotStart.Add(time.Hour),
+		Host: ids.From[ids.UserKind](e.Rep1), Start: slotStart, End: slotStart.Add(time.Hour),
 		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: target}},
 	}); err != nil {
 		t.Fatalf("booking: %v", err)
@@ -70,7 +70,7 @@ func TestAvailabilityBusyReadHonorsRowScope(t *testing.T) {
 	windowFrom, windowTo := slotStart.Add(-2*time.Hour), slotStart.Add(6*time.Hour)
 	proposes := func(ctx context.Context) bool {
 		t.Helper()
-		slots, err := e.Activities.Availability(ctx, e.Rep1, windowFrom, windowTo, time.Hour)
+		slots, err := e.Activities.Availability(ctx, ids.From[ids.UserKind](e.Rep1), windowFrom, windowTo, time.Hour)
 		if err != nil {
 			t.Fatalf("availability: %v", err)
 		}

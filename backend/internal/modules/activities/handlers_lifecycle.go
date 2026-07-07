@@ -29,11 +29,8 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 		IsDone:     req.IsDone,
 		IfVersion:  ifVersion,
 	}
-	if req.AssigneeId != nil {
-		assignee := ids.UUID(*req.AssigneeId)
-		in.AssigneeID = &assignee
-	}
-	activity, err := h.store.UpdateActivity(r.Context(), ids.UUID(id), in)
+	in.AssigneeID = idArg[ids.UserKind](req.AssigneeId)
+	activity, err := h.store.UpdateActivity(r.Context(), pathID[ids.ActivityKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -42,7 +39,7 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 }
 
 func (h Handlers) ArchiveActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	activity, err := h.store.ArchiveActivity(r.Context(), ids.UUID(id))
+	activity, err := h.store.ArchiveActivity(r.Context(), pathID[ids.ActivityKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -59,7 +56,7 @@ func (h Handlers) RelinkActivity(w http.ResponseWriter, r *http.Request, id crmc
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	activity, err := h.store.RelinkActivity(r.Context(), ids.UUID(id), RelinkActivityInput{
+	activity, err := h.store.RelinkActivity(r.Context(), pathID[ids.ActivityKind](id), RelinkActivityInput{
 		EntityType:            req.EntityType,
 		EntityID:              req.EntityID,
 		ReplaceExistingOfType: req.ReplaceExistingOfType,

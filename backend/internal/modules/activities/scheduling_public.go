@@ -33,8 +33,8 @@ import (
 
 // BookingPage is the slug's resolution: which workspace, whose calendar.
 type BookingPage struct {
-	WorkspaceID ids.UUID
-	HostUserID  ids.UUID
+	WorkspaceID ids.WorkspaceID
+	HostUserID  ids.UserID
 }
 
 // ResolveBookingPage answers the slug→tenant lookup the public
@@ -62,7 +62,7 @@ func (s *Store) ResolveBookingPage(ctx context.Context, slug string) (BookingPag
 // transaction (the workspace bootstrap seeds one for the admin). The
 // slug is a public identifier, not a credential — unguessable so the
 // URL cannot be enumerated, stored plaintext because it IS the URL.
-func SeedBookingPageTx(ctx context.Context, tx pgx.Tx, hostUserID ids.UUID) (string, error) {
+func SeedBookingPageTx(ctx context.Context, tx pgx.Tx, hostUserID ids.UserID) (string, error) {
 	var buf [24]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		return "", fmt.Errorf("activities: booking slug entropy: %w", err)

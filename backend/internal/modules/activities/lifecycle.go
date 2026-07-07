@@ -30,12 +30,12 @@ type UpdateActivityInput struct {
 	OccurredAt *time.Time
 	DueAt      *time.Time
 	RemindAt   *time.Time
-	AssigneeID *ids.UUID
+	AssigneeID *ids.UserID
 	IsDone     *bool
 	IfVersion  *int64
 }
 
-func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivityInput) (crmcontracts.Activity, error) {
+func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in UpdateActivityInput) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -44,7 +44,7 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 		// The row lock makes the version compare and the coalesce update
 		// below one race-free unit: without it two concurrent edits both
 		// pass the compare and the loser silently overwrites the winner.
-		if _, err := storekit.LockRow(ctx, tx, "activity", id, storekit.LiveOnly); err != nil {
+		if _, err := storekit.LockRow(ctx, tx, "activity", id.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		current, err := readActivity(ctx, tx, id, storekit.LiveOnly)
@@ -86,11 +86,11 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 			id, in.Subject, in.Body, in.OccurredAt, in.DueAt, in.RemindAt, in.AssigneeID, in.IsDone); err != nil {
 			return err
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "activity", id, nil, updateDelta(in))
+		auditID, err := storekit.Audit(ctx, tx, "update", "activity", id.UUID, nil, updateDelta(in))
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "activity.updated", "activity", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "activity.updated", "activity", id.UUID, map[string]any{
 			"delta": updateDelta(in),
 		}); err != nil {
 			return err
@@ -101,7 +101,7 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 	return out, err
 }
 
-func (s *Store) ArchiveActivity(ctx context.Context, id ids.UUID) (crmcontracts.Activity, error) {
+func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionDelete); err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -117,11 +117,11 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.UUID) (crmcontracts.
 		if tag.RowsAffected() == 0 {
 			return apperrors.ErrNotFound
 		}
-		auditID, err := storekit.Audit(ctx, tx, "archive", "activity", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "activity", id.UUID, nil, nil)
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "activity.archived", "activity", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "activity.archived", "activity", id.UUID, nil); err != nil {
 			return err
 		}
 		out, err = readActivity(ctx, tx, id, storekit.IncludeArchived)
@@ -131,12 +131,14 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.UUID) (crmcontracts.
 }
 
 type RelinkActivityInput struct {
-	EntityType            string
+	EntityType string
+	// note: the relink target is polymorphic (any entity kind, re-admitted
+	// against the kind vocabulary below), so the id stays untyped (rule 6).
 	EntityID              ids.UUID
 	ReplaceExistingOfType bool
 }
 
-func (s *Store) RelinkActivity(ctx context.Context, id ids.UUID, in RelinkActivityInput) (crmcontracts.Activity, error) {
+func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in RelinkActivityInput) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -173,13 +175,13 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.UUID, in RelinkActivi
 			return err
 		}
 		if tag.RowsAffected() > 0 {
-			auditID, err := storekit.Audit(ctx, tx, "activity_relink", "activity", id, nil, map[string]any{
+			auditID, err := storekit.Audit(ctx, tx, "activity_relink", "activity", id.UUID, nil, map[string]any{
 				"entity_type": in.EntityType, "entity_id": in.EntityID, "replaced": in.ReplaceExistingOfType,
 			})
 			if err != nil {
 				return err
 			}
-			if err := storekit.Emit(ctx, tx, auditID, "activity.updated", "activity", id, map[string]any{
+			if err := storekit.Emit(ctx, tx, auditID, "activity.updated", "activity", id.UUID, map[string]any{
 				"delta": map[string]any{"relinked": map[string]any{"entity_type": in.EntityType, "entity_id": in.EntityID}},
 			}); err != nil {
 				return err

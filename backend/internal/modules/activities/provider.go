@@ -38,7 +38,7 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 	if r.Type != datasource.EntityActivity {
 		return datasource.Record{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.GetActivity(ctx, r.ID, storekit.LiveOnly)
+	v, err := p.store.GetActivity(ctx, ids.From[ids.ActivityKind](r.ID), storekit.LiveOnly)
 	if err != nil {
 		return datasource.Record{}, err
 	}

@@ -20,11 +20,20 @@ type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
 
-func uuidArg(u *openapi_types.UUID) *ids.UUID {
+// pathID asserts a contract path id as entity K's id — the widening
+// point between the wire and the typed store surface (the route already
+// names the entity, so the assertion lives here, not in the store).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
+}
+
+// idArg asserts an optional wire UUID (body field or query parameter)
+// as entity K's id; nil stays nil.
+func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 	if u == nil {
 		return nil
 	}
-	v := ids.UUID(*u)
+	v := ids.From[K](ids.UUID(*u))
 	return &v
 }
 
@@ -42,7 +51,7 @@ func activityLogInput(req crmcontracts.CreateActivityRequest) (LogActivityInput,
 		SourceSystem: req.SourceSystem,
 		SourceID:     req.SourceId,
 		Source:       req.Source,
-		AssigneeID:   uuidArg(req.AssigneeId),
+		AssigneeID:   idArg[ids.UserKind](req.AssigneeId),
 	}
 	if req.Direction != nil {
 		d := string(*req.Direction)

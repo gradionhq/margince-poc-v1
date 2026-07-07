@@ -180,7 +180,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		}
 		// The admin's public booking page: the workspace's only user at
 		// seed time IS the bootstrap admin (RLS scopes the read).
-		var adminID ids.UUID
+		var adminID ids.UserID
 		if err := tx.QueryRow(ctx, `SELECT id FROM app_user ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
 			return err
 		}
