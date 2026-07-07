@@ -240,6 +240,17 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 // returns the re-read row so the follow-on effect runs against committed
 // state.
 func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, id ids.UUID, approve bool, reason *string, edited json.RawMessage) (row, error) {
+	// The row lock makes the pending pre-read and the status write below
+	// one race-free unit: two concurrent decisions cannot both pass the
+	// pending guard. Taken raw — the approval table has no archived_at,
+	// so storekit.LockRow's live filter does not apply here.
+	var locked ids.UUID
+	if err := tx.QueryRow(ctx, `SELECT id FROM approval WHERE id = $1 FOR UPDATE`, id).Scan(&locked); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return row{}, apperrors.ErrNotFound
+		}
+		return row{}, err
+	}
 	a, err := get(ctx, tx, id)
 	if err != nil {
 		return row{}, err

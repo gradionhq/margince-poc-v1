@@ -87,7 +87,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.UUID, in AdvanceDealInpu
 		if err != nil {
 			return err
 		}
-		if err := p.Apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "deal", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply stage advance: %w", err)
 		}
 

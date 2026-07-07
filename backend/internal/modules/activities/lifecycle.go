@@ -41,6 +41,12 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.UUID, in UpdateActivi
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The row lock makes the version compare and the coalesce update
+		// below one race-free unit: without it two concurrent edits both
+		// pass the compare and the loser silently overwrites the winner.
+		if _, err := storekit.LockRow(ctx, tx, "activity", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		current, err := readActivity(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err

@@ -23,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -158,19 +159,22 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 			return err
 		}
 
-		var currentOwner *ids.UUID
-		var status string
-		var facts leadRoutingFacts
-		err := tx.QueryRow(ctx, `
-			SELECT owner_id, status, source, coalesce(company_name, ''), coalesce(candidate_org_key, '')
-			  FROM lead WHERE id = $1 AND archived_at IS NULL
-			  FOR UPDATE`,
-			leadID).Scan(&currentOwner, &status, &facts.Source, &facts.CompanyName, &facts.CandidateOrgKey)
-		if errors.Is(err, pgx.ErrNoRows) {
+		lock, err := storekit.LockRow(ctx, tx, "lead", leadID, storekit.LiveOnly)
+		if errors.Is(err, apperrors.ErrNotFound) {
 			decision = RoutingDecision{Reason: "lead_gone"} // archived or erased before routing ran
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+
+		var currentOwner *ids.UUID
+		var status string
+		var facts leadRoutingFacts
+		if err := tx.QueryRow(ctx, `
+			SELECT owner_id, status, source, coalesce(company_name, ''), coalesce(candidate_org_key, '')
+			  FROM lead WHERE id = $1`,
+			leadID).Scan(&currentOwner, &status, &facts.Source, &facts.CompanyName, &facts.CandidateOrgKey); err != nil {
 			return err
 		}
 		if currentOwner != nil {
@@ -199,7 +203,7 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 
 		p := storekit.NewPatch()
 		p.Set("owner_id", nil, chosen)
-		if err := p.Apply(ctx, tx, "lead", leadID, nil); err != nil {
+		if err := p.ApplyLocked(ctx, tx, lock); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "assign", "lead", leadID,

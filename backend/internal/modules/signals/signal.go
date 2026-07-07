@@ -88,6 +88,12 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 	var out crmcontracts.Signal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if in.EntityType != nil {
+			// The subject type is client input reaching a table-name seam:
+			// the store pins it to the signal_entity_type CHECK's set
+			// rather than leaning on transport enum validation alone.
+			if !signalEntityTables[*in.EntityType] {
+				return &InvalidSignalEntityTypeError{EntityType: *in.EntityType}
+			}
 			// The subject must exist AND be visible to the caller: the
 			// polymorphic ref has no FK, so an unchecked id would persist
 			// a cross-tenant (or out-of-scope) link.
@@ -275,7 +281,7 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.UUID, in UpdateSignalIn
 			out = current
 			return nil
 		}
-		if err := p.Apply(ctx, tx, "signal", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "signal", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply signal patch: %w", err)
 		}
 		if in.Status != nil && humanOutcomes[*in.Status] && *in.Status != string(current.Status) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { de } from "./de";
 import { en } from "./en";
-import { DEFAULT_LOCALE, translate } from "./index";
+import { DEFAULT_LOCALE, detectLocale, translate } from "./index";
 
 // B-EP09.16 acceptance: de and en carry the exact same key set (a missing or
 // extra key in either fails), placeholders interpolate, and the default
@@ -35,5 +35,22 @@ describe("i18n catalogs", () => {
 
   it("the default locale is de (A24: de-DE)", () => {
     expect(DEFAULT_LOCALE).toBe("de");
+  });
+});
+
+describe("browser-language detection", () => {
+  it("picks the first supported language, region-insensitive", () => {
+    expect(detectLocale(["en-US"])).toBe("en");
+    expect(detectLocale(["de-AT", "en"])).toBe("de");
+    expect(detectLocale(["EN-GB"])).toBe("en");
+  });
+
+  it("skips unsupported languages to the first one we ship", () => {
+    expect(detectLocale(["fr-FR", "es", "en-US"])).toBe("en");
+  });
+
+  it("falls back to the A24 default when nothing matches or the list is empty", () => {
+    expect(detectLocale(["fr", "ja"])).toBe(DEFAULT_LOCALE);
+    expect(detectLocale([])).toBe(DEFAULT_LOCALE);
   });
 });

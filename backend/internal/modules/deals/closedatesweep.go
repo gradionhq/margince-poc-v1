@@ -29,6 +29,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -358,19 +359,23 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
 		// The candidate scan and this write are separate transactions:
 		// a deal closed or archived in between must not be re-dated.
-		var status string
-		err := tx.QueryRow(ctx,
-			`SELECT status FROM deal WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
-			cand.id).Scan(&status)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "open") {
+		lock, err := storekit.LockRow(ctx, tx, "deal", cand.id, storekit.LiveOnly)
+		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		var status string
+		if err := tx.QueryRow(ctx, `SELECT status FROM deal WHERE id = $1`, cand.id).Scan(&status); err != nil {
+			return err
+		}
+		if status != "open" {
+			return nil
+		}
 		patch := storekit.NewPatch()
 		build(patch)
-		if err := patch.Apply(ctx, tx, "deal", cand.id, nil); err != nil {
+		if err := patch.ApplyLocked(ctx, tx, lock); err != nil {
 			return fmt.Errorf("apply %s patch: %w", correction, err)
 		}
 		if err := tx.QueryRow(ctx, `SELECT version FROM deal WHERE id = $1`, cand.id).Scan(&version); err != nil {

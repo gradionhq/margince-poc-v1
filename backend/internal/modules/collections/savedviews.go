@@ -237,7 +237,7 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.UUID, in UpdateSaved
 			out = current
 			return nil
 		}
-		if err := p.Apply(ctx, tx, "saved_view", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "saved_view", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply saved_view patch: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "saved_view", id, p.Before(), p.After()); err != nil {

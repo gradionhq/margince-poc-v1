@@ -321,7 +321,7 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 // audit row, and organization.updated event in the one transaction — and
 // returns the reloaded survivor.
 func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, ifVersion *int64, p *storekit.Patch) (crmcontracts.Organization, error) {
-	if err := p.Apply(ctx, tx, "organization", id, ifVersion); err != nil {
+	if err := p.ApplyGuarded(ctx, tx, "organization", id, ifVersion); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("apply organization patch: %w", err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "update", "organization", id, p.Before(), p.After())

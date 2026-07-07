@@ -112,7 +112,7 @@ func (s *Store) UpdateProduct(ctx context.Context, id ids.UUID, in UpdateProduct
 			out = current
 			return nil
 		}
-		if err := p.Apply(ctx, tx, "product", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "product", id, in.IfVersion); err != nil {
 			if storekit.IsUniqueViolation(err) {
 				return fmt.Errorf("sku already in use by a live product: %w", apperrors.ErrConflict)
 			}

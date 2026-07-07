@@ -39,9 +39,14 @@ import (
 //   - a partner edge BETWEEN A and B can survive on neither (an org
 //     cannot partner with itself): it archives.
 //
-// Consent merges restrictively: a merge may only ever REDUCE what the
-// workspace is allowed to do with the surviving person, never expand it —
-// A's withdrawal propagates to B; A's grant does not.
+// Consent merges restrictively where the two records disagree: A's
+// withdrawal propagates to B (with an appended proof event — a state
+// change without proof would break the Art. 7(1) invariant), and where
+// B already holds a row for a purpose, B's state stands — A's grant
+// never overrides it. For purposes B has NO row for, A's rows travel to
+// B together with their original proof chain: a merge asserts the two
+// records are the same human, so a consent that human granted remains
+// proven (the same carry-through the lead→person promotion does).
 
 // MergeSelfError maps to 422: a record cannot merge into itself.
 type MergeSelfError struct{}
@@ -94,10 +99,17 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 	return out, err
 }
 
-// mergePersonTx resolves both ends, relinks every reference, fills the
-// survivor's gaps, retires the source, and runs the write shape — all
-// inside the caller's transaction.
+// mergePersonTx locks both ends, resolves them, relinks every
+// reference, fills the survivor's gaps, retires the source, and runs
+// the write shape — all inside the caller's transaction. The pair lock
+// is what makes the target check hold until commit: without it a
+// concurrent merge(target→elsewhere) could archive the survivor
+// mid-merge, leaving relinked children pointing at a dead record.
 func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
+	_, tgtLock, err := storekit.LockPair(ctx, tx, "person", sourceID, targetID)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	src, tgt, err := mergePair(ctx, tx, "person", sourceID, targetID, readPersonMergeState)
 	if err != nil {
 		return crmcontracts.Person{}, err
@@ -108,7 +120,7 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 	}
 	p := buildSurvivorshipPatch(tgt, src)
 	if !p.Empty() {
-		if err := p.Apply(ctx, tx, "person", targetID, nil); err != nil {
+		if err := p.ApplyLocked(ctx, tx, tgtLock); err != nil {
 			return crmcontracts.Person{}, fmt.Errorf("apply survivorship fill: %w", err)
 		}
 	}
@@ -331,19 +343,32 @@ func relinkLinkRows(ctx context.Context, tx pgx.Tx, entityType string, sourceID,
 	return relinked, nil
 }
 
-// mergeConsent applies the restrictive rule: the survivor's consent may
-// only tighten. A's withdrawal overrides B's state; A's grant never
-// upgrades B (expanding contact rights must come from a captured consent
-// event, not a data-hygiene action). The append-only proof log relinks
-// in full, so the evidence trail survives on the one person.
+// mergeConsent applies the merge rule the package comment states:
+// where both records hold a row, B's state stands unless A withdrew —
+// a withdrawal always wins and, like every consent state change, lands
+// with an appended consent_event proof row in the same statement; A's
+// remaining rows (purposes B has no state for) relink to B with their
+// original proof chain intact.
 func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) error {
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE person_consent b SET state = 'withdrawn'
-		FROM person_consent a
-		WHERE a.person_id = $1 AND b.person_id = $2
-		  AND a.purpose_id = b.purpose_id
-		  AND a.state = 'withdrawn' AND b.state <> 'withdrawn'`,
-		sourceID, targetID); err != nil {
+		WITH flipped AS (
+		  UPDATE person_consent b SET state = 'withdrawn', captured_at = $3, source = 'merge'
+		  FROM person_consent a
+		  WHERE a.person_id = $1 AND b.person_id = $2
+		    AND a.purpose_id = b.purpose_id
+		    AND a.state = 'withdrawn' AND b.state <> 'withdrawn'
+		  RETURNING b.purpose_id
+		)
+		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, source,
+		                           policy_text, policy_version, captured_at, captured_by)
+		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, purpose_id, 'withdrawn', 'merge',
+		       'withdrawal carried over from a merged duplicate record', 'merge', $3, $4
+		FROM flipped`,
+		sourceID, targetID, time.Now().UTC(), by); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -359,7 +384,7 @@ func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) e
 		sourceID, targetID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`UPDATE consent_event SET person_id = $2 WHERE person_id = $1`,
 		sourceID, targetID)
 	return err

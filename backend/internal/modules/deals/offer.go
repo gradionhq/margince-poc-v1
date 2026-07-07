@@ -381,12 +381,18 @@ func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit
 // visibleOfferLocked is the MUTATION spelling of visibleOffer: it takes
 // the offer's row lock before the status/visibility reads, so two
 // concurrent editors — or an edit racing a send — linearize and the
-// stored totals can never miss a committed line.
-func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM offer WHERE id = $1 FOR UPDATE`, id); err != nil {
-		return crmcontracts.Offer{}, fmt.Errorf("lock offer for mutation: %w", err)
+// stored totals can never miss a committed line. The returned witness
+// lets the caller patch under the held lock (storekit.ApplyLocked).
+func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, storekit.RowLock, error) {
+	lock, err := storekit.LockRow(ctx, tx, "offer", id, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Offer{}, storekit.RowLock{}, err
 	}
-	return visibleOffer(ctx, tx, id, archived)
+	offer, err := visibleOffer(ctx, tx, id, archived)
+	if err != nil {
+		return crmcontracts.Offer{}, storekit.RowLock{}, err
+	}
+	return offer, lock, nil
 }
 
 // ensureDraft gates every offer/line edit: mutable only while draft.
@@ -412,7 +418,7 @@ func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInpu
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -443,7 +449,7 @@ func (s *Store) UpdateOffer(ctx context.Context, id ids.UUID, in UpdateOfferInpu
 			out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly)
 			return err
 		}
-		if err := p.Apply(ctx, tx, "offer", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply offer patch: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "offer", id, p.Before(), p.After()); err != nil {
@@ -463,7 +469,7 @@ func (s *Store) ArchiveOffer(ctx context.Context, id ids.UUID) (crmcontracts.Off
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if _, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -488,7 +494,7 @@ func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.UUID, in Offer
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -529,7 +535,7 @@ func (s *Store) UpdateOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -637,7 +643,7 @@ func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID, lineID ids.UUI
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}

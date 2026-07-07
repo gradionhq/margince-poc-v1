@@ -45,7 +45,7 @@ func (s *Store) SendOffer(ctx context.Context, id ids.UUID, ifVersion *int64) (c
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -76,7 +76,7 @@ func (s *Store) SendOffer(ctx context.Context, id ids.UUID, ifVersion *int64) (c
 		p.Set("fx_rate_date", current.FxRateDate, rateDate)
 		p.Set("buyer_snapshot", nil, storekit.JSONArg(buyer))
 		p.Set("issuer_snapshot", nil, storekit.JSONArg(issuer))
-		if err := p.Apply(ctx, tx, "offer", id, ifVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id, ifVersion); err != nil {
 			return fmt.Errorf("apply send transition: %w", err)
 		}
 
@@ -142,7 +142,7 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) 
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -154,7 +154,7 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) 
 		p := storekit.NewPatch()
 		p.Set("status", current.Status, "accepted")
 		p.Set("accepted_at", nil, now)
-		if err := p.Apply(ctx, tx, "offer", id, ifVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id, ifVersion); err != nil {
 			return fmt.Errorf("apply accept transition: %w", err)
 		}
 
@@ -195,6 +195,12 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) 
 // deal_closed_fx / corrupt the frozen base-currency roll-up — the same
 // invariant applyMoneyInvariants enforces on direct deal edits.
 func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.UUID, offer crmcontracts.Offer) error {
+	// The row lock makes the status read and the amount write below one
+	// race-free unit. IncludeArchived preserves the read below, which
+	// follows the deal row regardless of archived state.
+	if _, err := storekit.LockRow(ctx, tx, "deal", dealID, storekit.IncludeArchived); err != nil {
+		return fmt.Errorf("lock deal for amount sync: %w", err)
+	}
 	var status string
 	var closedAt *time.Time
 	if err := tx.QueryRow(ctx,
@@ -230,7 +236,7 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, if
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
+		current, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -240,7 +246,7 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, if
 
 		p := storekit.NewPatch()
 		p.Set("status", current.Status, "rejected")
-		if err := p.Apply(ctx, tx, "offer", id, ifVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "offer", id, ifVersion); err != nil {
 			return fmt.Errorf("apply reject transition: %w", err)
 		}
 		after := p.After()
@@ -288,7 +294,7 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.UUID) (crmcontracts.
 	var out crmcontracts.Offer
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		wsID := storekit.MustWorkspace(ctx)
-		current, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
+		current, lock, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -335,7 +341,7 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.UUID) (crmcontracts.
 
 		supersede := storekit.NewPatch()
 		supersede.Set("status", current.Status, "superseded")
-		if err := supersede.Apply(ctx, tx, "offer", id, nil); err != nil {
+		if err := supersede.ApplyLocked(ctx, tx, lock); err != nil {
 			return fmt.Errorf("mark prior revision superseded: %w", err)
 		}
 

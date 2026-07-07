@@ -255,6 +255,11 @@ func (s *VoiceStore) UpdateProfile(ctx context.Context, id ids.UUID, personality
 	}
 	var p VoiceProfile
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// The row lock makes the state read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "voice_profile", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		before, err := s.visibleProfile(ctx, tx, id)
 		if err != nil {
 			return err
@@ -299,6 +304,11 @@ func (s *VoiceStore) SetDerivedProfile(ctx context.Context, id ids.UUID, voicePr
 	}
 	var p VoiceProfile
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// The row lock makes the state read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "voice_profile", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		before, err := s.visibleProfile(ctx, tx, id)
 		if err != nil {
 			return err

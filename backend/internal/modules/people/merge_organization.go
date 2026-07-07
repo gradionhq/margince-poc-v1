@@ -36,6 +36,13 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The pair lock keeps BOTH endpoints held to commit: without it a
+		// concurrent merge(target→elsewhere) archives the survivor
+		// mid-merge and the relinked children point at a dead record.
+		_, tgtLock, err := storekit.LockPair(ctx, tx, "organization", sourceID, targetID)
+		if err != nil {
+			return err
+		}
 		src, tgt, err := mergePair(ctx, tx, "organization", sourceID, targetID, readOrgMergeState)
 		if err != nil {
 			return err
@@ -44,7 +51,7 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.UU
 		if err != nil {
 			return err
 		}
-		filled, err := fillOrgSurvivorship(ctx, tx, src, tgt, targetIsPartner, targetID)
+		filled, err := fillOrgSurvivorship(ctx, tx, src, tgt, targetIsPartner, tgtLock)
 		if err != nil {
 			return err
 		}
@@ -81,7 +88,7 @@ func relinkOrgAssociations(ctx context.Context, tx pgx.Tx, sourceID, targetID id
 // extension, flips its classification to 'partner' (the A41 invariant:
 // classification='partner' iff a partner row exists). It returns the
 // applied after-image for the merge audit.
-func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, targetID ids.UUID) (map[string]any, error) {
+func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, tgtLock storekit.RowLock) (map[string]any, error) {
 	p := storekit.NewPatch()
 	fillString(p, "legal_name", tgt.LegalName, src.LegalName)
 	fillString(p, "industry", tgt.Industry, src.Industry)
@@ -89,7 +96,7 @@ func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.O
 		p.Set("classification", tgt.Classification, "partner")
 	}
 	if !p.Empty() {
-		if err := p.Apply(ctx, tx, "organization", targetID, nil); err != nil {
+		if err := p.ApplyLocked(ctx, tx, tgtLock); err != nil {
 			return nil, fmt.Errorf("apply survivorship fill: %w", err)
 		}
 	}

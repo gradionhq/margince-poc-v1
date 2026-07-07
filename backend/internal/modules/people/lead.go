@@ -328,7 +328,7 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.UUID, in Upd
 	if p.Empty() {
 		return current, nil
 	}
-	if err := p.Apply(ctx, tx, "lead", id, in.IfVersion); err != nil {
+	if err := p.ApplyGuarded(ctx, tx, "lead", id, in.IfVersion); err != nil {
 		if mapped, ok := leadUniqueViolation(err, in.Email); ok {
 			return crmcontracts.Lead{}, mapped
 		}
@@ -464,6 +464,11 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.UUID) (crmcontracts.L
 	var out crmcontracts.Lead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "lead", id); err != nil {
+			return err
+		}
+		// The row lock makes the status read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "lead", id, storekit.LiveOnly); err != nil {
 			return err
 		}
 		current, err := readLead(ctx, tx, id, storekit.LiveOnly)

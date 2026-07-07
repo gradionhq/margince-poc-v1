@@ -88,6 +88,18 @@ func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string)
 // record_grant CHECK is the schema-side twin of this set).
 var shareableTables = map[string]bool{"person": true, "organization": true, "deal": true, "lead": true}
 
+// ownerScopedTables is the closed set of table names the row-scope
+// primitives interpolate into SQL — exactly the tables carrying an
+// owner_id column. Several callers pass a table name derived from
+// client input (link entity types, grant record types, search anchors);
+// they allowlist at their own seam, but the primitive rejects unknown
+// names itself so a new caller that forwards an unvalidated string is
+// an error, never an injection.
+var ownerScopedTables = map[string]bool{
+	"person": true, "organization": true, "deal": true, "lead": true,
+	"list": true, "saved_view": true, "automation": true, "voice_profile": true,
+}
+
 // VisiblePredicate is the FULL row-visibility test for one table: the
 // own/team owner predicate OR a live manual grant to the caller or one
 // of their teams (write satisfies read). This — not OwnerPredicate — is
@@ -140,6 +152,9 @@ func ScopeClause(ctx context.Context, arg func(any) int) (string, error) {
 // live record grant) for one named table with an alias — the spelling
 // every list/search/report path over a shareable table uses.
 func ScopeClauseFor(ctx context.Context, table, alias string, arg func(any) int) (string, error) {
+	if !ownerScopedTables[table] {
+		return "", fmt.Errorf("auth: %q is not a row-scoped table", table)
+	}
 	p, err := rbacActor(ctx)
 	if err != nil {
 		return "", err

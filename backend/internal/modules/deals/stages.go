@@ -38,6 +38,11 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipeli
 	}
 	var out crmcontracts.Pipeline
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The row lock makes the version read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "pipeline", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		var version int64
 		err := tx.QueryRow(ctx, `SELECT version FROM pipeline WHERE id = $1 AND archived_at IS NULL`, id).Scan(&version)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -223,6 +228,11 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 	}
 	var out crmcontracts.Stage
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The row lock makes the version read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "stage", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		var version int64
 		var pipelineID ids.UUID
 		err := tx.QueryRow(ctx,

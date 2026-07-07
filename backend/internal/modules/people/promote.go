@@ -70,6 +70,14 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 	var person crmcontracts.Person
 	merged := false
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// The lead lock comes BEFORE the promotability read: two
+		// concurrent promotes of one lead must serialize here, so the
+		// loser re-reads status=promoted and answers 409 instead of
+		// minting a second person. IncludeArchived keeps the re-promote
+		// 409-with-pointer diagnostic reachable.
+		if _, err := storekit.LockRow(ctx, tx, "lead", id, storekit.IncludeArchived); err != nil {
+			return err
+		}
 		lead, err := promotableLead(ctx, tx, id, in)
 		if err != nil {
 			return err
@@ -81,11 +89,18 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		}
 
 		now := time.Now().UTC()
-		if _, err := tx.Exec(ctx,
+		tag, err := tx.Exec(ctx,
 			`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
 			 WHERE id = $1 AND archived_at IS NULL`,
-			id, personID, now); err != nil {
+			id, personID, now)
+		if err != nil {
 			return fmt.Errorf("mark lead promoted: %w", err)
+		}
+		if tag.RowsAffected() != 1 {
+			// Under the row lock only this transaction can retire the
+			// lead; a zero-row update means the guards above are broken.
+			// Failing loudly keeps the phantom person and its events out.
+			return apperrors.ErrConflict
 		}
 
 		outcome := "created"
@@ -228,6 +243,10 @@ func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.
 // origin pointer and any identity the lead has that the person lacks
 // (fill-only — a promotion never overwrites human-curated contact data).
 func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, personID ids.UUID) error {
+	lock, err := storekit.LockRow(ctx, tx, "person", personID, storekit.LiveOnly)
+	if err != nil {
+		return fmt.Errorf("lock merge-target person: %w", err)
+	}
 	current, err := readPerson(ctx, tx, personID, storekit.LiveOnly)
 	if err != nil {
 		return fmt.Errorf("read merge-target person: %w", err)
@@ -242,7 +261,7 @@ func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcont
 	if p.Empty() {
 		return nil
 	}
-	return p.Apply(ctx, tx, "person", personID, nil)
+	return p.ApplyLocked(ctx, tx, lock)
 }
 
 // uuidPtrToIDs converts the contract's optional UUID back to the kernel

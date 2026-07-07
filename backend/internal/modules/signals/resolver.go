@@ -133,6 +133,12 @@ func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Princi
 	if err := auth.EnsureSignalVisible(ctx, tx, signalID); err != nil {
 		return crmcontracts.Signal{}, err
 	}
+	// The row lock makes the terminal-state pre-read and the resolution
+	// stamp one race-free unit: two concurrent resolves (or a resolve
+	// racing a triage edit) cannot both pass the state guard.
+	if _, err := storekit.LockRow(ctx, tx, "signal", signalID, storekit.LiveOnly); err != nil {
+		return crmcontracts.Signal{}, err
+	}
 	sig, err := readSignal(ctx, tx, signalID, storekit.LiveOnly)
 	if err != nil {
 		return crmcontracts.Signal{}, err

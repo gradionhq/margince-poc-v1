@@ -40,6 +40,12 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	// The money pair holds from birth (data-model §6): a deal with an
+	// amount and no currency would silently skip the FX freeze at close
+	// and trip the deal_closed_fx CHECK far from the cause.
+	if (in.AmountMinor == nil) != (in.Currency == nil) {
+		return crmcontracts.Deal{}, &AmountCurrencyPairError{}
+	}
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
@@ -169,7 +175,7 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.UUID, in UpdateDealInput)
 			return err
 		}
 
-		if err := p.Apply(ctx, tx, "deal", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "deal", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply deal patch: %w", err)
 		}
 		if err := recordDealUpdate(ctx, tx, id, current, in, p); err != nil {

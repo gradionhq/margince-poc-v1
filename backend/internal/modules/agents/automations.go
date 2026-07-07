@@ -210,6 +210,11 @@ func (s *AutomationStore) Update(ctx context.Context, id ids.UUID, in UpdateAuto
 	}
 	var a Automation
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// The row lock makes the state read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "automation", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		before, err := scanAutomation(tx.QueryRow(ctx, storekit.SQLf(
 			`SELECT %s FROM automation WHERE id = $1 AND archived_at IS NULL`, automationColumns), id))
 		if errors.Is(err, pgx.ErrNoRows) {

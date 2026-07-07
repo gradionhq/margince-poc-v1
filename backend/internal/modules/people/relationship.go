@@ -324,6 +324,11 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 	}
 	var out relationshipRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The row lock makes the state read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "relationship", id, storekit.LiveOnly); err != nil {
+			return err
+		}
 		current, err := s.visibleRelationship(ctx, tx, id)
 		if err != nil {
 			return err

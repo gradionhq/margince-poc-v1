@@ -61,3 +61,18 @@ func (e *NotResolvableError) Error() string { return e.Reason }
 type NoWarmthError struct{ Reason string }
 
 func (e *NoWarmthError) Error() string { return e.Reason }
+
+// signalEntityTables is the store-side spelling of the schema's
+// signal_entity_type CHECK: a signal's subject is a deal, organization
+// or person. The client-supplied type flows on to a table-name seam
+// (the link-target probe), so the store pins the set itself instead of
+// leaning on transport enum validation alone.
+var signalEntityTables = map[string]bool{"deal": true, "organization": true, "person": true}
+
+// InvalidSignalEntityTypeError answers 422: the subject type is outside
+// the signal_entity_type set.
+type InvalidSignalEntityTypeError struct{ EntityType string }
+
+func (e *InvalidSignalEntityTypeError) Error() string {
+	return "entity_type " + e.EntityType + " is not one of deal, organization, person"
+}

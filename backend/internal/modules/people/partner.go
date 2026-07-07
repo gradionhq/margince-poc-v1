@@ -78,6 +78,12 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID); err != nil {
 			return err
 		}
+		// The row lock makes the version pre-read and the upsert below one
+		// race-free unit; partner is keyed by its organization, so the org
+		// row is the serialization point.
+		if _, err := storekit.LockRow(ctx, tx, "organization", in.OrganizationID, storekit.LiveOnly); err != nil {
+			return err
+		}
 		if in.IfVersion != nil {
 			var current int64
 			err := tx.QueryRow(ctx,

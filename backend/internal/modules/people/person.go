@@ -304,7 +304,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 			return nil
 		}
 
-		if err := p.Apply(ctx, tx, "person", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "person", id, in.IfVersion); err != nil {
 			return fmt.Errorf("apply person patch: %w", err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "person", id, p.Before(), p.After())
