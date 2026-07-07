@@ -327,7 +327,11 @@ export const de = {
   "ob.s2.kick": "Schritt 2 von 5",
   "ob.s2.title": "Haben wir's richtig verstanden?",
   "ob.s2.sub":
-    "Korrigier unten, was nicht stimmt — Änderungen speichern wir als von dir eingetragen. Wer bei dir kauft, haben wir leer gelassen statt zu raten — sag's uns.",
+    "Korrigier unten, was nicht stimmt — mit Weiter wird das hier als von dir bestätigt in deinem Workspace gespeichert. Wer bei dir kauft, haben wir leer gelassen statt zu raten — sag's uns.",
+  "ob.s2.saving": "Wird gespeichert…",
+  "ob.s2.saveFailed": "Dein Profil konnte nicht gespeichert werden",
+  "ob.s2.savedNote":
+    "In deinem Workspace gespeichert. Spätere Änderungen machst du auf deiner Firmenseite — dieser Schritt speichert nicht erneut.",
   "ob.s2.buyerLabel": "Wer kauft das?",
   "ob.s2.buyerHint": "das konnten wir nicht lesen — jetzt du",
   "ob.s2.buyerPlaceholder":
@@ -406,7 +410,9 @@ export const de = {
     "Dein Workspace kennt schon dein Geschäft und deine Stimme. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
   "ob.s4.cardProfile": "Geschäftsprofil",
   "ob.s4.cardProfileBody":
-    "ICP, Nutzenversprechen & USP von deiner Seite erfasst — jeweils mit Quelle.",
+    "Was wir von deiner Seite gelesen haben, ist bestätigt und auf deiner Firmenseite gespeichert — jedes Feld mit Quelle.",
+  "ob.s4.cardProfileSkippedBody":
+    "Von deiner Seite gelesen, aber noch nicht gespeichert — du hast den Bestätigen-Schritt übersprungen. Geh zurück und bestätige, dann landet es auf deiner Firmenseite.",
   "ob.s4.cardVoice": "Deine Schreibstimme",
   "ob.s4.cardVoiceBody":
     "Gebaut aus dem Korpus, den du uns gerade gegeben hast. Entwürfe klingen ab Tag eins nach dir.",

@@ -5,6 +5,37 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## Frontend session (2026-07-07 PM — onboarding confirm now writes)
+
+Closed the honesty gap in the onboarding funnel
+([frontend/src/screens/onboarding.tsx](frontend/src/screens/onboarding.tsx)):
+step 2 ("Did we get it right?") used to collect edits into throwaway local
+state and advance without saving — the step-4 results card then *claimed* the
+profile was "captured" when nothing had been written. Now **Continue on the
+confirm step approves the staged cold-start proposal** (`POST
+/approvals/{id}/approve`), which is what actually puts the read-back onto the
+organization:
+
+- Confirm-step state (edits, buying-center, saved flag) hoisted into
+  `OnboardingScreen` so stepping back/forward no longer discards typed input;
+  a re-read resets it (new proposal id).
+- Edits/hand-typed buying center ride the ADR-0036 §4 modify-then-approve arm
+  (`edited_payload`); an untouched confirm approves as-staged (no payload). A
+  human-corrected value drops the site's `evidence_snippet` — it's the human's
+  assertion now, not the site's.
+- Single-use approval: a back-then-forward second Continue tolerates 409
+  (already-decided) and advances without re-saving; a real failure keeps you
+  on step 2 with the RFC 7807 detail surfaced.
+- Step-4 "Business profile" card now tells the truth when the confirm step was
+  skipped ("read back but not saved yet"), matching the existing voice-step
+  honesty pattern.
+- New i18n keys (en+de): `ob.s2.saving/saveFailed/savedNote`,
+  `ob.s4.cardProfileSkippedBody`. Three new tests in
+  [onboarding.test.tsx](frontend/src/screens/onboarding.test.tsx) pin the
+  approve call shape, the untouched-vs-edited branch, and the failure state.
+  `pnpm lint` + `pnpm test` (15) + `pnpm build` green; walked the live funnel
+  through Playwright against the real `/coldstart` read of gradion.com.
+
 ## ▶ RESTART HERE (2026-07-07 — Niraj architecture feedback implemented)
 
 The accepted Codex/Niraj architecture-readability review is implemented on

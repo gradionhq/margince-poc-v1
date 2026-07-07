@@ -72,7 +72,13 @@ type ColdField = {
   source_url: string;
   confidence: number;
 };
-type ColdStart = { fields: ColdField[] };
+// The staged proposal IS the approval row (ADR-0036), so proposal_id is what
+// the confirm step approves.
+type ColdStart = {
+  proposal_id: string;
+  source_url: string;
+  fields: ColdField[];
+};
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
 function normalizeUrl(raw: string): {
@@ -164,6 +170,11 @@ export function OnboardingScreen() {
   const [readData, setReadData] = useState<ColdStart | null>(null);
   const [host, setHost] = useState("");
   const [voiceBuilt, setVoiceBuilt] = useState(false);
+  // Confirm-step state lives HERE, not in the step component: stepping back
+  // and forward must not destroy what the user typed.
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [buyer, setBuyer] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
 
   const norm = useMemo(() => normalizeUrl(url), [url]);
   const company = host ? deriveName(host) : "";
@@ -181,9 +192,12 @@ export function OnboardingScreen() {
     onSuccess: (data) => {
       // Stay on step 1 and render the grounded read-back inline (evidence +
       // confidence per field) — the trust moment. Continue advances to the
-      // editable confirm. Scroll the read-back into view.
+      // editable confirm. Scroll the read-back into view. A re-read is a NEW
+      // proposal: edits and the saved flag belonged to the old one.
       setReadData(data);
       setHost(norm.host);
+      setEdits({});
+      setProfileSaved(false);
       globalThis.scrollTo({ top: 0, behavior: "smooth" });
     },
   });
@@ -195,6 +209,70 @@ export function OnboardingScreen() {
     setStep(next);
     globalThis.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // Continue on the confirm step APPROVES the staged proposal — the write
+  // that puts the read-back (plus the user's corrections and the hand-typed
+  // buying center) onto the organization. An edit rides the ADR-0036 §4
+  // modify-then-approve arm; untouched fields approve as staged. The
+  // approval is single-use, so a back-and-forth second Continue (409
+  // already-decided) advances without pretending to re-save.
+  const save = useMutation({
+    mutationFn: async (): Promise<boolean> => {
+      if (!readData || profileSaved) {
+        return profileSaved;
+      }
+      const editedAny = readData.fields.some(
+        (f) => f.field in edits && edits[f.field] !== f.value,
+      );
+      const addedBuyer = buyer.trim() !== "";
+      const fields: ColdField[] = readData.fields.map((f) =>
+        f.field in edits && edits[f.field] !== f.value
+          ? // A human-corrected value is the human's assertion — it no longer
+            // claims the site's snippet as its evidence.
+            {
+              field: f.field,
+              value: edits[f.field],
+              evidence_snippet: "",
+              source_url: "",
+              confidence: 1,
+            }
+          : f,
+      );
+      if (addedBuyer) {
+        fields.push({
+          field: "buying_center",
+          value: buyer.trim(),
+          evidence_snippet: "",
+          source_url: "",
+          confidence: 1,
+        });
+      }
+      const { error, response } = await api.POST("/approvals/{id}/approve", {
+        params: { path: { id: readData.proposal_id } },
+        body:
+          editedAny || addedBuyer
+            ? {
+                edited_payload: {
+                  source_url: readData.source_url,
+                  fields,
+                },
+              }
+            : {},
+      });
+      if (error) {
+        if (response.status === 409) {
+          // Already decided (a back-then-forward pass) — saved earlier.
+          return true;
+        }
+        throw new Error(problemMessage(error));
+      }
+      return true;
+    },
+    onSuccess: (saved) => {
+      setProfileSaved(saved);
+      go(2);
+    },
+  });
 
   return (
     <div className="ob-page">
@@ -245,16 +323,36 @@ export function OnboardingScreen() {
             onManual={() => go(1)}
           />
         )}
-        {step === 1 && <ConfirmStep readData={readData} />}
+        {step === 1 && (
+          <ConfirmStep
+            readData={readData}
+            edits={edits}
+            setEdits={setEdits}
+            buyer={buyer}
+            setBuyer={setBuyer}
+            saved={profileSaved}
+            saveError={save.isError ? save.error.message : null}
+          />
+        )}
         {step === 2 && (
           <VoiceStep company={company} onBuilt={() => setVoiceBuilt(true)} />
         )}
         {step === 3 && (
-          <ResultsStep company={company} voiceBuilt={voiceBuilt} />
+          <ResultsStep
+            company={company}
+            voiceBuilt={voiceBuilt}
+            profileSaved={profileSaved}
+          />
         )}
         {step === 4 && <ConnectStep />}
 
-        <Footer step={step} canContinue={readData !== null} go={go} />
+        <Footer
+          step={step}
+          canContinue={readData !== null}
+          go={go}
+          onConfirm={() => save.mutate()}
+          confirmPending={save.isPending}
+        />
       </div>
     </div>
   );
@@ -266,10 +364,14 @@ function Footer({
   step,
   canContinue,
   go,
+  onConfirm,
+  confirmPending,
 }: Readonly<{
   step: number;
   canContinue: boolean;
   go: (n: number) => void;
+  onConfirm: () => void;
+  confirmPending: boolean;
 }>) {
   const t = useT();
   return (
@@ -287,7 +389,33 @@ function Footer({
           {t("ob.next")} <ArrowRight aria-hidden />
         </Button>
       )}
-      {(step === 1 || step === 2) && (
+      {step === 1 && (
+        <>
+          <button
+            type="button"
+            className="wiz-later"
+            onClick={() => go(step + 1)}
+          >
+            {t("ob.skipStep")}
+          </button>
+          <Button
+            variant="primary"
+            disabled={confirmPending}
+            onClick={onConfirm}
+          >
+            {confirmPending ? (
+              <>
+                <span className="ob-spinner" /> {t("ob.s2.saving")}
+              </>
+            ) : (
+              <>
+                {t("ob.next")} <ArrowRight aria-hidden />
+              </>
+            )}
+          </Button>
+        </>
+      )}
+      {step === 2 && (
         <>
           <button
             type="button"
@@ -506,15 +634,53 @@ function ReadFailure({
 
 // ---- step 2: confirm -------------------------------------------------------
 
-function ConfirmStep({ readData }: Readonly<{ readData: ColdStart | null }>) {
+function ConfirmStep({
+  readData,
+  edits,
+  setEdits,
+  buyer,
+  setBuyer,
+  saved,
+  saveError,
+}: Readonly<{
+  readData: ColdStart | null;
+  edits: Record<string, string>;
+  setEdits: (
+    up: (prev: Record<string, string>) => Record<string, string>,
+  ) => void;
+  buyer: string;
+  setBuyer: (v: string) => void;
+  saved: boolean;
+  saveError: string | null;
+}>) {
   const t = useT();
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const [buyer, setBuyer] = useState("");
   return (
     <section className="ob-panel">
       <div className="kick">{t("ob.s2.kick")}</div>
       <h1 className="ttl">{t("ob.s2.title")}</h1>
       <p className="ob-sub">{t("ob.s2.sub")}</p>
+
+      {saved && (
+        <p className="ob-sub" style={{ marginBottom: 12 }}>
+          <CheckCircle2
+            aria-hidden
+            style={{ width: 14, height: 14, verticalAlign: "-2px" }}
+          />{" "}
+          {t("ob.s2.savedNote")}
+        </p>
+      )}
+
+      {saveError && (
+        <div className="readfail warn" style={{ marginBottom: 14 }}>
+          <span className="rfi">
+            <Circle aria-hidden />
+          </span>
+          <div>
+            <div className="rft">{t("ob.s2.saveFailed")}</div>
+            <p className="rfp">{saveError}</p>
+          </div>
+        </div>
+      )}
 
       {readData && readData.fields.length > 0 ? (
         <>
@@ -969,13 +1135,20 @@ function VoiceStep({
 function ResultsStep({
   company,
   voiceBuilt,
-}: Readonly<{ company: string; voiceBuilt: boolean }>) {
+  profileSaved,
+}: Readonly<{ company: string; voiceBuilt: boolean; profileSaved: boolean }>) {
   const t = useT();
   // The cards tell the truth about what the funnel actually did: a skipped
   // voice step gets the honest "starter voice" card, not a claim that drafts
-  // already sound like the user.
+  // already sound like the user — and a profile that was never confirmed is
+  // named unsaved, not claimed as captured.
   const cards: { title: MessageKey; body: MessageKey }[] = [
-    { title: "ob.s4.cardProfile", body: "ob.s4.cardProfileBody" },
+    {
+      title: "ob.s4.cardProfile",
+      body: profileSaved
+        ? "ob.s4.cardProfileBody"
+        : "ob.s4.cardProfileSkippedBody",
+    },
     {
       title: "ob.s4.cardVoice",
       body: voiceBuilt ? "ob.s4.cardVoiceBody" : "ob.s4.cardVoiceSkippedBody",

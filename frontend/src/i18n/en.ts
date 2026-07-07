@@ -320,7 +320,11 @@ export const en = {
   "ob.s2.kick": "Step 2 of 5",
   "ob.s2.title": "Did we get it right?",
   "ob.s2.sub":
-    "Fix anything below — edits are saved as typed by you. We left buying-center blank rather than guess, so tell us who you sell to.",
+    "Fix anything below — when you continue, this is saved to your workspace as confirmed by you. We left buying-center blank rather than guess, so tell us who you sell to.",
+  "ob.s2.saving": "Saving…",
+  "ob.s2.saveFailed": "Couldn't save your profile",
+  "ob.s2.savedNote":
+    "Saved to your workspace. Later changes live on your company page — this step won't re-save.",
   "ob.s2.buyerLabel": "Who buys this?",
   "ob.s2.buyerHint": "we couldn't read this — your turn",
   "ob.s2.buyerPlaceholder": "e.g. Head of Operations, Plant Manager, VP Sales",
@@ -396,7 +400,9 @@ export const en = {
     "Your workspace already knows your business and your voice. Connect your inbox next and it fills itself with your real people, companies, and deals.",
   "ob.s4.cardProfile": "Business profile",
   "ob.s4.cardProfileBody":
-    "ICP, value proposition & USP captured from your site — each with its source.",
+    "What we read from your site is confirmed and saved to your company page — each field with its source.",
+  "ob.s4.cardProfileSkippedBody":
+    "Read back from your site but not saved yet — you skipped the confirm step. Go back and confirm to put it on your company page.",
   "ob.s4.cardVoice": "Your writing voice",
   "ob.s4.cardVoiceBody":
     "Built from the corpus you just gave us. Drafts will sound like you from day one.",
