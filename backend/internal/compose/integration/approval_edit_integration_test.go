@@ -31,7 +31,7 @@ func TestModifyThenApproveRebindsTheAuthority(t *testing.T) {
 
 	var effectPayload json.RawMessage
 	var effectHash string
-	svc.WithEffect("advance_deal", func(_ context.Context, _ ids.UUID, change json.RawMessage, hash string) error {
+	svc.WithEffect("advance_deal", func(_ context.Context, _ ids.ApprovalID, change json.RawMessage, hash string) error {
 		effectPayload, effectHash = change, hash
 		return nil
 	})

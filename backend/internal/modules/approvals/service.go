@@ -54,7 +54,7 @@ type Service struct {
 }
 
 // ApprovedEffect executes what an approved staging of its kind proposed.
-type ApprovedEffect func(ctx context.Context, approvalID ids.UUID, proposedChange json.RawMessage, diffHash string) error
+type ApprovedEffect func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool, now: time.Now, effects: map[string]ApprovedEffect{}}
@@ -71,10 +71,13 @@ type StageInput struct {
 	Kind           string // the tool name, e.g. advance_deal
 	ProposedChange json.RawMessage
 	DiffHash       string
-	TargetType     string
-	TargetID       ids.UUID
-	TargetVersion  *int64
-	Summary        string
+	// TargetType + TargetID are the polymorphic reference to the staged
+	// action's target (any entity kind); the id stays untyped because the
+	// pair is the discriminated reference, not one entity's typed id.
+	TargetType    string
+	TargetID      ids.UUID
+	TargetVersion *int64
+	Summary       string
 	// Announce is an optional kind-specific domain event (e.g.
 	// coldstart.read_back_proposed) emitted in the SAME transaction as
 	// approval.requested, linked to the same audit row.
@@ -90,14 +93,14 @@ type AnnouncedEvent struct {
 // Stage records a pending approval for the context's agent principal and
 // emits approval.requested. It runs in the write shape every mutation
 // uses: approval row + audit row + event in one transaction.
-func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
+func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, error) {
 	p, ok := principal.Actor(ctx)
 	if !ok {
-		return ids.Nil, errors.New("crmapprovals: no actor bound to context")
+		return ids.ApprovalID{}, errors.New("crmapprovals: no actor bound to context")
 	}
 	wsID, _ := principal.WorkspaceID(ctx)
 
-	id := ids.NewV7()
+	id := ids.New[ids.ApprovalKind]()
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO approval (id, workspace_id, kind, proposed_by, on_behalf_of, passport_id,
@@ -109,13 +112,13 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
 			nullStr(in.Summary), in.ProposedChange, in.DiffHash, stagingTTL.String()); err != nil {
 			return err
 		}
-		auditID, err := s.audit(ctx, tx, p, "create", id, map[string]any{
+		auditID, err := s.audit(ctx, tx, p, "create", id.UUID, map[string]any{
 			"kind": in.Kind, "summary": in.Summary, "diff_hash": in.DiffHash,
 		})
 		if err != nil {
 			return err
 		}
-		if err := s.emit(ctx, tx, p, auditID, "approval.requested", id, map[string]any{
+		if err := s.emit(ctx, tx, p, auditID, "approval.requested", id.UUID, map[string]any{
 			"kind":               in.Kind,
 			"summary":            in.Summary,
 			"target_entity_type": in.TargetType,
@@ -125,7 +128,7 @@ func (s *Service) Stage(ctx context.Context, in StageInput) (ids.UUID, error) {
 			return err
 		}
 		for _, announce := range in.Announce {
-			if err := s.emit(ctx, tx, p, auditID, announce.Type, id, announce.Payload); err != nil {
+			if err := s.emit(ctx, tx, p, auditID, announce.Type, id.UUID, announce.Payload); err != nil {
 				return err
 			}
 		}
@@ -187,7 +190,7 @@ func (e *InvalidEditError) Unwrap() error { return e.Cause }
 // rejection is a decision too, not a free action anyone holding a leaked
 // UUID may take. An undecidable approval reads as absent, exactly like
 // Get, so Decide never becomes the lookup oracle the inbox filter closed.
-func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason *string) (row, error) {
+func (s *Service) Decide(ctx context.Context, id ids.ApprovalID, approve bool, reason *string) (row, error) {
 	return s.decide(ctx, id, approve, reason, nil)
 }
 
@@ -200,14 +203,14 @@ func (s *Service) Decide(ctx context.Context, id ids.UUID, approve bool, reason 
 // agent redemption only fits the new hash if it re-presents the edited
 // call — which the gate re-tiers and re-admits like any other call. The
 // old hash, and any token bound to it, no longer opens anything.
-func (s *Service) DecideEdited(ctx context.Context, id ids.UUID, edited json.RawMessage) (row, error) {
+func (s *Service) DecideEdited(ctx context.Context, id ids.ApprovalID, edited json.RawMessage) (row, error) {
 	if len(edited) == 0 {
 		return row{}, &InvalidEditError{Cause: errors.New("empty payload")}
 	}
 	return s.decide(ctx, id, true, nil, edited)
 }
 
-func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason *string, edited json.RawMessage) (row, error) {
+func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, reason *string, edited json.RawMessage) (row, error) {
 	if err := humanOnly(ctx); err != nil {
 		return row{}, err
 	}
@@ -239,12 +242,12 @@ func (s *Service) decide(ctx context.Context, id ids.UUID, approve bool, reason 
 // modify-then-approve edit, the status write, and the write shape. It
 // returns the re-read row so the follow-on effect runs against committed
 // state.
-func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, id ids.UUID, approve bool, reason *string, edited json.RawMessage) (row, error) {
+func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Principal, id ids.ApprovalID, approve bool, reason *string, edited json.RawMessage) (row, error) {
 	// The row lock makes the pending pre-read and the status write below
 	// one race-free unit: two concurrent decisions cannot both pass the
 	// pending guard. Taken raw — the approval table has no archived_at,
 	// so storekit.LockRow's live filter does not apply here.
-	var locked ids.UUID
+	var locked ids.ApprovalID
 	if err := tx.QueryRow(ctx, `SELECT id FROM approval WHERE id = $1 FOR UPDATE`, id).Scan(&locked); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return row{}, apperrors.ErrNotFound
@@ -287,14 +290,14 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 		id, status, p.UserID, reason); err != nil {
 		return row{}, err
 	}
-	auditID, err := s.audit(ctx, tx, p, action, id, auditEvidence)
+	auditID, err := s.audit(ctx, tx, p, action, id.UUID, auditEvidence)
 	if err != nil {
 		return row{}, err
 	}
-	if err := s.emit(ctx, tx, p, auditID, "approval.decided", id, decidedPayload); err != nil {
+	if err := s.emit(ctx, tx, p, auditID, "approval.decided", id.UUID, decidedPayload); err != nil {
 		return row{}, err
 	}
-	if err := s.emitKindDecided(ctx, tx, p, auditID, id, a.Kind, approve); err != nil {
+	if err := s.emitKindDecided(ctx, tx, p, auditID, id.UUID, a.Kind, approve); err != nil {
 		return row{}, err
 	}
 	return get(ctx, tx, id)
@@ -306,7 +309,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 // — what the agent proposed, and what the human actually released. The
 // decided event carries the human's version, so a suspended agent run
 // resumes with THIS call; the original hash no longer opens anything.
-func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.UUID, edited json.RawMessage, a row, auditEvidence, decidedPayload map[string]any) error {
+func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edited json.RawMessage, a row, auditEvidence, decidedPayload map[string]any) error {
 	canonical, editedHash, hashErr := diffhash.Canonical(edited)
 	if hashErr != nil {
 		return &InvalidEditError{Cause: hashErr}
@@ -348,7 +351,7 @@ func (s *Service) emitKindDecided(ctx context.Context, tx pgx.Tx, p principal.Pr
 // for: same tool, same diff_hash, same passport, and the target row still
 // at the version the human saw. Single-use is enforced by the conditional
 // UPDATE — two racing redemptions cannot both pass.
-func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string) error {
+func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash string) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("crmapprovals: no actor bound to context")
@@ -378,7 +381,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 			// (human-only, decide-authority, pending→approved once), so an
 			// unbound, human-staged approval is theirs to consume below.
 			return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
-		case !p.PassportID.IsZero() && *a.PassportID != p.PassportID:
+		case !p.PassportID.IsZero() && *a.PassportID != ids.From[ids.PassportKind](p.PassportID):
 			// An agent may only redeem the passport that staged the approval.
 			return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
 		}
@@ -404,7 +407,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.UUID, tool, diffHash string
 		if tag.RowsAffected() != 1 {
 			return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
 		}
-		_, err = s.audit(ctx, tx, p, "update", id, map[string]any{"kind": a.Kind, "redeemed": true})
+		_, err = s.audit(ctx, tx, p, "update", id.UUID, map[string]any{"kind": a.Kind, "redeemed": true})
 		return err
 	})
 }

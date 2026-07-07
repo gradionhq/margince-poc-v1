@@ -88,7 +88,7 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	}
 }
 
-func stageFor(t *testing.T, svc *approvals.Service, e *Env, kind string, targetType string, target ids.UUID) ids.UUID {
+func stageFor(t *testing.T, svc *approvals.Service, e *Env, kind string, targetType string, target ids.UUID) ids.ApprovalID {
 	t.Helper()
 	id, err := svc.Stage(e.AgentCtx(), approvals.StageInput{
 		Kind: kind, ProposedChange: json.RawMessage(`{}`), DiffHash: "h-" + ids.NewV7().String(),

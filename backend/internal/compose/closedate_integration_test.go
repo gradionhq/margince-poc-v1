@@ -299,7 +299,7 @@ func TestCloseDateConfirmAppliesTheDateAndClearsProvisional(t *testing.T) {
 	if err := e.corrector.Sweep(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	var approvalID ids.UUID
+	var approvalID ids.ApprovalID
 	if err := e.owner.QueryRow(context.Background(),
 		`SELECT id FROM approval WHERE kind = 'close_date_correction' AND target_entity_id = $1 AND status = 'pending'`,
 		id).Scan(&approvalID); err != nil {

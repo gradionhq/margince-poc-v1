@@ -87,7 +87,7 @@ func (e *coldStartEngine) Propose(ctx context.Context, rawURL string) (crmcontra
 	}
 
 	now := time.Now().UTC()
-	proposal.ProposalId = openapi_types.UUID(approvalID)
+	proposal.ProposalId = openapi_types.UUID(approvalID.UUID)
 	proposal.CreatedAt = &now
 	return proposal, nil
 }

@@ -103,7 +103,7 @@ func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
 			`SELECT kind, status, coalesce(target_entity_type,''), coalesce(target_entity_id, $2)
-			 FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId), ids.Nil).Scan(&kind, &status, &targetType, &targetID); err != nil {
+			 FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), ids.Nil).Scan(&kind, &status, &targetType, &targetID); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
@@ -174,7 +174,7 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 
@@ -207,7 +207,7 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 
 	// Exactly-once: the approval is consumed and a re-decide is refused.
 	var already *approvals.AlreadyDecidedError
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); !errors.As(err, &already) {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); !errors.As(err, &already) {
 		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
 	}
 
@@ -216,7 +216,7 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal2.ProposalId), false, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal2.ProposalId)), false, nil); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	var rejectedRows int

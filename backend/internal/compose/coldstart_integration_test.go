@@ -63,7 +63,7 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	var eventCount int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
-			`SELECT kind, status FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId)).Scan(&kind, &status); err != nil {
+			`SELECT kind, status FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId))).Scan(&kind, &status); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
@@ -80,7 +80,7 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	// writes on acceptance) — the admin has it; the decision echoes
 	// coldstart.accepted.
 	svc := approvals.NewService(e.Pool)
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); err != nil {
 		t.Fatalf("accepting the proposal: %v", err)
 	}
 	var accepted int
@@ -158,7 +158,7 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 		t.Fatalf("gate kept %d fields, want 3", len(proposal.Fields))
 	}
 
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 
@@ -198,13 +198,13 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	var consumed bool
 	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId)).Scan(&consumed)
+			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId))).Scan(&consumed)
 	})
 	if err != nil || !consumed {
 		t.Fatalf("approval not redeemed by the effect (consumed=%v err=%v)", consumed, err)
 	}
 	var already *approvals.AlreadyDecidedError
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal.ProposalId), true, nil); !errors.As(err, &already) {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); !errors.As(err, &already) {
 		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
 	}
 
@@ -213,7 +213,7 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.UUID(proposal2.ProposalId), false, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal2.ProposalId)), false, nil); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {

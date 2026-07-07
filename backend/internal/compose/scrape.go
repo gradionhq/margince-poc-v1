@@ -104,7 +104,7 @@ func (e *scrapeEngine) Propose(ctx context.Context, orgID ids.UUID, override str
 	}
 
 	now := time.Now().UTC()
-	proposal.ProposalId = openapi_types.UUID(approvalID)
+	proposal.ProposalId = openapi_types.UUID(approvalID.UUID)
 	proposal.CreatedAt = &now
 	return proposal, nil
 }

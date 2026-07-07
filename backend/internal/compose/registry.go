@@ -88,7 +88,7 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 		// freshness falls back to the diff_hash identical-call binding.
 		targetVersion = nil
 	}
-	return a.svc.Stage(ctx, approvals.StageInput{
+	id, err := a.svc.Stage(ctx, approvals.StageInput{
 		Kind:           in.Tool,
 		ProposedChange: in.ProposedChange,
 		DiffHash:       in.DiffHash,
@@ -97,8 +97,9 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 		TargetVersion:  targetVersion,
 		Summary:        in.Summary,
 	})
+	return id.UUID, err
 }
 
 func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.UUID, tool, diffHash string) error {
-	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
+	return a.svc.Redeem(ctx, ids.From[ids.ApprovalKind](approvalID), tool, diffHash)
 }

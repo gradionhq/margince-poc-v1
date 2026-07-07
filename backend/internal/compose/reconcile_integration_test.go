@@ -119,9 +119,9 @@ func (e *reconcileEnv) pendingFollowUps(t *testing.T, dealID ids.UUID) int {
 	return n
 }
 
-func (e *reconcileEnv) followUpApproval(t *testing.T, dealID ids.UUID) (ids.UUID, deals.FollowUpProposal) {
+func (e *reconcileEnv) followUpApproval(t *testing.T, dealID ids.UUID) (ids.ApprovalID, deals.FollowUpProposal) {
 	t.Helper()
-	var id ids.UUID
+	var id ids.ApprovalID
 	var raw []byte
 	if err := e.owner.QueryRow(context.Background(),
 		`SELECT id, proposed_change FROM approval WHERE kind = 'deal_follow_up' AND target_entity_id = $1 AND status = 'pending'`,

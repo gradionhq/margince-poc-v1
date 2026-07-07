@@ -71,7 +71,7 @@ func NewCloseDateCorrector(pool *pgxpool.Pool, log *slog.Logger) *deals.CloseDat
 // runs as the deciding human: confirming the date IS their write, and
 // their update also clears the provisional flag.
 func closeDateConfirmEffect(svc *approvals.Service, store *deals.Store) approvals.ApprovedEffect {
-	return func(ctx context.Context, approvalID ids.UUID, proposedChange json.RawMessage, diffHash string) error {
+	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
 		if err := svc.Redeem(ctx, approvalID, deals.CloseDateCorrectionKind, diffHash); err != nil {
 			return err
 		}

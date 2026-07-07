@@ -26,7 +26,7 @@ import (
 
 // stageAdvance stages one advance_deal proposal and returns its id and
 // the diff hash a redemption must repeat.
-func stageAdvance(t *testing.T, svc *approvals.Service, e *Env, deal ids.UUID) (ids.UUID, string) {
+func stageAdvance(t *testing.T, svc *approvals.Service, e *Env, deal ids.UUID) (ids.ApprovalID, string) {
 	t.Helper()
 	diffHash := "h-" + ids.NewV7().String()
 	id, err := svc.Stage(e.AgentCtx(), approvals.StageInput{
@@ -90,7 +90,7 @@ func TestRedemptionWindowExpiresTheDecision(t *testing.T) {
 
 	staleID, staleHash := stageAdvance(t, svc, e, deal)
 	freshID, freshHash := stageAdvance(t, svc, e, deal)
-	for _, id := range []ids.UUID{staleID, freshID} {
+	for _, id := range []ids.ApprovalID{staleID, freshID} {
 		if _, err := svc.Decide(rep, id, true, nil); err != nil {
 			t.Fatalf("approve: %v", err)
 		}

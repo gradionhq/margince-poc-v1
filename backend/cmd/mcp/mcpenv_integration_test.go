@@ -259,20 +259,20 @@ func seededStages(t *testing.T, owner *pgx.Conn, wsID ids.UUID) (pipeline, openA
 
 var approvalIDPattern = regexp.MustCompile(`staged as approval ([0-9a-f-]{36})`)
 
-func extractApprovalID(t *testing.T, text string) ids.UUID {
+func extractApprovalID(t *testing.T, text string) ids.ApprovalID {
 	t.Helper()
 	m := approvalIDPattern.FindStringSubmatch(text)
 	if m == nil {
 		t.Fatalf("no approval id in %q", text)
 	}
-	id, err := ids.Parse(m[1])
+	id, err := ids.ParseAs[ids.ApprovalKind](m[1])
 	if err != nil {
 		t.Fatal(err)
 	}
 	return id
 }
 
-func withApproval(args map[string]any, id ids.UUID) map[string]any {
+func withApproval(args map[string]any, id ids.ApprovalID) map[string]any {
 	out := make(map[string]any, len(args)+1)
 	for k, v := range args {
 		out[k] = v

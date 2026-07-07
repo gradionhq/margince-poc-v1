@@ -158,7 +158,7 @@ func stageWonAdvance(t *testing.T, e *mcpEnv, c *mcpClient) (ids.UUID, map[strin
 // visibility (including the C3 low-privilege blindness), the
 // no-decision/no-self-approval refusals, the human decision, tamper
 // rejection, the single redemption, and single-use exhaustion.
-func exerciseApprovalLoop(t *testing.T, e *mcpEnv, c *mcpClient, dealID ids.UUID, winArgs map[string]any, approvalID ids.UUID) {
+func exerciseApprovalLoop(t *testing.T, e *mcpEnv, c *mcpClient, dealID ids.UUID, winArgs map[string]any, approvalID ids.ApprovalID) {
 	t.Helper()
 	// The staged item sits in the human inbox.
 	pending, err := e.approvalsSvc.List(e.humanCtx, strPtr("pending"), 50)
