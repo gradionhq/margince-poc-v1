@@ -146,7 +146,7 @@ func (s *Store) AcceptOffer(ctx context.Context, id ids.UUID, ifVersion *int64) 
 		if err != nil {
 			return err
 		}
-		if current.Status != "sent" {
+		if current.Status != crmcontracts.OfferStatusSent {
 			return &OfferNotSentError{Status: string(current.Status)}
 		}
 
@@ -207,7 +207,7 @@ func syncDealAmountFromOffer(ctx context.Context, tx pgx.Tx, dealID ids.UUID, of
 		`SELECT status, closed_at FROM deal WHERE id = $1`, dealID).Scan(&status, &closedAt); err != nil {
 		return fmt.Errorf("read deal for amount sync: %w", err)
 	}
-	if status == "open" {
+	if DealStatus(status) == DealOpen {
 		if _, err := tx.Exec(ctx,
 			`UPDATE deal SET amount_minor = $2, currency = $3 WHERE id = $1`,
 			dealID, offer.GrossMinor, offer.Currency); err != nil {
@@ -240,7 +240,7 @@ func (s *Store) RejectOffer(ctx context.Context, id ids.UUID, reason *string, if
 		if err != nil {
 			return err
 		}
-		if current.Status != "sent" {
+		if current.Status != crmcontracts.OfferStatusSent {
 			return &OfferNotSentError{Status: string(current.Status)}
 		}
 
@@ -298,7 +298,7 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.UUID) (crmcontracts.
 		if err != nil {
 			return err
 		}
-		if current.Status != "sent" {
+		if current.Status != crmcontracts.OfferStatusSent {
 			return &OfferNotSentError{Status: string(current.Status)}
 		}
 

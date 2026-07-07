@@ -137,7 +137,7 @@ func stageTransitionPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 		status = semantic
 		now := time.Now().UTC()
 		closedAt = &now
-		if semantic == "lost" && (in.LostReason == nil || *in.LostReason == "") {
+		if StageSemantic(semantic) == SemanticLost && (in.LostReason == nil || *in.LostReason == "") {
 			return nil, "", &LostReasonRequiredError{}
 		}
 	}
@@ -153,12 +153,12 @@ func stageTransitionPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	// lost_reason only exists on a lost deal — never on won or open
 	// (on a reopen the terminal-field sweep below clears it; setting
 	// it twice would be a malformed UPDATE anyway).
-	if status == "lost" && in.LostReason != nil {
+	if DealStatus(status) == DealLost && in.LostReason != nil {
 		p.Set("lost_reason", current.LostReason, *in.LostReason)
 	}
 	// Closing with an amount freezes today's FX rate so base-currency
 	// roll-ups stay reproducible (deal_closed_fx).
-	if status != "open" && current.AmountMinor != nil && current.Currency != nil {
+	if DealStatus(status) != DealOpen && current.AmountMinor != nil && current.Currency != nil {
 		rate, rateDate, err := freezeFx(ctx, tx, *current.Currency, time.Now().UTC())
 		if err != nil {
 			return nil, "", fmt.Errorf("freeze fx at close: %w", err)
@@ -170,7 +170,7 @@ func stageTransitionPatch(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 	// the DB CHECKs are one-directional, so a stale closed_at or
 	// lost_reason on an open deal would silently corrupt forecast
 	// and won-lost reporting.
-	if status == "open" && string(current.Status) != "open" {
+	if DealStatus(status) == DealOpen && DealStatus(current.Status) != DealOpen {
 		p.Set("closed_at", current.ClosedAt, nil)
 		p.Set("lost_reason", current.LostReason, nil)
 		p.Set("fx_rate_to_base", nil, nil)

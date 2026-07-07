@@ -19,13 +19,37 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
-// PromoteLeadInput carries the genuine-engagement trigger (features/01
-// §6.4 — the transport already rejected cold_outbound_no_reply) and the
+// PromoteTrigger is the genuine-engagement vocabulary (features/01
+// §6.4): the closed set of events that justify graduating a lead —
+// typed, so a misspelled trigger is unrepresentable past the seam.
+type PromoteTrigger string
+
+const (
+	TriggerInboundReply  PromoteTrigger = "inbound_reply"
+	TriggerMeetingBooked PromoteTrigger = "meeting_booked"
+	TriggerMeetingHeld   PromoteTrigger = "meeting_held"
+	TriggerHumanQualify  PromoteTrigger = "human_qualify"
+)
+
+// ParsePromoteTrigger is the store-side membership check; the transport
+// enum is the first line, this is the seam's own guard (an MCP or
+// internal caller doesn't pass through the HTTP validator).
+func ParsePromoteTrigger(raw string) (PromoteTrigger, error) {
+	switch tr := PromoteTrigger(raw); tr {
+	case TriggerInboundReply, TriggerMeetingBooked, TriggerMeetingHeld, TriggerHumanQualify:
+		return tr, nil
+	}
+	return "", &values.ParseError{Field: "trigger", Code: "invalid_promote_trigger",
+		Message: "trigger is one of inbound_reply, meeting_booked, meeting_held, human_qualify"}
+}
+
+// PromoteLeadInput carries the genuine-engagement trigger and the
 // evidence pointer the audit row records.
 type PromoteLeadInput struct {
-	Trigger            string // inbound_reply | meeting_booked | meeting_held | human_qualify
+	Trigger            string
 	EvidenceActivityID *ids.UUID
 	EvidenceNote       *string
 }
@@ -60,6 +84,9 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.UUID, in PromoteLeadInpu
 		return crmcontracts.Person{}, false, err
 	}
 	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
+		return crmcontracts.Person{}, false, err
+	}
+	if _, err := ParsePromoteTrigger(in.Trigger); err != nil {
 		return crmcontracts.Person{}, false, err
 	}
 	by, err := storekit.CapturedBy(ctx)

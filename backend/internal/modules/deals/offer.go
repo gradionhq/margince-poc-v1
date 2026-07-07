@@ -397,7 +397,7 @@ func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.UUID, archived st
 
 // ensureDraft gates every offer/line edit: mutable only while draft.
 func ensureDraft(offer crmcontracts.Offer) error {
-	if offer.Status != "draft" {
+	if offer.Status != crmcontracts.OfferStatusDraft {
 		return &OfferNotDraftError{Status: string(offer.Status)}
 	}
 	return nil

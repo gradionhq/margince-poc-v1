@@ -137,7 +137,7 @@ func ensureOpenBirthStage(ctx context.Context, tx pgx.Tx, stageID, pipelineID id
 	if err != nil {
 		return fmt.Errorf("resolve target stage: %w", err)
 	}
-	if semantic == "won" || semantic == "lost" {
+	if StageSemantic(semantic).Terminal() {
 		return &TerminalStageOnCreateError{Semantic: semantic}
 	}
 	return nil

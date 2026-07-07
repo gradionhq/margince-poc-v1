@@ -61,7 +61,7 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.UUID, now t
 	if err != nil {
 		return err
 	}
-	if status != "new" && status != "working" {
+	if !LeadStatus(status).Open() {
 		return nil // promoted/disqualified leads keep their last score
 	}
 

@@ -200,8 +200,8 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return State{}, err
 	}
-	if in.NewState != "granted" && in.NewState != "withdrawn" {
-		return State{}, &ValidationError{Field: "new_state", Reason: "must be granted or withdrawn"}
+	if _, err := ParseRecordableState(in.NewState); err != nil {
+		return State{}, err
 	}
 	actor, _ := principal.Actor(ctx)
 
@@ -241,7 +241,7 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		}
 
 		action := "consent_grant"
-		if in.NewState == "withdrawn" {
+		if ConsentState(in.NewState) == StateWithdrawn {
 			action = "consent_withdraw"
 		}
 		auditID, err := storekit.Audit(ctx, tx, action, "person", in.PersonID, map[string]any{"state": stateOrUnknown(current)}, map[string]any{
@@ -283,7 +283,7 @@ func loadConsentPurpose(ctx context.Context, tx pgx.Tx, purposeID ids.UUID) (key
 // unexpired) — consuming it here makes the confirmation single-use and
 // unfabricatable rather than stored half-true. Non-DOI paths return nil.
 func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in RecordInput, requiresDOI bool) (*time.Time, error) {
-	if in.NewState != "granted" || !requiresDOI {
+	if ConsentState(in.NewState) != StateGranted || !requiresDOI {
 		return nil, nil
 	}
 	if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {

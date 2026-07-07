@@ -370,7 +370,7 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 		if err := tx.QueryRow(ctx, `SELECT status FROM deal WHERE id = $1`, cand.id).Scan(&status); err != nil {
 			return err
 		}
-		if status != "open" {
+		if DealStatus(status) != DealOpen {
 			return nil
 		}
 		patch := storekit.NewPatch()

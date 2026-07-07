@@ -181,7 +181,7 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.UUID, cfg RoutingConfi
 			decision = RoutingDecision{Reason: "already_owned"} // a human assignment outranks routing
 			return nil
 		}
-		if status != "new" && status != "working" {
+		if !LeadStatus(status).Open() {
 			decision = RoutingDecision{Reason: "terminal_status"}
 			return nil
 		}

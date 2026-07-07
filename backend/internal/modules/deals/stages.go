@@ -103,7 +103,10 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		return crmcontracts.Stage{}, err
 	}
 	if in.Semantic == "" {
-		in.Semantic = "open"
+		in.Semantic = string(SemanticOpen)
+	}
+	if _, err := ParseStageSemantic(in.Semantic); err != nil {
+		return crmcontracts.Stage{}, err
 	}
 	// The terminal-probability rule (won=100, lost=0) is a DDL CHECK;
 	// filling the canonical value here turns an omitted probability into
@@ -111,7 +114,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 	probability := 0
 	if in.WinProbability != nil {
 		probability = *in.WinProbability
-	} else if in.Semantic == "won" {
+	} else if StageSemantic(in.Semantic) == SemanticWon {
 		probability = 100
 	}
 	var out crmcontracts.Stage

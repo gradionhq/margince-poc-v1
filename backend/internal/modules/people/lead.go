@@ -59,7 +59,10 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		return crmcontracts.Lead{}, false, err
 	}
 	if in.Status == "" {
-		in.Status = "new"
+		in.Status = string(LeadStatusNew)
+	}
+	if _, err := ParseLeadStatus(in.Status); err != nil {
+		return crmcontracts.Lead{}, false, err
 	}
 	// Parse-don't-validate: the address normalizes once here, so the
 	// dedupe probe, the insert and the audit image all see one spelling
@@ -406,7 +409,11 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 		p.Set("candidate_org_key", current.CandidateOrgKey, *in.CandidateOrgKey)
 	}
 	if in.Status != nil {
-		p.Set("status", current.Status, *in.Status)
+		status, err := ParseLeadStatus(*in.Status)
+		if err != nil {
+			return nil, false, err
+		}
+		p.Set("status", current.Status, string(status))
 	}
 	resumeRecompute, err := applyScoreOverride(p, current, in)
 	if err != nil {

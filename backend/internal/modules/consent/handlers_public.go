@@ -61,7 +61,7 @@ func (h Handlers) OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, to
 			return
 		}
 		for _, c := range choices {
-			if c.Locked || c.State != "granted" {
+			if c.Locked || ConsentState(c.State) != StateGranted {
 				continue
 			}
 			if _, err := h.store.PublicSetConsent(r.Context(), ref.PersonID, c.Key, "withdrawn", nil); err != nil {
@@ -115,7 +115,7 @@ func (h Handlers) UpdatePreferences(w http.ResponseWriter, r *http.Request, toke
 		return
 	}
 	for _, c := range req.Choices {
-		if c.State != "granted" && c.State != "withdrawn" {
+		if _, err := ParseRecordableState(c.State); err != nil {
 			httperr.Write(w, r, httperr.Validation("state", "invalid", "must be granted or withdrawn"))
 			return
 		}
