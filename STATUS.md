@@ -5,6 +5,22 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-08 — spec-drift assessment done; PR #21 awaiting Sonar + merge)
+
+The 2026-07-06/07 spec-side gap-audit (A73–A100 + Batch C/C0/D/E) landed after
+this repo's last contract sync — `backend/api/crm.yaml` is ~3.5k diff lines
+behind the spec's. The full classified delta and its sequencing live in
+**[docs/worklists/spec-drift-2026-07-08.md](docs/worklists/spec-drift-2026-07-08.md)**:
+18 fix items on already-built code (3 structural: capture-connection vault
+reshape, cold-start oneOf rework, A100 en-GB frontend locale), 5 conflicts
+needing decisions, ~49 reverse-drift ops to file in feedback/, and the net-new
+sizing. The handoff ledger's items (Niraj/A99) are already built — not work.
+
+PR #21 state (supersedes the note below): the DCO force-push is **done**
+(origin == local, trailers present, DCO check green). Remaining: SonarCloud
+pending, branch is BEHIND main (PR #22 merged) → update-branch, merge, then
+close PR #20 (fully contained in #21).
+
 ## ▶ RESTART HERE (2026-07-07 PM — Strojny review COMPLETE; PR #21 awaiting force-push)
 
 The Strojny workstream is **finished**. WS9 (typed entity ids) is done across
