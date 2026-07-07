@@ -63,7 +63,7 @@ func (t updateRecord) Spec() mcp.ToolSpec {
 // and the exact replay call that redeems it once approved (ADR-0036: the
 // staged sub-patch, not the original call, is the bound diff).
 type stagedApprovalNote struct {
-	ApprovalID ids.UUID        `json:"approval_id"`
+	ApprovalID ids.ApprovalID  `json:"approval_id"`
 	Fields     []string        `json:"fields"`
 	Replay     json.RawMessage `json:"replay"`
 	Message    string          `json:"message"`
@@ -154,10 +154,10 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 // here runs AFTER any green remainder landed, so the pinned version
 // (ADR-0036 §2) is the state the approving human will actually judge —
 // this call's own green half cannot invalidate its staged half.
-func (t updateRecord) stageConflicts(ctx context.Context, args updateRecordArgs, split PatchSplit, canonical json.RawMessage, hash string) (ids.UUID, error) {
+func (t updateRecord) stageConflicts(ctx context.Context, args updateRecordArgs, split PatchSplit, canonical json.RawMessage, hash string) (ids.ApprovalID, error) {
 	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {
-		return ids.Nil, err
+		return ids.ApprovalID{}, err
 	}
 	return t.staging.Stage(ctx, StageRequest{
 		Tool:           "update_record",

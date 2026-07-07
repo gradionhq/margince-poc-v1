@@ -130,7 +130,7 @@ func TestRefusalFedBackAsObservation(t *testing.T) {
 }
 
 func TestYellowStagingSuspendsRun(t *testing.T) {
-	approvalID := ids.NewV7()
+	approvalID := ids.New[ids.ApprovalKind]()
 	surface := &fakeSurface{errs: map[string]error{
 		"send_email": &agents.StagedApprovalError{ApprovalID: approvalID},
 	}}
@@ -151,7 +151,7 @@ func TestYellowStagingSuspendsRun(t *testing.T) {
 }
 
 func TestResumeApprovedRedeemsWithApprovalID(t *testing.T) {
-	approvalID := ids.NewV7()
+	approvalID := ids.New[ids.ApprovalKind]()
 	surface := &fakeSurface{results: map[string]json.RawMessage{
 		"send_email": json.RawMessage(`{"sent":true}`),
 	}}
@@ -182,7 +182,7 @@ func TestResumeRejectedObservesAndReplans(t *testing.T) {
 	surface := &fakeSurface{}
 	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"skipped the send"}}`}}
 	pending := Pending{
-		ApprovalID: ids.NewV7(), Tool: "send_email",
+		ApprovalID: ids.New[ids.ApprovalKind](), Tool: "send_email",
 		Args:   json.RawMessage(`{"to":"a@b.c"}`),
 		Window: []model.Message{{Role: "user", Content: "Goal: follow up"}},
 	}
@@ -211,7 +211,7 @@ func TestResumeApprovedVersionSkewIsObservedNotFatal(t *testing.T) {
 	}}
 	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"could not apply; reported"}}`}}
 	pending := Pending{
-		ApprovalID: ids.NewV7(), Tool: "send_email",
+		ApprovalID: ids.New[ids.ApprovalKind](), Tool: "send_email",
 		Args:   json.RawMessage(`{"to":"a@b.c"}`),
 		Window: []model.Message{{Role: "user", Content: "Goal: follow up"}},
 	}

@@ -45,7 +45,7 @@ type runnerEnv struct {
 	wsID  ids.UUID
 	wsCtx context.Context
 
-	passportID ids.UUID
+	passportID ids.PassportID
 }
 
 func setupRunner(t *testing.T) *runnerEnv {
@@ -73,7 +73,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	}, nil, &minted); status != http.StatusCreated {
 		t.Fatalf("issue passport → %d", status)
 	}
-	passportID, err := ids.Parse(minted.PassportID)
+	passportID, err := ids.ParseAs[ids.PassportKind](minted.PassportID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	}
 }
 
-func (re *runnerEnv) enqueue(t *testing.T, spec, trigger string, passport *ids.UUID) {
+func (re *runnerEnv) enqueue(t *testing.T, spec, trigger string, passport *ids.PassportID) {
 	t.Helper()
 	if err := re.store.EnqueueJob(re.wsCtx, spec, trigger, passport, time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)

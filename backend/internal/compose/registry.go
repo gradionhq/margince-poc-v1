@@ -79,7 +79,7 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 // onto the approvals module.
 type approvalsAdapter struct{ svc *approvals.Service }
 
-func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.UUID, error) {
+func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
 	targetVersion := in.TargetVersion
 	if !approvals.TargetVersionCheckable(in.TargetType) {
 		// A pin redemption could never re-verify (the partner extension
@@ -97,9 +97,9 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 		TargetVersion:  targetVersion,
 		Summary:        in.Summary,
 	})
-	return id.UUID, err
+	return id, err
 }
 
-func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.UUID, tool, diffHash string) error {
-	return a.svc.Redeem(ctx, ids.From[ids.ApprovalKind](approvalID), tool, diffHash)
+func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) error {
+	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
 }
