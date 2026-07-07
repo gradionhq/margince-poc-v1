@@ -315,7 +315,7 @@ func (h filteredExportHandlers) resolveSource(ctx context.Context, req filteredE
 		}
 		return req.Object, *req.Filter, nil
 	case req.ViewID != "":
-		id, err := ids.Parse(req.ViewID)
+		id, err := ids.ParseAs[ids.SavedViewKind](req.ViewID)
 		if err != nil {
 			return "", storekit.Predicate{}, &exportBadRequest{field: "view_id", reason: "must be a UUID"}
 		}
@@ -325,7 +325,7 @@ func (h filteredExportHandlers) resolveSource(ctx context.Context, req filteredE
 		}
 		return src.Resource, src.Predicate, nil
 	default:
-		id, err := ids.Parse(req.ListID)
+		id, err := ids.ParseAs[ids.ListKind](req.ListID)
 		if err != nil {
 			return "", storekit.Predicate{}, &exportBadRequest{field: "list_id", reason: "must be a UUID"}
 		}

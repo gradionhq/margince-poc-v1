@@ -23,8 +23,8 @@ import (
 )
 
 type tagRow struct {
-	ID          ids.UUID
-	WorkspaceID ids.UUID
+	ID          ids.TagID
+	WorkspaceID ids.WorkspaceID
 	Name        string
 	Color       *string
 	CreatedAt   time.Time
@@ -99,13 +99,13 @@ func (s *Store) CreateTag(ctx context.Context, name string, color *string) (tagR
 			}
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "create", "tag", out.ID, nil, map[string]any{"name": out.Name})
+		_, err = storekit.Audit(ctx, tx, "create", "tag", out.ID.UUID, nil, map[string]any{"name": out.Name})
 		return err
 	})
 	return out, err
 }
 
-func (s *Store) ArchiveTag(ctx context.Context, id ids.UUID) (tagRow, error) {
+func (s *Store) ArchiveTag(ctx context.Context, id ids.TagID) (tagRow, error) {
 	if err := auth.Require(ctx, "tag", principal.ActionDelete); err != nil {
 		return tagRow{}, err
 	}
@@ -119,21 +119,25 @@ func (s *Store) ArchiveTag(ctx context.Context, id ids.UUID) (tagRow, error) {
 		} else if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "archive", "tag", id, nil, nil)
+		_, err = storekit.Audit(ctx, tx, "archive", "tag", id.UUID, nil, nil)
 		return err
 	})
 	return out, err
 }
 
 type taggableRow struct {
-	ID         ids.UUID
-	TagID      ids.UUID
+	// ID is the taggable link-row id — a join row, not a first-class
+	// entity, so it stays untyped.
+	ID    ids.UUID
+	TagID ids.TagID
+	// EntityType + EntityID are the polymorphic tag target (any entity),
+	// so the id stays untyped (rule 6).
 	EntityType string
 	EntityID   ids.UUID
 	CreatedAt  time.Time
 }
 
-func (s *Store) ApplyTag(ctx context.Context, tagID ids.UUID, entityType string, entityID ids.UUID) (taggableRow, error) {
+func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string, entityID ids.UUID) (taggableRow, error) {
 	if err := auth.Require(ctx, "tag", principal.ActionUpdate); err != nil {
 		return taggableRow{}, err
 	}
@@ -168,7 +172,7 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.UUID, entityType string,
 		if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "update", "tag", tagID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "update", "tag", tagID.UUID, nil, map[string]any{
 			"applied": map[string]any{"entity_type": entityType, "entity_id": entityID},
 		})
 		return err
@@ -178,8 +182,8 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.UUID, entityType string,
 
 func wireTag(t tagRow) crmcontracts.Tag {
 	return crmcontracts.Tag{
-		Id:          openapi_types.UUID(t.ID),
-		WorkspaceId: openapi_types.UUID(t.WorkspaceID),
+		Id:          openapi_types.UUID(t.ID.UUID),
+		WorkspaceId: openapi_types.UUID(t.WorkspaceID.UUID),
 		Name:        t.Name,
 		Color:       t.Color,
 		CreatedAt:   &t.CreatedAt,
@@ -191,7 +195,7 @@ func wireTag(t tagRow) crmcontracts.Tag {
 func wireTaggable(tg taggableRow) crmcontracts.Taggable {
 	return crmcontracts.Taggable{
 		Id:         openapi_types.UUID(tg.ID),
-		TagId:      openapi_types.UUID(tg.TagID),
+		TagId:      openapi_types.UUID(tg.TagID.UUID),
 		EntityType: crmcontracts.TaggableEntityType(tg.EntityType),
 		EntityId:   openapi_types.UUID(tg.EntityID),
 		CreatedAt:  &tg.CreatedAt,

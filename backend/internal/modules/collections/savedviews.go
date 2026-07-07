@@ -39,9 +39,9 @@ const savedViewColumns = `id, workspace_id, owner_id, shared_scope, resource, na
 const selectSavedView = "SELECT " + savedViewColumns + " FROM saved_view WHERE "
 
 type savedViewRow struct {
-	ID          ids.UUID
-	WorkspaceID ids.UUID
-	OwnerID     ids.UUID
+	ID          ids.SavedViewID
+	WorkspaceID ids.WorkspaceID
+	OwnerID     ids.UserID
 	SharedScope string
 	Resource    string
 	Name        string
@@ -55,9 +55,9 @@ type savedViewRow struct {
 func wireSavedView(v savedViewRow) crmcontracts.SavedView {
 	scope := crmcontracts.SavedViewSharedScope(v.SharedScope)
 	return crmcontracts.SavedView{
-		Id:          openapi_types.UUID(v.ID),
-		WorkspaceId: openapi_types.UUID(v.WorkspaceID),
-		OwnerId:     openapi_types.UUID(v.OwnerID),
+		Id:          openapi_types.UUID(v.ID.UUID),
+		WorkspaceId: openapi_types.UUID(v.WorkspaceID.UUID),
+		OwnerId:     openapi_types.UUID(v.OwnerID.UUID),
 		SharedScope: &scope,
 		Resource:    crmcontracts.SavedViewResource(v.Resource),
 		Name:        v.Name,
@@ -80,18 +80,20 @@ func scanSavedView(r pgx.Row) (savedViewRow, error) {
 // the acting user, or — for an agent/passport call — the human it acts on
 // behalf of ("agent ≤ human"). A principal with no human identity (the
 // system actor) cannot own a personal view.
-func viewOwner(ctx context.Context) (ids.UUID, error) {
+func viewOwner(ctx context.Context) (ids.UserID, error) {
 	p, err := storekit.Actor(ctx)
 	if err != nil {
-		return ids.Nil, err
+		return ids.UserID{}, err
 	}
+	// The principal carries the human identity as an untyped platform-seam
+	// UUID; a saved view's owner is a user, so it is asserted as such here.
 	switch {
 	case !p.UserID.IsZero():
-		return p.UserID, nil
+		return ids.From[ids.UserKind](p.UserID), nil
 	case !p.OnBehalfOf.IsZero():
-		return p.OnBehalfOf, nil
+		return ids.From[ids.UserKind](p.OnBehalfOf), nil
 	default:
-		return ids.Nil, fmt.Errorf("a saved view needs a human owner: %w", apperrors.ErrPermissionDenied)
+		return ids.UserID{}, fmt.Errorf("a saved view needs a human owner: %w", apperrors.ErrPermissionDenied)
 	}
 }
 
@@ -172,7 +174,7 @@ func (s *Store) CreateSavedView(ctx context.Context, in CreateSavedViewInput) (s
 		if out, err = scanSavedView(row); err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "create", "saved_view", out.ID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "create", "saved_view", out.ID.UUID, nil, map[string]any{
 			"resource": out.Resource, "name": out.Name,
 		})
 		return err
@@ -180,7 +182,7 @@ func (s *Store) CreateSavedView(ctx context.Context, in CreateSavedViewInput) (s
 	return out, err
 }
 
-func (s *Store) GetSavedView(ctx context.Context, id ids.UUID) (savedViewRow, error) {
+func (s *Store) GetSavedView(ctx context.Context, id ids.SavedViewID) (savedViewRow, error) {
 	if err := auth.Require(ctx, "saved_view", principal.ActionRead); err != nil {
 		return savedViewRow{}, err
 	}
@@ -208,7 +210,7 @@ type UpdateSavedViewInput struct {
 	IfVersion *int64
 }
 
-func (s *Store) UpdateSavedView(ctx context.Context, id ids.UUID, in UpdateSavedViewInput) (savedViewRow, error) {
+func (s *Store) UpdateSavedView(ctx context.Context, id ids.SavedViewID, in UpdateSavedViewInput) (savedViewRow, error) {
 	if err := auth.Require(ctx, "saved_view", principal.ActionUpdate); err != nil {
 		return savedViewRow{}, err
 	}
@@ -237,10 +239,10 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.UUID, in UpdateSaved
 			out = current
 			return nil
 		}
-		if err := p.ApplyGuarded(ctx, tx, "saved_view", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "saved_view", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply saved_view patch: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "saved_view", id, p.Before(), p.After()); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "update", "saved_view", id.UUID, p.Before(), p.After()); err != nil {
 			return err
 		}
 		out, err = scanSavedView(tx.QueryRow(ctx,
@@ -250,7 +252,7 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.UUID, in UpdateSaved
 	return out, err
 }
 
-func (s *Store) ArchiveSavedView(ctx context.Context, id ids.UUID) (savedViewRow, error) {
+func (s *Store) ArchiveSavedView(ctx context.Context, id ids.SavedViewID) (savedViewRow, error) {
 	if err := auth.Require(ctx, "saved_view", principal.ActionDelete); err != nil {
 		return savedViewRow{}, err
 	}
@@ -269,7 +271,7 @@ func (s *Store) ArchiveSavedView(ctx context.Context, id ids.UUID) (savedViewRow
 		} else if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "archive", "saved_view", id, nil, nil)
+		_, err = storekit.Audit(ctx, tx, "archive", "saved_view", id.UUID, nil, nil)
 		return err
 	})
 	return out, err

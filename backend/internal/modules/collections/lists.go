@@ -48,14 +48,14 @@ const listColumns = `id, workspace_id, name, entity_type, list_type, definition,
 const catalogCap = 1000
 
 type listRow struct {
-	ID          ids.UUID
-	WorkspaceID ids.UUID
+	ID          ids.ListID
+	WorkspaceID ids.WorkspaceID
 	Name        string
 	EntityType  string
 	ListType    string
 	Definition  map[string]any
-	OwnerID     *ids.UUID
-	TeamID      *ids.UUID
+	OwnerID     *ids.UserID
+	TeamID      *ids.TeamID
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	ArchivedAt  *time.Time
@@ -122,8 +122,8 @@ type CreateListInput struct {
 	EntityType string
 	ListType   string
 	Definition map[string]any
-	OwnerID    *ids.UUID
-	TeamID     *ids.UUID
+	OwnerID    *ids.UserID
+	TeamID     *ids.TeamID
 }
 
 func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, error) {
@@ -165,7 +165,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		if out, err = scanList(row); err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "create", "list", out.ID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "create", "list", out.ID.UUID, nil, map[string]any{
 			"name": out.Name, "entity_type": out.EntityType, "list_type": out.ListType,
 		})
 		return err
@@ -173,7 +173,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	return out, err
 }
 
-func (s *Store) GetList(ctx context.Context, id ids.UUID) (listRow, error) {
+func (s *Store) GetList(ctx context.Context, id ids.ListID) (listRow, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return listRow{}, err
 	}
@@ -192,7 +192,7 @@ func (s *Store) GetList(ctx context.Context, id ids.UUID) (listRow, error) {
 	return out, err
 }
 
-func (s *Store) ArchiveList(ctx context.Context, id ids.UUID) (listRow, error) {
+func (s *Store) ArchiveList(ctx context.Context, id ids.ListID) (listRow, error) {
 	if err := auth.Require(ctx, "list", principal.ActionDelete); err != nil {
 		return listRow{}, err
 	}
@@ -209,22 +209,27 @@ func (s *Store) ArchiveList(ctx context.Context, id ids.UUID) (listRow, error) {
 		} else if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "archive", "list", id, nil, nil)
+		_, err = storekit.Audit(ctx, tx, "archive", "list", id.UUID, nil, nil)
 		return err
 	})
 	return out, err
 }
 
 type memberRow struct {
-	ID         ids.UUID
-	ListID     ids.UUID
+	// ID is the list_member row id for a static member, but the record's
+	// own id for a computed segment member (which owns no member row) — an
+	// overloaded identifier with no single entity kind, so it stays untyped.
+	ID     ids.UUID
+	ListID ids.ListID
+	// EntityType + EntityID are the polymorphic member target (any entity),
+	// so the id stays untyped (rule 6).
 	EntityType string
 	EntityID   ids.UUID
 	AddedBy    string
 	CreatedAt  time.Time
 }
 
-func (s *Store) ListMembers(ctx context.Context, listID ids.UUID, limit int, cursor string) ([]memberRow, storekit.Page, error) {
+func (s *Store) ListMembers(ctx context.Context, listID ids.ListID, limit int, cursor string) ([]memberRow, storekit.Page, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -268,7 +273,7 @@ func (s *Store) ListMembers(ctx context.Context, listID ids.UUID, limit int, cur
 // records outside the caller's scope. So each member is disclosed only if
 // its target passes that table's visibility predicate (unbounded actors
 // get no filter).
-func (s *Store) listStaticMembers(ctx context.Context, tx pgx.Tx, listID ids.UUID, listEntityType string, limit int, cursor string) ([]memberRow, storekit.Page, error) {
+func (s *Store) listStaticMembers(ctx context.Context, tx pgx.Tx, listID ids.ListID, listEntityType string, limit int, cursor string) ([]memberRow, storekit.Page, error) {
 	var out []memberRow
 	var page storekit.Page
 	var args []any
@@ -313,7 +318,7 @@ func (s *Store) listStaticMembers(ctx context.Context, tx pgx.Tx, listID ids.UUI
 	return out, page, nil
 }
 
-func (s *Store) AddMember(ctx context.Context, listID ids.UUID, entityType string, entityID ids.UUID) (memberRow, error) {
+func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType string, entityID ids.UUID) (memberRow, error) {
 	if err := auth.Require(ctx, "list", principal.ActionUpdate); err != nil {
 		return memberRow{}, err
 	}
@@ -351,7 +356,7 @@ func (s *Store) AddMember(ctx context.Context, listID ids.UUID, entityType strin
 		if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "update", "list", listID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "update", "list", listID.UUID, nil, map[string]any{
 			"added": map[string]any{"entity_type": entityType, "entity_id": entityID},
 		})
 		return err
@@ -374,7 +379,7 @@ const dynamicAddedBy = "dynamic"
 // which the members endpoint paginates by keyset over the entity id (a
 // computed member carries no member-row id of its own, so the record's
 // own id IS its stable member identifier).
-func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.UUID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
+func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.ListID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
 	engine, ok := segmentEngines[listEntityType]
 	if !ok {
 		// A stored list.entity_type outside the segment set is a schema
@@ -442,8 +447,8 @@ func validateSegmentDefinition(entityType string, definition map[string]any) err
 
 // ensureListVisible is the list's own row-scope probe (owner_id scoped
 // like every other owner-carrying table; ownerless lists are shared).
-func ensureListVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	return auth.EnsureVisible(ctx, tx, "list", id)
+func ensureListVisible(ctx context.Context, tx pgx.Tx, id ids.ListID) error {
+	return auth.EnsureVisible(ctx, tx, "list", id.UUID)
 }
 
 // BadInputError maps to a 422 at the transport.
@@ -456,7 +461,7 @@ func (e *BadInputError) Error() string { return "collections: " + e.Field + ": "
 
 func wireList(l listRow) crmcontracts.List {
 	out := crmcontracts.List{
-		Id:         openapi_types.UUID(l.ID),
+		Id:         openapi_types.UUID(l.ID.UUID),
 		Name:       l.Name,
 		EntityType: crmcontracts.ListEntityType(l.EntityType),
 		ListType:   crmcontracts.ListListType(l.ListType),
@@ -468,11 +473,11 @@ func wireList(l listRow) crmcontracts.List {
 		out.Definition = &l.Definition
 	}
 	if l.OwnerID != nil {
-		owner := openapi_types.UUID(*l.OwnerID)
+		owner := openapi_types.UUID(l.OwnerID.UUID)
 		out.OwnerId = &owner
 	}
 	if l.TeamID != nil {
-		team := openapi_types.UUID(*l.TeamID)
+		team := openapi_types.UUID(l.TeamID.UUID)
 		out.TeamId = &team
 	}
 	return out
@@ -481,7 +486,7 @@ func wireList(l listRow) crmcontracts.List {
 func wireMember(m memberRow) crmcontracts.ListMember {
 	out := crmcontracts.ListMember{
 		Id:         openapi_types.UUID(m.ID),
-		ListId:     openapi_types.UUID(m.ListID),
+		ListId:     openapi_types.UUID(m.ListID.UUID),
 		EntityType: crmcontracts.ListMemberEntityType(m.EntityType),
 		EntityId:   openapi_types.UUID(m.EntityID),
 		AddedBy:    &m.AddedBy,

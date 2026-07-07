@@ -43,7 +43,7 @@ var viewResourceToEngine = map[string]string{
 // their own view (owner-only; another user's or a missing view reads as
 // absent). The predicate is the view query's `filter` state — the same
 // canonical tree a dynamic list stores — decoded through the one parser.
-func (s *Store) SavedViewFilterSource(ctx context.Context, id ids.UUID) (FilterSource, error) {
+func (s *Store) SavedViewFilterSource(ctx context.Context, id ids.SavedViewID) (FilterSource, error) {
 	view, err := s.GetSavedView(ctx, id)
 	if err != nil {
 		return FilterSource{}, err
@@ -81,7 +81,7 @@ func (s *Store) SavedViewFilterSource(ctx context.Context, id ids.UUID) (FilterS
 // row-scope gate. A static list has explicit members rather than a filter,
 // so it is rejected here (its rows are exported through its members
 // endpoint, not the predicate engine).
-func (s *Store) ListFilterSource(ctx context.Context, id ids.UUID) (FilterSource, error) {
+func (s *Store) ListFilterSource(ctx context.Context, id ids.ListID) (FilterSource, error) {
 	list, err := s.GetList(ctx, id)
 	if err != nil {
 		return FilterSource{}, err
