@@ -51,7 +51,7 @@ func startMCP(t *testing.T, token, slug string, svc *identity.Service, pool *pgx
 		if err != nil {
 			return nil, err
 		}
-		ctx = principal.WithWorkspaceID(ctx, wsID)
+		ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 		agent, err := svc.AuthenticateAgent(ctx, token)
 		if err != nil {
 			return nil, err
@@ -193,7 +193,7 @@ func setupMCPEnv(t *testing.T) *mcpEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, admin.WorkspaceID)
+	wsCtx := principal.WithWorkspaceID(ctx, admin.WorkspaceID.UUID)
 	// The seed emits pipeline.created, and every emission needs the
 	// correlation the HTTP layer normally mints.
 	seedCtx := principal.WithCorrelationID(
@@ -213,7 +213,7 @@ func setupMCPEnv(t *testing.T) *mcpEnv {
 
 	humanCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + admin.UserID.String(),
-		UserID: admin.UserID, Permissions: admin.Permissions,
+		UserID: admin.UserID.UUID, Permissions: admin.Permissions,
 	}), ids.NewV7())
 
 	return &mcpEnv{

@@ -63,7 +63,7 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	label := "oauth:" + r.PostForm.Get("client_id")
-	issued, err := h.svc.IssuePassport(principal.WithWorkspaceID(r.Context(), workspaceID),
+	issued, err := h.svc.IssuePassport(principal.WithWorkspaceID(r.Context(), workspaceID.UUID),
 		Identity{UserID: userID, WorkspaceID: workspaceID},
 		IssuePassportInput{Label: &label, Scopes: scopes})
 	if err != nil {
@@ -80,7 +80,7 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 
 // redeemAuthCode validates the exchange against the stored grant and
 // consumes the single-use code in one transaction.
-func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID, workspaceID ids.UUID, scopes []string, err error) {
+func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID ids.UserID, workspaceID ids.WorkspaceID, scopes []string, err error) {
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
 		// Read first, validate, and only then consume: a stranger who
 		// holds the code but not the verifier must not be able to BURN

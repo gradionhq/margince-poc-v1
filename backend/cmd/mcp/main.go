@@ -105,7 +105,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return nil, fmt.Errorf("resolving workspace %q: %w", *workspace, err)
 		}
-		ctx = principal.WithWorkspaceID(ctx, wsID)
+		ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 		agent, err := auth.AuthenticateAgent(ctx, token)
 		if err != nil {
 			return nil, err
@@ -163,7 +163,7 @@ func serveHosted(ctx context.Context, addr string, auth *identity.Service, regis
 		if err != nil {
 			return nil, err
 		}
-		reqCtx = principal.WithWorkspaceID(reqCtx, wsID)
+		reqCtx = principal.WithWorkspaceID(reqCtx, wsID.UUID)
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if bearer == "" || bearer == r.Header.Get("Authorization") {
 			return nil, errors.New("missing bearer token")

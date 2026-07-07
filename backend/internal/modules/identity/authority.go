@@ -31,11 +31,11 @@ var _ authz.Resolver = (*Service)(nil)
 func (s *Service) EffectiveRBAC(ctx context.Context, workspaceID, humanID ids.UUID) (authz.RBAC, error) {
 	var out authz.RBAC
 	err := s.liveUserTx(ctx, workspaceID, humanID, func(tx pgx.Tx, _ string) error {
-		_, teams, perms, err := loadGrants(ctx, tx, humanID)
+		_, teams, perms, err := loadGrants(ctx, tx, ids.From[ids.UserKind](humanID))
 		if err != nil {
 			return err
 		}
-		out = authz.RBAC{Permissions: perms, TeamIDs: teams}
+		out = authz.RBAC{Permissions: perms, TeamIDs: rawTeamIDs(teams)}
 		return nil
 	})
 	return out, err

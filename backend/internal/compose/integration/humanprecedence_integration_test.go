@@ -184,7 +184,7 @@ func mcpAgentInvoker(t *testing.T, e *env, agentToken string) func(tool, args st
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx := principal.WithWorkspaceID(context.Background(), wsID)
+		ctx := principal.WithWorkspaceID(context.Background(), wsID.UUID)
 		agent, err := authSvc.AuthenticateAgent(ctx, agentToken)
 		if err != nil {
 			t.Fatal(err)

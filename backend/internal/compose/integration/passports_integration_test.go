@@ -91,7 +91,7 @@ func setupPassports(t *testing.T) *passportsEnv {
 }
 
 func (e *passportsEnv) identityFor(user ids.UUID, roles []string) identity.Identity {
-	return identity.Identity{UserID: user, WorkspaceID: e.WS, Roles: roles}
+	return identity.Identity{UserID: ids.From[ids.UserKind](user), WorkspaceID: ids.From[ids.WorkspaceKind](e.WS), Roles: roles}
 }
 
 func (e *passportsEnv) ctx() context.Context {

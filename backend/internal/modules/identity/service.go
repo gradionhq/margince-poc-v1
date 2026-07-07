@@ -45,13 +45,13 @@ func NewService(pool *pgxpool.Pool) *Service {
 // Identity is the authenticated principal's resolved state — what /me
 // returns and what the middleware binds into the request context.
 type Identity struct {
-	UserID      ids.UUID
-	WorkspaceID ids.UUID
+	UserID      ids.UserID
+	WorkspaceID ids.WorkspaceID
 	Email       string
 	DisplayName string
 	SeatType    string
 	Roles       []string
-	Teams       []ids.UUID
+	Teams       []ids.TeamID
 	Permissions principal.Permissions
 }
 
@@ -116,7 +116,7 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 
 	var id Identity
 	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var wsID ids.UUID
+		var wsID ids.WorkspaceID
 		err := tx.QueryRow(ctx,
 			`INSERT INTO workspace (name, slug, base_currency, timezone) VALUES ($1, $2, 'EUR', $3) RETURNING id`,
 			in.WorkspaceName, in.Slug, in.Timezone).Scan(&wsID)
@@ -130,7 +130,7 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 			return err
 		}
 
-		var userID ids.UUID
+		var userID ids.UserID
 		err = tx.QueryRow(ctx,
 			`INSERT INTO app_user (workspace_id, email, password_hash, display_name, timezone)
 			 VALUES ($1, lower($2), $3, $4, $5) RETURNING id`,
@@ -165,7 +165,7 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 		// transaction, as the system actor, so the whole tenant — identity
 		// and defaults — is atomic (C5). The GUC is already bound above.
 		if seed != nil {
-			seedCtx := principal.WithActor(principal.WithWorkspaceID(ctx, wsID), principal.Principal{
+			seedCtx := principal.WithActor(principal.WithWorkspaceID(ctx, wsID.UUID), principal.Principal{
 				Type: principal.PrincipalSystem, ID: "system",
 			})
 			if err := seed(seedCtx, tx); err != nil {
@@ -183,7 +183,9 @@ func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ct
 // seedSystemRoles lays down the compiled-in role set for a fresh
 // workspace and assigns the admin role to its first user — part of the
 // Bootstrap transaction, so a partial role set can never survive.
-func seedSystemRoles(ctx context.Context, tx pgx.Tx, wsID, adminUserID ids.UUID) error {
+func seedSystemRoles(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, adminUserID ids.UserID) error {
+	// note: role is not a first-class entity in the id kind vocabulary, so
+	// its ids stay ids.UUID (kernel gap — no RoleKind to assert).
 	var adminRoleID ids.UUID
 	for _, role := range systemRoles {
 		var roleID ids.UUID
@@ -214,14 +216,14 @@ func (e *slugTakenError) Is(target error) bool {
 // ResolveWorkspace maps a tenant slug (subdomain in production, header in
 // dev) to its id. Pre-auth by necessity: the workspace table is the one
 // non-tenant table.
-func (s *Service) ResolveWorkspace(ctx context.Context, slug string) (ids.UUID, error) {
-	var id ids.UUID
+func (s *Service) ResolveWorkspace(ctx context.Context, slug string) (ids.WorkspaceID, error) {
+	var id ids.WorkspaceID
 	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			`SELECT id FROM workspace WHERE slug = $1 AND archived_at IS NULL`, slug).Scan(&id)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.Nil, apperrors.ErrNotFound
+		return ids.WorkspaceID{}, apperrors.ErrNotFound
 	}
 	return id, err
 }
@@ -257,10 +259,11 @@ func mustRandomSecret() string {
 // audit_log (the failure row commits in its own transaction, because the
 // attempt's transaction rolls back with the error).
 func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity, string, error) {
-	wsID, ok := principal.WorkspaceID(ctx)
+	rawWsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return Identity{}, "", database.ErrNoWorkspace
 	}
+	wsID := ids.From[ids.WorkspaceKind](rawWsID)
 	token, tokenHash, err := mintSessionToken()
 	if err != nil {
 		return Identity{}, "", err
@@ -268,7 +271,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 
 	var id Identity
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var userID ids.UUID
+		var userID ids.UserID
 		var hash *string
 		var displayName, seatType string
 		err := tx.QueryRow(ctx,
@@ -321,7 +324,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 // auditFailedLogin records one failed password attempt. The attempted
 // email rides evidence (there may be no user row to reference); the
 // actor is the anonymous claimant, not a resolved identity.
-func (s *Service) auditFailedLogin(ctx context.Context, wsID ids.UUID, email string) error {
+func (s *Service) auditFailedLogin(ctx context.Context, wsID ids.WorkspaceID, email string) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, evidence)
@@ -340,7 +343,10 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 
 	var id Identity
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var sessionID, userID ids.UUID
+		// note: a session is keyed by its opaque token, not exposed as a
+		// first-class entity id — its row id has no kind and stays ids.UUID.
+		var sessionID ids.UUID
+		var userID ids.UserID
 		err := tx.QueryRow(ctx,
 			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, s.workspace_id
 			 FROM session s
@@ -386,7 +392,7 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	})
 }
 
-func insertSession(ctx context.Context, tx pgx.Tx, wsID, userID ids.UUID, tokenHash string) error {
+func insertSession(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, tokenHash string) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO session (workspace_id, user_id, token_hash, idle_expires_at, expires_at)
 		 VALUES ($1, $2, $3, now() + $4::interval, now() + $5::interval)`,
@@ -394,7 +400,7 @@ func insertSession(ctx context.Context, tx pgx.Tx, wsID, userID ids.UUID, tokenH
 	return err
 }
 
-func auditLogin(ctx context.Context, tx pgx.Tx, wsID, userID ids.UUID, detail string) error {
+func auditLogin(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, detail string) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, evidence)
 		 VALUES ($1, 'human', $2, 'login', 'session', jsonb_build_object('detail', $3::text))`,
@@ -402,7 +408,7 @@ func auditLogin(ctx context.Context, tx pgx.Tx, wsID, userID ids.UUID, detail st
 	return err
 }
 
-func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UUID) (roles []string, teams []ids.UUID, perms principal.Permissions, err error) {
+func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UserID) (roles []string, teams []ids.TeamID, perms principal.Permissions, err error) {
 	rows, err := tx.Query(ctx,
 		`SELECT r.key, r.permissions FROM role_assignment ra JOIN role r ON r.id = ra.role_id WHERE ra.user_id = $1`, userID)
 	if err != nil {
@@ -436,13 +442,27 @@ func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UUID) (roles []string
 	}
 	defer teamRows.Close()
 	for teamRows.Next() {
-		var t ids.UUID
+		var t ids.TeamID
 		if err := teamRows.Scan(&t); err != nil {
 			return nil, nil, principal.Permissions{}, err
 		}
 		teams = append(teams, t)
 	}
 	return roles, teams, policy.Merge(byRole), teamRows.Err()
+}
+
+// rawTeamIDs widens typed team ids to the untyped []ids.UUID the kernel
+// principal and the authz port carry — the row-scope seams stay untyped
+// (they compare team membership against polymorphic scope clauses).
+func rawTeamIDs(teams []ids.TeamID) []ids.UUID {
+	if teams == nil {
+		return nil
+	}
+	out := make([]ids.UUID, len(teams))
+	for i, t := range teams {
+		out[i] = t.UUID
+	}
+	return out
 }
 
 // mintSessionToken returns the raw cookie value and the SHA-256 hex the

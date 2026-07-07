@@ -118,7 +118,7 @@ func exerciseGreenTools(t *testing.T, e *mcpEnv, c *mcpClient) ids.UUID {
 // carrying the approval reference.
 func stageWonAdvance(t *testing.T, e *mcpEnv, c *mcpClient) (ids.UUID, map[string]any, string) {
 	t.Helper()
-	pipelineID, openA, openB, wonStage := seededStages(t, e.owner, e.admin.WorkspaceID)
+	pipelineID, openA, openB, wonStage := seededStages(t, e.owner, e.admin.WorkspaceID.UUID)
 	text, isErr := c.callTool("create_record", map[string]any{
 		"record_type": "deal",
 		"fields": map[string]any{
@@ -186,7 +186,7 @@ func exerciseApprovalLoop(t *testing.T, e *mcpEnv, c *mcpClient, dealID ids.UUID
 		t.Fatalf("undedecided approval redeemed: err=%v %s", isErr, text)
 	}
 	agentCtx := principal.WithCorrelationID(principal.WithActor(e.wsCtx, principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:" + e.rw.ID.String(), PassportID: e.rw.ID,
+		Type: principal.PrincipalAgent, ID: "agent:" + e.rw.ID.String(), PassportID: e.rw.ID.UUID,
 	}), ids.NewV7())
 	if _, err := e.approvalsSvc.Decide(agentCtx, approvalID, true, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("an agent decided its own staging: %v", err)

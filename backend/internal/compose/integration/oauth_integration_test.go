@@ -406,7 +406,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		ctx := principal.WithWorkspaceID(r.Context(), wsID)
+		ctx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
 		agent, err := authSvc.AuthenticateAgent(ctx, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		if err != nil {
 			return nil, err

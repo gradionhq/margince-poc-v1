@@ -82,7 +82,7 @@ func passportEnv(t *testing.T) (*identity.Service, identity.Identity, *pgx.Conn)
 }
 
 func wsCtx(id identity.Identity) context.Context {
-	return principal.WithWorkspaceID(context.Background(), id.WorkspaceID)
+	return principal.WithWorkspaceID(context.Background(), id.WorkspaceID.UUID)
 }
 
 func TestPassportLifecycle(t *testing.T) {
@@ -115,7 +115,7 @@ func TestPassportLifecycle(t *testing.T) {
 	if p.Type != principal.PrincipalAgent || !p.Permissions.Allows("person", principal.ActionCreate) {
 		t.Error("agent principal did not inherit the granting admin's RBAC")
 	}
-	if p.PassportID != issued.ID || p.OnBehalfOf != admin.UserID {
+	if p.PassportID != issued.ID.UUID || p.OnBehalfOf != admin.UserID.UUID {
 		t.Error("principal lost the passport attribution the audit trail needs")
 	}
 

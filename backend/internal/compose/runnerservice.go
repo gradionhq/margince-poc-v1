@@ -103,7 +103,7 @@ func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) 
 			"no passport bound: mint one (POST /v1/passports) and bind it to the job before the run can act")
 		return
 	}
-	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, *job.PassportID)
+	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, ids.From[ids.PassportKind](*job.PassportID))
 	if err != nil {
 		s.finishJob(wsCtx, job.ID, nil, "passport resolution failed: "+err.Error())
 		return
@@ -173,7 +173,7 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		suspended.Pending.Args = payload.EditedChange
 	}
 
-	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, suspended.PassportID)
+	agentIdentity, err := s.identity.AuthenticateAgentByID(wsCtx, ids.From[ids.PassportKind](suspended.PassportID))
 	if err != nil {
 		// The passport died while the run was parked (revoked, expired,
 		// human deactivated). The run cannot act anymore — close it.

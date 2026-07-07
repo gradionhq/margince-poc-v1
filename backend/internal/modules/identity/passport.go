@@ -53,7 +53,7 @@ type IssuePassportInput struct {
 
 // IssuedPassport carries the raw token exactly once.
 type IssuedPassport struct {
-	ID        ids.UUID
+	ID        ids.PassportID
 	Token     string
 	Scopes    []string
 	ExpiresAt time.Time
@@ -121,7 +121,7 @@ func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePasspo
 // token hash never leaves the store — the plaintext existed exactly
 // once, in the mint response.
 type PassportRow struct {
-	ID        ids.UUID
+	ID        ids.PassportID
 	Label     *string
 	Scopes    []string
 	CreatedAt time.Time
@@ -173,7 +173,7 @@ func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow
 
 // RevokePassport is the kill switch: enforced at the next token lookup.
 // A user revokes their own; the admin role may revoke anyone's.
-func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.UUID) error {
+func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.PassportID) error {
 	isAdmin := false
 	for _, r := range id.Roles {
 		if r == "admin" {
@@ -181,7 +181,7 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 		}
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var onBehalfOf ids.UUID
+		var onBehalfOf ids.UserID
 		var revokedAt *time.Time
 		err := tx.QueryRow(ctx,
 			`SELECT on_behalf_of, revoked_at FROM passport WHERE id = $1`, passportID).
@@ -215,13 +215,13 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 // AgentIdentity is the resolved principal of a passport call: the
 // passport's grants layered over the granting human's live RBAC.
 type AgentIdentity struct {
-	PassportID  ids.UUID
-	WorkspaceID ids.UUID
-	OnBehalfOf  ids.UUID
+	PassportID  ids.PassportID
+	WorkspaceID ids.WorkspaceID
+	OnBehalfOf  ids.UserID
 	SeatType    string
 	Scopes      principal.ScopeSet
 	Roles       []string
-	Teams       []ids.UUID
+	Teams       []ids.TeamID
 	Permissions principal.Permissions
 }
 
@@ -232,10 +232,10 @@ func (a AgentIdentity) Principal() principal.Principal {
 	return principal.Principal{
 		Type:        principal.PrincipalAgent,
 		ID:          "agent:" + a.PassportID.String(),
-		UserID:      a.OnBehalfOf,
-		PassportID:  a.PassportID,
-		OnBehalfOf:  a.OnBehalfOf,
-		TeamIDs:     a.Teams,
+		UserID:      a.OnBehalfOf.UUID,
+		PassportID:  a.PassportID.UUID,
+		OnBehalfOf:  a.OnBehalfOf.UUID,
+		TeamIDs:     rawTeamIDs(a.Teams),
 		SeatType:    principal.SeatType(a.SeatType),
 		Scopes:      a.Scopes,
 		Permissions: a.Permissions,
@@ -249,7 +249,7 @@ func (a AgentIdentity) Principal() principal.Principal {
 // and the granting human's status all bind at resolution time), so a
 // parked overnight job wakes up with exactly the authority the passport
 // still has, not the authority it had when enqueued.
-func (s *Service) AuthenticateAgentByID(ctx context.Context, passportID ids.UUID) (AgentIdentity, error) {
+func (s *Service) AuthenticateAgentByID(ctx context.Context, passportID ids.PassportID) (AgentIdentity, error) {
 	var a AgentIdentity
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var scopes []string
