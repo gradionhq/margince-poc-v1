@@ -97,6 +97,25 @@ describe("cold-start read-back labels", () => {
   });
 });
 
+describe("connect step is skippable", () => {
+  it("the mailbox-connect step offers a skip beside the connect CTA that exits to home", async () => {
+    await readBusiness();
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skip this step" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Connect my inbox/ }),
+    );
+    const skip = screen.getByRole("button", {
+      name: /Skip for now — I'll connect later/,
+    });
+    await userEvent.click(skip);
+    expect(window.location.hash).toBe("#/home");
+  });
+});
+
 describe("step-4 honesty about the voice step", () => {
   it("a skipped voice step gets the neutral-starter copy and the example tag — not 'sounds like you'", async () => {
     await readBusiness();

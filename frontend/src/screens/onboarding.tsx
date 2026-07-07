@@ -306,15 +306,6 @@ function Footer({
           {t("ob.s4.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
-      {step === 4 && (
-        <button
-          type="button"
-          className="wiz-later"
-          onClick={() => navigate({ screen: "home" })}
-        >
-          {t("ob.s5.skipLater")}
-        </button>
-      )}
     </div>
   );
 }
@@ -1242,7 +1233,7 @@ function ConnectStep() {
             </div>
           )}
 
-          <div style={{ textAlign: "center", marginTop: 18 }}>
+          <div className="connect-acts">
             <Button
               variant="primary"
               disabled={!ready || connect.isPending}
@@ -1257,6 +1248,9 @@ function ConnectStep() {
                   <Mail aria-hidden /> {t("ob.s5.imapConnect")}
                 </>
               )}
+            </Button>
+            <Button onClick={() => navigate({ screen: "home" })}>
+              <SkipForward aria-hidden /> {t("ob.s5.skipLater")}
             </Button>
           </div>
 
