@@ -78,16 +78,24 @@ seams. pgx carries them natively (uuid/uuid[] registered per connection);
 `TestTypedIDsRoundTripThroughPgx` is the proof gate. Rollout is per-module,
 leaf-first.
 
-## 7. Row-scope stays call-site — for now
+## 7. Row-scope stays at the application layer — DB-level RLS row-scope declined
 
 The auth primitives now reject unknown table names themselves (defense in
 depth under the callers' allowlists) and `rbacgate_test.go` pins "every store
 entry point reaches an auth gate" with a rationale-keyed waiver map.
-**DB-level row-scope (a second GUC + per-shareable-table policies, the same
-posture as workspace RLS) is the recorded direction** — it is the only
-enforcement that survives a forgotten call site — but it is its own
-workstream: per-request principal binding, policy-per-table design, and a perf
-pass. Until then the fitness gates are the invariant.
+
+**DB-level row-scope enforcement — a second GUC + per-shareable-table RLS
+policies, the same posture as workspace-isolation RLS — was considered and
+declined (founder decision).** It is a large separate workstream (per-request
+principal binding, policy-per-table design, a performance pass) whose cost is
+not justified while the store-entry-point gates plus the derived fitness tests
+hold the invariant. Note the scope of the decision: **workspace-level tenant
+isolation continues to be enforced by RLS** (`WithWorkspaceTx` + FORCE RLS on
+every workspace table) — that is untouched and non-negotiable; only the finer
+per-user / per-team *row-scope* stays at the application auth layer rather than
+moving into the database. If a forgotten call site ever becomes a real risk,
+DB-level row-scope remains the natural escalation, but it is explicitly not
+planned work.
 
 ## 8. Declined: sqlc
 
