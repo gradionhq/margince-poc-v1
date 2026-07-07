@@ -42,41 +42,7 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The capture stamped field-level provenance for BOTH object types it
-	// created (activity + lead), under the connector's identity.
-	type stampRow struct {
-		objectType, field, source, capturedBy string
-	}
-	var stamps []stampRow
-	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(context.Background(),
-			`SELECT object_type, field_name, source, captured_by FROM field_provenance ORDER BY object_type, field_name`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var s stampRow
-			if err := rows.Scan(&s.objectType, &s.field, &s.source, &s.capturedBy); err != nil {
-				return err
-			}
-			stamps = append(stamps, s)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	types := map[string]bool{}
-	for _, s := range stamps {
-		types[s.objectType] = true
-		if s.capturedBy != "connector:mailfake" {
-			t.Fatalf("field stamp names %q, want the connector identity", s.capturedBy)
-		}
-	}
-	if !types["activity"] || !types["lead"] {
-		t.Fatalf("field provenance must cover both captured object types, got %+v", stamps)
-	}
+	assertCaptureStampedBothObjectTypes(t, e)
 
 	// Captured vs human-entered fields are independently queryable: the
 	// captured set is non-empty, and none of it claims a human author.
@@ -110,6 +76,46 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// assertCaptureStampedBothObjectTypes checks the capture stamped
+// field-level provenance for BOTH object types it created (activity +
+// lead), under the connector's identity.
+func assertCaptureStampedBothObjectTypes(t *testing.T, e *searchEnv) {
+	t.Helper()
+	type stampRow struct {
+		objectType, field, source, capturedBy string
+	}
+	var stamps []stampRow
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(context.Background(),
+			`SELECT object_type, field_name, source, captured_by FROM field_provenance ORDER BY object_type, field_name`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var s stampRow
+			if err := rows.Scan(&s.objectType, &s.field, &s.source, &s.capturedBy); err != nil {
+				return err
+			}
+			stamps = append(stamps, s)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]bool{}
+	for _, s := range stamps {
+		types[s.objectType] = true
+		if s.capturedBy != "connector:mailfake" {
+			t.Fatalf("field stamp names %q, want the connector identity", s.capturedBy)
+		}
+	}
+	if !types["activity"] || !types["lead"] {
+		t.Fatalf("field provenance must cover both captured object types, got %+v", stamps)
 	}
 }
 

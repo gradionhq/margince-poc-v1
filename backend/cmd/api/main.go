@@ -49,49 +49,73 @@ func main() {
 	}
 }
 
+// apiConfig is the parsed boot configuration of the api process.
+type apiConfig struct {
+	dsn           string
+	addr          string
+	redisAddr     string
+	inlineRelay   bool
+	routingPath   string
+	fakeBrain     bool
+	logLevel      string
+	logFormat     string
+	publicBaseURL string
+}
+
+// parseAPIFlags parses and validates the boot flags; the DSN is the one
+// dependency without a sane default, so its absence fails the boot here.
+func parseAPIFlags(args []string) (apiConfig, error) {
+	fs := flag.NewFlagSet("api", flag.ContinueOnError)
+	var cfg apiConfig
+	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
+	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
+	fs.BoolVar(&cfg.inlineRelay, "inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
+	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the cold-start read-back")
+	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
+	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
+	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
+	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail")
+	if err := fs.Parse(args); err != nil {
+		return apiConfig{}, err
+	}
+	if cfg.dsn == "" {
+		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
+	}
+	return cfg, nil
+}
+
 // run boots the HTTP server (plus, by default, the inline outbox relay)
 // with explicit operational limits and graceful shutdown — a server
 // without timeouts leaks connections under slow clients.
 func run(ctx context.Context, args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("api", flag.ContinueOnError)
-	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
-	addr := fs.String("addr", ":8080", "listen address")
-	redisAddr := fs.String("redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
-	inlineRelay := fs.Bool("inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
-	routingPath := fs.String("ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the cold-start read-back")
-	fakeBrain := fs.Bool("ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
-	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
-	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
-	publicBaseURL := fs.String("public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail")
-	if err := fs.Parse(args); err != nil {
+	cfg, err := parseAPIFlags(args)
+	if err != nil {
 		return err
 	}
-	if *dsn == "" {
-		return errors.New("api: --dsn or MARGINCE_DSN required")
-	}
 
-	handler, err := httpserver.LogHandler(stdout, *logLevel, *logFormat)
+	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
 		return err
 	}
 	logger := slog.New(httpserver.WithCorrelation(handler))
 
-	pool, err := database.NewPool(ctx, *dsn)
+	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
 	var opts []compose.Option
-	if *publicBaseURL != "" {
-		opts = append(opts, compose.WithPublicBaseURL(*publicBaseURL))
+	if cfg.publicBaseURL != "" {
+		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 	}
 
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
 	}
-	if *inlineRelay {
-		busReady, stop, err := startInlineRelay(ctx, pool, *redisAddr, logger)
+	if cfg.inlineRelay {
+		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, logger)
 		if err != nil {
 			return err
 		}
@@ -99,14 +123,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, busReady)
 	}
 
-	coldStart, err := coldStartOptions(*routingPath, *fakeBrain, pool)
+	coldStart, err := coldStartOptions(cfg.routingPath, cfg.fakeBrain, pool)
 	if err != nil {
 		return err
 	}
 	opts = append(opts, coldStart...)
 
 	srv := &http.Server{
-		Addr:              *addr,
+		Addr:              cfg.addr,
 		Handler:           compose.New(pool, logger, opts...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -116,10 +140,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
-	if *inlineRelay {
-		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1), relaying events to %s\n", *addr, *redisAddr)
+	if cfg.inlineRelay {
+		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1), relaying events to %s\n", cfg.addr, cfg.redisAddr)
 	} else {
-		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1); the outbox relay runs in cmd/worker\n", *addr)
+		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1); the outbox relay runs in cmd/worker\n", cfg.addr)
 	}
 
 	stopHTTP := func() error {

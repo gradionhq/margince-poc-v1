@@ -56,15 +56,12 @@ var benchTiers = map[search.BenchTier]benchTierSpec{
 	},
 }
 
-func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
-	spec, ok := benchTiers[search.BenchTier(envOr("MARGINCE_BENCH_TIER", string(search.BenchTierSMB)))]
-	if !ok {
-		t.Fatalf("MARGINCE_BENCH_TIER must be one of smb, mid_market")
-	}
-
+// benchDatabase connects as owner, resets the schema, and migrates —
+// the fresh-database arrange step the benchmark shares with setup.
+func benchDatabase(t *testing.T) *pgx.Conn {
+	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if ownerDSN == "" || appDSN == "" {
+	if ownerDSN == "" {
 		t.Fatal("MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
 	ctx := context.Background()
@@ -91,6 +88,21 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
 		t.Fatal(err)
 	}
+	return owner
+}
+
+func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
+	spec, ok := benchTiers[search.BenchTier(envOr("MARGINCE_BENCH_TIER", string(search.BenchTierSMB)))]
+	if !ok {
+		t.Fatalf("MARGINCE_BENCH_TIER must be one of smb, mid_market")
+	}
+
+	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
+	if appDSN == "" {
+		t.Fatal("MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	ctx := context.Background()
+	owner := benchDatabase(t)
 
 	ws := ids.NewV7()
 	anchor := seedBenchTier(t, owner, ws, spec)
@@ -113,38 +125,8 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Canonical query 1 (PERF-3): ranked cross-object full-text search.
-	ftsStats, err := benchRuns("search_fts", search.Perf3Budget, spec, func() error {
-		page, err := store.Search(actx, search.Input{Query: "hamburg"})
-		if err != nil {
-			return err
-		}
-		if len(page.Hits) == 0 {
-			return fmt.Errorf("fts benchmark query matched nothing — the fixture is wrong")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Canonical query 2 (PERF-7): the fixed-depth context-graph
-	// assembly over the anchor's hot 360.
-	graphStats, err := benchRuns(search.GraphQueryName, search.Perf7Budget, spec, func() error {
-		assembled, err := retriever.AssembleContext(actx,
-			datasource.EntityRef{Type: datasource.EntityPerson, ID: anchor},
-			retrieval.AssembleOptions{MaxItems: 5})
-		if err != nil {
-			return err
-		}
-		if len(assembled.Sections) < 2 {
-			return fmt.Errorf("graph assembly returned %d sections — the fixture is wrong", len(assembled.Sections))
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	ftsStats := benchFTSQuery(t, store, actx, spec)
+	graphStats := benchGraphQuery(t, retriever, actx, anchor, spec)
 
 	report.Queries = []search.QueryStats{ftsStats, graphStats}
 	for _, q := range report.Queries {
@@ -166,6 +148,48 @@ func TestPerfBudgetsHoldOnSeededVolumeTier(t *testing.T) {
 	if err := report.Gate(); err != nil {
 		t.Fatalf("PERF budget gate is red: %v", err)
 	}
+}
+
+// benchFTSQuery measures canonical query 1 (PERF-3): ranked
+// cross-object full-text search.
+func benchFTSQuery(t *testing.T, store *search.Store, actx context.Context, spec benchTierSpec) search.QueryStats {
+	t.Helper()
+	stats, err := benchRuns("search_fts", search.Perf3Budget, spec, func() error {
+		page, err := store.Search(actx, search.Input{Query: "hamburg"})
+		if err != nil {
+			return err
+		}
+		if len(page.Hits) == 0 {
+			return fmt.Errorf("fts benchmark query matched nothing — the fixture is wrong")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stats
+}
+
+// benchGraphQuery measures canonical query 2 (PERF-7): the fixed-depth
+// context-graph assembly over the anchor's hot 360.
+func benchGraphQuery(t *testing.T, retriever *search.Retriever, actx context.Context, anchor ids.UUID, spec benchTierSpec) search.QueryStats {
+	t.Helper()
+	stats, err := benchRuns(search.GraphQueryName, search.Perf7Budget, spec, func() error {
+		assembled, err := retriever.AssembleContext(actx,
+			datasource.EntityRef{Type: datasource.EntityPerson, ID: anchor},
+			retrieval.AssembleOptions{MaxItems: 5})
+		if err != nil {
+			return err
+		}
+		if len(assembled.Sections) < 2 {
+			return fmt.Errorf("graph assembly returned %d sections — the fixture is wrong", len(assembled.Sections))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stats
 }
 
 func envOr(key, fallback string) string {
@@ -207,14 +231,20 @@ func benchAdminCtx(ws ids.UUID) context.Context {
 // seedBenchTier bulk-loads one volume tier through the owner
 // connection (set-based inserts — the write shape has its own suites)
 // and returns the graph-anchor person the PERF-7 query measures.
+// benchExec runs one seeding statement through the owner connection,
+// failing with the tier it was sizing.
+func benchExec(t *testing.T, owner *pgx.Conn, tier search.BenchTier, sql string, args ...any) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(), sql, args...); err != nil {
+		t.Fatalf("seeding %s tier: %v", tier, err)
+	}
+}
+
 func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpec) ids.UUID {
 	t.Helper()
-	ctx := context.Background()
 	exec := func(sql string, args ...any) {
 		t.Helper()
-		if _, err := owner.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("seeding %s tier: %v", spec.tier, err)
-		}
+		benchExec(t, owner, spec.tier, sql, args...)
 	}
 
 	exec(`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Bench', 'bench', 'EUR')`, ws)
@@ -270,15 +300,24 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	      SELECT $1, 'employment', p.id, o.id, 'manual', 'human:bench'
 	      FROM people p JOIN orgs o ON o.rn = p.target_rn`, ws, spec.relationships)
 
-	// The measured anchor: one person with a hot 360 — touches linked
-	// to it AND to organizations, so hop 2 has real expansion work.
+	anchor := seedBenchAnchor(t, owner, ws, spec)
+
+	exec(`ANALYZE person, organization, activity, activity_link, relationship`)
+	return anchor
+}
+
+// seedBenchAnchor seeds the measured anchor: one person with a hot 360
+// — touches linked to it AND to organizations, so hop 2 has real
+// expansion work.
+func seedBenchAnchor(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpec) ids.UUID {
+	t.Helper()
 	var anchor ids.UUID
-	if err := owner.QueryRow(ctx,
+	if err := owner.QueryRow(context.Background(),
 		`INSERT INTO person (workspace_id, full_name, source, captured_by)
 		 VALUES ($1, 'Anchor Hamburg', 'manual', 'human:bench') RETURNING id`, ws).Scan(&anchor); err != nil {
 		t.Fatalf("seeding anchor: %v", err)
 	}
-	exec(`WITH act AS (
+	benchExec(t, owner, spec.tier, `WITH act AS (
 	        INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, source, captured_by)
 	        SELECT $1,
 	               CASE WHEN i % 4 = 0 THEN 'task' ELSE 'meeting' END,
@@ -301,7 +340,5 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	      INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 	      SELECT $1, n.id, 'organization', o.id
 	      FROM numbered n JOIN orgs o ON o.rn = n.target_rn`, ws, anchor, spec.anchorTouches)
-
-	exec(`ANALYZE person, organization, activity, activity_link, relationship`)
 	return anchor
 }

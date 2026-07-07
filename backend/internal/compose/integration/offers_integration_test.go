@@ -96,12 +96,11 @@ func reconcile(t *testing.T, o offerBody) {
 	}
 }
 
-func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
-	e := setup(t)
-	e.slug = "offers-e2e"
-	bootstrapWorkspaceSession(t, e, "Offers E2E", "offers@fable.test")
-	dealID := offerFixture(t, e)
-
+// createRateCardProduct creates the Consulting-day rate-card product,
+// asserting money is integer minor units and a live SKU is unique.
+// Returns the product id.
+func createRateCardProduct(t *testing.T, e *env) string {
+	t.Helper()
 	// Rate-card product: money is integer minor units; SKU unique when present.
 	var product struct {
 		ID             string `json:"id"`
@@ -119,7 +118,13 @@ func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
 	}, nil, nil); status != http.StatusConflict {
 		t.Fatalf("duplicate live sku → %d, want 409", status)
 	}
+	return product.ID
+}
 
+// assertOfferTotalsAreDerived checks a client-supplied total on the
+// offer header is a 422 — totals are derived (P11).
+func assertOfferTotalsAreDerived(t *testing.T, e *env, dealID string) {
+	t.Helper()
 	// A client-supplied total is rejected 422 — totals are derived (P11).
 	var problem struct {
 		Code    string `json:"code"`
@@ -135,6 +140,15 @@ func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
 	}, nil, &problem); status != http.StatusUnprocessableEntity || problem.Details.Errors[0].Code != "totals_derived" {
 		t.Fatalf("client-supplied net_minor → %d %+v, want 422 totals_derived", status, problem)
 	}
+}
+
+func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
+	e := setup(t)
+	e.slug = "offers-e2e"
+	bootstrapWorkspaceSession(t, e, "Offers E2E", "offers@fable.test")
+	dealID := offerFixture(t, e)
+	productID := createRateCardProduct(t, e)
+	assertOfferTotalsAreDerived(t, e, dealID)
 
 	// Create with a product-snapshot line and a free-form discounted line:
 	// 2 days × 1200.00 @19% → net 240000, tax 45600
@@ -143,7 +157,7 @@ func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
 	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
 		"currency": "EUR", "source": "manual",
 		"line_items": []anyMap{
-			{"product_id": product.ID, "quantity": 2},
+			{"product_id": productID, "quantity": 2},
 			{"description": "Licence", "quantity": 3, "unit_price_minor": 9999, "discount_pct": 10.0, "tax_rate": 7.0},
 		},
 	}, nil, &offer); status != http.StatusCreated {
@@ -160,7 +174,7 @@ func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
 
 	// Snapshot semantics (B-E03.17): re-pricing the product must NOT
 	// mutate the existing line.
-	if status := e.call(t, "PATCH", "/v1/products/"+product.ID, anyMap{"unit_price_minor": 999999}, nil, nil); status != http.StatusOK {
+	if status := e.call(t, "PATCH", "/v1/products/"+productID, anyMap{"unit_price_minor": 999999}, nil, nil); status != http.StatusOK {
 		t.Fatalf("re-price product → %d", status)
 	}
 	var after offerBody
@@ -171,7 +185,24 @@ func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
 		t.Fatalf("product re-price mutated the line snapshot: %+v", after.LineItems[0])
 	}
 
+	exerciseDraftLineWrites(t, e, offer)
+}
+
+// exerciseDraftLineWrites runs the draft line-item write shape: a
+// smuggled client total is 422, and add/update/remove each recompute
+// the derived totals with zero drift.
+func exerciseDraftLineWrites(t *testing.T, e *env, offer offerBody) {
+	t.Helper()
 	// A total smuggled into a line-item write is 422 too.
+	var problem struct {
+		Code    string `json:"code"`
+		Details struct {
+			Errors []struct {
+				Field string `json:"field"`
+				Code  string `json:"code"`
+			} `json:"errors"`
+		} `json:"details"`
+	}
 	if status := e.call(t, "POST", "/v1/offers/"+offer.ID+"/line-items", anyMap{
 		"description": "Sneaky", "quantity": 1, "unit_price_minor": 100, "line_total_minor": 1,
 	}, nil, &problem); status != http.StatusUnprocessableEntity {
@@ -224,18 +255,6 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	createOffer := func(currency string) offerBody {
-		t.Helper()
-		var o offerBody
-		if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
-			"currency": currency, "source": "manual",
-			"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
-		}, nil, &o); status != http.StatusCreated {
-			t.Fatalf("create %s offer → %d", currency, status)
-		}
-		return o
-	}
-
 	// An empty draft has nothing to send.
 	var empty offerBody
 	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
@@ -247,27 +266,8 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 		t.Fatalf("send empty offer → %d, want 422", status)
 	}
 
-	// FX honesty (RT-PR-C2): sending a USD offer with no daily rate is a
-	// hard 422 — never rate=1. With a rate, send freezes it.
-	usd := createOffer("USD")
-	var problem struct {
-		Detail string `json:"detail"`
-	}
-	if status := e.call(t, "POST", "/v1/offers/"+usd.ID+"/send", nil, nil, &problem); status != http.StatusUnprocessableEntity {
-		t.Fatalf("send with missing fx rate → %d, want 422", status)
-	}
-	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		 VALUES ($1, 'USD', 'EUR', 0.9200000000, current_date)`, wsID); err != nil {
-		t.Fatal(err)
-	}
-	var sent offerBody
-	if status := e.call(t, "POST", "/v1/offers/"+usd.ID+"/send", nil, nil, &sent); status != http.StatusOK {
-		t.Fatalf("send with seeded fx rate → %d", status)
-	}
-	if sent.Status != "sent" || !strings.HasPrefix(sent.FxRate, "0.92") {
-		t.Fatalf("sent offer = status %q fx %q, want sent with the frozen 0.92 rate", sent.Status, sent.FxRate)
-	}
+	usd := createOfferInCurrency(t, e, dealID, "USD")
+	assertSendFreezesDailyFxRate(t, e, wsID, usd.ID)
 
 	// A sent offer is immutable: header, lines and re-send all refuse.
 	if status := e.call(t, "PATCH", "/v1/offers/"+usd.ID, anyMap{"intro_text": "rewrite"}, nil, nil); status != http.StatusUnprocessableEntity {
@@ -282,10 +282,85 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 		t.Fatalf("re-send sent offer → %d, want 422", status)
 	}
 
-	// Accept: status flips, accepted_at lands, and the DEAL takes the
-	// accepted gross as its headline amount (forecast honesty).
+	assertAcceptSyncsDealAmount(t, e, dealID, usd.ID)
+
+	// Reject: a second sent offer takes the decline (with reason).
+	eur := createOfferInCurrency(t, e, dealID, "EUR")
+	if e.call(t, "POST", "/v1/offers/"+eur.ID+"/send", nil, nil, nil) != http.StatusOK {
+		t.Fatal("send EUR offer failed")
+	}
+	var rejected offerBody
+	if status := e.call(t, "POST", "/v1/offers/"+eur.ID+"/reject", anyMap{"reason": "budget cut"}, nil, &rejected); status != http.StatusOK || rejected.Status != "rejected" {
+		t.Fatalf("reject → %d %q", status, rejected.Status)
+	}
+
+	// Regenerate: a third sent offer mints revision 2 as a fresh draft
+	// and the original becomes superseded — never mutated in place.
+	third := createOfferInCurrency(t, e, dealID, "EUR")
+	if e.call(t, "POST", "/v1/offers/"+third.ID+"/send", nil, nil, nil) != http.StatusOK {
+		t.Fatal("send third offer failed")
+	}
+	var nextRev offerBody
+	if status := e.call(t, "POST", "/v1/offers/"+third.ID+"/regenerate", nil, nil, &nextRev); status != http.StatusCreated {
+		t.Fatalf("regenerate → %d", status)
+	}
+	if nextRev.Revision != 2 || nextRev.Status != "draft" || nextRev.OfferNumber != third.OfferNumber || len(nextRev.LineItems) != 1 {
+		t.Fatalf("regenerated = %+v, want draft revision 2 of %s with the copied line", nextRev, third.OfferNumber)
+	}
+	var prior offerBody
+	if status := e.call(t, "GET", "/v1/offers/"+third.ID, nil, nil, &prior); status != http.StatusOK || prior.Status != "superseded" {
+		t.Fatalf("prior revision after regenerate = %d %q, want superseded", 200, prior.Status)
+	}
+
+	assertOfferEventTrail(t, e)
+}
+
+// createOfferInCurrency creates a one-line Retainer offer on the deal in
+// the given currency.
+func createOfferInCurrency(t *testing.T, e *env, dealID, currency string) offerBody {
+	t.Helper()
+	var o offerBody
+	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+		"currency": currency, "source": "manual",
+		"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+	}, nil, &o); status != http.StatusCreated {
+		t.Fatalf("create %s offer → %d", currency, status)
+	}
+	return o
+}
+
+// assertSendFreezesDailyFxRate covers FX honesty (RT-PR-C2): sending a
+// USD offer with no daily rate is a hard 422 — never rate=1 — and with
+// a seeded rate, send freezes it onto the offer.
+func assertSendFreezesDailyFxRate(t *testing.T, e *env, wsID, offerID string) {
+	t.Helper()
+	var problem struct {
+		Detail string `json:"detail"`
+	}
+	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/send", nil, nil, &problem); status != http.StatusUnprocessableEntity {
+		t.Fatalf("send with missing fx rate → %d, want 422", status)
+	}
+	if _, err := e.owner.Exec(context.Background(),
+		`INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
+		 VALUES ($1, 'USD', 'EUR', 0.9200000000, current_date)`, wsID); err != nil {
+		t.Fatal(err)
+	}
+	var sent offerBody
+	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/send", nil, nil, &sent); status != http.StatusOK {
+		t.Fatalf("send with seeded fx rate → %d", status)
+	}
+	if sent.Status != "sent" || !strings.HasPrefix(sent.FxRate, "0.92") {
+		t.Fatalf("sent offer = status %q fx %q, want sent with the frozen 0.92 rate", sent.Status, sent.FxRate)
+	}
+}
+
+// assertAcceptSyncsDealAmount covers accept: status flips, accepted_at
+// lands, the DEAL takes the accepted gross as its headline amount
+// (forecast honesty), and a second accept refuses — accept is terminal.
+func assertAcceptSyncsDealAmount(t *testing.T, e *env, dealID, offerID string) {
+	t.Helper()
 	var accepted offerBody
-	if status := e.call(t, "POST", "/v1/offers/"+usd.ID+"/accept", nil, nil, &accepted); status != http.StatusOK {
+	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/accept", nil, nil, &accepted); status != http.StatusOK {
 		t.Fatalf("accept → %d", status)
 	}
 	if accepted.Status != "accepted" || accepted.AcceptedAt == "" {
@@ -303,39 +378,16 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 			deal.AmountMinor, deal.Currency, accepted.GrossMinor)
 	}
 	// Accept is terminal: a second accept refuses.
-	if status := e.call(t, "POST", "/v1/offers/"+usd.ID+"/accept", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/accept", nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("double accept → %d, want 422", status)
 	}
+}
 
-	// Reject: a second sent offer takes the decline (with reason).
-	eur := createOffer("EUR")
-	if e.call(t, "POST", "/v1/offers/"+eur.ID+"/send", nil, nil, nil) != http.StatusOK {
-		t.Fatal("send EUR offer failed")
-	}
-	var rejected offerBody
-	if status := e.call(t, "POST", "/v1/offers/"+eur.ID+"/reject", anyMap{"reason": "budget cut"}, nil, &rejected); status != http.StatusOK || rejected.Status != "rejected" {
-		t.Fatalf("reject → %d %q", status, rejected.Status)
-	}
-
-	// Regenerate: a third sent offer mints revision 2 as a fresh draft
-	// and the original becomes superseded — never mutated in place.
-	third := createOffer("EUR")
-	if e.call(t, "POST", "/v1/offers/"+third.ID+"/send", nil, nil, nil) != http.StatusOK {
-		t.Fatal("send third offer failed")
-	}
-	var nextRev offerBody
-	if status := e.call(t, "POST", "/v1/offers/"+third.ID+"/regenerate", nil, nil, &nextRev); status != http.StatusCreated {
-		t.Fatalf("regenerate → %d", status)
-	}
-	if nextRev.Revision != 2 || nextRev.Status != "draft" || nextRev.OfferNumber != third.OfferNumber || len(nextRev.LineItems) != 1 {
-		t.Fatalf("regenerated = %+v, want draft revision 2 of %s with the copied line", nextRev, third.OfferNumber)
-	}
-	var prior offerBody
-	if status := e.call(t, "GET", "/v1/offers/"+third.ID, nil, nil, &prior); status != http.StatusOK || prior.Status != "superseded" {
-		t.Fatalf("prior revision after regenerate = %d %q, want superseded", 200, prior.Status)
-	}
-
-	// The event trail: every lifecycle fact shipped through the outbox.
+// assertOfferEventTrail checks every lifecycle fact shipped through the
+// outbox: 4 creates + 1 regenerate-create; 3 sends; 1 accept (+ its
+// paired deal.updated); 1 reject; 1 supersede.
+func assertOfferEventTrail(t *testing.T, e *env) {
+	t.Helper()
 	var created, sentN, acceptedN, rejectedN, supersededN, dealUpdated int
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT count(*) FILTER (WHERE envelope->>'type' = 'offer.created'),
@@ -347,8 +399,6 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 		FROM event_outbox`).Scan(&created, &sentN, &acceptedN, &rejectedN, &supersededN, &dealUpdated); err != nil {
 		t.Fatal(err)
 	}
-	// 4 creates + 1 regenerate-create; 3 sends; 1 accept (+ its paired
-	// deal.updated); 1 reject; 1 supersede.
 	if created != 5 || sentN != 3 || acceptedN != 1 || rejectedN != 1 || supersededN != 1 || dealUpdated < 1 {
 		t.Fatalf("offer event trail: created=%d sent=%d accepted=%d rejected=%d superseded=%d deal.updated=%d",
 			created, sentN, acceptedN, rejectedN, supersededN, dealUpdated)

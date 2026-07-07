@@ -90,13 +90,10 @@ func grantPurpose(t *testing.T, c *consentEnv, purposeID string) {
 	}
 }
 
-func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
-	c := setupConsent(t)
-
-	// A live deal's transactional lane stays open throughout.
-	grantPurpose(t, c, c.purposes["transactional"])
-
-	// A non-DOI marketing purpose so the grant needs no round-trip.
+// createNewsletterPurpose creates the non-DOI newsletter marketing
+// purpose (so a grant needs no round-trip) and returns its id.
+func createNewsletterPurpose(t *testing.T, c *consentEnv) string {
+	t.Helper()
 	var newsletter struct {
 		ID string `json:"id"`
 	}
@@ -105,8 +102,16 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	}, nil, &newsletter); status != http.StatusCreated {
 		t.Fatalf("create newsletter purpose → %d", status)
 	}
-	grantPurpose(t, c, newsletter.ID)
+	return newsletter.ID
+}
 
+// sendAndAssertUnsubscribeHeaders covers the RFC 8058 header pair on a
+// marketing send: both headers present and built from the CONFIGURED
+// base, a forged request origin never reshapes the tokenized link, and
+// a transactional (locked) send carries no unsubscribe header at all.
+// Returns the preference token the send minted.
+func sendAndAssertUnsubscribeHeaders(t *testing.T, c *consentEnv) string {
+	t.Helper()
 	// The marketing send carries both RFC 8058 headers, built from the
 	// configured base — NOT from the request Host.
 	status, hdr := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
@@ -134,79 +139,54 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	if _, thdr := sendMarketing(t, c.env, c.activityID, "transactional", "", ""); thdr.Get("List-Unsubscribe") != "" {
 		t.Fatal("transactional send carried a List-Unsubscribe header — there is nothing to unsubscribe from")
 	}
+	return token
+}
 
-	// The no-login preference center recognizes the recipient by token.
-	type prefView struct {
-		Purposes []struct {
-			Key    string `json:"key"`
-			State  string `json:"state"`
-			Locked bool   `json:"locked"`
-		} `json:"purposes"`
+// prefView is the no-login preference center's response shape.
+type prefView struct {
+	Purposes []struct {
+		Key    string `json:"key"`
+		State  string `json:"state"`
+		Locked bool   `json:"locked"`
+	} `json:"purposes"`
+}
+
+// readPreferenceView fetches the token's preference center view.
+func readPreferenceView(t *testing.T, c *consentEnv, token string) prefView {
+	t.Helper()
+	var v prefView
+	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, &v); s != http.StatusOK {
+		t.Fatalf("preference center GET → %d", s)
 	}
-	readView := func() prefView {
-		var v prefView
-		if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, &v); s != http.StatusOK {
-			t.Fatalf("preference center GET → %d", s)
+	return v
+}
+
+// purposeStateOf resolves one purpose's (state, locked) from the view.
+func purposeStateOf(t *testing.T, v prefView, key string) (string, bool) {
+	t.Helper()
+	for _, p := range v.Purposes {
+		if p.Key == key {
+			return p.State, p.Locked
 		}
-		return v
 	}
-	stateOf := func(v prefView, key string) (string, bool) {
-		for _, p := range v.Purposes {
-			if p.Key == key {
-				return p.State, p.Locked
-			}
-		}
-		t.Fatalf("purpose %q missing from the preference center", key)
-		return "", false
-	}
-	view := readView()
-	if s, _ := stateOf(view, "newsletter"); s != "granted" {
-		t.Fatalf("newsletter shows %q before opt-out, want granted", s)
-	}
-	if s, locked := stateOf(view, "transactional"); s != "granted" || !locked {
-		t.Fatalf("transactional shows state=%q locked=%v, want granted+locked", s, locked)
-	}
+	t.Fatalf("purpose %q missing from the preference center", key)
+	return "", false
+}
 
-	// A GET/prefetch on the unsubscribe path must NOT withdraw (RFC 8058
-	// mandates POST for exactly this — a scanner following the link must
-	// not opt anyone out).
-	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token+"/unsubscribe", nil, nil, nil); s != http.StatusMethodNotAllowed {
-		t.Fatalf("GET on the unsubscribe path → %d, want 405", s)
-	}
-	if s, _ := stateOf(readView(), "newsletter"); s != "granted" {
-		t.Fatalf("a GET changed newsletter to %q — the one-click surface must be POST-only", s)
-	}
-
-	// The one-click POST withdraws immediately.
-	var unsub struct {
-		Unsubscribed []string `json:"unsubscribed"`
-	}
-	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, &unsub); s != http.StatusOK {
-		t.Fatalf("one-click unsubscribe → %d", s)
-	}
-	if len(unsub.Unsubscribed) != 1 || unsub.Unsubscribed[0] != "newsletter" {
-		t.Fatalf("unsubscribed = %v, want [newsletter]", unsub.Unsubscribed)
-	}
-	if s, _ := stateOf(readView(), "newsletter"); s != "withdrawn" {
-		t.Fatalf("newsletter still %q after one-click, want withdrawn", s)
-	}
-
-	// The gate honors the opt-out on the very next send; transactional
-	// (the live deal's lane) still transmits.
-	if s, code := c.send(t, "newsletter"); s != http.StatusConflict || code != "consent_not_granted" {
-		t.Fatalf("marketing send after opt-out → %d %q, want 409 consent_not_granted", s, code)
-	}
-	if s, code := c.send(t, "transactional"); s != http.StatusAccepted {
-		t.Fatalf("transactional send after marketing opt-out → %d %q, want 202", s, code)
-	}
-
+// assertWithdrawalProvenanceAndWriteShape checks the one-click
+// withdrawal's proof rows: idempotent on replay (one proof row), a
+// distinct provenance (the preference center + the confined public
+// principal — never `manual`, never a workspace user), and the standard
+// audited + emitted write shape.
+func assertWithdrawalProvenanceAndWriteShape(t *testing.T, c *consentEnv, token, newsletterID string) {
+	t.Helper()
 	// Idempotent: a repeat one-click writes no second proof row.
 	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, nil); s != http.StatusOK {
 		t.Fatalf("idempotent unsubscribe → %d", s)
 	}
 	var withdrawEvents int
 	if err := c.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM consent_event WHERE new_state = 'withdrawn' AND purpose_id = $1`, newsletter.ID).Scan(&withdrawEvents); err != nil {
+		`SELECT count(*) FROM consent_event WHERE new_state = 'withdrawn' AND purpose_id = $1`, newsletterID).Scan(&withdrawEvents); err != nil {
 		t.Fatal(err)
 	}
 	if withdrawEvents != 1 {
@@ -220,7 +200,7 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 		SELECT ce.source, ce.captured_by,
 		       (SELECT actor_type FROM audit_log WHERE action = 'consent_withdraw' LIMIT 1)
 		FROM consent_event ce WHERE ce.new_state = 'withdrawn' AND ce.purpose_id = $1 LIMIT 1`,
-		newsletter.ID).Scan(&source, &capturedBy, &actorType); err != nil {
+		newsletterID).Scan(&source, &capturedBy, &actorType); err != nil {
 		t.Fatal(err)
 	}
 	if source != "preference_center" || capturedBy != "system:public_preferences" || actorType != "system" {
@@ -241,6 +221,62 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	if audits < 1 || events < 1 {
 		t.Fatalf("write shape incomplete: %d withdraw audits, %d consent.changed events", audits, events)
 	}
+}
+
+func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
+	c := setupConsent(t)
+
+	// A live deal's transactional lane stays open throughout.
+	grantPurpose(t, c, c.purposes["transactional"])
+
+	newsletterID := createNewsletterPurpose(t, c)
+	grantPurpose(t, c, newsletterID)
+
+	token := sendAndAssertUnsubscribeHeaders(t, c)
+
+	// The no-login preference center recognizes the recipient by token.
+	view := readPreferenceView(t, c, token)
+	if s, _ := purposeStateOf(t, view, "newsletter"); s != "granted" {
+		t.Fatalf("newsletter shows %q before opt-out, want granted", s)
+	}
+	if s, locked := purposeStateOf(t, view, "transactional"); s != "granted" || !locked {
+		t.Fatalf("transactional shows state=%q locked=%v, want granted+locked", s, locked)
+	}
+
+	// A GET/prefetch on the unsubscribe path must NOT withdraw (RFC 8058
+	// mandates POST for exactly this — a scanner following the link must
+	// not opt anyone out).
+	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token+"/unsubscribe", nil, nil, nil); s != http.StatusMethodNotAllowed {
+		t.Fatalf("GET on the unsubscribe path → %d, want 405", s)
+	}
+	if s, _ := purposeStateOf(t, readPreferenceView(t, c, token), "newsletter"); s != "granted" {
+		t.Fatalf("a GET changed newsletter to %q — the one-click surface must be POST-only", s)
+	}
+
+	// The one-click POST withdraws immediately.
+	var unsub struct {
+		Unsubscribed []string `json:"unsubscribed"`
+	}
+	if s := publicCall(t, c.env, "POST", "/v1/public/preferences/"+token+"/unsubscribe?purpose=newsletter", nil, nil, &unsub); s != http.StatusOK {
+		t.Fatalf("one-click unsubscribe → %d", s)
+	}
+	if len(unsub.Unsubscribed) != 1 || unsub.Unsubscribed[0] != "newsletter" {
+		t.Fatalf("unsubscribed = %v, want [newsletter]", unsub.Unsubscribed)
+	}
+	if s, _ := purposeStateOf(t, readPreferenceView(t, c, token), "newsletter"); s != "withdrawn" {
+		t.Fatalf("newsletter still %q after one-click, want withdrawn", s)
+	}
+
+	// The gate honors the opt-out on the very next send; transactional
+	// (the live deal's lane) still transmits.
+	if s, code := c.send(t, "newsletter"); s != http.StatusConflict || code != "consent_not_granted" {
+		t.Fatalf("marketing send after opt-out → %d %q, want 409 consent_not_granted", s, code)
+	}
+	if s, code := c.send(t, "transactional"); s != http.StatusAccepted {
+		t.Fatalf("transactional send after marketing opt-out → %d %q, want 202", s, code)
+	}
+
+	assertWithdrawalProvenanceAndWriteShape(t, c, token, newsletterID)
 }
 
 // The token is required and single-purpose: an unknown or revoked token is

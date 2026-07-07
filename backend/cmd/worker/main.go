@@ -54,38 +54,64 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, stdout io.Writer) error {
+// workerConfig is the parsed boot configuration of the worker process.
+type workerConfig struct {
+	dsn               string
+	redisAddr         string
+	routingPath       string
+	fakeBrain         bool
+	runnerInterval    time.Duration
+	retentionInterval time.Duration
+	closeDateInterval time.Duration
+	reconcileInterval time.Duration
+	logLevel          string
+	logFormat         string
+}
+
+// parseWorkerFlags parses and validates the boot flags; the DSN is the
+// one dependency without a sane default, so its absence fails the boot
+// here.
+func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
-	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
-	redisAddr := fs.String("redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
-	routingPath := fs.String("ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
-	fakeBrain := fs.Bool("ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
-	runnerInterval := fs.Duration("runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
-	retentionInterval := fs.Duration("retention-interval", 24*time.Hour, "retention evaluator pass interval")
-	closeDateInterval := fs.Duration("close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
-	reconcileInterval := fs.Duration("reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
-	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
-	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
+	var cfg workerConfig
+	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
+	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
+	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
+	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
+	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
+	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
+	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
+	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
+	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
+		return workerConfig{}, err
+	}
+	if cfg.dsn == "" {
+		return workerConfig{}, errors.New("worker: --dsn or MARGINCE_DSN required")
+	}
+	return cfg, nil
+}
+
+func run(ctx context.Context, args []string, stdout io.Writer) error {
+	cfg, err := parseWorkerFlags(args)
+	if err != nil {
 		return err
 	}
-	if *dsn == "" {
-		return errors.New("worker: --dsn or MARGINCE_DSN required")
-	}
 
-	handler, err := httpserver.LogHandler(stdout, *logLevel, *logFormat)
+	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
 		return err
 	}
 	logger := slog.New(httpserver.WithCorrelation(handler))
 
-	pool, err := database.NewPool(ctx, *dsn)
+	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	rdb, err := events.NewClient(ctx, *redisAddr)
+	rdb, err := events.NewClient(ctx, cfg.redisAddr)
 	if err != nil {
 		return err
 	}
@@ -95,7 +121,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}()
 
-	modelPath, err := selectModelPath(*routingPath, *fakeBrain, pool)
+	modelPath, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, pool)
 	if err != nil {
 		return err
 	}
@@ -108,8 +134,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if modelPath.Agent != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
 		svc := compose.NewRunnerService(pool, modelPath.Agent, grounding, logger)
-		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", *runnerInterval)
-		background.Go(func() { runScheduler(ctx, svc, *runnerInterval, logger) })
+		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
+		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
 	}
 	if modelPath.Embedder != nil {
@@ -119,22 +145,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	retention := privacy.NewRetentionService(pool, logger)
-	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", *retentionInterval)
-	background.Go(func() { privacy.RunRetention(ctx, retention, *retentionInterval, logger) })
+	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
+	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
 
 	corrector := compose.NewCloseDateCorrector(pool, logger)
-	_, _ = fmt.Fprintf(stdout, "worker sweeping close-date hygiene every %s\n", *closeDateInterval)
-	background.Go(func() { deals.RunCloseDateSweep(ctx, corrector, *closeDateInterval, logger) })
+	_, _ = fmt.Fprintf(stdout, "worker sweeping close-date hygiene every %s\n", cfg.closeDateInterval)
+	background.Go(func() { deals.RunCloseDateSweep(ctx, corrector, cfg.closeDateInterval, logger) })
 
 	reconciler := compose.NewFollowUpReconciler(pool, logger)
-	_, _ = fmt.Fprintf(stdout, "worker reconciling overnight follow-ups every %s\n", *reconcileInterval)
-	background.Go(func() { deals.RunFollowUpReconcile(ctx, reconciler, *reconcileInterval, logger) })
+	_, _ = fmt.Fprintf(stdout, "worker reconciling overnight follow-ups every %s\n", cfg.reconcileInterval)
+	background.Go(func() { deals.RunFollowUpReconcile(ctx, reconciler, cfg.reconcileInterval, logger) })
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
 
-	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", *redisAddr)
+	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", cfg.redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
 	// the next boot — shutdown loses no events.
 	events.NewRelay(pool, rdb, logger).Run(ctx)

@@ -82,40 +82,17 @@ func ListAuditLog(ctx context.Context, pool *pgxpool.Pool, f AuditFilter) (Audit
 	}
 
 	limit := storekit.ClampLimit(f.Limit)
-	where := "TRUE"
-	args := []any{}
+	where, args, err := buildAuditWhere(f)
+	if err != nil {
+		return AuditPage{}, err
+	}
 	arg := func(v any) string {
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args))
 	}
-	if f.Actor != nil {
-		where += " AND actor_id = " + arg(*f.Actor)
-	}
-	if f.EntityType != nil {
-		where += " AND entity_type = " + arg(*f.EntityType)
-	}
-	if f.EntityID != nil {
-		where += " AND entity_id = " + arg(*f.EntityID)
-	}
-	if f.Action != nil {
-		where += " AND action = " + arg(*f.Action)
-	}
-	if f.From != nil {
-		where += " AND occurred_at >= " + arg(*f.From)
-	}
-	if f.To != nil {
-		where += " AND occurred_at <= " + arg(*f.To)
-	}
-	if f.Cursor != nil && *f.Cursor != "" {
-		c, err := storekit.DecodeCursor(*f.Cursor)
-		if err != nil {
-			return AuditPage{}, err
-		}
-		where += " AND (occurred_at, id) < (" + arg(c.CreatedAt) + ", " + arg(c.ID) + ")"
-	}
 
 	var page AuditPage
-	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
 			`SELECT id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of,
 			        action, entity_type, entity_id, before, after, authorization_rule,
@@ -160,4 +137,43 @@ func ListAuditLog(ctx context.Context, pool *pgxpool.Pool, f AuditFilter) (Audit
 		page.HasMore = true
 	}
 	return page, nil
+}
+
+// buildAuditWhere renders the filter into a parameterized WHERE clause and
+// its ordered args. The keyset predicate matches the newest-first ORDER BY
+// the caller appends. It leaves the trailing LIMIT arg to the caller so the
+// same $-numbering stays contiguous.
+func buildAuditWhere(f AuditFilter) (string, []any, error) {
+	where := "TRUE"
+	args := []any{}
+	arg := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
+	if f.Actor != nil {
+		where += " AND actor_id = " + arg(*f.Actor)
+	}
+	if f.EntityType != nil {
+		where += " AND entity_type = " + arg(*f.EntityType)
+	}
+	if f.EntityID != nil {
+		where += " AND entity_id = " + arg(*f.EntityID)
+	}
+	if f.Action != nil {
+		where += " AND action = " + arg(*f.Action)
+	}
+	if f.From != nil {
+		where += " AND occurred_at >= " + arg(*f.From)
+	}
+	if f.To != nil {
+		where += " AND occurred_at <= " + arg(*f.To)
+	}
+	if f.Cursor != nil && *f.Cursor != "" {
+		c, err := storekit.DecodeCursor(*f.Cursor)
+		if err != nil {
+			return "", nil, err
+		}
+		where += " AND (occurred_at, id) < (" + arg(c.CreatedAt) + ", " + arg(c.ID) + ")"
+	}
+	return where, args, nil
 }

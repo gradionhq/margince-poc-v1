@@ -166,59 +166,61 @@ func TestFK_tenantLocalReferencesAreComposite(t *testing.T) {
 	}
 }
 
+// rowScopedFKDecisions is the classification: one entry per FK column
+// naming a row-scoped business record. Values are prose for the reader;
+// the map's completeness is the invariant.
+var rowScopedFKDecisions = map[string]string{
+	// Client-supplied references — visibility-gated at the store:
+	"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
+	"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
+	"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
+	"activity_link.person_id":       "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.lead_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+	// Owned child rows: the row is an attribute of its visible parent,
+	// written only through the parent's own gated paths.
+	"activity_link.activity_id":           "child row: written only inside LogActivity for the new activity",
+	"consent_event.person_id":             "child row: written through the person's own gated paths",
+	"organization_domain.organization_id": "child row: written through the organization's own gated paths",
+	"person_email.person_id":              "child row: written through the person's own gated paths",
+	"person_phone.person_id":              "child row: written through the person's own gated paths",
+	"person_consent.person_id":            "child row: written through the person's own gated paths",
+	"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
+	"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
+	// Server-derived pointers: stamped from an operation's outcome,
+	// never accepted from the request body.
+	"lead.promoted_person_id":       "server-derived: stamped by PromoteLead",
+	"person.merged_into_id":         "server-derived: stamped by MergePerson",
+	"organization.merged_into_id":   "server-derived: stamped by MergeOrganization",
+	"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
+	"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
+	"brief_item.deal_id":            "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
+	// Client-supplied edge endpoints — every one probed at the store:
+	"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+	"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+	"relationship.organization_id":               "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+	"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+	"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
+	"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
+	"offer.deal_id":                              "gated: auth.EnsureLinkTarget in CreateOffer; every later offer read/write re-probes the deal (H1)",
+	"offer.buyer_org_id":                         "gated: auth.EnsureLinkTarget in CreateOffer/UpdateOffer (H1)",
+	"signal.resolved_org_id":                     "gated: the resolver attributes only to a caller-visible org (visibleCandidates → auth.EnsureLinkTarget)",
+	"signal.resolved_person_id":                  "gated: consentedPerson links only a caller-visible person (auth.EnsureLinkTarget); else company-level",
+	"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
+	"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
+}
+
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
 // from the schema: an FK argument that names a row-scoped business record
 // (person/organization/deal/lead/activity) is a READ of that record, so
 // every such column must carry an explicit decision — client-supplied
 // references are gated by a target-visibility probe (auth.EnsureLinkTarget
 // or the activity link walk), server-derived pointers and owned child rows
-// are named as such. A new FK to a row-scoped table that nobody classified
-// fails here, so the decision cannot be skipped silently.
+// are named as such (in rowScopedFKDecisions). A new FK to a row-scoped
+// table that nobody classified fails here, so the decision cannot be
+// skipped silently.
 func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
-	// The classification. Values are prose for the reader; the map's
-	// completeness is the invariant.
-	decisions := map[string]string{
-		// Client-supplied references — visibility-gated at the store:
-		"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
-		"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
-		"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
-		"activity_link.person_id":       "gated: auth.EnsureLinkTarget in LogActivity",
-		"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
-		"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
-		"activity_link.lead_id":         "gated: auth.EnsureLinkTarget in LogActivity",
-		// Owned child rows: the row is an attribute of its visible parent,
-		// written only through the parent's own gated paths.
-		"activity_link.activity_id":           "child row: written only inside LogActivity for the new activity",
-		"consent_event.person_id":             "child row: written through the person's own gated paths",
-		"organization_domain.organization_id": "child row: written through the organization's own gated paths",
-		"person_email.person_id":              "child row: written through the person's own gated paths",
-		"person_phone.person_id":              "child row: written through the person's own gated paths",
-		"person_consent.person_id":            "child row: written through the person's own gated paths",
-		"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
-		"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
-		// Server-derived pointers: stamped from an operation's outcome,
-		// never accepted from the request body.
-		"lead.promoted_person_id":       "server-derived: stamped by PromoteLead",
-		"person.merged_into_id":         "server-derived: stamped by MergePerson",
-		"organization.merged_into_id":   "server-derived: stamped by MergeOrganization",
-		"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
-		"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
-		"brief_item.deal_id":            "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
-		// Client-supplied edge endpoints — every one probed at the store:
-		"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"relationship.organization_id":               "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
-		"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
-		"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
-		"offer.deal_id":                              "gated: auth.EnsureLinkTarget in CreateOffer; every later offer read/write re-probes the deal (H1)",
-		"offer.buyer_org_id":                         "gated: auth.EnsureLinkTarget in CreateOffer/UpdateOffer (H1)",
-		"signal.resolved_org_id":                     "gated: the resolver attributes only to a caller-visible org (visibleCandidates → auth.EnsureLinkTarget)",
-		"signal.resolved_person_id":                  "gated: consentedPerson links only a caller-visible person (auth.EnsureLinkTarget); else company-level",
-		"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
-		"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
-	}
-
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
 	resetSchema(t, owner)
@@ -248,7 +250,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		}
 		key := srcTable + "." + srcCol
 		seen[key] = true
-		if _, decided := decisions[key]; !decided {
+		if _, decided := rowScopedFKDecisions[key]; !decided {
 			t.Errorf("FK %s -> %s has no visibility decision: a reference to a row-scoped record is a read of it — gate it (auth.EnsureLinkTarget) or classify it here", key, target)
 		}
 	}
@@ -257,7 +259,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 	}
 	// The map must not carry dead entries either — a renamed column would
 	// otherwise keep a stale decision alive forever.
-	for key := range decisions {
+	for key := range rowScopedFKDecisions {
 		if !seen[key] {
 			t.Errorf("decision map entry %s matches no FK in the live schema — remove or fix it", key)
 		}

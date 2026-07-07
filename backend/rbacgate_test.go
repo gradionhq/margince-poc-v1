@@ -75,22 +75,26 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/search:UpsertEmbedding":                "written by the outbox consumer under the system principal; reads happen through the gated search paths",
 }
 
-func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
-	for fn, rationale := range ungatedEntryPoints {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("ungatedEntryPoints[%s] has no rationale — a waiver must say why no gate is needed", fn)
-		}
-	}
+// gateFnInfo is what the gate needs to know about one function name in a
+// package: whether any body under that name references auth, and every
+// name it mentions (the transitive-resolution edges).
+type gateFnInfo struct {
+	auth  bool
+	calls map[string]bool
+}
 
-	type fnInfo struct {
-		auth  bool
-		calls map[string]bool
-	}
-	// Per package dir: function/method name → merged info (a name shared
-	// across receivers merges optimistically — see the package comment).
-	pkgs := map[string]map[string]*fnInfo{}
-	type entry struct{ dir, name string }
-	var entries []entry
+// gateEntry is one exported *Store/*Service method — a store entry point
+// the gate must prove reaches auth.
+type gateEntry struct{ dir, name string }
+
+// collectStoreEntryPoints parses every non-test, non-integration module
+// source file and returns, per package dir, the function index (a name
+// shared across receivers merges optimistically — see the package
+// comment) plus the list of exported *Store/*Service methods to check.
+func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, []gateEntry) {
+	t.Helper()
+	pkgs := map[string]map[string]*gateFnInfo{}
+	var entries []gateEntry
 
 	fset := token.NewFileSet()
 	err := filepath.WalkDir("internal/modules", func(path string, d fs.DirEntry, err error) error {
@@ -105,7 +109,7 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 			return err
 		}
 		if pkgs[dir] == nil {
-			pkgs[dir] = map[string]*fnInfo{}
+			pkgs[dir] = map[string]*gateFnInfo{}
 		}
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -114,7 +118,7 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 			}
 			info := pkgs[dir][fn.Name.Name]
 			if info == nil {
-				info = &fnInfo{calls: map[string]bool{}}
+				info = &gateFnInfo{calls: map[string]bool{}}
 				pkgs[dir][fn.Name.Name] = info
 			}
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -134,7 +138,7 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 			}
 			if se, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
 				if id, ok := se.X.(*ast.Ident); ok && (id.Name == "Store" || id.Name == "Service") {
-					entries = append(entries, entry{dir, fn.Name.Name})
+					entries = append(entries, gateEntry{dir, fn.Name.Name})
 				}
 			}
 		}
@@ -143,31 +147,43 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return pkgs, entries
+}
+
+// reachesAuthGate resolves gatedness transitively over same-package
+// calls, matched by name; seen breaks recursion cycles.
+func reachesAuthGate(fns map[string]*gateFnInfo, name string, seen map[string]bool) bool {
+	if seen[name] {
+		return false
+	}
+	seen[name] = true
+	info, ok := fns[name]
+	if !ok {
+		return false
+	}
+	if info.auth {
+		return true
+	}
+	for c := range info.calls {
+		if _, ok := fns[c]; ok && reachesAuthGate(fns, c, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
+	for fn, rationale := range ungatedEntryPoints {
+		if strings.TrimSpace(rationale) == "" {
+			t.Errorf("ungatedEntryPoints[%s] has no rationale — a waiver must say why no gate is needed", fn)
+		}
+	}
+
+	pkgs, entries := collectStoreEntryPoints(t)
 
 	used := map[string]bool{}
 	for _, e := range entries {
-		fns := pkgs[e.dir]
-		var gated func(name string, seen map[string]bool) bool
-		gated = func(name string, seen map[string]bool) bool {
-			if seen[name] {
-				return false
-			}
-			seen[name] = true
-			info, ok := fns[name]
-			if !ok {
-				return false
-			}
-			if info.auth {
-				return true
-			}
-			for c := range info.calls {
-				if _, ok := fns[c]; ok && gated(c, seen) {
-					return true
-				}
-			}
-			return false
-		}
-		if gated(e.name, map[string]bool{}) {
+		if reachesAuthGate(pkgs[e.dir], e.name, map[string]bool{}) {
 			continue
 		}
 		key := e.dir + ":" + e.name

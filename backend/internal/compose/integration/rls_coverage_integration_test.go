@@ -23,7 +23,11 @@ import (
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
-func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
+// freshlyMigratedOwner connects as owner, resets the schema, and
+// migrates — the schema-derivation arrange step, needing only the owner
+// DSN (no app pool is involved in a coverage sweep).
+func freshlyMigratedOwner(t *testing.T) *pgx.Conn {
+	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	if ownerDSN == "" {
 		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
@@ -52,8 +56,13 @@ func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
 	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
 		t.Fatalf("migrating: %v", err)
 	}
+	return owner
+}
 
-	rows, err := owner.Query(ctx, `
+func TestEveryWorkspaceScopedTableForcesRowLevelSecurity(t *testing.T) {
+	owner := freshlyMigratedOwner(t)
+
+	rows, err := owner.Query(context.Background(), `
 		SELECT c.table_name,
 		       cl.relrowsecurity,
 		       cl.relforcerowsecurity,

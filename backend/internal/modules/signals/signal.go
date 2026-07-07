@@ -61,32 +61,12 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 		return crmcontracts.Signal{}, &RequiredFieldError{Field: "entity_id"}
 	}
 
-	sourceChannel := in.SourceChannel
-	if sourceChannel == "" {
-		sourceChannel = "derived"
-	}
-	severity := in.Severity
-	if severity == "" {
-		severity = "info"
-	}
-	// A subject-bearing signal is born attributed; a raw item waits for
-	// the resolver (data-model §12.5 lifecycle).
-	resolutionState := "resolved"
-	if in.EntityType == nil {
-		resolutionState = "unresolved"
-	}
-	detectedAt := time.Now().UTC()
-	if in.DetectedAt != nil {
-		detectedAt = in.DetectedAt.UTC()
-	}
-	evidence := in.Evidence
-	if evidence == nil {
-		evidence = []crmcontracts.SignalEvidence{}
-	}
-	evidenceJSON, err := json.Marshal(evidence)
+	d, err := deriveSignalDefaults(in)
 	if err != nil {
-		return crmcontracts.Signal{}, fmt.Errorf("marshal signal evidence: %w", err)
+		return crmcontracts.Signal{}, err
 	}
+	sourceChannel, severity, resolutionState := d.sourceChannel, d.severity, d.resolutionState
+	detectedAt, evidenceJSON := d.detectedAt, d.evidenceJSON
 
 	var out crmcontracts.Signal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
@@ -128,6 +108,51 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 		return nil
 	})
 	return out, err
+}
+
+// signalDefaults holds the normalized column values a CreateSignal insert
+// derives from its input before the row is written.
+type signalDefaults struct {
+	sourceChannel   string
+	severity        string
+	resolutionState string
+	detectedAt      time.Time
+	evidenceJSON    []byte
+}
+
+// deriveSignalDefaults fills the create-time defaults: channel/severity fall
+// back to their derived values, resolution_state follows whether a subject is
+// present (data-model §12.5 lifecycle — attributed vs. awaiting the resolver),
+// detected_at defaults to now, and evidence marshals to its JSON column.
+func deriveSignalDefaults(in CreateSignalInput) (signalDefaults, error) {
+	d := signalDefaults{
+		sourceChannel:   in.SourceChannel,
+		severity:        in.Severity,
+		resolutionState: "resolved",
+		detectedAt:      time.Now().UTC(),
+	}
+	if d.sourceChannel == "" {
+		d.sourceChannel = "derived"
+	}
+	if d.severity == "" {
+		d.severity = "info"
+	}
+	if in.EntityType == nil {
+		d.resolutionState = "unresolved"
+	}
+	if in.DetectedAt != nil {
+		d.detectedAt = in.DetectedAt.UTC()
+	}
+	evidence := in.Evidence
+	if evidence == nil {
+		evidence = []crmcontracts.SignalEvidence{}
+	}
+	evidenceJSON, err := json.Marshal(evidence)
+	if err != nil {
+		return signalDefaults{}, fmt.Errorf("marshal signal evidence: %w", err)
+	}
+	d.evidenceJSON = evidenceJSON
+	return d, nil
 }
 
 // detectedPayload is the events.md §5.11 signal.detected shape.

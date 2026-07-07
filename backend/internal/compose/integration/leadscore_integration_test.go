@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -65,51 +66,17 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 		t.Fatalf("logging the lead-linked reply: %v", err)
 	}
 
-	dispatch := func(eventID, activityID ids.UUID) {
-		t.Helper()
-		if err := engine.HandleEvent(context.Background(), kevents.Envelope{
-			EventID: eventID, Type: "activity.captured", WorkspaceID: e.WS,
-			OccurredAt: time.Now().UTC(),
-			Entity:     kevents.EntityRef{Type: "activity", ID: activityID},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	leadScore := func() int {
-		t.Helper()
-		var score int
-		if err := e.owner.QueryRow(context.Background(),
-			`SELECT score FROM lead WHERE id = $1`, leadID).Scan(&score); err != nil {
-			t.Fatal(err)
-		}
-		return score
-	}
-
 	eventID := ids.NewV7()
-	dispatch(eventID, ids.UUID(reply.Id))
+	dispatchActivityCaptured(t, engine, e.WS, eventID, ids.UUID(reply.Id))
 	// fit 23 + one fresh reply ≈ 25 (one minute of decay is noise).
-	if got := leadScore(); got != 48 {
+	if got := currentLeadScore(t, e, leadID); got != 48 {
 		t.Fatalf("score after reply = %d, want 48 (fit 23 + fresh reply 25)", got)
 	}
 
 	// Redelivery of the SAME event applies nothing twice: one run row,
 	// score unchanged, exactly one audited score update.
-	dispatch(eventID, ids.UUID(reply.Id))
-	var runs, audits int
-	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM workflow_run WHERE handler = 'recompute_lead_score'`).Scan(&runs); err != nil {
-			return err
-		}
-		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM audit_log WHERE entity_type = 'lead' AND action = 'update'`).Scan(&audits)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runs != 1 || audits != 1 {
-		t.Fatalf("redelivery reran the recompute: %d runs, %d lead audits, want 1/1", runs, audits)
-	}
+	dispatchActivityCaptured(t, engine, e.WS, eventID, ids.UUID(reply.Id))
+	assertRecomputeRanExactlyOnce(t, e)
 
 	// A held meeting adds +30 on the next event.
 	meetingSubject := "Demo"
@@ -126,8 +93,8 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 		`UPDATE activity SET meeting_status = 'held' WHERE id = $1`, ids.UUID(meeting.Id)); err != nil {
 		t.Fatal(err)
 	}
-	dispatch(ids.NewV7(), ids.UUID(meeting.Id))
-	if got := leadScore(); got != 78 {
+	dispatchActivityCaptured(t, engine, e.WS, ids.NewV7(), ids.UUID(meeting.Id))
+	if got := currentLeadScore(t, e, leadID); got != 78 {
 		t.Fatalf("score after held meeting = %d, want 78 (48 + 30)", got)
 	}
 
@@ -139,8 +106,8 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatch(ids.NewV7(), ids.UUID(note.Id))
-	if got := leadScore(); got != 78 {
+	dispatchActivityCaptured(t, engine, e.WS, ids.NewV7(), ids.UUID(note.Id))
+	if got := currentLeadScore(t, e, leadID); got != 78 {
 		t.Fatalf("unlinked activity moved the score to %d", got)
 	}
 
@@ -153,5 +120,51 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	}
 	if events != 2 {
 		t.Fatalf("lead.updated score events = %d, want 2 (reply, meeting)", events)
+	}
+}
+
+// dispatchActivityCaptured hands one activity.captured envelope to the
+// system workflow lane, the way the relay would deliver it.
+func dispatchActivityCaptured(t *testing.T, engine *agents.WorkflowEngine, ws ids.UUID, eventID, activityID ids.UUID) {
+	t.Helper()
+	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
+		EventID: eventID, Type: "activity.captured", WorkspaceID: ws,
+		OccurredAt: time.Now().UTC(),
+		Entity:     kevents.EntityRef{Type: "activity", ID: activityID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// currentLeadScore reads the lead's score through the owner connection.
+func currentLeadScore(t *testing.T, e *searchEnv, leadID ids.UUID) int {
+	t.Helper()
+	var score int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT score FROM lead WHERE id = $1`, leadID).Scan(&score); err != nil {
+		t.Fatal(err)
+	}
+	return score
+}
+
+// assertRecomputeRanExactlyOnce checks a redelivered event applied
+// nothing twice: one workflow run row and exactly one audited lead
+// score update.
+func assertRecomputeRanExactlyOnce(t *testing.T, e *searchEnv) {
+	t.Helper()
+	var runs, audits int
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM workflow_run WHERE handler = 'recompute_lead_score'`).Scan(&runs); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM audit_log WHERE entity_type = 'lead' AND action = 'update'`).Scan(&audits)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs != 1 || audits != 1 {
+		t.Fatalf("redelivery reran the recompute: %d runs, %d lead audits, want 1/1", runs, audits)
 	}
 }

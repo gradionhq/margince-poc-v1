@@ -81,14 +81,11 @@ func nextMonday() time.Time {
 	return time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.UTC)
 }
 
-func TestPublicBookingEndToEnd(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-	slug := bookingSlug(t, e)
-	monday := nextMonday()
-
-	// Consent purposes are seeded at bootstrap; the booker consents to a
-	// tracked purpose. Read the catalog as the admin session.
+// seededTransactionalPurposeID reads the bootstrap-seeded consent
+// catalog as the admin session and resolves the transactional purpose
+// the booker will consent to.
+func seededTransactionalPurposeID(t *testing.T, e *env) string {
+	t.Helper()
 	var purposes struct {
 		Data []struct {
 			ID  string `json:"id"`
@@ -107,10 +104,13 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if purposeID == "" {
 		t.Fatal("no seeded transactional purpose")
 	}
+	return purposeID
+}
 
-	base := "/v1/public/booking/" + slug
-	window := fmt.Sprintf("?from=%s&to=%s", monday.Format(time.RFC3339), monday.Add(8*time.Hour).Format(time.RFC3339))
-
+// assertAnonymousAvailability checks the no-session availability read:
+// 200 with free/busy slots only, and an unknown slug reads as absent.
+func assertAnonymousAvailability(t *testing.T, e *env, base, window string) {
+	t.Helper()
 	// Anonymous availability: 200, free/busy slots only.
 	var avail struct {
 		Slots []struct {
@@ -129,7 +129,13 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if status := publicCall(t, e, "GET", "/v1/public/booking/no-such-slug/availability"+window, nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("unknown slug → %d, want 404", status)
 	}
+}
 
+// assertBookingRequiresValidConsent checks consent is validated before
+// any write: no consent and a bogus purpose are both 422s that leave
+// zero person rows behind.
+func assertBookingRequiresValidConsent(t *testing.T, e *env, base string, monday time.Time) {
+	t.Helper()
 	// A booking without consent is refused before any write.
 	noConsent := anyMap{
 		"start": monday.Add(1 * time.Hour), "end": monday.Add(90 * time.Minute),
@@ -154,9 +160,15 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if persons != 0 {
 		t.Fatalf("refused bookings left %d person rows, want 0", persons)
 	}
+}
 
+// bookHappyPathSlot books the first slot (201 with the slot and NOTHING
+// else disclosed) plus a second slot under a case-folded email,
+// asserting the booker lands as ONE person. Returns the first booking
+// body so the taken slot can be re-posted.
+func bookHappyPathSlot(t *testing.T, e *env, base string, monday time.Time, consent anyMap) anyMap {
+	t.Helper()
 	// The happy path: 201 with the slot and NOTHING else.
-	consent := anyMap{"purpose_id": purposeID, "policy_version": "pp-2026-01", "wording": "You agree we may contact you about this meeting."}
 	booking := anyMap{
 		"start": monday.Add(1 * time.Hour), "end": monday.Add(90 * time.Minute),
 		"subject": "Intro call",
@@ -180,13 +192,21 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if status := publicCall(t, e, "POST", base, second, nil, nil); status != http.StatusCreated {
 		t.Fatalf("second booking → %d", status)
 	}
+	var persons int
 	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&persons); err != nil {
 		t.Fatal(err)
 	}
 	if persons != 1 {
 		t.Fatalf("idempotent-on-email booker landed as %d persons, want 1", persons)
 	}
+	return booking
+}
 
+// assertBookingProofAndProvenance checks the consent proof carries the
+// passthrough verbatim under the system principal, and the meeting's
+// provenance is the public surface — never "manual".
+func assertBookingProofAndProvenance(t *testing.T, e *env) {
+	t.Helper()
 	// The consent proof carries the passthrough verbatim, attributed to
 	// the system principal; the audit stream owns the whole capture.
 	var policyVersion, policyText, source, actorType string
@@ -211,9 +231,13 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if activitySource != "public_booking" {
 		t.Fatalf("public booking captured as source=%q — a stranger's submission must not read as hand-entered", activitySource)
 	}
+}
 
-	// A withdrawal on record STANDS: an anonymous booking naming the same
-	// email cannot flip it back to granted (the consent-hijack guard).
+// assertWithdrawalStandsAgainstBooking covers the consent-hijack guard:
+// a withdrawal on record STANDS — an anonymous booking naming the same
+// email may proceed but cannot flip the state back to granted.
+func assertWithdrawalStandsAgainstBooking(t *testing.T, e *env, base string, monday time.Time, purposeID string, consent anyMap) {
+	t.Helper()
 	var annaID string
 	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM person`).Scan(&annaID); err != nil {
 		t.Fatal(err)
@@ -240,17 +264,12 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if stateAfter != "withdrawn" {
 		t.Fatalf("anonymous booking flipped a withdrawal to %q — consent hijack", stateAfter)
 	}
+}
 
-	// The taken slot answers slot_taken.
-	var problem struct {
-		Code string `json:"code"`
-	}
-	if status := publicCall(t, e, "POST", base, booking, nil, &problem); status != http.StatusConflict || problem.Code != "slot_taken" {
-		t.Fatalf("double-book → %d %q, want 409 slot_taken", status, problem.Code)
-	}
-
-	// Idempotency-Key replay returns the recorded confirmation without a
-	// second meeting.
+// assertIdempotencyKeyReplay checks a keyed replay returns the recorded
+// confirmation without landing a second meeting.
+func assertIdempotencyKeyReplay(t *testing.T, e *env, base string, monday time.Time, consent anyMap) {
+	t.Helper()
 	replayKey := map[string]string{"Idempotency-Key": "public-replay-1"}
 	third := anyMap{
 		"start": monday.Add(5 * time.Hour), "end": monday.Add(5*time.Hour + 30*time.Minute),
@@ -271,6 +290,35 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 	if meetings != 4 {
 		t.Fatalf("%d meetings landed, want 4 (the replay applied nothing)", meetings)
 	}
+}
+
+func TestPublicBookingEndToEnd(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	slug := bookingSlug(t, e)
+	monday := nextMonday()
+	purposeID := seededTransactionalPurposeID(t, e)
+
+	base := "/v1/public/booking/" + slug
+	window := fmt.Sprintf("?from=%s&to=%s", monday.Format(time.RFC3339), monday.Add(8*time.Hour).Format(time.RFC3339))
+
+	assertAnonymousAvailability(t, e, base, window)
+	assertBookingRequiresValidConsent(t, e, base, monday)
+
+	consent := anyMap{"purpose_id": purposeID, "policy_version": "pp-2026-01", "wording": "You agree we may contact you about this meeting."}
+	booking := bookHappyPathSlot(t, e, base, monday, consent)
+	assertBookingProofAndProvenance(t, e)
+	assertWithdrawalStandsAgainstBooking(t, e, base, monday, purposeID, consent)
+
+	// The taken slot answers slot_taken.
+	var problem struct {
+		Code string `json:"code"`
+	}
+	if status := publicCall(t, e, "POST", base, booking, nil, &problem); status != http.StatusConflict || problem.Code != "slot_taken" {
+		t.Fatalf("double-book → %d %q, want 409 slot_taken", status, problem.Code)
+	}
+
+	assertIdempotencyKeyReplay(t, e, base, monday, consent)
 }
 
 // The anonymous surface is throttled per slug: a flood of booking posts

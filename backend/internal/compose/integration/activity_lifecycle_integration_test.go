@@ -80,6 +80,31 @@ func TestActivityUpdateArchiveRelink(t *testing.T) {
 		t.Fatalf("stale If-Match → %d %q", status, problem.Code)
 	}
 
+	assertRelinkIdempotentAndVisibilityScoped(t, e, taskID, personID)
+
+	// Archive is the soft flag (same semantics as every entity): the
+	// record stays readable by id, stamped archived_at, and further
+	// mutations refuse.
+	if status := e.call(t, "DELETE", "/v1/activities/"+taskID, nil, nil, nil); status != http.StatusOK {
+		t.Fatalf("archive → %d", status)
+	}
+	var archived struct {
+		ArchivedAt *string `json:"archived_at"`
+	}
+	if status := e.call(t, "GET", "/v1/activities/"+taskID, nil, nil, &archived); status != http.StatusOK || archived.ArchivedAt == nil {
+		t.Fatalf("archive did not stamp: %d %+v", status, archived)
+	}
+	if status := e.call(t, "PATCH", "/v1/activities/"+taskID, anyMap{"subject": "zombie"}, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("mutating an archived activity → %d, want 404", status)
+	}
+}
+
+// assertRelinkIdempotentAndVisibilityScoped covers the relink arm:
+// an idempotent association onto a visible person, replay-silent in the
+// audit trail, with invisible targets (person and lead alike) reading
+// as absent.
+func assertRelinkIdempotentAndVisibilityScoped(t *testing.T, e *env, taskID, personID string) {
+	t.Helper()
 	// Relink: idempotent association onto a visible person.
 	for i := 0; i < 2; i++ {
 		if status := e.call(t, "POST", "/v1/activities/"+taskID+"/relink", anyMap{
@@ -128,21 +153,5 @@ func TestActivityUpdateArchiveRelink(t *testing.T) {
 		"entity_type": "lead", "entity_id": "00000000-0000-7000-8000-00000000dead",
 	}, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("guessed lead relink → %d, want 404", status)
-	}
-
-	// Archive is the soft flag (same semantics as every entity): the
-	// record stays readable by id, stamped archived_at, and further
-	// mutations refuse.
-	if status := e.call(t, "DELETE", "/v1/activities/"+taskID, nil, nil, nil); status != http.StatusOK {
-		t.Fatalf("archive → %d", status)
-	}
-	var archived struct {
-		ArchivedAt *string `json:"archived_at"`
-	}
-	if status := e.call(t, "GET", "/v1/activities/"+taskID, nil, nil, &archived); status != http.StatusOK || archived.ArchivedAt == nil {
-		t.Fatalf("archive did not stamp: %d %+v", status, archived)
-	}
-	if status := e.call(t, "PATCH", "/v1/activities/"+taskID, anyMap{"subject": "zombie"}, nil, nil); status != http.StatusNotFound {
-		t.Fatalf("mutating an archived activity → %d, want 404", status)
 	}
 }

@@ -302,41 +302,14 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.OfferID) (crmcontrac
 			return &OfferNotSentError{Status: string(current.Status)}
 		}
 
-		// Serialize revision minting per offer number: two concurrent
-		// regenerations must produce N+1 and N+2, not collide on the
-		// unique (workspace, number, revision) key.
-		if _, err := tx.Exec(ctx,
-			`SELECT pg_advisory_xact_lock(hashtextextended('offer_revision:' || $1::text || ':' || $2, 0))`,
-			wsID, *current.OfferNumber); err != nil {
-			return fmt.Errorf("acquire revision lock: %w", err)
-		}
-		var nextRevision int
-		if err := tx.QueryRow(ctx,
-			`SELECT MAX(revision) + 1 FROM offer WHERE workspace_id = $1 AND offer_number = $2`,
-			wsID, *current.OfferNumber).Scan(&nextRevision); err != nil {
-			return fmt.Errorf("mint next revision: %w", err)
+		nextRevision, err := nextOfferRevision(ctx, tx, wsID, *current.OfferNumber)
+		if err != nil {
+			return err
 		}
 
 		newID := ids.New[ids.OfferKind]()
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
-			                    buyer_org_id, valid_until, intro_text, terms_text,
-			                    net_minor, tax_minor, gross_minor, source, captured_by)
-			 SELECT $1, workspace_id, deal_id, offer_number, $3, 'draft', currency,
-			        buyer_org_id, valid_until, intro_text, terms_text,
-			        net_minor, tax_minor, gross_minor, source, $4
-			 FROM offer WHERE id = $2`,
-			newID, id, nextRevision, by); err != nil {
-			return fmt.Errorf("copy offer into new revision: %w", err)
-		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
-			                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence)
-			 SELECT uuidv7(), workspace_id, $2, position, product_id, description,
-			        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence
-			 FROM offer_line_item WHERE offer_id = $1`,
-			id, newID); err != nil {
-			return fmt.Errorf("copy lines into new revision: %w", err)
+		if err := copyOfferIntoRevision(ctx, tx, id, newID, nextRevision, by); err != nil {
+			return err
 		}
 
 		supersede := storekit.NewPatch()
@@ -369,4 +342,50 @@ func (s *Store) RegenerateOffer(ctx context.Context, id ids.OfferID) (crmcontrac
 		return nil
 	})
 	return out, err
+}
+
+// nextOfferRevision mints revision N+1 for one offer number. Serialize
+// the mint per offer number: two concurrent regenerations must produce
+// N+1 and N+2, not collide on the unique (workspace, number, revision)
+// key.
+func nextOfferRevision(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerNumber string) (int, error) {
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('offer_revision:' || $1::text || ':' || $2, 0))`,
+		wsID, offerNumber); err != nil {
+		return 0, fmt.Errorf("acquire revision lock: %w", err)
+	}
+	var nextRevision int
+	if err := tx.QueryRow(ctx,
+		`SELECT MAX(revision) + 1 FROM offer WHERE workspace_id = $1 AND offer_number = $2`,
+		wsID, offerNumber).Scan(&nextRevision); err != nil {
+		return 0, fmt.Errorf("mint next revision: %w", err)
+	}
+	return nextRevision, nil
+}
+
+// copyOfferIntoRevision clones the sent offer's header and line
+// snapshots verbatim into the new draft revision — the copy IS the
+// snapshot semantics: nothing is re-derived from today's products.
+func copyOfferIntoRevision(ctx context.Context, tx pgx.Tx, fromID, newID ids.OfferID, nextRevision int, by string) error {
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
+		                    buyer_org_id, valid_until, intro_text, terms_text,
+		                    net_minor, tax_minor, gross_minor, source, captured_by)
+		 SELECT $1, workspace_id, deal_id, offer_number, $3, 'draft', currency,
+		        buyer_org_id, valid_until, intro_text, terms_text,
+		        net_minor, tax_minor, gross_minor, source, $4
+		 FROM offer WHERE id = $2`,
+		newID, fromID, nextRevision, by); err != nil {
+		return fmt.Errorf("copy offer into new revision: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
+		                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence)
+		 SELECT uuidv7(), workspace_id, $2, position, product_id, description,
+		        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence
+		 FROM offer_line_item WHERE offer_id = $1`,
+		fromID, newID); err != nil {
+		return fmt.Errorf("copy lines into new revision: %w", err)
+	}
+	return nil
 }

@@ -130,21 +130,7 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	// The org already exists with a HUMAN-set industry: acceptance may
 	// fill what is empty, never overwrite a human's value.
 	admin := e.Admin()
-	orgID := ids.NewV7()
-	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, display_name, industry, source, captured_by)
-			VALUES ($1, $2, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID, e.WS); err != nil {
-			return err
-		}
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, 'acme.example', true, 'manual', 'human:owner')`, e.WS, orgID)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	orgID := seedAcmeOrgWithHumanIndustry(t, e, admin)
 
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.Pool)))
@@ -162,9 +148,72 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 		t.Fatalf("accept: %v", err)
 	}
 
+	assertAcceptFilledOnlyEmptyColumns(t, e, admin, orgID)
+
+	// The approval is consumed; deciding again is refused and applies
+	// nothing twice.
+	var consumed bool
+	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId))).Scan(&consumed)
+	})
+	if err != nil || !consumed {
+		t.Fatalf("approval not redeemed by the effect (consumed=%v err=%v)", consumed, err)
+	}
+	var already *approvals.AlreadyDecidedError
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); !errors.As(err, &already) {
+		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
+	}
+
+	// A REJECTED proposal writes nothing: stage a second one and reject.
+	proposal2, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), "https://other.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal2.ProposalId)), false, nil); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	var orgs int
+	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM organization`).Scan(&orgs)
+	})
+	if err != nil || orgs != 1 {
+		t.Fatalf("reject still wrote an organization (%d rows, err=%v)", orgs, err)
+	}
+}
+
+// seedAcmeOrgWithHumanIndustry plants the pre-existing acme.example
+// organization with a HUMAN-set industry, so acceptance can prove it
+// fills only empty columns.
+func seedAcmeOrgWithHumanIndustry(t *testing.T, e *integration.Env, admin context.Context) ids.UUID {
+	t.Helper()
+	orgID := ids.NewV7()
+	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `
+			INSERT INTO organization (id, workspace_id, display_name, industry, source, captured_by)
+			VALUES ($1, $2, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID, e.WS); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+			VALUES ($1, $2, 'acme.example', true, 'manual', 'human:owner')`, e.WS, orgID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return orgID
+}
+
+// assertAcceptFilledOnlyEmptyColumns proves the accept executor's write
+// discipline: org resolved (not duplicated), empty legal_name filled,
+// the human-set industry untouched, and the evidence rows landed as the
+// coldstart agent.
+func assertAcceptFilledOnlyEmptyColumns(t *testing.T, e *integration.Env, admin context.Context, orgID ids.UUID) {
+	t.Helper()
 	var legalName, industry, capturedBy string
 	var profileRows, orgs int
-	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
 			`SELECT coalesce(legal_name, ''), industry FROM organization WHERE id = $1`, orgID).Scan(&legalName, &industry); err != nil {
 			return err
@@ -191,35 +240,5 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	}
 	if profileRows != 3 || capturedBy != "agent:coldstart" {
 		t.Fatalf("evidence rows = %d captured_by=%q, want 3 rows as agent:coldstart", profileRows, capturedBy)
-	}
-
-	// The approval is consumed; deciding again is refused and applies
-	// nothing twice.
-	var consumed bool
-	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId))).Scan(&consumed)
-	})
-	if err != nil || !consumed {
-		t.Fatalf("approval not redeemed by the effect (consumed=%v err=%v)", consumed, err)
-	}
-	var already *approvals.AlreadyDecidedError
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); !errors.As(err, &already) {
-		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
-	}
-
-	// A REJECTED proposal writes nothing: stage a second one and reject.
-	proposal2, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), "https://other.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal2.ProposalId)), false, nil); err != nil {
-		t.Fatalf("reject: %v", err)
-	}
-	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `SELECT count(*) FROM organization`).Scan(&orgs)
-	})
-	if err != nil || orgs != 1 {
-		t.Fatalf("reject still wrote an organization (%d rows, err=%v)", orgs, err)
 	}
 }

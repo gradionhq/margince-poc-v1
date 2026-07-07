@@ -296,6 +296,15 @@ func healthInputs(ctx context.Context, tx pgx.Tx, now time.Time, in *dealHealthI
 		in.stageEnteredAt = *enteredAt
 	}
 
+	if err := healthExpectedPace(ctx, tx, pipelineID, in); err != nil {
+		return err
+	}
+	return healthActivityEvidence(ctx, tx, now, in)
+}
+
+// healthExpectedPace derives the won-deal stage-duration median the
+// stage-velocity factor compares against.
+func healthExpectedPace(ctx context.Context, tx pgx.Tx, pipelineID ids.PipelineID, in *dealHealthInputs) error {
 	// Expected pace: for each won deal of this pipeline, the completed
 	// stints in the subject's current stage (entry row → the next stage
 	// change); the median of those durations. A stint still open at the
@@ -323,11 +332,17 @@ func healthInputs(ctx context.Context, tx pgx.Tx, now time.Time, in *dealHealthI
 		days := *medianSeconds / 86400
 		in.medianWonStageDays = &days
 	}
+	return nil
+}
 
+// healthActivityEvidence gathers the per-factor evidence rows: the
+// freshest activity (recency), the two-way-engaged stakeholders, and
+// the open overdue tasks (commitments).
+func healthActivityEvidence(ctx context.Context, tx pgx.Tx, now time.Time, in *dealHealthInputs) error {
 	// Recency evidence: the freshest live activity on the deal — the
 	// record behind deal.last_activity_at.
 	var recent ids.UUID
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT a.id FROM activity a
 		JOIN activity_link l ON l.activity_id = a.id AND l.deal_id = $1
 		WHERE a.archived_at IS NULL

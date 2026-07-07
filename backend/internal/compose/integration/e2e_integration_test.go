@@ -316,23 +316,11 @@ func exerciseDealToWon(t *testing.T, e *env, stages seededStages) string {
 	return dealID
 }
 
-func TestEndToEnd_coreSalesFlow(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-
-	// The cookie authenticates /me.
-	var me anyMap
-	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
-		t.Fatalf("/me status = %d", status)
-	}
-	if got := me["user"].(anyMap)["email"]; got != "ada@example.com" {
-		t.Fatalf("/me email = %v", got)
-	}
-
-	stages := discoverSeededPipeline(t, e)
-	personID := exercisePersonWriteInvariants(t, e, me["user"].(anyMap)["id"].(string))
-	dealID := exerciseDealToWon(t, e, stages)
-
+// exerciseActivityIdempotentCapture logs an email activity against the
+// deal and replays the identical capture, asserting the replay is a
+// silent 200 onto the same activity.
+func exerciseActivityIdempotentCapture(t *testing.T, e *env, dealID string) {
+	t.Helper()
 	// --- activity: log against the deal, idempotent capture replay ---
 	var activity anyMap
 	logReq := anyMap{
@@ -353,6 +341,26 @@ func TestEndToEnd_coreSalesFlow(t *testing.T) {
 	if replay["id"] != activity["id"] {
 		t.Errorf("replay returned a different activity: %v vs %v", replay["id"], activity["id"])
 	}
+}
+
+func TestEndToEnd_coreSalesFlow(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+
+	// The cookie authenticates /me.
+	var me anyMap
+	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("/me status = %d", status)
+	}
+	if got := me["user"].(anyMap)["email"]; got != "ada@example.com" {
+		t.Fatalf("/me email = %v", got)
+	}
+
+	stages := discoverSeededPipeline(t, e)
+	personID := exercisePersonWriteInvariants(t, e, me["user"].(anyMap)["id"].(string))
+	dealID := exerciseDealToWon(t, e, stages)
+
+	exerciseActivityIdempotentCapture(t, e, dealID)
 
 	// --- lead: segregated, dedupes on email ---
 	var lead anyMap

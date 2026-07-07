@@ -115,66 +115,76 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		now := time.Now().UTC()
-		tag, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
-			 WHERE id = $1 AND archived_at IS NULL`,
-			id, personID, now)
-		if err != nil {
-			return fmt.Errorf("mark lead promoted: %w", err)
-		}
-		if tag.RowsAffected() != 1 {
-			// Under the row lock only this transaction can retire the
-			// lead; a zero-row update means the guards above are broken.
-			// Failing loudly keeps the phantom person and its events out.
-			return apperrors.ErrConflict
-		}
-
-		outcome := "created"
-		if merged {
-			outcome = "merged"
-		}
-		after := map[string]any{
-			"status": "promoted", "promoted_person_id": personID,
-			"trigger": in.Trigger, "dedupe_outcome": outcome,
-		}
-		if in.EvidenceActivityID != nil {
-			after["evidence_activity_id"] = *in.EvidenceActivityID
-		}
-		if in.EvidenceNote != nil {
-			after["evidence_note"] = *in.EvidenceNote
-		}
-		auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
-			map[string]any{"status": lead.Status}, after)
-		if err != nil {
-			return fmt.Errorf("audit lead promote: %w", err)
-		}
-
-		person, err = readPerson(ctx, tx, personID, storekit.LiveOnly)
-		if err != nil {
-			return fmt.Errorf("read promoted person: %w", err)
-		}
-
-		// lead.promoted is the first-class verb (events.md §5.5) — the
-		// moment the context graph adds the node; never a lead.updated.
-		if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id.UUID, map[string]any{
-			"promoted_person_id": personID,
-			"dedupe_outcome":     outcome,
-			"trigger":            in.Trigger,
-			"evidence_ref":       in.EvidenceActivityID,
-		}); err != nil {
-			return fmt.Errorf("emit lead.promoted: %w", err)
-		}
-		personEvent, personPayload := "person.created", map[string]any{"full_name": person.FullName}
-		if merged {
-			personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
-		}
-		if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID.UUID, personPayload); err != nil {
-			return fmt.Errorf("emit %s: %w", personEvent, err)
-		}
-		return nil
+		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged)
+		return err
 	})
 	return person, merged, err
+}
+
+// finalizeLeadPromotion retires the lead and lands the write shape for the
+// whole promotion: the status flip, the ONE audit row (action=promote,
+// recording trigger + evidence + the resulting person), and the paired
+// lead.promoted + person.* events — all inside the caller's transaction,
+// still under the lead row lock taken by PromoteLead.
+func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool) (crmcontracts.Person, error) {
+	now := time.Now().UTC()
+	tag, err := tx.Exec(ctx,
+		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
+		 WHERE id = $1 AND archived_at IS NULL`,
+		id, personID, now)
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("mark lead promoted: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		// Under the row lock only this transaction can retire the
+		// lead; a zero-row update means the guards above are broken.
+		// Failing loudly keeps the phantom person and its events out.
+		return crmcontracts.Person{}, apperrors.ErrConflict
+	}
+
+	outcome := "created"
+	if merged {
+		outcome = "merged"
+	}
+	after := map[string]any{
+		"status": "promoted", "promoted_person_id": personID,
+		"trigger": in.Trigger, "dedupe_outcome": outcome,
+	}
+	if in.EvidenceActivityID != nil {
+		after["evidence_activity_id"] = *in.EvidenceActivityID
+	}
+	if in.EvidenceNote != nil {
+		after["evidence_note"] = *in.EvidenceNote
+	}
+	auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
+		map[string]any{"status": lead.Status}, after)
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("audit lead promote: %w", err)
+	}
+
+	person, err := readPerson(ctx, tx, personID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("read promoted person: %w", err)
+	}
+
+	// lead.promoted is the first-class verb (events.md §5.5) — the
+	// moment the context graph adds the node; never a lead.updated.
+	if err := storekit.Emit(ctx, tx, auditID, "lead.promoted", "lead", id.UUID, map[string]any{
+		"promoted_person_id": personID,
+		"dedupe_outcome":     outcome,
+		"trigger":            in.Trigger,
+		"evidence_ref":       in.EvidenceActivityID,
+	}); err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("emit lead.promoted: %w", err)
+	}
+	personEvent, personPayload := "person.created", map[string]any{"full_name": person.FullName}
+	if merged {
+		personEvent, personPayload = "person.updated", map[string]any{"converted_from_lead_id": id}
+	}
+	if err := storekit.Emit(ctx, tx, auditID, personEvent, "person", personID.UUID, personPayload); err != nil {
+		return crmcontracts.Person{}, fmt.Errorf("emit %s: %w", personEvent, err)
+	}
+	return person, nil
 }
 
 // promotableLead loads the lead and enforces every promotion guard:

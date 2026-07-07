@@ -61,47 +61,7 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
-		sections := []struct {
-			dest  *[]map[string]any
-			query string
-		}{
-			{&pkg.Emails, `SELECT email, email_type, is_primary FROM person_email WHERE person_id = $1`},
-			{&pkg.Phones, `SELECT phone, phone_type FROM person_phone WHERE person_id = $1`},
-			{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
-			   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
-			{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency
-			   FROM deal d JOIN relationship r ON r.deal_id = d.id
-			   WHERE r.kind = 'deal_stakeholder' AND r.person_id = $1 AND r.archived_at IS NULL`},
-			{&pkg.Leads, `SELECT l.id, l.full_name, l.email, l.title, l.company_name, l.status, l.created_at
-			   FROM lead l
-			   WHERE l.promoted_person_id = $1
-			      OR l.id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
-			      OR (l.email IS NOT NULL AND EXISTS (
-			            SELECT 1 FROM person_email pe WHERE pe.person_id = $1 AND pe.email = lower(l.email)))`},
-			{&pkg.Activities, `SELECT a.id, a.kind, a.subject, a.body, a.occurred_at, a.source_system
-			   FROM activity a JOIN activity_link l ON l.activity_id = a.id
-			   WHERE l.person_id = $1`},
-			{&pkg.Attachments, `SELECT at.id, at.entity_type, at.entity_id, at.filename,
-			      at.content_type, at.byte_size, at.created_at
-			   FROM attachment at
-			   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
-			      OR (at.entity_type = 'activity' AND at.entity_id IN (
-			            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
-			{&pkg.Consent, `SELECT cp.key AS purpose, pc.state, pc.lawful_basis, pc.captured_at
-			   FROM person_consent pc JOIN consent_purpose cp ON cp.id = pc.purpose_id
-			   WHERE pc.person_id = $1`},
-			{&pkg.ConsentEvents, `SELECT cp.key AS purpose, ce.new_state, ce.source, ce.captured_at
-			   FROM consent_event ce JOIN consent_purpose cp ON cp.id = ce.purpose_id
-			   WHERE ce.person_id = $1`},
-			{&pkg.RawCapture, `SELECT rc.source_system, rc.source_id, rc.payload, rc.received_at
-			   FROM raw_capture rc
-			   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
-			                 AND rc.payload::text ILIKE
-			                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')`},
-			{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
-			   FROM field_provenance fp
-			   WHERE fp.object_type = 'person' AND fp.object_id = $1`},
-		}
+		sections := sarSections(&pkg)
 
 		subject, err := rowMaps(ctx, tx, `
 			SELECT p.id, p.full_name, p.first_name, p.last_name, p.title,
@@ -131,6 +91,58 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 		return err
 	})
 	return pkg, err
+}
+
+// sarSection pairs a destination package section with the query that fills
+// it. Every query is keyed to the single personID bound param ($1).
+type sarSection struct {
+	dest  *[]map[string]any
+	query string
+}
+
+// sarSections is the Art. 15 gather list: the exact set of tables that hold
+// data about the subject, each bound to the package field it populates. The
+// query set is compliance-critical — adding or dropping a source changes what
+// the export owes the data subject.
+func sarSections(pkg *SARPackage) []sarSection {
+	return []sarSection{
+		{&pkg.Emails, `SELECT email, email_type, is_primary FROM person_email WHERE person_id = $1`},
+		{&pkg.Phones, `SELECT phone, phone_type FROM person_phone WHERE person_id = $1`},
+		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
+		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
+		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency
+		   FROM deal d JOIN relationship r ON r.deal_id = d.id
+		   WHERE r.kind = 'deal_stakeholder' AND r.person_id = $1 AND r.archived_at IS NULL`},
+		{&pkg.Leads, `SELECT l.id, l.full_name, l.email, l.title, l.company_name, l.status, l.created_at
+		   FROM lead l
+		   WHERE l.promoted_person_id = $1
+		      OR l.id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
+		      OR (l.email IS NOT NULL AND EXISTS (
+		            SELECT 1 FROM person_email pe WHERE pe.person_id = $1 AND pe.email = lower(l.email)))`},
+		{&pkg.Activities, `SELECT a.id, a.kind, a.subject, a.body, a.occurred_at, a.source_system
+		   FROM activity a JOIN activity_link l ON l.activity_id = a.id
+		   WHERE l.person_id = $1`},
+		{&pkg.Attachments, `SELECT at.id, at.entity_type, at.entity_id, at.filename,
+		      at.content_type, at.byte_size, at.created_at
+		   FROM attachment at
+		   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
+		      OR (at.entity_type = 'activity' AND at.entity_id IN (
+		            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
+		{&pkg.Consent, `SELECT cp.key AS purpose, pc.state, pc.lawful_basis, pc.captured_at
+		   FROM person_consent pc JOIN consent_purpose cp ON cp.id = pc.purpose_id
+		   WHERE pc.person_id = $1`},
+		{&pkg.ConsentEvents, `SELECT cp.key AS purpose, ce.new_state, ce.source, ce.captured_at
+		   FROM consent_event ce JOIN consent_purpose cp ON cp.id = ce.purpose_id
+		   WHERE ce.person_id = $1`},
+		{&pkg.RawCapture, `SELECT rc.source_system, rc.source_id, rc.payload, rc.received_at
+		   FROM raw_capture rc
+		   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
+		                 AND rc.payload::text ILIKE
+		                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')`},
+		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
+		   FROM field_provenance fp
+		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},
+	}
 }
 
 // rowMaps runs one query and returns each row as column→value.

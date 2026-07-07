@@ -162,10 +162,25 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// (the default pipeline) — composed here so neither module imports
 	// the other.
 	identitySvc := identity.NewService(pool)
-	// Workspace bootstrap seeds every module's per-workspace defaults in
-	// ONE transaction (C5): the default pipeline and the consent purpose
-	// catalog stand or fall together.
-	seedDefaults := func(ctx context.Context, tx pgx.Tx) error {
+	authH := identity.NewHandlers(identitySvc, workspaceSeed(dealsH))
+
+	srv := newServer(pool, log, authH, dealsH)
+	for _, opt := range opts {
+		opt(&srv, pool)
+	}
+
+	api := contractAPI(srv, pool, identitySvc)
+	mux := operationalMux(srv, pool, log, authH, api)
+
+	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
+}
+
+// workspaceSeed is the workspace-bootstrap hook identity runs: it seeds
+// every module's per-workspace defaults in ONE transaction (C5) — the
+// default pipeline and the consent purpose catalog stand or fall
+// together.
+func workspaceSeed(dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
+	return func(ctx context.Context, tx pgx.Tx) error {
 		if err := dealsH.SeedWorkspaceDefaultsTx(ctx, tx); err != nil {
 			return err
 		}
@@ -187,9 +202,12 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		_, err := activities.SeedBookingPageTx(ctx, tx, adminID)
 		return err
 	}
-	authH := identity.NewHandlers(identitySvc, seedDefaults)
+}
 
-	srv := Server{
+// newServer assembles the module handler sets. Every cross-module edge
+// is injected HERE, never as a sibling import (ADR-0054).
+func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
+	return Server{
 		authHandlers:   authH,
 		peopleHandlers: people.NewHandlers(pool),
 		dealsHandlers:  dealsH,
@@ -233,14 +251,13 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		},
 		log: log,
 	}
-	for _, opt := range opts {
-		opt(&srv, pool)
-	}
+}
 
-	// The ADR-0055 admission layer rides INSIDE the router (it needs the
-	// matched route pattern) and shares the MCP surface's tier table,
-	// approvals staging, and live-authority gate — one gate, two
-	// transports.
+// contractAPI mounts the generated contract router with the ADR-0055
+// admission layer, which rides INSIDE the router (it needs the matched
+// route pattern) and shares the MCP surface's tier table, approvals
+// staging, and live-authority gate — one gate, two transports.
+func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
 	registry := newRegistry(pool, gate)
 	provider := NewProvider(pool)
@@ -261,7 +278,13 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 		// off-contract shape that also leaks the parser's internal text.
 		ErrorHandlerFunc: paramParseError,
 	})
+	return api
+}
 
+// operationalMux mounts the contract surface next to the operational
+// edges: health probes, metrics, the anonymous public paths, the A2
+// authorization server, and the embedded SPA.
+func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
 	// Only /v1 rides the session middleware; the embedded SPA and the
 	// health probe are static and unauthenticated (the SPA's every data
 	// access goes back through /v1 — it holds no privileged path).
@@ -290,8 +313,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
 	mux.Handle("/", web.Handler())
-
-	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
+	return mux
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to

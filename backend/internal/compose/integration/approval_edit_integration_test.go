@@ -17,6 +17,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
@@ -81,6 +83,24 @@ func TestModifyThenApproveRebindsTheAuthority(t *testing.T) {
 		t.Fatalf("effect ran %s under %s, want the edited payload", effectPayload, effectHash)
 	}
 
+	assertEditAuditCarriesBothSides(t, owner, approvalID, originalHash, editedHash)
+
+	// No-bypass: the agent's original call no longer matches the
+	// authority; only the edited call redeems — the gate re-admits and
+	// re-tiers that call like any other.
+	if err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", originalHash); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
+		t.Fatalf("redeeming the pre-edit call → %v, want ErrApprovalTokenInvalid", err)
+	}
+	if err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", editedHash); err != nil {
+		t.Fatalf("redeeming the edited call → %v, want ok", err)
+	}
+}
+
+// assertEditAuditCarriesBothSides checks the approve audit row against
+// ADR-0036 §4: it must keep the agent's original proposal AND the
+// human's edited version, each under its own diff hash.
+func assertEditAuditCarriesBothSides(t *testing.T, owner *pgx.Conn, approvalID ids.ApprovalID, originalHash, editedHash string) {
+	t.Helper()
 	// The audit row carries both the original proposal and the delta.
 	// (jsonb reorders keys, so the assertion is on content, not bytes.)
 	var evidenceRaw []byte
@@ -103,16 +123,6 @@ func TestModifyThenApproveRebindsTheAuthority(t *testing.T) {
 	}
 	if evidence.EditedChange["note"] != "human version" || evidence.EditedDiffHash != editedHash {
 		t.Fatalf("audit must keep the human's edited version: %+v", evidence)
-	}
-
-	// No-bypass: the agent's original call no longer matches the
-	// authority; only the edited call redeems — the gate re-admits and
-	// re-tiers that call like any other.
-	if err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", originalHash); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
-		t.Fatalf("redeeming the pre-edit call → %v, want ErrApprovalTokenInvalid", err)
-	}
-	if err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", editedHash); err != nil {
-		t.Fatalf("redeeming the edited call → %v, want ok", err)
 	}
 }
 

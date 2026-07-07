@@ -75,6 +75,32 @@ type BootstrapInput struct {
 	Timezone      string
 }
 
+// normalize parse-don't-validates the tenant-root inputs in place. The slug
+// becomes the workspace's subdomain and the timezone drives every
+// date-boundary sweep — a malformed value here would haunt the whole tenant
+// lifetime, so it is rejected before any row is written.
+func (in *BootstrapInput) normalize() error {
+	if in.Timezone == "" {
+		in.Timezone = "UTC"
+	}
+	slug, err := values.ParseSlug(in.Slug)
+	if err != nil {
+		return err
+	}
+	in.Slug = slug.String()
+	tz, err := values.ParseTimezone(in.Timezone)
+	if err != nil {
+		return err
+	}
+	in.Timezone = tz.String()
+	adminEmail, err := values.ParseEmail(in.AdminEmail)
+	if err != nil {
+		return err
+	}
+	in.AdminEmail = adminEmail.String()
+	return nil
+}
+
 // Bootstrap creates workspace + admin + seeded roles + other modules'
 // per-workspace defaults in ONE transaction, and opens the admin's first
 // session. The workspace insert runs before the GUC exists; everything
@@ -84,27 +110,9 @@ type BootstrapInput struct {
 // whole tenant back, so no half-provisioned workspace can survive (C5).
 // seed may be nil (no cross-module defaults to lay down).
 func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ctx context.Context, tx pgx.Tx) error) (Identity, string, error) {
-	if in.Timezone == "" {
-		in.Timezone = "UTC"
-	}
-	// Parse-don't-validate at the tenant root: the slug becomes the
-	// workspace's subdomain and the timezone drives every date-boundary
-	// sweep — a malformed value here haunts the whole tenant lifetime.
-	slug, err := values.ParseSlug(in.Slug)
-	if err != nil {
+	if err := in.normalize(); err != nil {
 		return Identity{}, "", err
 	}
-	in.Slug = slug.String()
-	tz, err := values.ParseTimezone(in.Timezone)
-	if err != nil {
-		return Identity{}, "", err
-	}
-	in.Timezone = tz.String()
-	adminEmail, err := values.ParseEmail(in.AdminEmail)
-	if err != nil {
-		return Identity{}, "", err
-	}
-	in.AdminEmail = adminEmail.String()
 	hash, err := password.Hash(in.AdminPassword)
 	if err != nil {
 		return Identity{}, "", err

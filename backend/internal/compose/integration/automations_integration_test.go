@@ -19,6 +19,53 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 	e := setup(t)
 	e.bootstrapWorkspace(t)
 
+	assertAutomationCatalogIsClosed(t, e)
+	assertBootstrapSeededStartersEnabled(t, e)
+	assertAutomationCreateValidatesParams(t, e)
+	createdID := createPausedAutomation(t, e)
+
+	// Enable under a stale If-Match is refused; the current version wins.
+	stale := map[string]string{"If-Match": "99"}
+	if status := e.call(t, "PATCH", "/v1/automations/"+createdID, anyMap{"status": "enabled"}, stale, nil); status != http.StatusConflict {
+		t.Fatalf("stale If-Match → %d, want 409 version_skew", status)
+	}
+	var updated struct {
+		Status  string `json:"status"`
+		Version int    `json:"version"`
+	}
+	if status := e.call(t, "PATCH", "/v1/automations/"+createdID, anyMap{"status": "enabled"},
+		map[string]string{"If-Match": "1"}, &updated); status != http.StatusOK {
+		t.Fatalf("enable → %d", status)
+	}
+	if updated.Status != "enabled" || updated.Version != 2 {
+		t.Fatalf("enable landed as %+v, want enabled v2", updated)
+	}
+
+	// Delete is a soft archive: 204, then the instance reads as absent.
+	if status := e.call(t, "DELETE", "/v1/automations/"+createdID, nil, nil, nil); status != http.StatusNoContent {
+		t.Fatalf("delete → %d", status)
+	}
+	if status := e.call(t, "GET", "/v1/automations/"+createdID, nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("get after delete → %d, want 404", status)
+	}
+
+	// Config is an audited fact end to end.
+	var audit struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/audit-log?entity_type=automation", nil, nil, &audit); status != http.StatusOK {
+		t.Fatalf("audit read → %d", status)
+	}
+	if len(audit.Data) != 3 {
+		t.Fatalf("automation config audited %d times, want 3 (create, enable, archive)", len(audit.Data))
+	}
+}
+
+// assertAutomationCatalogIsClosed checks the catalog is the closed
+// starter library: exactly two green types, each shipping a params
+// schema for the editor form.
+func assertAutomationCatalogIsClosed(t *testing.T, e *env) {
+	t.Helper()
 	// The catalog is the closed starter library.
 	var catalog struct {
 		Data []struct {
@@ -41,7 +88,13 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 			t.Fatalf("starter %s ships no params_schema — the editor form has nothing to render", entry.Key)
 		}
 	}
+}
 
+// assertBootstrapSeededStartersEnabled checks the workspace bootstrap
+// seeded both starters already enabled — the recorded deviation from
+// the API path's created-paused rule.
+func assertBootstrapSeededStartersEnabled(t *testing.T, e *env) {
+	t.Helper()
 	// Bootstrap seeded the two starters ENABLED (system floor, recorded
 	// deviation from created-paused which governs the API path).
 	var listed struct {
@@ -63,7 +116,13 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 			t.Fatalf("seeded %s is %s, want enabled", a.Key, a.Status)
 		}
 	}
+}
 
+// assertAutomationCreateValidatesParams checks create refuses anything
+// outside the catalog contract: unknown keys, mistyped params, and
+// out-of-schema knobs (the anti-DSL guard) are all 422s.
+func assertAutomationCreateValidatesParams(t *testing.T, e *env) {
+	t.Helper()
 	// An unknown catalog key and out-of-schema params are 422s.
 	if status := e.call(t, "POST", "/v1/automations", anyMap{
 		"key": "invented_type", "name": "Nope", "params": anyMap{},
@@ -80,7 +139,12 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 	}, nil, nil); status != 422 {
 		t.Fatalf("out-of-schema param → %d, want 422 (the anti-DSL guard)", status)
 	}
+}
 
+// createPausedAutomation creates a valid route_lead instance, asserts it
+// lands paused and round-trips its config, and returns its id.
+func createPausedAutomation(t *testing.T, e *env) string {
+	t.Helper()
 	// A valid create lands PAUSED and round-trips.
 	var created struct {
 		ID      string         `json:"id"`
@@ -107,42 +171,7 @@ func TestAutomationCatalogAndCRUD(t *testing.T) {
 	if fetched.Name != "Slow-lane routing" || fetched.Params["cap_per_owner"] != float64(3) {
 		t.Fatalf("round-trip lost the config: %+v", fetched)
 	}
-
-	// Enable under a stale If-Match is refused; the current version wins.
-	stale := map[string]string{"If-Match": "99"}
-	if status := e.call(t, "PATCH", "/v1/automations/"+created.ID, anyMap{"status": "enabled"}, stale, nil); status != http.StatusConflict {
-		t.Fatalf("stale If-Match → %d, want 409 version_skew", status)
-	}
-	var updated struct {
-		Status  string `json:"status"`
-		Version int    `json:"version"`
-	}
-	if status := e.call(t, "PATCH", "/v1/automations/"+created.ID, anyMap{"status": "enabled"},
-		map[string]string{"If-Match": "1"}, &updated); status != http.StatusOK {
-		t.Fatalf("enable → %d", status)
-	}
-	if updated.Status != "enabled" || updated.Version != 2 {
-		t.Fatalf("enable landed as %+v, want enabled v2", updated)
-	}
-
-	// Delete is a soft archive: 204, then the instance reads as absent.
-	if status := e.call(t, "DELETE", "/v1/automations/"+created.ID, nil, nil, nil); status != http.StatusNoContent {
-		t.Fatalf("delete → %d", status)
-	}
-	if status := e.call(t, "GET", "/v1/automations/"+created.ID, nil, nil, nil); status != http.StatusNotFound {
-		t.Fatalf("get after delete → %d, want 404", status)
-	}
-
-	// Config is an audited fact end to end.
-	var audit struct {
-		Data []anyMap `json:"data"`
-	}
-	if status := e.call(t, "GET", "/v1/audit-log?entity_type=automation", nil, nil, &audit); status != http.StatusOK {
-		t.Fatalf("audit read → %d", status)
-	}
-	if len(audit.Data) != 3 {
-		t.Fatalf("automation config audited %d times, want 3 (create, enable, archive)", len(audit.Data))
-	}
+	return created.ID
 }
 
 // An agent passport cannot touch automation config: standing automation

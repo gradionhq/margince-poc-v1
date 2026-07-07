@@ -57,68 +57,78 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
-
-		if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
-			return err
-		}
-
-		// INV-CLOSE-PAST (formulas §11): deals are born open, and an open
-		// deal never claims a past close date — reject at source rather
-		// than let the nightly corrector inherit a knowingly-invalid row.
-		if err := rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
-			return err
-		}
-
-		// An FK argument that names a row-scoped business record is a read
-		// of that record: embedding organization_id into a deal the caller
-		// will read back discloses the link, so the target must be visible
-		// under the caller's row scope — not merely same-workspace (which
-		// the composite FK already enforces). Owner references point at
-		// app_user, which carries no row scope: any workspace member may be
-		// an owner, so the FK check alone governs them.
-		if in.OrganizationID != nil {
-			if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
-				return err
-			}
-		}
-
-		id := ids.New[ids.DealKind]()
-		_, err = tx.Exec(ctx,
-			`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
-			                   organization_id, owner_id, expected_close_date, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
-			in.OrganizationID, in.OwnerID, in.ExpectedClose, in.Source, by)
-		if err != nil {
-			// Covers the remaining FKs (pipeline, owner); the stage/pipeline
-			// pairing and the organization target were pre-checked above.
-			if storekit.IsForeignKeyViolation(err) {
-				return apperrors.ErrNotFound
-			}
-			return fmt.Errorf("insert deal: %w", err)
-		}
-
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO deal_stage_history (workspace_id, deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change)
-			 VALUES ($1, $2, NULL, $3, $4, $5, $6)`,
-			wsID, id, in.StageID, by, in.AmountMinor, in.Currency); err != nil {
-			return fmt.Errorf("record stage history: %w", err)
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "create", "deal", id.UUID, nil, map[string]any{"name": in.Name})
-		if err != nil {
-			return fmt.Errorf("audit deal create: %w", err)
-		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.created", "deal", id.UUID, map[string]any{"name": in.Name}); err != nil {
-			return fmt.Errorf("emit deal.created: %w", err)
-		}
-		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read created deal: %w", err)
-		}
-		return nil
+		var err error
+		out, err = createDealTx(ctx, tx, in, by)
+		return err
 	})
 	return out, err
+}
+
+// createDealTx guards the birth invariants (open stage, future close,
+// visible organization), inserts the deal with its first stage-history
+// row, and runs the write shape — all inside the caller's transaction.
+func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string) (crmcontracts.Deal, error) {
+	wsID := storekit.MustWorkspace(ctx)
+
+	if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
+		return crmcontracts.Deal{}, err
+	}
+
+	// INV-CLOSE-PAST (formulas §11): deals are born open, and an open
+	// deal never claims a past close date — reject at source rather
+	// than let the nightly corrector inherit a knowingly-invalid row.
+	if err := rejectPastCloseDate(ctx, tx, in.ExpectedClose); err != nil {
+		return crmcontracts.Deal{}, err
+	}
+
+	// An FK argument that names a row-scoped business record is a read
+	// of that record: embedding organization_id into a deal the caller
+	// will read back discloses the link, so the target must be visible
+	// under the caller's row scope — not merely same-workspace (which
+	// the composite FK already enforces). Owner references point at
+	// app_user, which carries no row scope: any workspace member may be
+	// an owner, so the FK check alone governs them.
+	if in.OrganizationID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+			return crmcontracts.Deal{}, err
+		}
+	}
+
+	id := ids.New[ids.DealKind]()
+	_, err := tx.Exec(ctx,
+		`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
+		                   organization_id, owner_id, expected_close_date, source, captured_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
+		in.OrganizationID, in.OwnerID, in.ExpectedClose, in.Source, by)
+	if err != nil {
+		// Covers the remaining FKs (pipeline, owner); the stage/pipeline
+		// pairing and the organization target were pre-checked above.
+		if storekit.IsForeignKeyViolation(err) {
+			return crmcontracts.Deal{}, apperrors.ErrNotFound
+		}
+		return crmcontracts.Deal{}, fmt.Errorf("insert deal: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO deal_stage_history (workspace_id, deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change)
+		 VALUES ($1, $2, NULL, $3, $4, $5, $6)`,
+		wsID, id, in.StageID, by, in.AmountMinor, in.Currency); err != nil {
+		return crmcontracts.Deal{}, fmt.Errorf("record stage history: %w", err)
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "create", "deal", id.UUID, nil, map[string]any{"name": in.Name})
+	if err != nil {
+		return crmcontracts.Deal{}, fmt.Errorf("audit deal create: %w", err)
+	}
+	if err := storekit.Emit(ctx, tx, auditID, "deal.created", "deal", id.UUID, map[string]any{"name": in.Name}); err != nil {
+		return crmcontracts.Deal{}, fmt.Errorf("emit deal.created: %w", err)
+	}
+	out, err := readDeal(ctx, tx, id, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Deal{}, fmt.Errorf("read created deal: %w", err)
+	}
+	return out, nil
 }
 
 // ensureOpenBirthStage guards create: deals are born open — AdvanceDeal

@@ -23,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -70,32 +69,6 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	leadID := e.seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
 	                     VALUES ($1, $2, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
 
-	dispatch := func(activityID ids.UUID) {
-		t.Helper()
-		if err := engine.HandleEvent(context.Background(), kevents.Envelope{
-			EventID: ids.NewV7(), Type: "activity.captured", WorkspaceID: e.WS,
-			OccurredAt: time.Now().UTC(),
-			Entity:     kevents.EntityRef{Type: "activity", ID: activityID},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	logReply := func() ids.UUID {
-		t.Helper()
-		subject := "Re: your offer"
-		direction := "inbound"
-		occurred := time.Now().UTC().Add(-1 * time.Minute)
-		reply, _, err := activityStore.LogActivity(ctx, activities.LogActivityInput{
-			Kind: "email", Subject: &subject, Direction: &direction, OccurredAt: &occurred,
-			Links:  []activities.ActivityLinkInput{{EntityType: "lead", EntityID: leadID}},
-			Source: "manual",
-		})
-		if err != nil {
-			t.Fatalf("logging the lead-linked reply: %v", err)
-		}
-		return ids.UUID(reply.Id)
-	}
-
 	// (1) A human score with no reason is rejected (AC-S1).
 	if _, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{Score: intp(90)}); err == nil {
 		t.Fatal("score without a reason was accepted; want ScoreOverrideReasonRequiredError")
@@ -124,7 +97,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 
 	// A subsequent activity-driven recompute must NOT move the sticky score;
 	// it updates the retained machine value only (fit 23 + fresh reply 25 = 48).
-	dispatch(logReply())
+	dispatchActivityCaptured(t, engine, e.WS, ids.NewV7(), logInboundReply(t, ctx, activityStore, leadID))
 	afterEvent, err := store.GetLead(ctx, leadIDOf(leadID), storekit.LiveOnly)
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +124,24 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	if cleared.Score != 48 {
 		t.Fatalf("score did not track the machine value on resume: %d, want 48", cleared.Score)
 	}
+}
+
+// logInboundReply logs one lead-linked inbound email — the fresh-reply
+// signal (+25) the recompute scenarios feed the workflow lane.
+func logInboundReply(t *testing.T, ctx context.Context, activityStore *activities.Store, leadID ids.UUID) ids.UUID {
+	t.Helper()
+	subject := "Re: your offer"
+	direction := "inbound"
+	occurred := time.Now().UTC().Add(-1 * time.Minute)
+	reply, _, err := activityStore.LogActivity(ctx, activities.LogActivityInput{
+		Kind: "email", Subject: &subject, Direction: &direction, OccurredAt: &occurred,
+		Links:  []activities.ActivityLinkInput{{EntityType: "lead", EntityID: leadID}},
+		Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("logging the lead-linked reply: %v", err)
+	}
+	return ids.UUID(reply.Id)
 }
 
 // TestLeadScoreOverrideRejectsMissingReasonOverHTTP proves the wire
