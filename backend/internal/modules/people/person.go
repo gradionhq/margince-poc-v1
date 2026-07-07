@@ -298,7 +298,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), "full_name"))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)

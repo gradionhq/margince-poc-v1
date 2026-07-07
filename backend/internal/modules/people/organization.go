@@ -232,7 +232,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), "display_name"))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)

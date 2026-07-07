@@ -178,13 +178,23 @@ func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(a
 		if !admitted {
 			continue
 		}
+		// Name entities parse the query 'simple' (unaccented — Muller
+		// finds Müller); the activity branch additionally ORs the
+		// German/English stemmed parses so "Vertrag" reaches rows whose
+		// tsvector stemmed "Verträge" under their captured language.
+		tsquery := fmt.Sprintf(`websearch_to_tsquery('simple', f_unaccent($%d))`, qPos)
+		if branch.entity == "activity" {
+			tsquery = fmt.Sprintf(
+				`(websearch_to_tsquery('simple', f_unaccent($%[1]d)) || websearch_to_tsquery('german', f_unaccent($%[1]d)) || websearch_to_tsquery('english', f_unaccent($%[1]d)))`,
+				qPos)
+		}
 		sql := fmt.Sprintf(
 			`SELECT '%s'::text AS rtype, t.id, %s AS title, %s AS snippet,
-			        ts_rank_cd(t.search_tsv, websearch_to_tsquery('simple', $%d))::float8 AS score
+			        ts_rank_cd(t.search_tsv, %s)::float8 AS score
 			 FROM %s t
-			 WHERE t.search_tsv @@ websearch_to_tsquery('simple', $%d)
+			 WHERE t.search_tsv @@ %s
 			   AND t.archived_at IS NULL`,
-			branch.entity, branch.title, branch.snippet, qPos, branch.table, qPos)
+			branch.entity, branch.title, branch.snippet, tsquery, branch.table, tsquery)
 		if scope != "" {
 			sql += " AND " + scope
 		}

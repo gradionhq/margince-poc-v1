@@ -116,7 +116,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) ([]
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), "name"))
 	}
 	if in.PipelineID != nil {
 		where = append(where, storekit.SQLf("pipeline_id = $%d", arg(*in.PipelineID)))
