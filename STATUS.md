@@ -5,6 +5,66 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-07 — Strojny backend review, issue #16)
+
+Lars Strojny's post-architecture backend review (gradionhq/margince-poc-v1#16)
+implemented on branch `feat/lars-strojny-feedback` (PR "Feedback Lars
+Stroiny"). Every finding verified against the code before acting; all
+confirmed. Ratified decisions in **decisions/0019-strojny-backend-review.md**;
+spec touchpoints in `feedback/31-*` (git-ignored). **8 commits, all landing on
+a green `make check` + `make test-integration`:**
+
+- **Concurrency (WS1–2)** — storekit `Apply(ifVersion *int64)` split into
+  `ApplyWithVersion` / `ApplyGuarded` / `ApplyLocked(RowLock)` with
+  `LockRow`/`LockPair` mints; an unguarded by-id UPDATE is no longer
+  expressible. Fixed three real races: merge-target TOCTOU (LockPair on both
+  ends), duplicate-person-on-concurrent-promote (lead lock + RowsAffected —
+  it was also committing phantom events), offer supersede. `updateguard_test.go`
+  gates it. Race integration tests in `concurrency_integration_test.go`.
+- **Consent merge (WS3)** — withdrawn-flip now appends its `consent_event`
+  proof; relink carries the proof chain; `consentproof_test.go` gates the
+  pairing.
+- **Deal money (WS4)** — CreateDeal pair check + `0050` CHECK
+  `(amount_minor IS NULL) = (currency IS NULL)`.
+- **Row-scope (WS5)** — auth primitives reject unknown table names;
+  `rbacgate_test.go` pins "every store entry point reaches an auth gate".
+  DB-level row-scope recorded as the ADR-tracked direction, NOT done.
+- **Value objects (WS6)** — `shared/kernel/values` (Email/Phone/Domain/Money/
+  Slug/Timezone), parsed at the store Input seam, 422 via httperr. Phone E.164
+  now actually enforced (the schema comment was a lie).
+- **Enums (WS7)** — LeadStatus/DealStatus/StageSemantic/ConsentState/
+  PromoteTrigger typed at the seam; `enumsync_test.go` derives Go const sets +
+  SQL CHECK sets from the tree and fails on drift.
+- **JSON→relations (WS8)** — `0051`: `person_social` relation + address
+  columns on person/organization (bonus: the API address field was silently
+  dropped before — now persists).
+- **FTS (WS10)** — `0052`: `f_unaccent` + pg_trgm quick-find, `activity.language`
+  with per-language stemming, setweight, one query parser. Integration test
+  pins Müller≡Muller, fragment quick-find, Vertrag≡Verträge.
+
+**⚠ WS9 (typed entity ids) is PARTIAL — pick up here.** The kernel
+(`ids.ID[K]` phantom-tag type, per-entity aliases, `ids.From[K]`, `ids.Ref`),
+the pgx registration (`platform/database/idtypes.go` + AfterConnect, proven by
+`idtypes_integration_test.go`), AND the **people module** are fully converted
+and committed (b4689f5) — people is the pattern-setter, its idioms documented
+in that commit body and in the agent report. **Remaining modules NOT
+converted** (deals, activities, signals, collections, identity, approvals,
+agents, ai, capture, privacy, consent, de, search + compose): two subagents
+were converting deals and activities/signals/collections but **died on the
+org monthly spend limit mid-edit — they left NOTHING uncommitted (tree is
+clean, `make check` green)**. To resume: run one subagent per module, following
+the people idioms (wire→typed via `pathID[K]`/`idArg[K]` at handlers; platform
+seams take `id.UUID`; SQL binds/scans stay typed; ports stay `ids.UUID` and
+widen with `ids.From`; polymorphic link tables keep untyped `entity_type`/
+`entity_id`). Kernel gaps to fill when you hit them: no `RelationshipKind`/
+`PartnerKind`/line-item kind yet (people left those `ids.UUID` with in-source
+notes). A signature-erosion fitness gate (no new raw `ids.UUID` params in
+module store signatures) is planned but NOT written.
+
+**Still TODO this workstream:** finish WS9; then reply on issue #16 (draft
+ready at scratchpad `issue16-reply.md` — needs the PR number and user approval
+before posting, it's outward-facing); open the PR "Feedback Lars Stroiny".
+
 ## Frontend session (2026-07-07 PM — onboarding confirm now writes)
 
 Closed the honesty gap in the onboarding funnel
