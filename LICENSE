@@ -7,10 +7,11 @@ License text copyright (c) 2017 MariaDB Corporation Ab, All Rights Reserved.
 
 Parameters
 
-Licensor:             Gradion (https://gradion.com)
+Licensor:             Gradion Pte. Ltd. (Singapore)
+                      https://gradion.com
 
 Licensed Work:        Margince CRM
-                      The Licensed Work is (c) 2026 Gradion
+                      The Licensed Work is (c) 2026 Gradion Pte. Ltd.
 
 Additional Use Grant: You may make production use of the Licensed Work,
                       provided that the total number of Seats authorized to
@@ -39,17 +40,22 @@ Additional Use Grant: You may make production use of the Licensed Work,
                       contact, lead, or customer whose data is stored in the
                       Licensed Work) who have no provisioned access to operate
                       it. "Affiliate" means any entity that controls, is
-                      controlled by, or is under common control with you;
-                      Seats are aggregated across Affiliates. "Authorized
-                      Hosting Partner" means a third party that has entered
-                      into the Licensor's written partner/hosting agreement.
+                      controlled by, or is under common control with you,
+                      where "control" means direct or indirect ownership of
+                      more than fifty percent (50%) of the voting securities
+                      or other ownership interests of an entity, or the
+                      right to direct its management, whether by contract
+                      or otherwise; Seats are aggregated across Affiliates.
+                      "Authorized Hosting Partner" means a third party that
+                      has entered into the Licensor's written
+                      partner/hosting agreement.
 
 Change Date:          2028-07-04
 
 Change License:       Apache License, Version 2.0
 
 For information about alternative licensing arrangements for the Licensed
-Work, please contact Gradion (https://gradion.com).
+Work, please contact Gradion Pte. Ltd. (https://gradion.com).
 
 -----------------------------------------------------------------------------
 
