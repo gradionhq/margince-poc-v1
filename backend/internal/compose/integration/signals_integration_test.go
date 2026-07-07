@@ -35,8 +35,8 @@ import (
 // imports its sibling.
 type signalStrengthAdapter struct{ people *people.Store }
 
-func (a signalStrengthAdapter) PersonStrength(ctx context.Context, id ids.UUID, now time.Time) (signals.RelationshipStrength, error) {
-	rs, err := a.people.PersonStrength(ctx, personIDOf(id), now)
+func (a signalStrengthAdapter) PersonStrength(ctx context.Context, id ids.PersonID, now time.Time) (signals.RelationshipStrength, error) {
+	rs, err := a.people.PersonStrength(ctx, id, now)
 	if err != nil {
 		return signals.RelationshipStrength{}, err
 	}
@@ -134,7 +134,7 @@ func (e *searchEnv) grantConsent(t *testing.T, personID ids.UUID) {
 	}
 }
 
-func createRaw(t *testing.T, store *signals.Store, ctx context.Context, rawRef string) ids.UUID {
+func createRaw(t *testing.T, store *signals.Store, ctx context.Context, rawRef string) ids.SignalID {
 	t.Helper()
 	sig, err := store.CreateSignal(ctx, signals.CreateSignalInput{
 		Kind: "buying_intent", SourceChannel: "inbound", RawRef: &rawRef,
@@ -143,7 +143,7 @@ func createRaw(t *testing.T, store *signals.Store, ctx context.Context, rawRef s
 	if err != nil {
 		t.Fatalf("create raw signal: %v", err)
 	}
-	return ids.UUID(sig.Id)
+	return ids.From[ids.SignalKind](ids.UUID(sig.Id))
 }
 
 // A signal's visibility follows the record it is ABOUT: a signal on a
@@ -167,10 +167,10 @@ func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	}
 
 	rep := signalActor(e, e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
-	if _, err := store.GetSignal(rep, ids.UUID(sig.Id), 0); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := store.GetSignal(rep, ids.From[ids.SignalKind](ids.UUID(sig.Id)), 0); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("team1 rep read of a team2-subject signal = %v, want ErrNotFound (existence-hiding)", err)
 	}
-	if _, err := store.GetSignal(e.adminSignals(), ids.UUID(sig.Id), 0); err != nil {
+	if _, err := store.GetSignal(e.adminSignals(), ids.From[ids.SignalKind](ids.UUID(sig.Id)), 0); err != nil {
 		t.Fatalf("admin read of the same signal = %v, want it visible", err)
 	}
 }
@@ -412,7 +412,7 @@ func TestSignalMutationsWriteTheAuditOutboxPair(t *testing.T) {
 	assertAuditAndOutbox(t, e, sigID, "resolve", "signal.resolved")
 }
 
-func assertAuditAndOutbox(t *testing.T, e *searchEnv, sigID ids.UUID, action, eventType string) {
+func assertAuditAndOutbox(t *testing.T, e *searchEnv, sigID ids.SignalID, action, eventType string) {
 	t.Helper()
 	var audits int
 	if err := e.owner.QueryRow(context.Background(),

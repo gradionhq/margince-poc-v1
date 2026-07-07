@@ -302,8 +302,8 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 // compose, never as a signals→people import.
 type signalStrength struct{ people *people.Store }
 
-func (s signalStrength) PersonStrength(ctx context.Context, personID ids.UUID, now time.Time) (signals.RelationshipStrength, error) {
-	rs, err := s.people.PersonStrength(ctx, ids.From[ids.PersonKind](personID), now)
+func (s signalStrength) PersonStrength(ctx context.Context, personID ids.PersonID, now time.Time) (signals.RelationshipStrength, error) {
+	rs, err := s.people.PersonStrength(ctx, personID, now)
 	if err != nil {
 		return signals.RelationshipStrength{}, err
 	}

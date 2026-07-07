@@ -34,13 +34,16 @@ type CreateSignalInput struct {
 	Kind          string
 	SourceChannel string
 	RawRef        *string
-	EntityType    *string
-	EntityID      *ids.UUID
-	Severity      string
-	Summary       string
-	Evidence      []crmcontracts.SignalEvidence
-	DetectedAt    *time.Time
-	Source        string
+	// note: entity_type + entity_id are the polymorphic subject seam (deal
+	// | organization | person), so the id stays untyped — it is validated
+	// against signalEntityTables and the link-target probe, not a kind.
+	EntityType *string
+	EntityID   *ids.UUID
+	Severity   string
+	Summary    string
+	Evidence   []crmcontracts.SignalEvidence
+	DetectedAt *time.Time
+	Source     string
 }
 
 func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcontracts.Signal, error) {
@@ -101,7 +104,7 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 				return err
 			}
 		}
-		id := ids.NewV7()
+		id := ids.New[ids.SignalKind]()
 		_, err := tx.Exec(ctx,
 			`INSERT INTO signal (id, workspace_id, kind, source_channel, raw_ref, entity_type, entity_id,
 			                     resolution_state, severity, summary, evidence, detected_at, source, captured_by)
@@ -111,7 +114,7 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 		if err != nil {
 			return fmt.Errorf("insert signal: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "create", "signal", id, nil,
+		auditID, err := storekit.Audit(ctx, tx, "create", "signal", id.UUID, nil,
 			map[string]any{"kind": in.Kind, "source_channel": sourceChannel, "resolution_state": resolutionState})
 		if err != nil {
 			return fmt.Errorf("audit signal create: %w", err)
@@ -119,7 +122,7 @@ func (s *Store) CreateSignal(ctx context.Context, in CreateSignalInput) (crmcont
 		if out, err = readSignal(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return fmt.Errorf("read created signal: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "signal.detected", "signal", id, detectedPayload(out)); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "signal.detected", "signal", id.UUID, detectedPayload(out)); err != nil {
 			return fmt.Errorf("emit signal.detected: %w", err)
 		}
 		return nil
@@ -146,13 +149,13 @@ func detectedPayload(sig crmcontracts.Signal) map[string]any {
 	return payload
 }
 
-func (s *Store) GetSignal(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Signal, error) {
+func (s *Store) GetSignal(ctx context.Context, id ids.SignalID, archived storekit.ArchivedFilter) (crmcontracts.Signal, error) {
 	if err := auth.Require(ctx, "signal", principal.ActionRead); err != nil {
 		return crmcontracts.Signal{}, err
 	}
 	var out crmcontracts.Signal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureSignalVisible(ctx, tx, id); err != nil {
+		if err := auth.EnsureSignalVisible(ctx, tx, id.UUID); err != nil {
 			return err
 		}
 		var err error
@@ -253,7 +256,7 @@ type UpdateSignalInput struct {
 // from the resolver's match-basis columns).
 var humanOutcomes = map[string]bool{"acknowledged": true, "resolved": true, "dismissed": true}
 
-func (s *Store) UpdateSignal(ctx context.Context, id ids.UUID, in UpdateSignalInput) (crmcontracts.Signal, error) {
+func (s *Store) UpdateSignal(ctx context.Context, id ids.SignalID, in UpdateSignalInput) (crmcontracts.Signal, error) {
 	if err := auth.Require(ctx, "signal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Signal{}, err
 	}
@@ -263,7 +266,7 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.UUID, in UpdateSignalIn
 	}
 	var out crmcontracts.Signal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureSignalVisible(ctx, tx, id); err != nil {
+		if err := auth.EnsureSignalVisible(ctx, tx, id.UUID); err != nil {
 			return err
 		}
 		current, err := readSignal(ctx, tx, id, storekit.LiveOnly)
@@ -281,7 +284,7 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.UUID, in UpdateSignalIn
 			out = current
 			return nil
 		}
-		if err := p.ApplyGuarded(ctx, tx, "signal", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "signal", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply signal patch: %w", err)
 		}
 		if in.Status != nil && humanOutcomes[*in.Status] && *in.Status != string(current.Status) {
@@ -293,7 +296,7 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.UUID, in UpdateSignalIn
 				return fmt.Errorf("append signal outcome: %w", err)
 			}
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "signal", id, p.Before(), p.After()); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "update", "signal", id.UUID, p.Before(), p.After()); err != nil {
 			return fmt.Errorf("audit signal update: %w", err)
 		}
 		if out, err = readSignal(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -304,13 +307,13 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.UUID, in UpdateSignalIn
 	return out, err
 }
 
-func (s *Store) ArchiveSignal(ctx context.Context, id ids.UUID) (crmcontracts.Signal, error) {
+func (s *Store) ArchiveSignal(ctx context.Context, id ids.SignalID) (crmcontracts.Signal, error) {
 	if err := auth.Require(ctx, "signal", principal.ActionDelete); err != nil {
 		return crmcontracts.Signal{}, err
 	}
 	var out crmcontracts.Signal
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureSignalVisible(ctx, tx, id); err != nil {
+		if err := auth.EnsureSignalVisible(ctx, tx, id.UUID); err != nil {
 			return err
 		}
 		if _, err := readSignal(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -320,7 +323,7 @@ func (s *Store) ArchiveSignal(ctx context.Context, id ids.UUID) (crmcontracts.Si
 			`UPDATE signal SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id); err != nil {
 			return fmt.Errorf("archive signal: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "archive", "signal", id, nil, nil); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "archive", "signal", id.UUID, nil, nil); err != nil {
 			return fmt.Errorf("audit signal archive: %w", err)
 		}
 		var err error
@@ -345,7 +348,7 @@ func signalColumns(alias string) string {
 	return strings.Join(cols, ", ")
 }
 
-func readSignal(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Signal, error) {
+func readSignal(ctx context.Context, tx pgx.Tx, id ids.SignalID, archived storekit.ArchivedFilter) (crmcontracts.Signal, error) {
 	q := `SELECT ` + signalColumns("s") + ` FROM signal s WHERE s.id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND s.archived_at IS NULL`

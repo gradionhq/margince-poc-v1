@@ -99,7 +99,7 @@ func registrableHost(host string) string {
 
 // candidate is one plausible organization with its inspectable basis.
 type candidate struct {
-	OrgID      ids.UUID
+	OrgID      ids.OrganizationID
 	MatchedOn  string // domain | name | prior_interaction
 	Confidence float64
 	Detail     string
@@ -109,7 +109,7 @@ type candidate struct {
 // (B-E08.2). Replay-safe by construction: resolving is only permitted
 // while the signal is unresolved or low_confidence — a terminal state
 // answers 422, so a retried request cannot flap an asserted match.
-func (s *Store) Resolve(ctx context.Context, signalID ids.UUID) (crmcontracts.Signal, error) {
+func (s *Store) Resolve(ctx context.Context, signalID ids.SignalID) (crmcontracts.Signal, error) {
 	if err := auth.Require(ctx, "signal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Signal{}, err
 	}
@@ -129,14 +129,14 @@ func (s *Store) Resolve(ctx context.Context, signalID ids.UUID) (crmcontracts.Si
 // resolveTx runs the resolver over one signal inside the caller's
 // transaction: the visibility gate, the terminal-state guard, candidate
 // matching narrowed to visible orgs, the state stamp, and the write shape.
-func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID) (crmcontracts.Signal, error) {
-	if err := auth.EnsureSignalVisible(ctx, tx, signalID); err != nil {
+func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID) (crmcontracts.Signal, error) {
+	if err := auth.EnsureSignalVisible(ctx, tx, signalID.UUID); err != nil {
 		return crmcontracts.Signal{}, err
 	}
 	// The row lock makes the terminal-state pre-read and the resolution
 	// stamp one race-free unit: two concurrent resolves (or a resolve
 	// racing a triage edit) cannot both pass the state guard.
-	if _, err := storekit.LockRow(ctx, tx, "signal", signalID, storekit.LiveOnly); err != nil {
+	if _, err := storekit.LockRow(ctx, tx, "signal", signalID.UUID, storekit.LiveOnly); err != nil {
 		return crmcontracts.Signal{}, err
 	}
 	sig, err := readSignal(ctx, tx, signalID, storekit.LiveOnly)
@@ -171,7 +171,7 @@ func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Princi
 	if err != nil {
 		return crmcontracts.Signal{}, err
 	}
-	auditID, err := storekit.Audit(ctx, tx, "resolve", "signal", signalID, before, after)
+	auditID, err := storekit.Audit(ctx, tx, "resolve", "signal", signalID.UUID, before, after)
 	if err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("audit signal resolution: %w", err)
 	}
@@ -179,7 +179,7 @@ func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Princi
 	if err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("read resolved signal: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "signal.resolved", "signal", signalID, resolvedPayload(out, candidates)); err != nil {
+	if err := storekit.Emit(ctx, tx, auditID, "signal.resolved", "signal", signalID.UUID, resolvedPayload(out, candidates)); err != nil {
 		return crmcontracts.Signal{}, fmt.Errorf("emit signal.resolved: %w", err)
 	}
 	return out, nil
@@ -191,7 +191,7 @@ func (s *Store) resolveTx(ctx context.Context, tx pgx.Tx, actor principal.Princi
 // that org under the consent-gated person link; several surface it as
 // low_confidence for review — resolved_org_id stays NULL unless exactly one
 // org matched, and no branch ever creates a person.
-func stampResolution(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID, email string, candidates []candidate) (map[string]any, error) {
+func stampResolution(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID, email string, candidates []candidate) (map[string]any, error) {
 	switch len(candidates) {
 	case 0:
 		return dropUnattributable(ctx, tx, actor, signalID)
@@ -205,7 +205,7 @@ func stampResolution(ctx context.Context, tx pgx.Tx, actor principal.Principal, 
 // dropUnattributable is the drop-the-orphan guard (B-E08.1): an
 // unattributable signal is dropped with the "why" on record, and NO person
 // link. Returns the audit after-image.
-func dropUnattributable(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID) (map[string]any, error) {
+func dropUnattributable(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID) (map[string]any, error) {
 	if err := appendMatchBasis(ctx, tx, actor, signalID, "none", nil, nil,
 		`{"candidates": [], "reason": "no organization matched the raw_ref"}`); err != nil {
 		return nil, err
@@ -222,7 +222,7 @@ func dropUnattributable(ctx context.Context, tx pgx.Tx, actor principal.Principa
 // link (only an EXISTING person, only where the org match holds, only under
 // a recorded grant — never a person creation), the inspectable match basis,
 // and the resolved signal row. Returns the audit after-image.
-func resolveToOrg(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID, email string, candidates []candidate) (map[string]any, error) {
+func resolveToOrg(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID, email string, candidates []candidate) (map[string]any, error) {
 	chosen := candidates[0]
 	personID, err := consentedPerson(ctx, tx, email, chosen.OrgID)
 	if err != nil {
@@ -254,7 +254,7 @@ func resolveToOrg(ctx context.Context, tx pgx.Tx, actor principal.Principal, sig
 // flagAmbiguous surfaces ambiguity rather than asserting it: several
 // plausible orgs flag the signal for review, resolved_org_id stays NULL,
 // and no person is linked. Returns the audit after-image.
-func flagAmbiguous(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID, candidates []candidate) (map[string]any, error) {
+func flagAmbiguous(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID, candidates []candidate) (map[string]any, error) {
 	top := candidates[0]
 	detail, err := candidateDetail(candidates, nil)
 	if err != nil {
@@ -274,7 +274,7 @@ func flagAmbiguous(ctx context.Context, tx pgx.Tx, actor principal.Principal, si
 // matchCandidates gathers the distinct plausible organizations, best
 // basis per org, ordered by confidence then id (deterministic).
 func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candidate, error) {
-	byOrg := map[ids.UUID]candidate{}
+	byOrg := map[ids.OrganizationID]candidate{}
 	consider := func(c candidate) {
 		if have, ok := byOrg[c.OrgID]; !ok || c.Confidence > have.Confidence {
 			byOrg[c.OrgID] = c
@@ -287,7 +287,7 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 		if err != nil {
 			return nil, fmt.Errorf("domain match: %w", err)
 		}
-		if err := eachID(rows, func(orgID ids.UUID) {
+		if err := eachID(rows, func(orgID ids.OrganizationID) {
 			consider(candidate{OrgID: orgID, MatchedOn: "domain", Confidence: confidenceDomain,
 				Detail: "domain " + a.Domain + " is registered to the organization"})
 		}); err != nil {
@@ -307,7 +307,7 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 		if err != nil {
 			return nil, fmt.Errorf("prior-interaction match: %w", err)
 		}
-		if err := eachID(rows, func(orgID ids.UUID) {
+		if err := eachID(rows, func(orgID ids.OrganizationID) {
 			consider(candidate{OrgID: orgID, MatchedOn: "prior_interaction", Confidence: confidencePriorInteraction,
 				Detail: "the sender is a known contact currently at the organization"})
 		}); err != nil {
@@ -320,7 +320,7 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 		if err != nil {
 			return nil, fmt.Errorf("name match: %w", err)
 		}
-		if err := eachID(rows, func(orgID ids.UUID) {
+		if err := eachID(rows, func(orgID ids.OrganizationID) {
 			consider(candidate{OrgID: orgID, MatchedOn: "name", Confidence: confidenceName,
 				Detail: "display name matches the mention exactly"})
 		}); err != nil {
@@ -344,7 +344,7 @@ func matchCandidates(ctx context.Context, tx pgx.Tx, a rawAttribution) ([]candid
 func visibleCandidates(ctx context.Context, tx pgx.Tx, in []candidate) ([]candidate, error) {
 	out := in[:0]
 	for _, c := range in {
-		switch err := auth.EnsureLinkTarget(ctx, tx, "organization", c.OrgID); {
+		switch err := auth.EnsureLinkTarget(ctx, tx, "organization", c.OrgID.UUID); {
 		case err == nil:
 			out = append(out, c)
 		case errors.Is(err, apperrors.ErrNotFound):
@@ -367,10 +367,10 @@ func sortCandidates(cs []candidate) {
 	})
 }
 
-func eachID(rows pgx.Rows, fn func(ids.UUID)) error {
+func eachID(rows pgx.Rows, fn func(ids.OrganizationID)) error {
 	defer rows.Close()
 	for rows.Next() {
-		var id ids.UUID
+		var id ids.OrganizationID
 		if err := rows.Scan(&id); err != nil {
 			return err
 		}
@@ -384,11 +384,11 @@ func eachID(rows pgx.Rows, fn func(ids.UUID)) error {
 // the matched org, AND that person must hold a recorded consent grant
 // (person_consent.state='granted'). Anything less stays company-level —
 // and no person is ever created here (P12).
-func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.UUID) (*ids.UUID, error) {
+func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.OrganizationID) (*ids.PersonID, error) {
 	if email == "" {
 		return nil, nil
 	}
-	var personID ids.UUID
+	var personID ids.PersonID
 	err := tx.QueryRow(ctx, `
 		SELECT pe.person_id
 		FROM person_email pe
@@ -408,7 +408,7 @@ func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.UUI
 	}
 	// resolved_person_id is a read of that person: only link one the caller
 	// can see under row-scope, else the signal stays company-level.
-	switch err := auth.EnsureLinkTarget(ctx, tx, "person", personID); {
+	switch err := auth.EnsureLinkTarget(ctx, tx, "person", personID.UUID); {
 	case err == nil:
 		return &personID, nil
 	case errors.Is(err, apperrors.ErrNotFound):
@@ -419,8 +419,8 @@ func consentedPerson(ctx context.Context, tx pgx.Tx, email string, orgID ids.UUI
 }
 
 // appendMatchBasis writes the append-only inspectable match record.
-func appendMatchBasis(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.UUID,
-	matchedOn string, orgID *ids.UUID, confidence *float64, detail string) error {
+func appendMatchBasis(ctx context.Context, tx pgx.Tx, actor principal.Principal, signalID ids.SignalID,
+	matchedOn string, orgID *ids.OrganizationID, confidence *float64, detail string) error {
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO signal_resolution (id, workspace_id, signal_id, matched_on, matched_org_id, match_confidence, match_detail, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,

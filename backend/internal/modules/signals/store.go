@@ -27,7 +27,7 @@ type RelationshipStrength struct {
 // computation (B-E13.16). The people module implements it; the
 // composition layer injects it — signals never imports a sibling.
 type StrengthSource interface {
-	PersonStrength(ctx context.Context, personID ids.UUID, now time.Time) (RelationshipStrength, error)
+	PersonStrength(ctx context.Context, personID ids.PersonID, now time.Time) (RelationshipStrength, error)
 }
 
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
