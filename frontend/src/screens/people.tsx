@@ -8,6 +8,7 @@ import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
 import { problemMessage, provenanceOf, QueryGate } from "./common";
 import { CreateAction } from "./create";
+import { LogActivity } from "./logactivity";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -220,6 +221,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 </div>
               </section>
             )}
+            <LogActivity entityType="person" entityId={person.id} />
           </RecordView>
         )}
       </QueryGate>

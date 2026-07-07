@@ -169,6 +169,16 @@ export const en = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Warmth",
 
+  "enrich.title": "Read from the website",
+  "enrich.sub":
+    "evidence-or-omit — fills only empty fields, and only after your approval",
+  "enrich.cta": "Read now",
+  "enrich.reading": "Reading…",
+  "enrich.staged":
+    "Staged — nothing written yet. Accept it in your inbox; only empty fields fill.",
+  "enrich.toInbox": "Open inbox",
+  "enrich.from": "read from {url}",
+
   "create.cancel": "Cancel",
   "create.save": "Create",
   "create.saving": "Creating…",
@@ -190,12 +200,31 @@ export const en = {
   "create.organization": "Company",
   "create.expectedClose": "Expected close",
 
+  "log.title": "Log activity",
+  "log.sub": "a note or task, straight onto this timeline",
+  "log.kind": "Type",
+  "log.kindNote": "Note",
+  "log.kindTask": "Task",
+  "log.subject": "Subject",
+  "log.body": "Details",
+  "log.dueAt": "Due date",
+  "log.save": "Log",
+  "log.saving": "Logging…",
+
   "tasks.overdue": "Overdue",
   "tasks.today": "Today",
   "tasks.upcoming": "Upcoming",
   "tasks.undated": "No due date",
   "tasks.complete": "Done",
   "tasks.snooze": "Snooze 1d",
+  "tasks.new": "New task",
+  "tasks.subject": "Subject",
+  "tasks.dueDate": "Due date",
+  "tasks.remindAt": "Remind me at",
+  "tasks.remind": "Remind me",
+  "tasks.reminder": "Reminder",
+  "tasks.setReminder": "Set reminder",
+  "tasks.clearReminder": "Clear reminder",
 
   "reports.sub": "deals by stage — unweighted next to weighted",
   "reports.count": "Deals",

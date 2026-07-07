@@ -80,6 +80,29 @@ api, worker, and mcp take `--log-level` (debug|info|warn|error) and
 default. The full flag/env table:
 [docs/reference/configuration.md](docs/reference/configuration.md).
 
+## Shipping a change (branch → local gates → PR → green → merge)
+
+Every commit lands through this loop — code, docs, and config alike.
+Direct pushes to `main` are blocked by branch protection; there is no
+other path to merge.
+
+1. **Branch off `main`**: `git switch -c <type>/<slug> origin/main`.
+2. **Sign off every commit** (`git commit -s`) — the DCO gate rejects a
+   PR containing any commit without a `Signed-off-by` trailer.
+3. **Local gates BEFORE pushing**: `make check` (the merge gate — build,
+   vet, lint, arch-lint, unit tests, contract drift); add
+   `make frontend-check` when `frontend/` changed. The pre-push hook
+   (installed once via `make hooks`) runs `craft static` diff-scoped on
+   top — a BLOCKER finding stops the push; fix it, never bypass the hook.
+4. **Push the branch and open a PR** (`gh pr create`).
+5. **Watch the GitHub gates and fix red**: CI, DCO, CodeRabbit, and
+   SonarCloud must all pass (`gh pr checks <n> --watch`). Fix failures
+   locally, re-run the local gates, push again; address CodeRabbit
+   findings rather than dismissing them.
+6. **Merge only when everything is green** (squash is the house style:
+   `gh pr merge <n> --squash`), then delete the branch. Never merge over
+   a red or still-running check.
+
 ## Layout (spec ADR-0054/A69 as amended; see decisions/0011)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is

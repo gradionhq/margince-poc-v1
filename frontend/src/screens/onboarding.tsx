@@ -43,7 +43,7 @@ import {
 } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage } from "./common";
+import { coldFieldLabel, problemMessage } from "./common";
 import { confidenceLevel } from "./inbox";
 import "./onboarding.css";
 
@@ -112,27 +112,6 @@ function deriveName(host: string): string {
     .map((w) => w[0]?.toUpperCase() + w.slice(1))
     .join(" ");
   return titled || host;
-}
-
-// The cold-start field vocabulary (compose/enrichextract.go) rendered as
-// human labels; an unmapped field falls back to its key with the underscores
-// spaced out — readable, never raw snake_case.
-const COLD_FIELD_LABELS: Record<string, MessageKey> = {
-  icp: "ob.field.icp",
-  buying_center: "ob.field.buying_center",
-  value_proposition: "ob.field.value_proposition",
-  usp: "ob.field.usp",
-  buying_intents: "ob.field.buying_intents",
-  legal_name: "ob.field.legal_name",
-  registered_address: "ob.field.registered_address",
-  register_vat: "ob.field.register_vat",
-  industry: "ob.field.industry",
-  history: "ob.field.history",
-};
-
-function coldFieldLabel(field: string, t: (key: MessageKey) => string): string {
-  const key = COLD_FIELD_LABELS[field];
-  return key ? t(key) : field.replace(/_/g, " ");
 }
 
 function stepState(index: number, current: number): "done" | "active" | "" {

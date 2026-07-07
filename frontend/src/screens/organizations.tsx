@@ -1,13 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
-import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  DataTable,
+  SectionHeader,
+} from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
-import { ProvenanceTag } from "../design-system/trust";
+import {
+  AutonomyDot,
+  ConfidenceMeter,
+  EvidenceChip,
+  ProvenanceTag,
+} from "../design-system/trust";
 import { useT } from "../i18n";
-import { problemMessage, provenanceOf, QueryGate } from "./common";
+import {
+  coldFieldLabel,
+  problemMessage,
+  provenanceOf,
+  QueryGate,
+} from "./common";
 import { CreateAction } from "./create";
+import { confidenceLevel } from "./inbox";
+import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -112,6 +129,97 @@ export function CompaniesScreen() {
   );
 }
 
+// The EP05 enrich verb on the company 360: one click reads the org's own
+// website through the cold-start fetch + no-guess gate and STAGES a 🟡
+// proposal — every rendered field carries evidence + confidence or was
+// omitted, and nothing writes until the human accepts it in the inbox
+// (accept fills only EMPTY fields).
+function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const enrich = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/organizations/{id}/enrich", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="list-head">
+        <SectionHeader title={t("enrich.title")} sub={t("enrich.sub")} />
+        <Button
+          small
+          disabled={enrich.isPending}
+          onClick={() => enrich.mutate()}
+        >
+          {enrich.isPending ? t("enrich.reading") : t("enrich.cta")}
+        </Button>
+      </div>
+      {enrich.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {enrich.error instanceof Error ? enrich.error.message : null}
+        </p>
+      )}
+      {enrich.data && (
+        <div>
+          <p
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              margin: "6px 0 12px",
+            }}
+          >
+            <AutonomyDot tier="confirm" />
+            <span className="t-small">{t("enrich.staged")}</span>
+            <Button small onClick={() => navigate({ screen: "inbox" })}>
+              {t("enrich.toInbox")}
+            </Button>
+          </p>
+          <p className="t-caption" style={{ marginBottom: 10 }}>
+            {t("enrich.from", { url: enrich.data.source_url })}
+          </p>
+          {enrich.data.fields.map((field) => {
+            const level = confidenceLevel(field.confidence);
+            return (
+              <div key={field.field} style={{ marginBottom: 12 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 3,
+                  }}
+                >
+                  <span className="t-label">
+                    {coldFieldLabel(field.field, t)}
+                  </span>
+                  {level && <ConfidenceMeter level={level} />}
+                </div>
+                <div>{field.value}</div>
+                {field.evidence_snippet && (
+                  <EvidenceChip
+                    evidence={{
+                      snippet: field.evidence_snippet,
+                      source: field.source_url ?? "",
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const orgQuery = useQuery({
@@ -189,6 +297,8 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                 )}
               </dl>
             </section>
+            <EnrichCard orgId={org.id} />
+            <LogActivity entityType="organization" entityId={org.id} />
           </RecordView>
         )}
       </QueryGate>

@@ -173,6 +173,16 @@ export const de = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Nähe",
 
+  "enrich.title": "Von der Website lesen",
+  "enrich.sub":
+    "belegt oder weggelassen — füllt nur leere Felder, und nur nach deiner Freigabe",
+  "enrich.cta": "Jetzt lesen",
+  "enrich.reading": "Liest…",
+  "enrich.staged":
+    "Vorgemerkt — noch nichts geschrieben. Übernimm es im Eingang; nur leere Felder werden gefüllt.",
+  "enrich.toInbox": "Eingang öffnen",
+  "enrich.from": "gelesen von {url}",
+
   "create.cancel": "Abbrechen",
   "create.save": "Anlegen",
   "create.saving": "Wird angelegt…",
@@ -194,12 +204,31 @@ export const de = {
   "create.organization": "Firma",
   "create.expectedClose": "Erwarteter Abschluss",
 
+  "log.title": "Aktivität erfassen",
+  "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",
+  "log.kind": "Art",
+  "log.kindNote": "Notiz",
+  "log.kindTask": "Aufgabe",
+  "log.subject": "Betreff",
+  "log.body": "Details",
+  "log.dueAt": "Fällig am",
+  "log.save": "Erfassen",
+  "log.saving": "Wird erfasst…",
+
   "tasks.overdue": "Überfällig",
   "tasks.today": "Heute",
   "tasks.upcoming": "Demnächst",
   "tasks.undated": "Ohne Termin",
   "tasks.complete": "Erledigt",
   "tasks.snooze": "1 Tag später",
+  "tasks.new": "Neue Aufgabe",
+  "tasks.subject": "Betreff",
+  "tasks.dueDate": "Fällig am",
+  "tasks.remindAt": "Erinnere mich am",
+  "tasks.remind": "Erinnere mich",
+  "tasks.reminder": "Erinnerung",
+  "tasks.setReminder": "Erinnerung setzen",
+  "tasks.clearReminder": "Erinnerung entfernen",
 
   "reports.sub": "Deals je Phase — ungewichtet neben gewichtet",
   "reports.count": "Deals",
