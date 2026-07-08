@@ -135,7 +135,7 @@ describe("RecordView + timeline", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Anna Weber" }),
     ).toBeTruthy();
-    expect(screen.getByText("06/12/2026")).toBeTruthy();
+    expect(screen.getByText("12/06/2026")).toBeTruthy();
     expect(screen.getByText("agent: capture")).toBeTruthy();
     expect(screen.getByText("typed by you")).toBeTruthy();
   });

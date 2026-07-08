@@ -40,7 +40,7 @@ describe("ExplainNumber", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Explain this number" }),
     );
-    expect(screen.getByText("$900.00")).toBeTruthy();
+    expect(screen.getByText("US$900.00")).toBeTruthy();
     expect(screen.getByText(/rate 2 on/)).toBeTruthy();
     // nowhere does €1,800 appear — the would-be multiply result
     expect(screen.queryByText(/1,800/)).toBeNull();

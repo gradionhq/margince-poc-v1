@@ -7,8 +7,8 @@ import { App } from "./App";
 import { LocaleProvider } from "./i18n";
 
 // B-EP09.17: the locale switch flips the whole UI between DE and EN. With the
-// browser asking for a language we don't ship, the app mounts in the A24
-// fallback (de); one click renders the English chrome. The browser-level e2e
+// browser asking for a language we don't ship, the app mounts in the A100
+// fallback (en); one click renders the German chrome. The browser-level e2e
 // twin of this test rides the 09.22 harness.
 //
 // The shell only renders behind a session: App probes GET /v1/me and shows the
@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
   globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
   // Pin the browser language to one we don't ship so mount resolves to the
-  // A24 fallback deterministically, independent of the CI machine's locale.
+  // A100 fallback deterministically, independent of the CI machine's locale.
   Object.defineProperty(globalThis.navigator, "languages", {
     value: ["fr-FR"],
     configurable: true,
@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 describe("locale switch", () => {
-  it("mounts in German (A24) and flips the chrome to English on switch", async () => {
+  it("mounts in English (A100) and flips the chrome to German on switch", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -81,14 +81,14 @@ describe("locale switch", () => {
         </LocaleProvider>
       </QueryClientProvider>,
     );
-    // German default: once the session resolves, the rail carries German labels
-    expect(await screen.findByRole("link", { name: "Kontakte" })).toBeTruthy();
+    // English default: once the session resolves, the rail carries English labels
+    expect(await screen.findByRole("link", { name: "Contacts" })).toBeTruthy();
     await userEvent.click(
-      screen.getByRole("button", { name: "Auf Englisch umschalten" }),
+      screen.getByRole("button", { name: "Switch to German" }),
     );
     await waitFor(() =>
-      expect(screen.getByRole("link", { name: "Contacts" })).toBeTruthy(),
+      expect(screen.getByRole("link", { name: "Kontakte" })).toBeTruthy(),
     );
-    expect(screen.queryByRole("link", { name: "Kontakte" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Contacts" })).toBeNull();
   });
 });
