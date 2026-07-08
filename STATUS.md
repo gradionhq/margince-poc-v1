@@ -5,19 +5,29 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (2026-07-08 PM — spec-drift reconciliation implemented; PR #23 awaiting CI)
+## ▶ RESTART HERE (2026-07-08 PM — spec-drift reconciliation MERGED; feedback processed)
 
-The worklist's §1+§2 (contract re-sync + all built-surface fixes) are
-implemented on `feat/spec-drift-reconciliation` → **PR #23**, one big PR
-by design. Local gates all green (`make check`, full integration lane,
-frontend). Check items off in
-[docs/worklists/spec-drift-2026-07-08.md](docs/worklists/spec-drift-2026-07-08.md)
-as CI confirms. Still open there: capture-connection vault reshape (own
-arc), audit `batch_id` (needs `bulk_operation`), automations-screen
-rework (frontend lane, L), and the §3 conflicts awaiting spec rulings
-(feedback/32 — not yet walked to the spec session). PR #21 merged;
-**PR #20 should be closed as superseded** (fully contained in #21 — the
-agent lacked permission to close it).
+**PR #23 merged** (squash `487d625`, all gates incl. Sonar green): the
+contract re-sync + every built-surface fix from the gap-audit delta.
+**Feedback 25–32 processed into the foundation** (spec commit `b59644e`,
+pushed to its main): eight founder rulings ratified (warm-room gate,
+suppression-as-withdrawal, fresh-DOI re-grant, full create audit images
+→ NEW V1 ticket B-EP06.29, /views, per-action brief verbs, workflow_run
+naming, resolved_person_id by-design), the built-surface reverse drift
+absorbed spec-side, three tickets filed (B-EP06.29 V1; B-E11.37,
+B-EP07.22 Backlog); the local `feedback/` notes are deleted. Final state
++ remaining open items:
+[docs/worklists/spec-drift-2026-07-08.md](docs/worklists/spec-drift-2026-07-08.md).
+
+**Waiting on a human:** (1) close PR #20 (superseded, empty diff);
+(2) post the issue #16 reply (`scratchpad/issue16-reply-FINAL.md`);
+(3) founder call on a DECISIONS.md A66 erratum (the locked file still
+says the blobstore seam shipped; the four unlocked spec places are
+already corrected).
+
+Next build arcs (worklist tail + backlog): capture-connection vault
+reshape (EP05 §B), `bulk_operation` + `audit_log.batch_id`,
+automations-screen rework (B-EP09.15, frontend), B-EP06.29 create images.
 
 ## ▶ RESTART HERE (2026-07-08 — spec-drift assessment done; PR #21 awaiting Sonar + merge)
 
