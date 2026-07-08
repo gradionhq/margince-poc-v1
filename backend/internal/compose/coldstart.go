@@ -57,15 +57,17 @@ func (e *coldStartEngine) Propose(ctx context.Context, rawURL string) (crmcontra
 			Field:           crmcontracts.ColdStartFieldField(f.Field),
 			Value:           f.Value,
 			EvidenceSnippet: f.EvidenceSnippet,
-			SourceUrl:       f.SourceURL,
+			SourceKind:      crmcontracts.ColdStartFieldSourceKindUrl,
+			SourceUrl:       &f.SourceURL,
 			Confidence:      f.Confidence,
 		}
 	}
 
 	proposal := crmcontracts.ColdStartProposal{
-		SourceUrl: rawURL,
-		Status:    "staged",
-		Fields:    fields,
+		SourceKind: crmcontracts.ColdStartProposalSourceKindUrl,
+		SourceUrl:  &rawURL,
+		Status:     "staged",
+		Fields:     fields,
 	}
 	proposedChange, err := json.Marshal(proposal)
 	if err != nil {
@@ -105,18 +107,24 @@ func (h coldstartHandlers) ColdStartReadback(w http.ResponseWriter, r *http.Requ
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	parsed, err := url.Parse(req.Url)
+	if req.Url == nil {
+		// The contract's text/self_description inputs are not wired to an
+		// extraction path yet — an explicit 501, never a silent guess.
+		httperr.NotImplemented(w, r, "coldStartReadback (text/self_description input)")
+		return
+	}
+	parsed, err := url.Parse(*req.Url)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		httperr.Write(w, r, httperr.Validation("url", "invalid", "url must be an absolute http(s) URL"))
 		return
 	}
-	proposal, err := h.engine.Propose(r.Context(), req.Url)
+	proposal, err := h.engine.Propose(r.Context(), *req.Url)
 	if err != nil {
 		var unreadable *unreadableError
 		if errors.As(err, &unreadable) {
 			// The client sees a generic 422; the real cause (SSRF refusal,
 			// timeout, thin page, empty gate) stays server-side.
-			slog.ErrorContext(r.Context(), "coldstart read-back unreadable", "url", req.Url, "err", unreadable.cause)
+			slog.ErrorContext(r.Context(), "coldstart read-back unreadable", "url", *req.Url, "err", unreadable.cause)
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusUnprocessableEntity,
 				Code:   "coldstart_unreadable",

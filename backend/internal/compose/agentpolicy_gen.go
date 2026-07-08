@@ -60,6 +60,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/auth/login":                              {Op: "login", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/logout":                             {Op: "logout", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/automations":                             {Op: "createAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/automations/{id}/preview":                {Op: "previewAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/bookings":                                {Op: "bookMeeting", Access: "tool", Tool: "book_meeting", RecordType: "activity", Tier: "yellow"},
 	"POST /v1/brief":                                   {Op: "generateMorningBrief", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/brief/items/{itemId}/act":                {Op: "markBriefItemActed", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

@@ -71,7 +71,8 @@ func (e *scrapeEngine) Propose(ctx context.Context, orgID ids.UUID, override str
 			Field:           crmcontracts.ColdStartFieldField(f.Field),
 			Value:           f.Value,
 			EvidenceSnippet: f.EvidenceSnippet,
-			SourceUrl:       f.SourceURL,
+			SourceKind:      crmcontracts.ColdStartFieldSourceKindUrl,
+			SourceUrl:       &f.SourceURL,
 			Confidence:      f.Confidence,
 		}
 	}

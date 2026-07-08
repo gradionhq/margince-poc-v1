@@ -170,6 +170,20 @@ func (h Handlers) DeleteAutomation(w http.ResponseWriter, r *http.Request, id cr
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PreviewAutomation implements (POST /automations/{id}/preview). The dry-run
+// engine (A72/ADR-0035 Am.1) is not built yet — an explicit 501, never a
+// silent empty preview.
+func (h Handlers) PreviewAutomation(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewAutomation")
+}
+
+// ListAutomationRuns implements (GET /automations/{id}/runs). The run-history
+// read (automation_run, data-model §12.5) is not built yet — an explicit 501,
+// never a fabricated empty page.
+func (h Handlers) ListAutomationRuns(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id, _ crmcontracts.ListAutomationRunsParams) {
+	httperr.NotImplemented(w, r, "ListAutomationRuns")
+}
+
 func writeAutomationErr(w http.ResponseWriter, r *http.Request, err error) {
 	var param *ParamError
 	if errors.As(err, &param) {

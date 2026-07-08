@@ -104,6 +104,14 @@ func (stubs) UpdateAutomation(w nethttp.ResponseWriter, r *nethttp.Request, id c
 	httperr.NotImplemented(w, r, "UpdateAutomation")
 }
 
+func (stubs) PreviewAutomation(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewAutomation")
+}
+
+func (stubs) ListAutomationRuns(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListAutomationRunsParams) {
+	httperr.NotImplemented(w, r, "ListAutomationRuns")
+}
+
 func (stubs) GetAvailability(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetAvailabilityParams) {
 	httperr.NotImplemented(w, r, "GetAvailability")
 }
