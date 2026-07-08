@@ -15,6 +15,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -33,16 +35,16 @@ const acmePage = fixturePage(`Acme GmbH — Onboard your team in minutes, not we
 	`Registered in Berlin, HRB 12345.`)
 
 func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	brain := ai.NewFakeClient().Script(`{"fields":[
 		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9},
 		{"field":"icp","value":"RevOps at SaaS scale-ups","evidence_snippet":"Built for RevOps leaders at scaling SaaS companies","confidence":0.7},
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"this text is NOT on the page","confidence":0.9},
 		{"field":"industry","value":"Software","evidence_snippet":"Acme GmbH","confidence":1.7},
 		{"field":"made_up_field","value":"x","evidence_snippet":"Acme GmbH","confidence":0.5}]}`)
-	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.pool)}
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.Pool)}
 
-	ctx := e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 	proposal, err := engine.Propose(ctx, "https://acme.example")
 	if err != nil {
 		t.Fatal(err)
@@ -59,9 +61,9 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	// the approval.requested and the coldstart lifecycle event.
 	var kind, status string
 	var eventCount int
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
-			`SELECT kind, status FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId)).Scan(&kind, &status); err != nil {
+			`SELECT kind, status FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId))).Scan(&kind, &status); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
@@ -77,12 +79,12 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	// Accepting needs organization.update (the effect the proposal
 	// writes on acceptance) — the admin has it; the decision echoes
 	// coldstart.accepted.
-	svc := approvals.NewService(e.pool)
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+	svc := approvals.NewService(e.Pool)
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); err != nil {
 		t.Fatalf("accepting the proposal: %v", err)
 	}
 	var accepted int
-	err = database.WithWorkspaceTx(e.admin(), e.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'coldstart.accepted'`).Scan(&accepted)
 	})
@@ -92,12 +94,12 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 }
 
 func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	brain := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`,
 		`not even JSON`)
-	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.pool)}
-	ctx := e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms)
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.Pool)}
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	var unreadable *unreadableError
 	if _, err := engine.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
@@ -107,7 +109,7 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 		t.Fatalf("unparseable model output → %v, want unreadable", err)
 	}
 	// A page below the readable floor never reaches the model.
-	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.pool)}
+	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.Pool)}
 	if _, err := tiny.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
 		t.Fatalf("tiny page → %v, want unreadable", err)
 	}
@@ -118,7 +120,7 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 // columns filled, evidence rows landed, human-set values untouched,
 // exactly once even if the decision path re-fires.
 func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
-	e := setupAuthz(t)
+	e := integration.Setup(t)
 	extraction := `{"fields":[
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"Acme GmbH","confidence":0.95},
 		{"field":"industry","value":"SaaS tooling","evidence_snippet":"scaling SaaS companies","confidence":0.6},
@@ -127,28 +129,14 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 
 	// The org already exists with a HUMAN-set industry: acceptance may
 	// fill what is empty, never overwrite a human's value.
-	admin := e.admin()
-	orgID := ids.NewV7()
-	err := database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, display_name, industry, source, captured_by)
-			VALUES ($1, $2, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID, e.ws); err != nil {
-			return err
-		}
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, 'acme.example', true, 'manual', 'human:owner')`, e.ws, orgID)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	admin := e.Admin()
+	orgID := seedAcmeOrgWithHumanIndustry(t, e, admin)
 
-	svc := approvals.NewService(e.pool)
-	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.pool)))
+	svc := approvals.NewService(e.Pool)
+	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.Pool)))
 	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: svc}
 
-	proposal, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms), "https://www.acme.example/about")
+	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), "https://www.acme.example/about")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,13 +144,76 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 		t.Fatalf("gate kept %d fields, want 3", len(proposal.Fields))
 	}
 
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); err != nil {
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 
+	assertAcceptFilledOnlyEmptyColumns(t, e, admin, orgID)
+
+	// The approval is consumed; deciding again is refused and applies
+	// nothing twice.
+	var consumed bool
+	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId))).Scan(&consumed)
+	})
+	if err != nil || !consumed {
+		t.Fatalf("approval not redeemed by the effect (consumed=%v err=%v)", consumed, err)
+	}
+	var already *approvals.AlreadyDecidedError
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal.ProposalId)), true, nil); !errors.As(err, &already) {
+		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
+	}
+
+	// A REJECTED proposal writes nothing: stage a second one and reject.
+	proposal2, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), "https://other.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](ids.UUID(proposal2.ProposalId)), false, nil); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	var orgs int
+	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM organization`).Scan(&orgs)
+	})
+	if err != nil || orgs != 1 {
+		t.Fatalf("reject still wrote an organization (%d rows, err=%v)", orgs, err)
+	}
+}
+
+// seedAcmeOrgWithHumanIndustry plants the pre-existing acme.example
+// organization with a HUMAN-set industry, so acceptance can prove it
+// fills only empty columns.
+func seedAcmeOrgWithHumanIndustry(t *testing.T, e *integration.Env, admin context.Context) ids.UUID {
+	t.Helper()
+	orgID := ids.NewV7()
+	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(context.Background(), `
+			INSERT INTO organization (id, workspace_id, display_name, industry, source, captured_by)
+			VALUES ($1, $2, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID, e.WS); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
+			VALUES ($1, $2, 'acme.example', true, 'manual', 'human:owner')`, e.WS, orgID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return orgID
+}
+
+// assertAcceptFilledOnlyEmptyColumns proves the accept executor's write
+// discipline: org resolved (not duplicated), empty legal_name filled,
+// the human-set industry untouched, and the evidence rows landed as the
+// coldstart agent.
+func assertAcceptFilledOnlyEmptyColumns(t *testing.T, e *integration.Env, admin context.Context, orgID ids.UUID) {
+	t.Helper()
 	var legalName, industry, capturedBy string
 	var profileRows, orgs int
-	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
+	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
 			`SELECT coalesce(legal_name, ''), industry FROM organization WHERE id = $1`, orgID).Scan(&legalName, &industry); err != nil {
 			return err
@@ -189,35 +240,5 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	}
 	if profileRows != 3 || capturedBy != "agent:coldstart" {
 		t.Fatalf("evidence rows = %d captured_by=%q, want 3 rows as agent:coldstart", profileRows, capturedBy)
-	}
-
-	// The approval is consumed; deciding again is refused and applies
-	// nothing twice.
-	var consumed bool
-	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT consumed_at IS NOT NULL FROM approval WHERE id = $1`, ids.UUID(proposal.ProposalId)).Scan(&consumed)
-	})
-	if err != nil || !consumed {
-		t.Fatalf("approval not redeemed by the effect (consumed=%v err=%v)", consumed, err)
-	}
-	var already *approvals.AlreadyDecidedError
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal.ProposalId), true, nil); !errors.As(err, &already) {
-		t.Fatalf("re-decide → %v, want AlreadyDecided", err)
-	}
-
-	// A REJECTED proposal writes nothing: stage a second one and reject.
-	proposal2, err := engine.Propose(e.as(e.rep1, []ids.UUID{e.team1}, schedulerPerms), "https://other.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.Decide(e.as(e.rep2, nil, adminPerms), ids.UUID(proposal2.ProposalId), false, nil); err != nil {
-		t.Fatalf("reject: %v", err)
-	}
-	err = database.WithWorkspaceTx(admin, e.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `SELECT count(*) FROM organization`).Scan(&orgs)
-	})
-	if err != nil || orgs != 1 {
-		t.Fatalf("reject still wrote an organization (%d rows, err=%v)", orgs, err)
 	}
 }

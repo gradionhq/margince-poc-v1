@@ -76,6 +76,11 @@ func (r *Registry) Connectors() []connector.Descriptor {
 // The scope-intersection guard runs here: a connector demanding scopes
 // the granting human does not hold is refused at grant time, not
 // discovered at 3am mid-sync.
+//
+// note: the returned id (and the connectionID threaded through SyncOnce /
+// markError) names a connector_connection row, which the kernel does not
+// model as a first-class entity — no kind exists for it, so it stays
+// ids.UUID rather than inventing one.
 func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth) (ids.UUID, error) {
 	c, err := r.connector(name)
 	if err != nil {
@@ -128,7 +133,7 @@ func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth
 		// wiring error, surfaced as a 403 rather than an opaque 500.
 		return fmt.Errorf("capture: only a human runs a one-shot connector pull: %w", apperrors.ErrPermissionDenied)
 	}
-	runCtx, err := r.connectorContext(ctx, c.Descriptor().Name, actor.UserID)
+	runCtx, err := r.connectorContext(ctx, c.Descriptor().Name, ids.From[ids.UserKind](actor.UserID))
 	if err != nil {
 		return err
 	}
@@ -147,7 +152,7 @@ func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth
 func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	var (
 		name      string
-		grantedBy ids.UUID
+		grantedBy ids.UserID
 		authBytes []byte
 		cursor    []byte
 	)
@@ -191,24 +196,26 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 // the granting human's LIVE permissions and teams (connector ≤ human as
 // a runtime property), full seat (capture is a write path by nature —
 // the human's ability to grant it is what the scope check consumed).
-func (r *Registry) connectorContext(ctx context.Context, name string, grantedBy ids.UUID) (context.Context, error) {
+func (r *Registry) connectorContext(ctx context.Context, name string, grantedBy ids.UserID) (context.Context, error) {
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return nil, errors.New("capture: sync outside workspace context")
 	}
-	rbac, err := r.authority.EffectiveRBAC(ctx, wsID, grantedBy)
+	// The authz resolver and the principal seam are untyped (ids.UUID);
+	// widen the typed granting-human id at each of those edges.
+	rbac, err := r.authority.EffectiveRBAC(ctx, wsID, grantedBy.UUID)
 	if err != nil {
 		return nil, fmt.Errorf("capture: granting human no longer resolves — the grant dies with them: %w", err)
 	}
-	seat, err := r.authority.SeatType(ctx, wsID, grantedBy)
+	seat, err := r.authority.SeatType(ctx, wsID, grantedBy.UUID)
 	if err != nil {
 		return nil, err
 	}
 	p := principal.Principal{
 		Type:        principal.PrincipalConnector,
 		ID:          connectorPrincipalID(name),
-		UserID:      grantedBy,
-		OnBehalfOf:  grantedBy,
+		UserID:      grantedBy.UUID,
+		OnBehalfOf:  grantedBy.UUID,
 		TeamIDs:     rbac.TeamIDs,
 		SeatType:    seat,
 		Permissions: rbac.Permissions,

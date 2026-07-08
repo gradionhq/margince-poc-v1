@@ -29,6 +29,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -55,7 +56,7 @@ type CorrectionStager interface {
 // a human needs to confirm (or edit) the replacement date, and the
 // confirm effect needs to apply it.
 type CloseDateCorrection struct {
-	DealID ids.UUID `json:"deal_id"`
+	DealID ids.DealID `json:"deal_id"`
 	// ExpectedCloseDate is the proposed date, date-only wire form.
 	ExpectedCloseDate string          `json:"expected_close_date"`
 	PreviousCloseDate *string         `json:"previous_close_date"`
@@ -121,7 +122,7 @@ func (c *CloseDateCorrector) Sweep(ctx context.Context) error {
 // closeDateCandidate is one open deal the SQL pre-filter surfaced; the
 // pure §11 assessment decides the truth in Go.
 type closeDateCandidate struct {
-	id             ids.UUID
+	id             ids.DealID
 	name           string
 	createdAt      time.Time
 	lastActivityAt *time.Time
@@ -129,7 +130,7 @@ type closeDateCandidate struct {
 	expectedClose  *time.Time
 	provisional    bool
 	forecastCat    *string
-	pipelineID     ids.UUID
+	pipelineID     ids.PipelineID
 	winProbability int
 	remainingOpen  int
 }
@@ -184,7 +185,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 		return fmt.Errorf("workspace timezone %q: %w", tzName, err)
 	}
 
-	velocities := map[ids.UUID]float64{}
+	velocities := map[ids.PipelineID]float64{}
 	for _, cand := range candidates {
 		velocity, known := velocities[cand.pipelineID]
 		if !known {
@@ -216,7 +217,7 @@ func (c *CloseDateCorrector) sweepWorkspace(ctx context.Context) error {
 // median duration of completed stage stints across won deals of the
 // pipeline. Below the CLOSE_DATE_MIN_HISTORY floor the observation is
 // noise, so zero is returned and the fold falls back to the default.
-func (c *CloseDateCorrector) stageVelocityDays(ctx context.Context, pipelineID ids.UUID) (float64, error) {
+func (c *CloseDateCorrector) stageVelocityDays(ctx context.Context, pipelineID ids.PipelineID) (float64, error) {
 	var wonDeals int
 	var medianSeconds *float64
 	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
@@ -358,25 +359,29 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 	err := database.WithWorkspaceTx(ctx, c.pool, func(tx pgx.Tx) error {
 		// The candidate scan and this write are separate transactions:
 		// a deal closed or archived in between must not be re-dated.
-		var status string
-		err := tx.QueryRow(ctx,
-			`SELECT status FROM deal WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
-			cand.id).Scan(&status)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "open") {
+		lock, err := storekit.LockRow(ctx, tx, "deal", cand.id.UUID, storekit.LiveOnly)
+		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		var status string
+		if err := tx.QueryRow(ctx, `SELECT status FROM deal WHERE id = $1`, cand.id).Scan(&status); err != nil {
+			return err
+		}
+		if DealStatus(status) != DealOpen {
+			return nil
+		}
 		patch := storekit.NewPatch()
 		build(patch)
-		if err := patch.Apply(ctx, tx, "deal", cand.id, nil); err != nil {
+		if err := patch.ApplyLocked(ctx, tx, lock); err != nil {
 			return fmt.Errorf("apply %s patch: %w", correction, err)
 		}
 		if err := tx.QueryRow(ctx, `SELECT version FROM deal WHERE id = $1`, cand.id).Scan(&version); err != nil {
 			return err
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "deal", cand.id, patch.Before(), patch.After())
+		auditID, err := storekit.Audit(ctx, tx, "update", "deal", cand.id.UUID, patch.Before(), patch.After())
 		if err != nil {
 			return fmt.Errorf("audit %s: %w", correction, err)
 		}
@@ -387,7 +392,7 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 		for k, v := range extra {
 			payload[k] = v
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", cand.id, payload); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "deal.updated", "deal", cand.id.UUID, payload); err != nil {
 			return fmt.Errorf("emit %s: %w", correction, err)
 		}
 		return nil
@@ -398,8 +403,8 @@ func (c *CloseDateCorrector) apply(ctx context.Context, cand closeDateCandidate,
 // ensureStaged stages the 🟡 confirm-the-real-date proposal unless one
 // is already pending — the sweep's proposal moves with "today", so an
 // identity check on the exact diff would stack duplicates nightly.
-func (c *CloseDateCorrector) ensureStaged(ctx context.Context, dealID ids.UUID, targetVersion int64, name string, proposal CloseDateCorrection) error {
-	pending, err := c.stager.HasPendingCorrection(ctx, dealID)
+func (c *CloseDateCorrector) ensureStaged(ctx context.Context, dealID ids.DealID, targetVersion int64, name string, proposal CloseDateCorrection) error {
+	pending, err := c.stager.HasPendingCorrection(ctx, dealID.UUID)
 	if err != nil {
 		return err
 	}
@@ -417,7 +422,7 @@ func (c *CloseDateCorrector) ensureStaged(ctx context.Context, dealID ids.UUID, 
 		}
 	}
 	summary := fmt.Sprintf("Confirm the real close date for %q (proposed %s)", name, proposal.ExpectedCloseDate)
-	return c.stager.StageCorrection(ctx, dealID, targetVersion, summary, proposal)
+	return c.stager.StageCorrection(ctx, dealID.UUID, targetVersion, summary, proposal)
 }
 
 func dateString(t *time.Time) *string {

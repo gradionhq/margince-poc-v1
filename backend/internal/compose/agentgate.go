@@ -168,7 +168,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	if token == "" {
 		return false
 	}
-	approvalID, pErr := ids.Parse(token)
+	approvalID, pErr := ids.ParseAs[ids.ApprovalKind](token)
 	if pErr != nil {
 		httperr.Write(w, r, fmt.Errorf("agent gate: malformed %s: %w", approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
 		return true

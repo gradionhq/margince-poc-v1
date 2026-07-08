@@ -2,7 +2,8 @@ import type { MessageKey } from "./en";
 
 // German catalog — the A24 default locale. `satisfies` forces exact key
 // parity with en at compile time; i18n.test.ts re-checks it at runtime so a
-// build without typechecking still fails loudly.
+// build without typechecking still fails loudly. Register: informal "du",
+// natural spoken-adjacent German, no translationese, no corporate filler.
 export const de = {
   "app.title": "Margince Design-Tokens",
   "app.subtitle":
@@ -62,9 +63,9 @@ export const de = {
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 
   "palette.aria": "Befehlspalette",
-  "palette.placeholder": "Springe zu, oder frag etwas…",
+  "palette.placeholder": "Wohin? Oder frag einfach etwas…",
   "palette.empty": "Keine Treffer.",
-  "palette.askAi": "KI fragen: \u201e{query}\u201c",
+  "palette.askAi": "KI fragen: „{query}“",
   "palette.typeScreen": "Ansicht",
   "palette.typeAction": "Aktion",
   "palette.typeRecord": "Datensatz",
@@ -73,13 +74,13 @@ export const de = {
   "action.booking": "Buchungsseite",
   "action.connected": "Verbundene Oberflächen",
 
-  "fab.open": "Zu diesem Datensatz fragen",
+  "fab.open": "Dazu fragen",
   "fab.close": "Schließen",
   "fab.panelAria": "Zu diesem Datensatz fragen",
   "fab.context": "Frage zu {context}",
   "fab.scope": "Dein Agent liest nur, was du sehen kannst.",
   "fab.inputAria": "Deine Frage",
-  "fab.placeholder": "Frag zu dem, was du gerade siehst…",
+  "fab.placeholder": "Frag zu dem, was du gerade offen hast…",
   "fab.send": "Fragen",
 
   "explain.open": "Diese Zahl erklären",
@@ -89,19 +90,19 @@ export const de = {
   "brief.nothingSent": "Noch nichts versendet",
   "board.count": "{count} Deals",
   "board.weighted": "gewichtet {value}",
-  "deal.stalled": "steht still",
+  "deal.stalled": "stockt",
   "deal.singleThreaded": "nur ein Kontakt",
   "deal.staged": "vorgemerkt",
   "record.timeline": "Verlauf",
 
-  "common.error": "Diese Ansicht konnte nicht geladen werden.",
+  "common.error": "Konnten diese Ansicht nicht laden.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
 
   "people.name": "Name",
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",
-  "person.consent": "Einwilligung je Zweck",
+  "person.consent": "Einwilligung pro Zweck",
 
   "org.name": "Firma",
   "org.industry": "Branche",
@@ -114,7 +115,7 @@ export const de = {
   "lead.score": "Score",
   "lead.status": "Status",
   "lead.segregated":
-    "Leads bleiben bis zur Übernahme vom Kontaktgraphen getrennt",
+    "Leads bleiben vom Kontaktgraphen getrennt, bis du sie übernimmst",
   "lead.promote": "Zum Kontakt machen",
   "lead.promoteIneligible": "braucht eine E-Mail und einen offenen Status",
 
@@ -142,15 +143,15 @@ export const de = {
   "home.brief": "Morgenbriefing",
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
   "home.staged": "Wartet auf dich",
-  "home.stalled": "Stillstehende Deals",
+  "home.stalled": "Deals, die stocken",
   "home.queue": "Heute dran",
   "home.asOf": "Stand {at}",
   "home.refresh": "Briefing aktualisieren",
-  "home.refreshing": "Wird sortiert…",
+  "home.refreshing": "Sortiere neu…",
   "home.generate": "Erstes Briefing erstellen",
   "home.noneTitle": "Noch kein Briefing",
   "home.noneBody":
-    "Dein Morgenbriefing sortiert die Deals, die deine erste Stunde verdienen — Gewinnbarkeit, Umsatz, Timing, Momentum und Wärme, jeder Faktor mit Beleg. Erstell den ersten Lauf, sobald offene Deals da sind.",
+    "Dein Morgenbriefing sortiert die Deals, die deine erste Stunde verdienen — Gewinnchance, Umsatz, Timing, Momentum und Nähe, jeder Faktor mit Beleg. Erstell den ersten Lauf, sobald offene Deals da sind.",
   "home.honestShort":
     "Nur {count} Deals haben die Schwelle geschafft — die Liste wird nie aufgefüllt.",
   "home.overflow":
@@ -161,16 +162,16 @@ export const de = {
   "home.dismiss": "Ausblenden",
   "home.actedState": "erledigt",
   "home.dismissedState": "ausgeblendet",
-  "home.why": "Warum das rankt",
+  "home.why": "Warum das oben steht",
   "home.evidence": "{count} Belege",
   "home.evidenceOne": "1 Beleg",
   "home.score": "Score {pct} %",
   "home.openDeal": "Deal öffnen",
-  "home.factorWinnability": "Gewinnbarkeit",
+  "home.factorWinnability": "Gewinnchance",
   "home.factorRevenue": "Umsatz",
   "home.factorTiming": "Timing",
   "home.factorMomentum": "Momentum",
-  "home.factorWarmth": "Wärme",
+  "home.factorWarmth": "Nähe",
 
   "enrich.title": "Von der Website lesen",
   "enrich.sub":
@@ -236,7 +237,7 @@ export const de = {
   "reports.planNote":
     "der ausgeführte Plan und die Zeilen, auf die sich die Zahl zurückrechnet",
 
-  "ai.sub": "bring deinen eigenen Agenten mit — geregelt durch die zwei Stufen",
+  "ai.sub": "bring deinen eigenen Agenten mit — geregelt über die zwei Stufen",
   "ai.fromPalette": "Aus der Palette",
   "ai.tiers": "Was ein Agent darf",
   "ai.tierGreen": "Lesen & Entwerfen läuft sofort.",
@@ -247,7 +248,7 @@ export const de = {
     "Externe Sendungen und Datenänderungen landen zuerst im Eingang.",
   "ai.connect": "Agent verbinden",
   "ai.connectDetail":
-    "Erstelle in den Einstellungen einen Passport und verbinde einen MCP-fähigen Agenten mit deinem Workspace. Er liest nur, was du sehen kannst.",
+    "Erstell in den Einstellungen einen Passport und häng einen MCP-fähigen Agenten an deinen Workspace. Er liest nur, was du sehen kannst.",
   "ai.paletteHint": "Frag von überall mit",
 
   "settings.identity": "Du",
@@ -261,16 +262,15 @@ export const de = {
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
-  "settings.tokenOnce":
-    "Jetzt kopieren — dieses Token wird nur einmal angezeigt.",
+  "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
   "settings.autonomy": "Autonomie-Stufen",
   "settings.autonomySub": "was sofort läuft und was im Eingang wartet",
   "settings.tierRead":
     "Lesen, Zusammenfassen, Entwerfen — läuft sofort, voll protokolliert.",
   "settings.tierSend":
     "E-Mail senden, Termine buchen, Daten ändern — wartet auf deine Freigabe.",
-  "settings.tierAdvance": "Deal-Phase vorziehen — immer erst bestätigen.",
-  "settings.locked": "fest",
+  "settings.tierAdvance": "Deal-Phase weiterschieben — immer erst bestätigen.",
+  "settings.locked": "gesperrt",
   "settings.purposes": "Einwilligungszwecke",
   "settings.created": "erstellt {date}",
   "settings.expires": "läuft ab {date}",
@@ -294,7 +294,7 @@ export const de = {
     "erst der Nutzen — dein Postfach verbindest du zuletzt, nicht zuerst",
   "ob.read": "Einlesen",
   "ob.confirm": "Bestätigen",
-  "ob.voice": "Tonfall",
+  "ob.voice": "Stimme",
   "ob.results": "Ergebnisse",
   "ob.connect": "Verbinden",
   "ob.url": "Website",
@@ -356,7 +356,11 @@ export const de = {
   "ob.s2.kick": "Schritt 2 von 5",
   "ob.s2.title": "Haben wir's richtig verstanden?",
   "ob.s2.sub":
-    "Korrigier unten alles — Änderungen werden als von dir getippt gespeichert. Wer bei dir kauft, haben wir leer gelassen statt zu raten — sag es uns.",
+    "Korrigier unten, was nicht stimmt — mit Weiter wird das hier als von dir bestätigt in deinem Workspace gespeichert. Wer bei dir kauft, haben wir leer gelassen statt zu raten — sag's uns.",
+  "ob.s2.saving": "Wird gespeichert…",
+  "ob.s2.saveFailed": "Dein Profil konnte nicht gespeichert werden",
+  "ob.s2.savedNote":
+    "In deinem Workspace gespeichert. Spätere Änderungen machst du auf deiner Firmenseite — dieser Schritt speichert nicht erneut.",
   "ob.s2.buyerLabel": "Wer kauft das?",
   "ob.s2.buyerHint": "das konnten wir nicht lesen — jetzt du",
   "ob.s2.buyerPlaceholder":
@@ -368,7 +372,7 @@ export const de = {
   "ob.s3.title": "Jetzt lernen wir,",
   "ob.s3.titleEm": "wie du wirklich schreibst.",
   "ob.s3.sub":
-    "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren deine echte Stimme: Rhythmus, Signaturzüge, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
+    "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren, wie du wirklich klingst: dein Rhythmus, deine typischen Wendungen, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
   "ob.s3.optinTitle": "Warum jetzt — und warum optional.",
   "ob.s3.optinBody":
     "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 4). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
@@ -384,7 +388,7 @@ export const de = {
   "ob.reg.casual": "locker",
   "ob.src.emails": "Gesendete E-Mails",
   "ob.src.emailsHint":
-    "Deine reichste Stimmquelle für E-Mail-Entwürfe — schaltet frei, wenn du dein Postfach verbindest",
+    "Deine reichste Stimmquelle für E-Mail-Entwürfe — schaltet frei, sobald du dein Postfach verbindest",
   "ob.src.transcripts": "Call- / Meeting-Transkripte",
   "ob.src.transcriptsHint":
     "Fathom, Otter, Fireflies — wir behalten nur deine Redeanteile",
@@ -402,31 +406,31 @@ export const de = {
   "ob.s3.qualStart": "füg ein paar Quellen hinzu",
   "ob.s3.qualThin": "dünn — leg ein, zwei Transkripte nach",
   "ob.s3.qualGood": "gut — fast da",
-  "ob.s3.qualRich": "reich — eine eigene Stimme nimmt Form an",
+  "ob.s3.qualRich": "dicht — eine eigene Stimme nimmt Form an",
   "ob.s3.qualSharp": "scharf — unverkennbar du",
   "ob.s3.mix":
     "gesprochen {spoken}% · geschrieben {written}% · {sources} Quellen",
   "ob.s3.spokenHint":
     "Eine Handvoll Gesprächstranskripte schlägt 30 LinkedIn-Posts — Gesprochenes trägt deinen echten Rhythmus. Bei Transkripten behalten wir nur deine Redeanteile.",
   "ob.s3.emailCallout":
-    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese Start-Stimme wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
+    "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese Ausgangsstimme wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
   "ob.s3.build": "Mein Stimmprofil bauen",
   "ob.s3.modelling": "Modelliere deine Stimme aus {count} Wörtern…",
-  "ob.s3.starterVoice": "deine Start-Stimme",
+  "ob.s3.starterVoice": "deine erste Stimme",
   "ob.s3.vpMeta": "{count} Wörter · {sources} Quellen · gut",
-  "ob.s3.vpLead": "Direkt, warm, Praktiker-Operator.",
+  "ob.s3.vpLead": "Direkt, warm, aus der Praxis.",
   "ob.s3.vpRest":
-    "Kurze Aussagesätze mit gelegentlichem langen Anlauf. Belegt Meinungen mit konkreten Zahlen und Namen statt Abstraktionen. Wenig Corporate-Füllwerk.",
-  "ob.s3.movesLabel": "Signaturzüge",
+    "Kurze Aussagesätze mit gelegentlichem langen Anlauf. Belegt Meinungen mit konkreten Zahlen und Namen statt Abstraktionen. Kaum Floskeln.",
+  "ob.s3.movesLabel": "Deine Handschrift",
   "ob.s3.move1": "Eröffnet mit einer klaren Aussage oder einer harten Zahl",
   "ob.s3.move2":
     "Belegt sie mit einem konkreten, erlebten Beispiel — Namen, Zahlen",
   "ob.s3.move3": "Endet mit einem direkten nächsten Schritt oder einer Frage",
   "ob.s3.moveNever":
-    'Nie: Corporate-Füllwerk, Weichspülen, "ich hoffe, es geht Ihnen gut"',
+    'Nie: Floskeln, Weichspülen, "ich hoffe, es geht Ihnen gut"',
   "ob.s3.sampleLabel": "Beispiel-Entwurf in deiner Stimme",
   "ob.s3.vpFootnote":
-    "Ein Start aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
+    "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
 
   "ob.s4.kick": "Schritt 4 von 5",
   "ob.s4.title": "Sieh, was du gebaut hast —",
@@ -435,12 +439,14 @@ export const de = {
     "Dein Workspace kennt schon dein Geschäft und deine Stimme. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
   "ob.s4.cardProfile": "Geschäftsprofil",
   "ob.s4.cardProfileBody":
-    "ICP, Nutzenversprechen & USP von deiner Seite erfasst — jeweils mit Quelle.",
+    "Was wir von deiner Seite gelesen haben, ist bestätigt und auf deiner Firmenseite gespeichert — jedes Feld mit Quelle.",
+  "ob.s4.cardProfileSkippedBody":
+    "Von deiner Seite gelesen, aber noch nicht gespeichert — du hast den Bestätigen-Schritt übersprungen. Geh zurück und bestätige, dann landet es auf deiner Firmenseite.",
   "ob.s4.cardVoice": "Deine Schreibstimme",
   "ob.s4.cardVoiceBody":
     "Gebaut aus dem Korpus, den du uns gerade gegeben hast. Entwürfe klingen ab Tag eins nach dir.",
   "ob.s4.cardVoiceSkippedBody":
-    "Du hast den Tonfall-Schritt übersprungen — Entwürfe starten in einer neutralen Startstimme, bis du deine baust. Zwei Minuten, jederzeit, in den Einstellungen.",
+    "Du hast den Stimme-Schritt übersprungen — Entwürfe starten in einer neutralen Ausgangsstimme, bis du deine baust. Zwei Minuten, jederzeit, in den Einstellungen.",
   "ob.s4.cardPipeline": "Vertriebs-Pipeline",
   "ob.s4.cardPipelineBody":
     "Die Standard-B2B-Vorlage mit 7 Stufen, auf deine Branche vorgestimmt. Leer, bis du verbindest — dann füllen sich Deals aus deiner Post.",
@@ -462,7 +468,7 @@ export const de = {
   "ob.s5.title": "Bereit,",
   "ob.s5.titleEm": "es zum Leben zu erwecken?",
   "ob.s5.sub":
-    "Du hast das Gehirn gebaut. Verbinde dein Postfach, und dein CRM füllt sich selbst — Menschen, Firmen und Deals werden automatisch erfasst, du tippst sie nie.",
+    "Das Hirn steht. Verbinde dein Postfach, und dein CRM füllt sich selbst — Menschen, Firmen und Deals werden automatisch erfasst, du tippst sie nie.",
   "ob.s5.provGoogle": "Google",
   "ob.s5.provMicrosoft": "Microsoft",
   "ob.s5.provImap": "Beliebiges Postfach (IMAP)",
@@ -480,7 +486,7 @@ export const de = {
     "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir holen deine aktuelle Post einmalig, erfassen sie als Aktivitäten und speichern dein Passwort nie.",
   "ob.s5.imapConnect": "Verbinden & erfassen",
   "ob.s5.connecting": "Sichere Verbindung…",
-  "ob.s5.scope1Lead": "Wir lesen — wir spammen nicht.",
+  "ob.s5.scope1Lead": "Wir lesen — wir müllen nichts voll.",
   "ob.s5.scope1Rest":
     "Deine Post wird automatisch zu Kontakten, Firmen und Aktivitäten.",
   "ob.s5.scope2Lead": "Wir senden nie etwas ohne deine Freigabe.",
@@ -499,13 +505,13 @@ export const de = {
   "ob.s5.skipLater": "Erstmal überspringen — später verbinden",
 
   "auth.title": "Margince",
-  "auth.sub": "dein CRM, memory-first — beginne mit einem Workspace",
+  "auth.sub": "dein CRM, memory-first — leg mit einem Workspace los",
   "auth.checking": "Sitzung wird geprüft…",
   "auth.signupTitle": "Workspace erstellen",
   "auth.signupSub":
-    "du wirst erste:r Admin — ohne Kreditkarte, Wert vor Berechtigung",
+    "du wirst der erste Admin — keine Kreditkarte, erst der Nutzen, dann die Rechte",
   "auth.loginTitle": "Anmelden",
-  "auth.loginSub": "willkommen zurück — mach dort weiter, wo du aufgehört hast",
+  "auth.loginSub": "willkommen zurück — mach da weiter, wo du aufgehört hast",
   "auth.workspaceName": "Workspace-Name",
   "auth.displayName": "Dein Name",
   "auth.email": "E-Mail",
@@ -526,7 +532,7 @@ export const de = {
 
   "client.back": "Zurück zu Margince",
   "client.title": "Margince neben deinem Postfach",
-  "client.sub": "die Extension-Oberfläche — ohne Shell, datensatzbewusst",
+  "client.sub": "die Extension-Oberfläche — ohne Shell, kennt den Datensatz",
   "client.sender": "Absender",
   "client.lookup": "Nachschlagen",
   "client.open360": "360 öffnen",

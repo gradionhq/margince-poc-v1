@@ -73,7 +73,7 @@ func publicBooking(store *activities.Store, limits publicBookingLimiters) func(h
 				return
 			}
 
-			ctx := principal.WithWorkspaceID(r.Context(), page.WorkspaceID)
+			ctx := principal.WithWorkspaceID(r.Context(), page.WorkspaceID.UUID)
 			ctx = principal.WithActor(ctx, principal.Principal{
 				Type: principal.PrincipalSystem,
 				ID:   "system:public_booking",

@@ -48,14 +48,14 @@ const listColumns = `id, workspace_id, name, entity_type, list_type, definition,
 const catalogCap = 1000
 
 type listRow struct {
-	ID          ids.UUID
-	WorkspaceID ids.UUID
+	ID          ids.ListID
+	WorkspaceID ids.WorkspaceID
 	Name        string
 	EntityType  string
 	ListType    string
 	Definition  map[string]any
-	OwnerID     *ids.UUID
-	TeamID      *ids.UUID
+	OwnerID     *ids.UserID
+	TeamID      *ids.TeamID
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	ArchivedAt  *time.Time
@@ -122,8 +122,8 @@ type CreateListInput struct {
 	EntityType string
 	ListType   string
 	Definition map[string]any
-	OwnerID    *ids.UUID
-	TeamID     *ids.UUID
+	OwnerID    *ids.UserID
+	TeamID     *ids.TeamID
 }
 
 func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, error) {
@@ -165,7 +165,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		if out, err = scanList(row); err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "create", "list", out.ID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "create", "list", out.ID.UUID, nil, map[string]any{
 			"name": out.Name, "entity_type": out.EntityType, "list_type": out.ListType,
 		})
 		return err
@@ -173,7 +173,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	return out, err
 }
 
-func (s *Store) GetList(ctx context.Context, id ids.UUID) (listRow, error) {
+func (s *Store) GetList(ctx context.Context, id ids.ListID) (listRow, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return listRow{}, err
 	}
@@ -192,7 +192,7 @@ func (s *Store) GetList(ctx context.Context, id ids.UUID) (listRow, error) {
 	return out, err
 }
 
-func (s *Store) ArchiveList(ctx context.Context, id ids.UUID) (listRow, error) {
+func (s *Store) ArchiveList(ctx context.Context, id ids.ListID) (listRow, error) {
 	if err := auth.Require(ctx, "list", principal.ActionDelete); err != nil {
 		return listRow{}, err
 	}
@@ -209,215 +209,10 @@ func (s *Store) ArchiveList(ctx context.Context, id ids.UUID) (listRow, error) {
 		} else if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "archive", "list", id, nil, nil)
+		_, err = storekit.Audit(ctx, tx, "archive", "list", id.UUID, nil, nil)
 		return err
 	})
 	return out, err
-}
-
-type memberRow struct {
-	ID         ids.UUID
-	ListID     ids.UUID
-	EntityType string
-	EntityID   ids.UUID
-	AddedBy    string
-	CreatedAt  time.Time
-}
-
-func (s *Store) ListMembers(ctx context.Context, listID ids.UUID, limit int, cursor string) ([]memberRow, storekit.Page, error) {
-	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if limit <= 0 {
-		limit = 50
-	}
-	var out []memberRow
-	var page storekit.Page
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := ensureListVisible(ctx, tx, listID); err != nil {
-			return err
-		}
-		var listEntityType, listType string
-		var definition map[string]any
-		if err := tx.QueryRow(ctx, `SELECT entity_type, list_type, definition FROM list WHERE id = $1`, listID).
-			Scan(&listEntityType, &listType, &definition); err != nil {
-			return err
-		}
-		// A dynamic segment has no explicit members: its membership IS the
-		// live evaluation of its stored filter through the ONE engine. That
-		// evaluation composes the caller's row-scope clause itself
-		// (Query.SelectIDs), so a team-scoped caller's segment excludes the
-		// records they cannot see — the same visibility law the static path
-		// enforces with its per-member probe.
-		if listType == "dynamic" {
-			var segErr error
-			out, page, segErr = s.evaluateSegment(ctx, tx, listID, listEntityType, definition, limit, cursor)
-			return segErr
-		}
-		var err error
-		out, page, err = s.listStaticMembers(ctx, tx, listID, listEntityType, limit, cursor)
-		return err
-	})
-	return out, page, err
-}
-
-// listStaticMembers reads the explicit members of a static list. A list
-// holds one entity_type (AddMember enforces it); every member is a row of
-// that table. The parent-list gate does not cover the members: without a
-// per-member row-scope filter a shared list would leak the existence of
-// records outside the caller's scope. So each member is disclosed only if
-// its target passes that table's visibility predicate (unbounded actors
-// get no filter).
-func (s *Store) listStaticMembers(ctx context.Context, tx pgx.Tx, listID ids.UUID, listEntityType string, limit int, cursor string) ([]memberRow, storekit.Page, error) {
-	var out []memberRow
-	var page storekit.Page
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	sql := fmt.Sprintf(`SELECT lm.id, lm.list_id, lm.entity_type, lm.entity_id, lm.added_by, lm.created_at
-		FROM list_member lm WHERE lm.list_id = $%d`, arg(listID))
-	scope, err := auth.ScopeClauseFor(ctx, listEntityType, "e", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		sql += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM %s e WHERE e.id = lm.entity_id AND %s)",
-			listEntityType, scope)
-	}
-	if cursor != "" {
-		after, err := ids.Parse(cursor)
-		if err != nil {
-			return nil, storekit.Page{}, &BadInputError{Field: "cursor", Reason: "malformed"}
-		}
-		sql += fmt.Sprintf(" AND lm.id > $%d", arg(after))
-	}
-	sql += fmt.Sprintf(" ORDER BY lm.id LIMIT $%d", arg(limit+1))
-	rows, err := tx.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var m memberRow
-		if err := rows.Scan(&m.ID, &m.ListID, &m.EntityType, &m.EntityID, &m.AddedBy, &m.CreatedAt); err != nil {
-			return nil, storekit.Page{}, err
-		}
-		out = append(out, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if len(out) > limit {
-		out = out[:limit]
-		page = storekit.Page{HasMore: true, NextCursor: out[limit-1].ID.String()}
-	}
-	return out, page, nil
-}
-
-func (s *Store) AddMember(ctx context.Context, listID ids.UUID, entityType string, entityID ids.UUID) (memberRow, error) {
-	if err := auth.Require(ctx, "list", principal.ActionUpdate); err != nil {
-		return memberRow{}, err
-	}
-	actor, _ := principal.Actor(ctx)
-	var out memberRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := ensureListVisible(ctx, tx, listID); err != nil {
-			return err
-		}
-		var listEntityType, listType string
-		if err := tx.QueryRow(ctx, `SELECT entity_type, list_type FROM list WHERE id = $1`, listID).
-			Scan(&listEntityType, &listType); err != nil {
-			return err
-		}
-		if listType != "static" {
-			return &BadInputError{Field: "list", Reason: "a dynamic segment computes its members; only static lists take them"}
-		}
-		if entityType != listEntityType {
-			return &BadInputError{Field: "entity_type", Reason: "must match the list's entity_type " + listEntityType}
-		}
-		// The member reference is a READ of a row-scoped record (H1).
-		if err := auth.EnsureLinkTarget(ctx, tx, entityType, entityID); err != nil {
-			return err
-		}
-		row := tx.QueryRow(ctx, `
-			INSERT INTO list_member (workspace_id, list_id, entity_type, entity_id, added_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
-			ON CONFLICT (list_id, entity_type, entity_id) DO NOTHING
-			RETURNING id, list_id, entity_type, entity_id, added_by, created_at`,
-			listID, entityType, entityID, actor.ID)
-		err := rowScanMember(row, &out)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("already a member: %w", apperrors.ErrConflict)
-		}
-		if err != nil {
-			return err
-		}
-		_, err = storekit.Audit(ctx, tx, "update", "list", listID, nil, map[string]any{
-			"added": map[string]any{"entity_type": entityType, "entity_id": entityID},
-		})
-		return err
-	})
-	return out, err
-}
-
-func rowScanMember(row pgx.Row, m *memberRow) error {
-	return row.Scan(&m.ID, &m.ListID, &m.EntityType, &m.EntityID, &m.AddedBy, &m.CreatedAt)
-}
-
-// dynamicAddedBy marks a computed segment member: it was never explicitly
-// added, so its provenance is the filter itself, not a user.
-const dynamicAddedBy = "dynamic"
-
-// evaluateSegment runs a dynamic list's stored filter through the ONE
-// engine and returns the matching visible records as members. SelectIDs
-// composes the caller's row-scope clause, so the result is already
-// existence-hidden to the caller's scope; the ids come back id-ordered,
-// which the members endpoint paginates by keyset over the entity id (a
-// computed member carries no member-row id of its own, so the record's
-// own id IS its stable member identifier).
-func (s *Store) evaluateSegment(ctx context.Context, tx pgx.Tx, listID ids.UUID, listEntityType string, definition map[string]any, limit int, cursor string) ([]memberRow, storekit.Page, error) {
-	engine, ok := segmentEngines[listEntityType]
-	if !ok {
-		// A stored list.entity_type outside the segment set is a schema
-		// invariant break, not a client error — surface it, never guess.
-		return nil, storekit.Page{}, fmt.Errorf("no dynamic segment engine for entity_type %q", listEntityType)
-	}
-	pred, err := predicateFromDefinition(definition)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	matched, err := engine.SelectIDs(ctx, tx, pred, storekit.PredicateRowLimit)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-
-	var after *ids.UUID
-	if cursor != "" {
-		parsed, err := ids.Parse(cursor)
-		if err != nil {
-			return nil, storekit.Page{}, &BadInputError{Field: "cursor", Reason: "malformed"}
-		}
-		after = &parsed
-	}
-
-	out := make([]memberRow, 0, limit)
-	var page storekit.Page
-	for _, entityID := range matched {
-		if after != nil && entityID.String() <= after.String() {
-			continue
-		}
-		if len(out) == limit {
-			page = storekit.Page{HasMore: true, NextCursor: out[limit-1].EntityID.String()}
-			break
-		}
-		out = append(out, memberRow{
-			ID:         entityID,
-			ListID:     listID,
-			EntityType: listEntityType,
-			EntityID:   entityID,
-			AddedBy:    dynamicAddedBy,
-		})
-	}
-	return out, page, nil
 }
 
 // validateSegmentDefinition proves a dynamic list's definition is an
@@ -442,8 +237,8 @@ func validateSegmentDefinition(entityType string, definition map[string]any) err
 
 // ensureListVisible is the list's own row-scope probe (owner_id scoped
 // like every other owner-carrying table; ownerless lists are shared).
-func ensureListVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	return auth.EnsureVisible(ctx, tx, "list", id)
+func ensureListVisible(ctx context.Context, tx pgx.Tx, id ids.ListID) error {
+	return auth.EnsureVisible(ctx, tx, "list", id.UUID)
 }
 
 // BadInputError maps to a 422 at the transport.
@@ -456,7 +251,7 @@ func (e *BadInputError) Error() string { return "collections: " + e.Field + ": "
 
 func wireList(l listRow) crmcontracts.List {
 	out := crmcontracts.List{
-		Id:         openapi_types.UUID(l.ID),
+		Id:         openapi_types.UUID(l.ID.UUID),
 		Name:       l.Name,
 		EntityType: crmcontracts.ListEntityType(l.EntityType),
 		ListType:   crmcontracts.ListListType(l.ListType),
@@ -468,28 +263,12 @@ func wireList(l listRow) crmcontracts.List {
 		out.Definition = &l.Definition
 	}
 	if l.OwnerID != nil {
-		owner := openapi_types.UUID(*l.OwnerID)
+		owner := openapi_types.UUID(l.OwnerID.UUID)
 		out.OwnerId = &owner
 	}
 	if l.TeamID != nil {
-		team := openapi_types.UUID(*l.TeamID)
+		team := openapi_types.UUID(l.TeamID.UUID)
 		out.TeamId = &team
-	}
-	return out
-}
-
-func wireMember(m memberRow) crmcontracts.ListMember {
-	out := crmcontracts.ListMember{
-		Id:         openapi_types.UUID(m.ID),
-		ListId:     openapi_types.UUID(m.ListID),
-		EntityType: crmcontracts.ListMemberEntityType(m.EntityType),
-		EntityId:   openapi_types.UUID(m.EntityID),
-		AddedBy:    &m.AddedBy,
-	}
-	// A computed segment member carries no explicit added-at instant; only
-	// a real list_member row does.
-	if !m.CreatedAt.IsZero() {
-		out.CreatedAt = &m.CreatedAt
 	}
 	return out
 }

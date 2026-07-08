@@ -15,9 +15,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func mustID(t *testing.T, s string) ids.UUID {
+func mustID(t *testing.T, s string) ids.OrganizationID {
 	t.Helper()
-	id, err := ids.Parse(s)
+	id, err := ids.ParseAs[ids.OrganizationKind](s)
 	if err != nil {
 		t.Fatalf("parse %q: %v", s, err)
 	}

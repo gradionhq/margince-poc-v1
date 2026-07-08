@@ -66,7 +66,7 @@ func (h Handlers) CreatePipeline(w http.ResponseWriter, r *http.Request, _ crmco
 }
 
 func (h Handlers) GetPipeline(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	pipeline, err := h.store.GetPipeline(r.Context(), ids.UUID(id))
+	pipeline, err := h.store.GetPipeline(r.Context(), pathID[ids.PipelineKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

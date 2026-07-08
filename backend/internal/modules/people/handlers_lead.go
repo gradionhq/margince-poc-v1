@@ -23,10 +23,7 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		s := string(*params.Status)
 		in.Status = &s
 	}
-	if params.OwnerId != nil {
-		v := ids.UUID(*params.OwnerId)
-		in.OwnerID = &v
-	}
+	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 
 	leads, page, err := h.store.ListLeads(r.Context(), in)
 	if err != nil {
@@ -58,7 +55,7 @@ func (h Handlers) CreateLead(w http.ResponseWriter, r *http.Request, _ crmcontra
 }
 
 func (h Handlers) GetLead(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	lead, err := h.store.GetLead(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	lead, err := h.store.GetLead(r.Context(), pathID[ids.LeadKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -76,7 +73,7 @@ func (h Handlers) UpdateLead(w http.ResponseWriter, r *http.Request, id crmcontr
 		return
 	}
 
-	lead, err := h.store.UpdateLead(r.Context(), ids.UUID(id), leadUpdateInput(req, ifVersion))
+	lead, err := h.store.UpdateLead(r.Context(), pathID[ids.LeadKind](id), leadUpdateInput(req, ifVersion))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -104,13 +101,10 @@ func (h Handlers) PromoteLead(w http.ResponseWriter, r *http.Request, id crmcont
 	in := PromoteLeadInput{Trigger: string(req.Trigger)}
 	if req.Evidence != nil {
 		in.EvidenceNote = req.Evidence.Note
-		if req.Evidence.ActivityId != nil {
-			v := ids.UUID(*req.Evidence.ActivityId)
-			in.EvidenceActivityID = &v
-		}
+		in.EvidenceActivityID = idArg[ids.ActivityKind](req.Evidence.ActivityId)
 	}
 
-	person, merged, err := h.store.PromoteLead(r.Context(), ids.UUID(id), in)
+	person, merged, err := h.store.PromoteLead(r.Context(), pathID[ids.LeadKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -124,7 +118,7 @@ func (h Handlers) PromoteLead(w http.ResponseWriter, r *http.Request, id crmcont
 // DisqualifyLead: DELETE /leads/{id} — the one path where
 // "disqualified ⇒ archived" is enforced.
 func (h Handlers) DisqualifyLead(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	lead, err := h.store.DisqualifyLead(r.Context(), ids.UUID(id))
+	lead, err := h.store.DisqualifyLead(r.Context(), pathID[ids.LeadKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

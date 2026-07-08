@@ -24,7 +24,9 @@ import (
 // ActivityLinkInput ties one activity to a person, organization or deal.
 type ActivityLinkInput struct {
 	EntityType string // person | organization | deal
-	EntityID   ids.UUID
+	// note: the link target is polymorphic (activity_link is the canonical
+	// (entity_type, entity_id) seam), so the id stays untyped (rule 6).
+	EntityID ids.UUID
 }
 
 type LogActivityInput struct {
@@ -35,8 +37,8 @@ type LogActivityInput struct {
 	Direction    *string
 	DueAt        *time.Time
 	RemindAt     *time.Time
-	AssigneeID   *ids.UUID
-	HostUserID   *ids.UUID
+	AssigneeID   *ids.UserID
+	HostUserID   *ids.UserID
 	SourceSystem *string
 	SourceID     *string
 	Links        []ActivityLinkInput
@@ -63,7 +65,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 	var out crmcontracts.Activity
 	created := true
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
+		wsID := workspaceID(ctx)
 
 		replay, err := replayedActivity(ctx, tx, in)
 		if err != nil {
@@ -74,7 +76,7 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			return nil
 		}
 
-		id := ids.NewV7()
+		id := ids.New[ids.ActivityKind]()
 		_, err = tx.Exec(ctx,
 			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
 			                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
@@ -92,13 +94,13 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 			return err
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "create", "activity", id, nil, map[string]any{"kind": in.Kind, "subject": in.Subject})
+		auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{"kind": in.Kind, "subject": in.Subject})
 		if err != nil {
 			return err
 		}
 		// activity.captured is the first-class verb — emitted instead of
 		// a generic activity.created, never in addition (events.md §1).
-		if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id, map[string]any{"kind": in.Kind}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{"kind": in.Kind}); err != nil {
 			return err
 		}
 		out, err = readActivity(ctx, tx, id, storekit.LiveOnly)
@@ -117,7 +119,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 	if in.SourceSystem == nil || in.SourceID == nil {
 		return nil, nil
 	}
-	var existing ids.UUID
+	var existing ids.ActivityID
 	err := tx.QueryRow(ctx,
 		`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
 		*in.SourceSystem, *in.SourceID).Scan(&existing)
@@ -127,7 +129,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 	if err != nil {
 		return nil, err
 	}
-	if verr := auth.EnsureActivityVisible(ctx, tx, existing); verr != nil {
+	if verr := auth.EnsureActivityVisible(ctx, tx, existing.UUID); verr != nil {
 		if errors.Is(verr, apperrors.ErrNotFound) {
 			return nil, apperrors.ErrConflict
 		}
@@ -145,7 +147,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 // checked as the table owner, bypassing RLS, so it would accept a
 // guessed cross-tenant or out-of-scope UUID as a link target — every
 // target passes the row-scope link check first.
-func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID, activityID ids.UUID, links []ActivityLinkInput, occurredAt time.Time) error {
+func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
 	for _, link := range links {
 		column := map[string]string{
 			"person": "person_id", "organization": "organization_id", "deal": "deal_id", "lead": "lead_id",
@@ -179,13 +181,13 @@ func (e *InvalidLinkTypeError) Error() string {
 	return "activity link entity_type " + e.EntityType + " is not person|organization|deal"
 }
 
-func (s *Store) GetActivity(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
+func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureActivityVisible(ctx, tx, id); err != nil {
+		if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
 			return err
 		}
 		out, err = readActivity(ctx, tx, id, archived)
@@ -195,10 +197,12 @@ func (s *Store) GetActivity(ctx context.Context, id ids.UUID, archived storekit.
 }
 
 type ListActivitiesInput struct {
-	Cursor          *string
-	Limit           *int
-	Kind            *string
-	EntityType      *string
+	Cursor     *string
+	Limit      *int
+	Kind       *string
+	EntityType *string
+	// note: EntityType+EntityID is the polymorphic activity_link filter —
+	// the target is ANY entity kind, so the id stays untyped (rule 6).
 	EntityID        *ids.UUID
 	IncludeArchived bool
 }
@@ -289,7 +293,7 @@ const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occu
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at`
 
-func readActivity(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
+func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
 	q := `SELECT ` + activityColumns + ` FROM activity a WHERE a.id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND a.archived_at IS NULL`

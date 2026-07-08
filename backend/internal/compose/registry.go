@@ -79,7 +79,7 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 // onto the approvals module.
 type approvalsAdapter struct{ svc *approvals.Service }
 
-func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.UUID, error) {
+func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
 	targetVersion := in.TargetVersion
 	if !approvals.TargetVersionCheckable(in.TargetType) {
 		// A pin redemption could never re-verify (the partner extension
@@ -88,7 +88,7 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 		// freshness falls back to the diff_hash identical-call binding.
 		targetVersion = nil
 	}
-	return a.svc.Stage(ctx, approvals.StageInput{
+	id, err := a.svc.Stage(ctx, approvals.StageInput{
 		Kind:           in.Tool,
 		ProposedChange: in.ProposedChange,
 		DiffHash:       in.DiffHash,
@@ -97,8 +97,9 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 		TargetVersion:  targetVersion,
 		Summary:        in.Summary,
 	})
+	return id, err
 }
 
-func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.UUID, tool, diffHash string) error {
+func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) error {
 	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
 }

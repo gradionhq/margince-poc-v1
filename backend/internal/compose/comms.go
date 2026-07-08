@@ -32,7 +32,7 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	// The deterministic draft over the anchor's own context — the same
 	// rule the HTTP handler applies; the model-backed voice draft rides
 	// the router once the drafting lane is wired.
-	activity, err := c.store.GetActivity(ctx, anchor, storekit.LiveOnly)
+	activity, err := c.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
 		return "", "", err
 	}
@@ -70,7 +70,7 @@ func deterministicDraft(topic, intent string) (subject, body string) {
 }
 
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (json.RawMessage, error) {
-	sent, err := c.store.SendEmail(ctx, anchor, activities.SendEmailInput{
+	sent, err := c.store.SendEmail(ctx, ids.From[ids.ActivityKind](anchor), activities.SendEmailInput{
 		Recipients:     append(append([]string{}, in.To...), in.Cc...),
 		Subject:        in.Subject,
 		Body:           in.Body,
@@ -88,7 +88,7 @@ func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to
 		return nil, err
 	}
 	// The store applies its default slot duration when none is named.
-	slots, err := c.store.Availability(ctx, hostID, from, to, time.Duration(durationMinutes)*time.Minute)
+	slots, err := c.store.Availability(ctx, ids.From[ids.UserKind](hostID), from, to, time.Duration(durationMinutes)*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (c commsAdapter) BookMeeting(ctx context.Context, in agents.BookMeetingArgs
 		return nil, err
 	}
 	booked := activities.BookMeetingInput{
-		Host: hostID, Start: in.Start, End: in.End, Subject: in.Subject,
+		Host: ids.From[ids.UserKind](hostID), Start: in.Start, End: in.End, Subject: in.Subject,
 	}
 	for _, l := range in.Links {
 		booked.Links = append(booked.Links, activities.ActivityLinkInput{

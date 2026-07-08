@@ -21,7 +21,7 @@ var ErrBudgetExhausted = errors.New("ai: workspace token budget exhausted; queue
 // counts (09 §2.4: seats × 6M base × 2 safety) without this module
 // reaching into identity's tables.
 type BudgetPolicy interface {
-	MonthlyTokenBudget(ctx context.Context, workspaceID ids.UUID) (int64, error)
+	MonthlyTokenBudget(ctx context.Context, workspaceID ids.WorkspaceID) (int64, error)
 }
 
 // StaticBudget is the fixed fallback policy: the single-seat default
@@ -31,7 +31,7 @@ type StaticBudget int64
 // DefaultMonthlyTokens = 1 seat × 6M base × 2 safety factor.
 const DefaultMonthlyTokens = StaticBudget(12_000_000)
 
-func (b StaticBudget) MonthlyTokenBudget(context.Context, ids.UUID) (int64, error) {
+func (b StaticBudget) MonthlyTokenBudget(context.Context, ids.WorkspaceID) (int64, error) {
 	return int64(b), nil
 }
 

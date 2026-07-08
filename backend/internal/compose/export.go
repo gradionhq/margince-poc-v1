@@ -69,6 +69,9 @@ const (
 	// owner (pipeline, stage): the workspace RLS boundary is the whole
 	// scope, so members see the same config their deals point at.
 	scopeWorkspace
+	// scopePersonChild scopes a person child row (person_social) by its
+	// parent person's visibility  14 the same rule the person read applies.
+	scopePersonChild
 )
 
 // exportMember is one bundle entry: a table, its row-scope rule, and the
@@ -89,6 +92,7 @@ type exportMember struct {
 // round-trip re-importer's concern (B-E11.12), not this writer.
 var exportMembers = []exportMember{
 	{table: "person", scope: scopeShareable, objectGate: "person"},
+	{table: "person_social", scope: scopePersonChild, objectGate: "person"},
 	{table: "organization", scope: scopeShareable, objectGate: "organization"},
 	{table: "deal", scope: scopeShareable, objectGate: "deal"},
 	{table: "lead", scope: scopeShareable, objectGate: "lead"},

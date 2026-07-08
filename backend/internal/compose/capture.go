@@ -46,7 +46,7 @@ func (m mergeStager) StageMerge(ctx context.Context, in capture.MergeProposal) (
 	if pending {
 		return ids.Nil, nil
 	}
-	return m.svc.Stage(ctx, approvals.StageInput{
+	id, err := m.svc.Stage(ctx, approvals.StageInput{
 		Kind:           "merge_records",
 		ProposedChange: in.ProposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
@@ -54,4 +54,5 @@ func (m mergeStager) StageMerge(ctx context.Context, in capture.MergeProposal) (
 		TargetID:       in.TargetID,
 		Summary:        in.Summary,
 	})
+	return id.UUID, err
 }

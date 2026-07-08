@@ -198,10 +198,10 @@ func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.IssuePassportResponse{
-		PassportId: openapi_types.UUID(issued.ID),
+		PassportId: openapi_types.UUID(issued.ID.UUID),
 		Token:      issued.Token,
 		Scopes:     issued.Scopes,
-		OnBehalfOf: openapi_types.UUID(id.UserID),
+		OnBehalfOf: openapi_types.UUID(id.UserID.UUID),
 		ExpiresAt:  issued.ExpiresAt,
 	})
 }
@@ -224,7 +224,7 @@ func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
 	data := make([]crmcontracts.PassportSummary, 0, len(rows))
 	for _, p := range rows {
 		summary := crmcontracts.PassportSummary{
-			Id:        openapi_types.UUID(p.ID),
+			Id:        openapi_types.UUID(p.ID.UUID),
 			Scopes:    p.Scopes,
 			CreatedAt: p.CreatedAt,
 			ExpiresAt: &p.ExpiresAt,
@@ -247,7 +247,7 @@ func (h Handlers) RevokePassport(w http.ResponseWriter, r *http.Request, id crmc
 		httperr.Unauthorized(w, r, "passports are revoked by a signed-in human")
 		return
 	}
-	if err := h.svc.RevokePassport(r.Context(), identity, ids.UUID(id)); err != nil {
+	if err := h.svc.RevokePassport(r.Context(), identity, ids.From[ids.PassportKind](ids.UUID(id))); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
@@ -281,7 +281,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 				return
 			}
 			if err == nil {
-				ctx = principal.WithWorkspaceID(ctx, wsID)
+				ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 			}
 		}
 
@@ -371,8 +371,8 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type:        principal.PrincipalHuman,
 		ID:          "human:" + id.UserID.String(),
-		UserID:      id.UserID,
-		TeamIDs:     id.Teams,
+		UserID:      id.UserID.UUID,
+		TeamIDs:     rawTeamIDs(id.Teams),
 		SeatType:    principal.SeatType(id.SeatType),
 		Permissions: id.Permissions,
 	})
@@ -454,12 +454,12 @@ func meResponse(id Identity) crmcontracts.MeResponse {
 	}
 	teams := make([]openapi_types.UUID, len(id.Teams))
 	for i, t := range id.Teams {
-		teams[i] = openapi_types.UUID(t)
+		teams[i] = openapi_types.UUID(t.UUID)
 	}
 	return crmcontracts.MeResponse{
 		User: crmcontracts.User{
-			Id:          openapi_types.UUID(id.UserID),
-			WorkspaceId: openapi_types.UUID(id.WorkspaceID),
+			Id:          openapi_types.UUID(id.UserID.UUID),
+			WorkspaceId: openapi_types.UUID(id.WorkspaceID.UUID),
 			Email:       openapi_types.Email(id.Email),
 			DisplayName: id.DisplayName,
 			Status:      "active",

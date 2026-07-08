@@ -35,7 +35,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // StartRun records a run for one trigger occurrence. created=false
 // means this occurrence already ran (or is running) — the §6
 // idempotency rule; the caller must not start a second loop.
-func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string, passportID ids.UUID) (runID ids.UUID, created bool, err error) {
+func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string, passportID ids.PassportID) (runID ids.UUID, created bool, err error) {
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			INSERT INTO agent_run (workspace_id, agent_spec, goal, trigger_ref, passport_id)
@@ -129,14 +129,14 @@ type SuspendedRun struct {
 	SpecName   string
 	Goal       string
 	TriggerRef string
-	PassportID ids.UUID
+	PassportID ids.PassportID
 	Pending    Pending
 }
 
 // FindSuspendedByApproval resolves an approval decision to its parked
 // run. Not-found is a normal answer: most approvals are not runner
 // stagings.
-func (s *Store) FindSuspendedByApproval(ctx context.Context, approvalID ids.UUID) (SuspendedRun, bool, error) {
+func (s *Store) FindSuspendedByApproval(ctx context.Context, approvalID ids.ApprovalID) (SuspendedRun, bool, error) {
 	var run SuspendedRun
 	var pendingJSON []byte
 	found := false
@@ -166,11 +166,11 @@ type QueuedJob struct {
 	ID         ids.UUID
 	SpecName   string
 	TriggerRef string
-	PassportID *ids.UUID
+	PassportID *ids.PassportID
 }
 
 // EnqueueJob seeds one trigger occurrence; re-seeding is a no-op.
-func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, passportID *ids.UUID, dueAt time.Time) error {
+func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, passportID *ids.PassportID, dueAt time.Time) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO runner_job (workspace_id, agent_spec, trigger_ref, passport_id, due_at)

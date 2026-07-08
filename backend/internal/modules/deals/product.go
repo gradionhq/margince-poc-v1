@@ -60,7 +60,7 @@ func (s *Store) CreateProduct(ctx context.Context, in CreateProductInput) (crmco
 
 	var out crmcontracts.Product
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		id := ids.NewV7()
+		id := ids.New[ids.ProductKind]()
 		_, err := tx.Exec(ctx,
 			`INSERT INTO product (id, workspace_id, name, sku, description, unit, unit_price_minor,
 			                      currency, default_tax_rate, active, source, captured_by)
@@ -74,7 +74,7 @@ func (s *Store) CreateProduct(ctx context.Context, in CreateProductInput) (crmco
 			}
 			return fmt.Errorf("insert product: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "create", "product", id, nil, map[string]any{"name": in.Name}); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "create", "product", id.UUID, nil, map[string]any{"name": in.Name}); err != nil {
 			return fmt.Errorf("audit product create: %w", err)
 		}
 		if out, err = readProduct(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -97,7 +97,7 @@ type UpdateProductInput struct {
 	IfVersion      *int64
 }
 
-func (s *Store) UpdateProduct(ctx context.Context, id ids.UUID, in UpdateProductInput) (crmcontracts.Product, error) {
+func (s *Store) UpdateProduct(ctx context.Context, id ids.ProductID, in UpdateProductInput) (crmcontracts.Product, error) {
 	if err := auth.Require(ctx, "product", principal.ActionUpdate); err != nil {
 		return crmcontracts.Product{}, err
 	}
@@ -112,13 +112,13 @@ func (s *Store) UpdateProduct(ctx context.Context, id ids.UUID, in UpdateProduct
 			out = current
 			return nil
 		}
-		if err := p.Apply(ctx, tx, "product", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "product", id.UUID, in.IfVersion); err != nil {
 			if storekit.IsUniqueViolation(err) {
 				return fmt.Errorf("sku already in use by a live product: %w", apperrors.ErrConflict)
 			}
 			return fmt.Errorf("apply product patch: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "update", "product", id, p.Before(), p.After()); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "update", "product", id.UUID, p.Before(), p.After()); err != nil {
 			return fmt.Errorf("audit product update: %w", err)
 		}
 		if out, err = readProduct(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -160,7 +160,7 @@ func buildProductPatch(current crmcontracts.Product, in UpdateProductInput) *sto
 	return p
 }
 
-func (s *Store) ArchiveProduct(ctx context.Context, id ids.UUID) (crmcontracts.Product, error) {
+func (s *Store) ArchiveProduct(ctx context.Context, id ids.ProductID) (crmcontracts.Product, error) {
 	if err := auth.Require(ctx, "product", principal.ActionDelete); err != nil {
 		return crmcontracts.Product{}, err
 	}
@@ -173,7 +173,7 @@ func (s *Store) ArchiveProduct(ctx context.Context, id ids.UUID) (crmcontracts.P
 			`UPDATE product SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id); err != nil {
 			return fmt.Errorf("archive product: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, "archive", "product", id, nil, nil); err != nil {
+		if _, err := storekit.Audit(ctx, tx, "archive", "product", id.UUID, nil, nil); err != nil {
 			return fmt.Errorf("audit product archive: %w", err)
 		}
 		var err error
@@ -185,7 +185,7 @@ func (s *Store) ArchiveProduct(ctx context.Context, id ids.UUID) (crmcontracts.P
 	return out, err
 }
 
-func (s *Store) GetProduct(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Product, error) {
+func (s *Store) GetProduct(ctx context.Context, id ids.ProductID, archived storekit.ArchivedFilter) (crmcontracts.Product, error) {
 	if err := auth.Require(ctx, "product", principal.ActionRead); err != nil {
 		return crmcontracts.Product{}, err
 	}
@@ -269,7 +269,7 @@ func (s *Store) ListProducts(ctx context.Context, in ListProductsInput) ([]crmco
 const productColumns = `id, workspace_id, name, sku, description, unit, unit_price_minor,
 	currency, default_tax_rate::text, active, source, captured_by, version, created_at, updated_at, archived_at`
 
-func readProduct(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Product, error) {
+func readProduct(ctx context.Context, tx pgx.Tx, id ids.ProductID, archived storekit.ArchivedFilter) (crmcontracts.Product, error) {
 	q := `SELECT ` + productColumns + ` FROM product WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`

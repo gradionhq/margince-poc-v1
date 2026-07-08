@@ -31,8 +31,8 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 type Purpose struct {
-	ID                  ids.UUID
-	WorkspaceID         ids.UUID
+	ID                  ids.PurposeID
+	WorkspaceID         ids.WorkspaceID
 	Key                 string
 	Label               string
 	RequiresDoubleOptIn bool
@@ -40,7 +40,7 @@ type Purpose struct {
 }
 
 type State struct {
-	PurposeID              ids.UUID
+	PurposeID              ids.PurposeID
 	PurposeKey             string
 	State                  string
 	LawfulBasis            *string
@@ -49,8 +49,11 @@ type State struct {
 }
 
 type ProofEvent struct {
+	// ID is the consent_event proof row's id — an append-only ledger
+	// entry, not a first-class entity in the kernel vocabulary, so it
+	// stays untyped.
 	ID          ids.UUID
-	PurposeID   ids.UUID
+	PurposeID   ids.PurposeID
 	NewState    string
 	LawfulBasis *string
 	Source      *string
@@ -116,14 +119,14 @@ func (s *Store) CreatePurpose(ctx context.Context, key, label string, requiresDO
 // PersonConsent reads one person's per-purpose state plus the full
 // proof log (Art. 7 demonstrability). The person is the read target —
 // row scope gates the whole answer.
-func (s *Store) PersonConsent(ctx context.Context, personID ids.UUID) ([]State, []ProofEvent, error) {
+func (s *Store) PersonConsent(ctx context.Context, personID ids.PersonID) ([]State, []ProofEvent, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return nil, nil, err
 	}
 	var states []State
 	var events []ProofEvent
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		// Every tracked purpose appears — absent rows read as the honest
@@ -170,8 +173,8 @@ func (s *Store) PersonConsent(ctx context.Context, personID ids.UUID) ([]State, 
 }
 
 type RecordInput struct {
-	PersonID         ids.UUID
-	PurposeID        ids.UUID
+	PersonID         ids.PersonID
+	PurposeID        ids.PurposeID
 	NewState         string // granted | withdrawn
 	LawfulBasis      *string
 	Source           *string
@@ -200,14 +203,14 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return State{}, err
 	}
-	if in.NewState != "granted" && in.NewState != "withdrawn" {
-		return State{}, &ValidationError{Field: "new_state", Reason: "must be granted or withdrawn"}
+	if _, err := ParseRecordableState(in.NewState); err != nil {
+		return State{}, err
 	}
 	actor, _ := principal.Actor(ctx)
 
 	var out State
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", in.PersonID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", in.PersonID.UUID); err != nil {
 			return err
 		}
 		purposeKey, requiresDOI, err := loadConsentPurpose(ctx, tx, in.PurposeID)
@@ -241,16 +244,16 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		}
 
 		action := "consent_grant"
-		if in.NewState == "withdrawn" {
+		if ConsentState(in.NewState) == StateWithdrawn {
 			action = "consent_withdraw"
 		}
-		auditID, err := storekit.Audit(ctx, tx, action, "person", in.PersonID, map[string]any{"state": stateOrUnknown(current)}, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, action, "person", in.PersonID.UUID, map[string]any{"state": stateOrUnknown(current)}, map[string]any{
 			"purpose": purposeKey, "state": in.NewState,
 		})
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "consent.changed", "person", in.PersonID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "consent.changed", "person", in.PersonID.UUID, map[string]any{
 			"purpose_id": in.PurposeID, "purpose": purposeKey, "new_state": in.NewState,
 		}); err != nil {
 			return err
@@ -264,7 +267,7 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 
 // loadConsentPurpose resolves the target purpose's key and DOI flag; an
 // unknown or archived purpose is 404.
-func loadConsentPurpose(ctx context.Context, tx pgx.Tx, purposeID ids.UUID) (key string, requiresDOI bool, err error) {
+func loadConsentPurpose(ctx context.Context, tx pgx.Tx, purposeID ids.PurposeID) (key string, requiresDOI bool, err error) {
 	err = tx.QueryRow(ctx,
 		`SELECT key, requires_double_opt_in FROM consent_purpose WHERE id = $1 AND archived_at IS NULL`,
 		purposeID).Scan(&key, &requiresDOI)
@@ -283,7 +286,7 @@ func loadConsentPurpose(ctx context.Context, tx pgx.Tx, purposeID ids.UUID) (key
 // unexpired) — consuming it here makes the confirmation single-use and
 // unfabricatable rather than stored half-true. Non-DOI paths return nil.
 func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in RecordInput, requiresDOI bool) (*time.Time, error) {
-	if in.NewState != "granted" || !requiresDOI {
+	if ConsentState(in.NewState) != StateGranted || !requiresDOI {
 		return nil, nil
 	}
 	if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {

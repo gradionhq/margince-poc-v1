@@ -21,7 +21,7 @@ func (h Handlers) UpdatePipeline(w http.ResponseWriter, r *http.Request, id crmc
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	pipeline, err := h.store.UpdatePipeline(r.Context(), ids.UUID(id), UpdatePipelineInput{
+	pipeline, err := h.store.UpdatePipeline(r.Context(), pathID[ids.PipelineKind](id), UpdatePipelineInput{
 		Name: req.Name, IsDefault: req.IsDefault, Position: req.Position, IfVersion: ifVersion,
 	})
 	if err != nil {
@@ -32,11 +32,7 @@ func (h Handlers) UpdatePipeline(w http.ResponseWriter, r *http.Request, id crmc
 }
 
 func (h Handlers) ListStages(w http.ResponseWriter, r *http.Request, params crmcontracts.ListStagesParams) {
-	var pipelineID *ids.UUID
-	if params.PipelineId != nil {
-		id := ids.UUID(*params.PipelineId)
-		pipelineID = &id
-	}
+	pipelineID := idArg[ids.PipelineKind](params.PipelineId)
 	archived := storekit.LiveOnly
 	if params.IncludeArchived != nil && *params.IncludeArchived {
 		archived = storekit.IncludeArchived
@@ -58,7 +54,7 @@ func (h Handlers) CreateStage(w http.ResponseWriter, r *http.Request, _ crmcontr
 		return
 	}
 	in := CreateStageInput{
-		PipelineID:     ids.UUID(req.PipelineId),
+		PipelineID:     pathID[ids.PipelineKind](req.PipelineId),
 		Name:           req.Name,
 		Position:       req.Position,
 		WinProbability: req.WinProbability,
@@ -75,7 +71,7 @@ func (h Handlers) CreateStage(w http.ResponseWriter, r *http.Request, _ crmcontr
 }
 
 func (h Handlers) GetStage(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	stage, err := h.store.GetStage(r.Context(), ids.UUID(id))
+	stage, err := h.store.GetStage(r.Context(), pathID[ids.StageKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -102,7 +98,7 @@ func (h Handlers) UpdateStage(w http.ResponseWriter, r *http.Request, id crmcont
 		semantic := string(*req.Semantic)
 		in.Semantic = &semantic
 	}
-	stage, err := h.store.UpdateStage(r.Context(), ids.UUID(id), in)
+	stage, err := h.store.UpdateStage(r.Context(), pathID[ids.StageKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

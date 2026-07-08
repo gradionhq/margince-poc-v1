@@ -116,7 +116,7 @@ type Step struct {
 // the budget already consumed (the resumed run continues the SAME
 // budget — suspension is not a refill).
 type Pending struct {
-	ApprovalID   ids.UUID
+	ApprovalID   ids.ApprovalID
 	Tool         string
 	Args         json.RawMessage
 	Window       []model.Message
@@ -310,7 +310,7 @@ func parseStep(text string) (modelStep, error) {
 // withApprovalID re-forms the staged call with the redemption id — the
 // same canonical bytes plus approval_id, exactly what a human-driven
 // retry would send.
-func withApprovalID(args json.RawMessage, id ids.UUID) (json.RawMessage, error) {
+func withApprovalID(args json.RawMessage, id ids.ApprovalID) (json.RawMessage, error) {
 	var m map[string]any
 	if err := json.Unmarshal(args, &m); err != nil {
 		return nil, fmt.Errorf("runner: pending args: %w", err)

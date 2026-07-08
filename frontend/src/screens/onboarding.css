@@ -1137,6 +1137,16 @@ textarea.ob-in {
   color: var(--textSecondary);
 }
 
+/* connect step: the skip stands beside the primary CTA at equal visibility */
+.connect-acts {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
 /* spinner (shared inline) */
 .ob-spinner {
   width: 15px;

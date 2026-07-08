@@ -41,7 +41,7 @@ func NewAutomationStore(pool *pgxpool.Pool) *AutomationStore {
 
 // Automation is one configured instance.
 type Automation struct {
-	ID        ids.UUID
+	ID        ids.AutomationID
 	Key       string
 	Name      string
 	Enabled   bool
@@ -122,7 +122,7 @@ func (s *AutomationStore) List(ctx context.Context, cursor *string, limit *int) 
 	if len(page.Items) > n {
 		page.Items = page.Items[:n]
 		last := page.Items[len(page.Items)-1]
-		page.NextCursor = storekit.EncodeCursor(last.CreatedAt, last.ID)
+		page.NextCursor = storekit.EncodeCursor(last.CreatedAt, last.ID.UUID)
 		page.HasMore = true
 	}
 	return page, nil
@@ -130,7 +130,7 @@ func (s *AutomationStore) List(ctx context.Context, cursor *string, limit *int) 
 
 // Get reads one live instance; an archived or foreign row reads as
 // absent.
-func (s *AutomationStore) Get(ctx context.Context, id ids.UUID) (Automation, error) {
+func (s *AutomationStore) Get(ctx context.Context, id ids.AutomationID) (Automation, error) {
 	if err := auth.Require(ctx, "automation", principal.ActionRead); err != nil {
 		return Automation{}, err
 	}
@@ -191,7 +191,7 @@ func (s *AutomationStore) Create(ctx context.Context, in CreateAutomationInput) 
 		if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "create", "automation", a.ID, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "create", "automation", a.ID.UUID, nil, map[string]any{
 			"key": a.Key, "name": a.Name, "params": in.Params, "status": "paused",
 		})
 		return err
@@ -204,12 +204,17 @@ func (s *AutomationStore) Create(ctx context.Context, in CreateAutomationInput) 
 
 // Update re-parameterizes, renames, or flips enabled/paused, honoring
 // If-Match version skew.
-func (s *AutomationStore) Update(ctx context.Context, id ids.UUID, in UpdateAutomationInput) (Automation, error) {
+func (s *AutomationStore) Update(ctx context.Context, id ids.AutomationID, in UpdateAutomationInput) (Automation, error) {
 	if err := auth.Require(ctx, "automation", principal.ActionUpdate); err != nil {
 		return Automation{}, err
 	}
 	var a Automation
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// The row lock makes the state read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "automation", id.UUID, storekit.LiveOnly); err != nil {
+			return err
+		}
 		before, err := scanAutomation(tx.QueryRow(ctx, storekit.SQLf(
 			`SELECT %s FROM automation WHERE id = $1 AND archived_at IS NULL`, automationColumns), id))
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -249,7 +254,7 @@ func (s *AutomationStore) Update(ctx context.Context, id ids.UUID, in UpdateAuto
 		if err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "update", "automation", id,
+		_, err = storekit.Audit(ctx, tx, "update", "automation", id.UUID,
 			map[string]any{"name": before.Name, "enabled": before.Enabled, "params": json.RawMessage(before.Params)},
 			map[string]any{"name": a.Name, "enabled": a.Enabled, "params": json.RawMessage(a.Params)})
 		return err
@@ -263,7 +268,7 @@ func (s *AutomationStore) Update(ctx context.Context, id ids.UUID, in UpdateAuto
 // Archive soft-deletes: the instance stops firing on the next event and
 // vanishes from the surface, while its run records keep their referent.
 // Audited as `archive` — the vocabulary has no `delete` verb.
-func (s *AutomationStore) Archive(ctx context.Context, id ids.UUID) error {
+func (s *AutomationStore) Archive(ctx context.Context, id ids.AutomationID) error {
 	if err := auth.Require(ctx, "automation", principal.ActionDelete); err != nil {
 		return err
 	}
@@ -280,7 +285,7 @@ func (s *AutomationStore) Archive(ctx context.Context, id ids.UUID) error {
 			`UPDATE automation SET archived_at = $2, enabled = false WHERE id = $1`, id, s.now().UTC()); err != nil {
 			return err
 		}
-		_, err = storekit.Audit(ctx, tx, "archive", "automation", id,
+		_, err = storekit.Audit(ctx, tx, "archive", "automation", id.UUID,
 			map[string]any{"key": before.Key, "name": before.Name, "enabled": before.Enabled}, nil)
 		return err
 	})

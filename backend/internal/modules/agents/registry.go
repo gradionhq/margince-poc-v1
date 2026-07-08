@@ -151,7 +151,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 // StagedApprovalError is the typed form of the "staged as approval"
 // answer: a chat client shows the message, while a programmatic caller
 // (the Surface-B runner) suspends on the id instead of parsing prose.
-type StagedApprovalError struct{ ApprovalID ids.UUID }
+type StagedApprovalError struct{ ApprovalID ids.ApprovalID }
 
 func (e *StagedApprovalError) Error() string {
 	return fmt.Sprintf(

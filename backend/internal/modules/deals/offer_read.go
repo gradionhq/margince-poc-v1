@@ -28,7 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-func (s *Store) GetOffer(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+func (s *Store) GetOffer(ctx context.Context, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionRead); err != nil {
 		return crmcontracts.Offer{}, err
 	}
@@ -50,7 +50,7 @@ type ListDealOffersInput struct {
 	Status *string
 }
 
-func (s *Store) ListDealOffers(ctx context.Context, dealID ids.UUID, in ListDealOffersInput) ([]crmcontracts.Offer, storekit.Page, error) {
+func (s *Store) ListDealOffers(ctx context.Context, dealID ids.DealID, in ListDealOffersInput) ([]crmcontracts.Offer, storekit.Page, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -62,7 +62,7 @@ func (s *Store) ListDealOffers(ctx context.Context, dealID ids.UUID, in ListDeal
 		// The deal is the offer's visibility anchor: out of the caller's
 		// row scope, the whole listing answers 404, never an empty page
 		// that discloses the deal exists.
-		if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID); err != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "deal", dealID.UUID); err != nil {
 			return err
 		}
 
@@ -136,7 +136,7 @@ func scanOffers(rows pgx.Rows) ([]crmcontracts.Offer, error) {
 // attachOfferLines loads and nests each offer's derived line items.
 func attachOfferLines(ctx context.Context, tx pgx.Tx, offers []crmcontracts.Offer) error {
 	for i := range offers {
-		lines, err := readOfferLines(ctx, tx, ids.UUID(offers[i].Id))
+		lines, err := readOfferLines(ctx, tx, ids.From[ids.OfferKind](ids.UUID(offers[i].Id)))
 		if err != nil {
 			return err
 		}
@@ -150,7 +150,7 @@ const offerColumns = `id, workspace_id, deal_id, offer_number, revision, status,
 	net_minor, tax_minor, gross_minor, fx_rate_to_base::text, fx_rate_date, pdf_asset_ref,
 	accepted_at, source, captured_by, version, created_at, updated_at, archived_at`
 
-func readOffer(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+func readOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
 	q := `SELECT ` + offerColumns + ` FROM offer WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
@@ -164,7 +164,7 @@ func readOffer(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.Ar
 
 // readOfferWithLines is readOffer plus the nested line items — the shape
 // every offer response returns.
-func readOfferWithLines(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+func readOfferWithLines(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
 	offer, err := readOffer(ctx, tx, id, archived)
 	if err != nil {
 		return crmcontracts.Offer{}, err
@@ -221,7 +221,7 @@ func scanOffer(row pgx.Row) (crmcontracts.Offer, error) {
 	return o, nil
 }
 
-func readOfferLines(ctx context.Context, tx pgx.Tx, offerID ids.UUID) ([]crmcontracts.OfferLineItem, error) {
+func readOfferLines(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) ([]crmcontracts.OfferLineItem, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, position, product_id, description, unit, quantity::text, unit_price_minor,
 		        discount_pct::text, tax_rate::text, evidence, version, created_at, updated_at

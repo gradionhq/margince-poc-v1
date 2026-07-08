@@ -18,9 +18,9 @@ import (
 func TestScoreLeadWorkedExample(t *testing.T) {
 	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
 	signals := []BehavioralSignal{
-		{Kind: "reply", OccurredAt: now.AddDate(0, 0, -2), ActivityID: ids.NewV7()},
-		{Kind: "link_click", OccurredAt: now.AddDate(0, 0, -10), ActivityID: ids.NewV7()},
-		{Kind: "link_click", OccurredAt: now.AddDate(0, 0, -10), ActivityID: ids.NewV7()},
+		{Kind: "reply", OccurredAt: now.AddDate(0, 0, -2), ActivityID: ids.New[ids.ActivityKind]()},
+		{Kind: "link_click", OccurredAt: now.AddDate(0, 0, -10), ActivityID: ids.New[ids.ActivityKind]()},
+		{Kind: "link_click", OccurredAt: now.AddDate(0, 0, -10), ActivityID: ids.New[ids.ActivityKind]()},
 	}
 	score, factors := ScoreLead("VP Sales", "webform", signals, now)
 	if score != 51 {

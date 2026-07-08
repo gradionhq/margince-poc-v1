@@ -24,7 +24,7 @@ func (h Handlers) MergePerson(w http.ResponseWriter, r *http.Request, id crmcont
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	survivor, err := h.store.MergePerson(r.Context(), ids.UUID(id), ids.UUID(req.TargetId))
+	survivor, err := h.store.MergePerson(r.Context(), pathID[ids.PersonKind](id), ids.From[ids.PersonKind](ids.UUID(req.TargetId)))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -39,10 +39,7 @@ func (h Handlers) ListPeople(w http.ResponseWriter, r *http.Request, params crmc
 		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 	}
-	if params.OwnerId != nil {
-		owner := ids.UUID(*params.OwnerId)
-		in.OwnerID = &owner
-	}
+	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 
 	people, page, err := h.store.ListPeople(r.Context(), in)
 	if err != nil {
@@ -73,7 +70,7 @@ func (h Handlers) CreatePerson(w http.ResponseWriter, r *http.Request, _ crmcont
 }
 
 func (h Handlers) GetPerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	person, err := h.store.GetPerson(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	person, err := h.store.GetPerson(r.Context(), pathID[ids.PersonKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -91,7 +88,7 @@ func (h Handlers) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcon
 		return
 	}
 
-	person, err := h.store.UpdatePerson(r.Context(), ids.UUID(id), personUpdateInput(req, ifVersion))
+	person, err := h.store.UpdatePerson(r.Context(), pathID[ids.PersonKind](id), personUpdateInput(req, ifVersion))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -102,7 +99,7 @@ func (h Handlers) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcon
 // ArchivePerson: DELETE = archive, returning the archived entity (200,
 // architecture/11 §8 — never a bare 204 for domain rows).
 func (h Handlers) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	person, err := h.store.ArchivePerson(r.Context(), ids.UUID(id))
+	person, err := h.store.ArchivePerson(r.Context(), pathID[ids.PersonKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

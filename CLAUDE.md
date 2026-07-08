@@ -121,8 +121,9 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — thirteen bounded capabilities, flat per ADR-0054 §3
-  (store + mapping + transport + provider in one package); a module NEVER
+- `internal/modules/` — fourteen bounded capabilities, flat by default per
+  ADR-0054 §3 (store + mapping + transport + provider in one package),
+  growing subpackages only under the decisions/0018 policy; a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
   RBAC policy docs ONLY in `identity/internal/policy`, decisions/0006),
   `people` (person, organization, lead + merge + promote —
@@ -143,8 +144,10 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   the nightly retention evaluator — the ratified cross-store writer,
   gated by `backend/tableownership_test.go`), `collections`
   (lists — static and dynamic segments — and tags, visibility-probed),
-  and `de` (the German jurisdiction pack: GoBD retention floors,
-  registered via `ports/jurisdiction`).
+  `signals` (the consent-gated warm-room substrate: company-level
+  signals, the inspectable resolver, warm/cold join), and `de` (the
+  German jurisdiction pack: GoBD retention floors, registered via
+  `ports/jurisdiction`).
 
   Two sanctioned spine shapes, and ONLY two — don't invent a third:
   **Handlers→Store** for CRUD modules (people, deals, activities, …:
@@ -155,9 +158,13 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `internal/compose/` — the composition layer every process role shares:
   the contract HTTP surface (module handlers shadow generated 501 stubs),
   the composite `datasource.SystemOfRecordProvider`, the MCP registry +
-  approvals adapter, and the cross-module integration suites. Every
-  cross-module edge is injected HERE (identity's workspace seed ←
-  deals; agents' staging ← approvals).
+  approvals adapter, and the cross-module integration suites (in
+  `compose/integration`, with the shared harness). Every cross-module
+  edge is injected HERE (identity's workspace seed ← deals; agents'
+  staging ← approvals). Cross-module ORCHESTRATION groups live in
+  subpackages under the decisions/0018 growth policy (`compose/briefs`
+  is the pilot); a compose subpackage never durably owns a business
+  entity.
 - `internal/contracts/` — GENERATED from `backend/api/crm.yaml`. Never edit.
 - `backend/api/crm.yaml` — the authoritative OpenAPI 3.1 contract.
 - `backend/web/` — the embedded SPA (static, no build chain); served at

@@ -24,6 +24,8 @@ func (h Handlers) ListActivities(w http.ResponseWriter, r *http.Request, params 
 	}
 	if params.EntityType != nil && params.EntityId != nil {
 		et := string(*params.EntityType)
+		// The entity filter targets the polymorphic activity_link seam, so
+		// the id stays untyped (rule 6) — the paired entity_type names it.
 		id := ids.UUID(*params.EntityId)
 		in.EntityType = &et
 		in.EntityID = &id
@@ -62,7 +64,7 @@ func (h Handlers) LogActivity(w http.ResponseWriter, r *http.Request, _ crmcontr
 }
 
 func (h Handlers) GetActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	activity, err := h.store.GetActivity(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	activity, err := h.store.GetActivity(r.Context(), pathID[ids.ActivityKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

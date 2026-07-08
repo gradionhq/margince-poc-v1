@@ -87,7 +87,7 @@ func (h Handlers) CreateSignal(w http.ResponseWriter, r *http.Request, _ crmcont
 }
 
 func (h Handlers) GetSignal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	sig, err := h.store.GetSignal(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	sig, err := h.store.GetSignal(r.Context(), pathID[ids.SignalKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -110,7 +110,7 @@ func (h Handlers) UpdateSignal(w http.ResponseWriter, r *http.Request, id crmcon
 		Severity:  (*string)(req.Severity),
 		IfVersion: ifVersion,
 	}
-	sig, err := h.store.UpdateSignal(r.Context(), ids.UUID(id), in)
+	sig, err := h.store.UpdateSignal(r.Context(), pathID[ids.SignalKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -119,7 +119,7 @@ func (h Handlers) UpdateSignal(w http.ResponseWriter, r *http.Request, id crmcon
 }
 
 func (h Handlers) ArchiveSignal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	sig, err := h.store.ArchiveSignal(r.Context(), ids.UUID(id))
+	sig, err := h.store.ArchiveSignal(r.Context(), pathID[ids.SignalKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -128,7 +128,7 @@ func (h Handlers) ArchiveSignal(w http.ResponseWriter, r *http.Request, id crmco
 }
 
 func (h Handlers) ResolveSignal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ResolveSignalParams) {
-	sig, err := h.store.Resolve(r.Context(), ids.UUID(id))
+	sig, err := h.store.Resolve(r.Context(), pathID[ids.SignalKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -137,7 +137,7 @@ func (h Handlers) ResolveSignal(w http.ResponseWriter, r *http.Request, id crmco
 }
 
 func (h Handlers) GetSignalWarmth(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	warmth, err := h.store.Warmth(r.Context(), ids.UUID(id), time.Now().UTC())
+	warmth, err := h.store.Warmth(r.Context(), pathID[ids.SignalKind](id), time.Now().UTC())
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -146,12 +146,19 @@ func (h Handlers) GetSignalWarmth(w http.ResponseWriter, r *http.Request, id crm
 }
 
 func (h Handlers) GetSignalIntroPath(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	path, err := h.store.IntroPath(r.Context(), ids.UUID(id), time.Now().UTC())
+	path, err := h.store.IntroPath(r.Context(), pathID[ids.SignalKind](id), time.Now().UTC())
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, path)
+}
+
+// pathID asserts a contract path id as entity K's id — the widening point
+// between the wire and the typed store surface (the route already names the
+// entity, so the assertion lives here, not in the store).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
 }
 
 func pageInfo(p storekit.Page) crmcontracts.PageInfo {

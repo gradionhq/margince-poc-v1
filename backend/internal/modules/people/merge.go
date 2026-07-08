@@ -39,9 +39,14 @@ import (
 //   - a partner edge BETWEEN A and B can survive on neither (an org
 //     cannot partner with itself): it archives.
 //
-// Consent merges restrictively: a merge may only ever REDUCE what the
-// workspace is allowed to do with the surviving person, never expand it —
-// A's withdrawal propagates to B; A's grant does not.
+// Consent merges restrictively where the two records disagree: A's
+// withdrawal propagates to B (with an appended proof event — a state
+// change without proof would break the Art. 7(1) invariant), and where
+// B already holds a row for a purpose, B's state stands — A's grant
+// never overrides it. For purposes B has NO row for, A's rows travel to
+// B together with their original proof chain: a merge asserts the two
+// records are the same human, so a consent that human granted remains
+// proven (the same carry-through the lead→person promotion does).
 
 // MergeSelfError maps to 422: a record cannot merge into itself.
 type MergeSelfError struct{}
@@ -75,7 +80,7 @@ type relinkCounts struct {
 }
 
 // MergePerson merges person source→target and returns the survivor.
-func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
+func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
 	// authz.go maps the merge verb to update: rewriting where records
 	// point is curation of both rows, not deletion of one.
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
@@ -94,10 +99,17 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.UUID) (c
 	return out, err
 }
 
-// mergePersonTx resolves both ends, relinks every reference, fills the
-// survivor's gaps, retires the source, and runs the write shape — all
-// inside the caller's transaction.
-func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (crmcontracts.Person, error) {
+// mergePersonTx locks both ends, resolves them, relinks every
+// reference, fills the survivor's gaps, retires the source, and runs
+// the write shape — all inside the caller's transaction. The pair lock
+// is what makes the target check hold until commit: without it a
+// concurrent merge(target→elsewhere) could archive the survivor
+// mid-merge, leaving relinked children pointing at a dead record.
+func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
+	_, tgtLock, err := storekit.LockPair(ctx, tx, "person", sourceID.UUID, targetID.UUID)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	src, tgt, err := mergePair(ctx, tx, "person", sourceID, targetID, readPersonMergeState)
 	if err != nil {
 		return crmcontracts.Person{}, err
@@ -108,14 +120,14 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 	}
 	p := buildSurvivorshipPatch(tgt, src)
 	if !p.Empty() {
-		if err := p.Apply(ctx, tx, "person", targetID, nil); err != nil {
+		if err := p.ApplyLocked(ctx, tx, tgtLock); err != nil {
 			return crmcontracts.Person{}, fmt.Errorf("apply survivorship fill: %w", err)
 		}
 	}
-	if err := archiveMergedAway(ctx, tx, "person", sourceID, targetID); err != nil {
+	if err := archiveMergedAway(ctx, tx, "person", sourceID.UUID, targetID.UUID); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("retire merged-away person: %w", err)
 	}
-	auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID,
+	auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID.UUID,
 		map[string]any{"merged_into_id": nil},
 		map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
 	if err != nil {
@@ -123,7 +135,7 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 	}
 	// One event, its own verb: the context graph collapses two nodes,
 	// which neither person.updated nor person.archived can say.
-	if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID, map[string]any{
+	if err := storekit.Emit(ctx, tx, auditID, "person.merged", "person", sourceID.UUID, map[string]any{
 		"merged_from_id": sourceID,
 		"merged_into_id": targetID,
 		"relinked":       counts,
@@ -147,10 +159,32 @@ func buildSurvivorshipPatch(target, source crmcontracts.Person) *storekit.Patch 
 	if target.ConvertedFromLeadId == nil && source.ConvertedFromLeadId != nil {
 		p.Set("converted_from_lead_id", nil, ids.UUID(*source.ConvertedFromLeadId))
 	}
-	if (target.Social == nil || len(*target.Social) == 0) && source.Social != nil && len(*source.Social) > 0 {
-		p.Set("social", nil, storekit.JSONArg(*source.Social))
+	if target.Address == nil && source.Address != nil {
+		p.Set("address_line1", nil, source.Address.Line1)
+		p.Set("address_line2", nil, source.Address.Line2)
+		p.Set("address_city", nil, source.Address.City)
+		p.Set("address_region", nil, source.Address.Region)
+		p.Set("address_postal_code", nil, source.Address.PostalCode)
+		p.Set("address_country", nil, source.Address.Country)
 	}
 	return p
+}
+
+// mergePersonSocial re-homes A's social rows onto B: a platform the
+// survivor already has keeps B's handle and drops A's (same
+// survivor-wins rule as the primary-slot demotions), the rest relink.
+func mergePersonSocial(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) error {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM person_social a
+		WHERE a.person_id = $1 AND EXISTS (
+		  SELECT 1 FROM person_social b
+		  WHERE b.person_id = $2 AND b.platform = a.platform)`,
+		sourceID, targetID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE person_social SET person_id = $2 WHERE person_id = $1`, sourceID, targetID)
+	return err
 }
 
 // relinkPersonReferences re-homes everything that points at the source
@@ -158,7 +192,7 @@ func buildSurvivorshipPatch(target, source crmcontracts.Person) *storekit.Patch 
 // the slot), relationship edges, the pure link tables, consent (the
 // restrictive rule), the lead promotion pointer, and the merge redirect
 // chain — and returns the accounting the person.merged event carries.
-func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (relinkCounts, error) {
+func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (relinkCounts, error) {
 	counts := relinkCounts{}
 	var err error
 	if counts.Emails, err = relinkDemotingPrimary(ctx, tx, `
@@ -167,7 +201,7 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 		    SELECT 1 FROM person_email b
 		    WHERE b.person_id = $2 AND b.email_type = a.email_type
 		      AND b.is_primary AND b.archived_at IS NULL)
-		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
+		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink emails: %w", err)
 	}
 	if counts.Phones, err = relinkDemotingPrimary(ctx, tx, `
@@ -176,14 +210,17 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 		    SELECT 1 FROM person_phone b
 		    WHERE b.person_id = $2 AND b.phone_type = a.phone_type
 		      AND b.is_primary AND b.archived_at IS NULL)
-		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID, targetID); err != nil {
+		WHERE a.person_id = $1 AND a.archived_at IS NULL`, sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink phones: %w", err)
 	}
 	if counts.Relationships, err = relinkPersonEdges(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("relink relationships: %w", err)
 	}
-	if counts.ActivityLinks, err = relinkLinkRows(ctx, tx, "person", sourceID, targetID); err != nil {
+	if counts.ActivityLinks, err = relinkLinkRows(ctx, tx, "person", sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink activity/list/tag rows: %w", err)
+	}
+	if err := mergePersonSocial(ctx, tx, sourceID, targetID); err != nil {
+		return counts, fmt.Errorf("merge social rows: %w", err)
 	}
 	if err := mergeConsent(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("merge consent: %w", err)
@@ -209,7 +246,7 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 // returns itself; an archived one returns its redirect pointer (nil when
 // it was plain-archived, not merged). readOrgMergeState (merge_organization.go)
 // is its organization twin.
-func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Person, *ids.UUID, error) {
+func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.PersonID) (crmcontracts.Person, *ids.UUID, error) {
 	p, err := readPerson(ctx, tx, id, storekit.IncludeArchived)
 	if err != nil {
 		return crmcontracts.Person{}, nil, err
@@ -227,10 +264,10 @@ func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontr
 // target must be live too: merging is a read of the survivor it returns,
 // so an out-of-scope target answers a bare conflict, and an archived one
 // can survive nothing.
-func mergePair[T any](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.UUID,
-	read func(context.Context, pgx.Tx, ids.UUID) (T, *ids.UUID, error)) (source, target T, err error) {
+func mergePair[T any, K ids.EntityKind](ctx context.Context, tx pgx.Tx, kind string, sourceID, targetID ids.ID[K],
+	read func(context.Context, pgx.Tx, ids.ID[K]) (T, *ids.UUID, error)) (source, target T, err error) {
 	var zero T
-	if err := auth.EnsureVisible(ctx, tx, kind, sourceID); err != nil {
+	if err := auth.EnsureVisible(ctx, tx, kind, sourceID.UUID); err != nil {
 		return zero, zero, err
 	}
 	source, mergedInto, err := read(ctx, tx, sourceID)
@@ -241,7 +278,7 @@ func mergePair[T any](ctx context.Context, tx pgx.Tx, kind string, sourceID, tar
 		return zero, zero, err
 	}
 
-	visible, err := auth.VisibleTo(ctx, tx, kind, targetID)
+	visible, err := auth.VisibleTo(ctx, tx, kind, targetID.UUID)
 	if err != nil {
 		return zero, zero, err
 	}
@@ -268,7 +305,7 @@ func relinkDemotingPrimary(ctx context.Context, tx pgx.Tx, stmt string, sourceID
 // relinkPersonEdges moves A's relationship edges to B: duplicates of an
 // edge B already has archive, the rest relink with the current-primary
 // employer flag demoted when B already has one.
-func relinkPersonEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) (int64, error) {
+func relinkPersonEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (int64, error) {
 	if _, err := tx.Exec(ctx, `
 		UPDATE relationship a SET archived_at = $3
 		WHERE a.person_id = $1 AND a.archived_at IS NULL AND EXISTS (
@@ -331,19 +368,32 @@ func relinkLinkRows(ctx context.Context, tx pgx.Tx, entityType string, sourceID,
 	return relinked, nil
 }
 
-// mergeConsent applies the restrictive rule: the survivor's consent may
-// only tighten. A's withdrawal overrides B's state; A's grant never
-// upgrades B (expanding contact rights must come from a captured consent
-// event, not a data-hygiene action). The append-only proof log relinks
-// in full, so the evidence trail survives on the one person.
-func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) error {
+// mergeConsent applies the merge rule the package comment states:
+// where both records hold a row, B's state stands unless A withdrew —
+// a withdrawal always wins and, like every consent state change, lands
+// with an appended consent_event proof row in the same statement; A's
+// remaining rows (purposes B has no state for) relink to B with their
+// original proof chain intact.
+func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) error {
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE person_consent b SET state = 'withdrawn'
-		FROM person_consent a
-		WHERE a.person_id = $1 AND b.person_id = $2
-		  AND a.purpose_id = b.purpose_id
-		  AND a.state = 'withdrawn' AND b.state <> 'withdrawn'`,
-		sourceID, targetID); err != nil {
+		WITH flipped AS (
+		  UPDATE person_consent b SET state = 'withdrawn', captured_at = $3, source = 'merge'
+		  FROM person_consent a
+		  WHERE a.person_id = $1 AND b.person_id = $2
+		    AND a.purpose_id = b.purpose_id
+		    AND a.state = 'withdrawn' AND b.state <> 'withdrawn'
+		  RETURNING b.purpose_id
+		)
+		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, source,
+		                           policy_text, policy_version, captured_at, captured_by)
+		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, purpose_id, 'withdrawn', 'merge',
+		       'withdrawal carried over from a merged duplicate record', 'merge', $3, $4
+		FROM flipped`,
+		sourceID, targetID, time.Now().UTC(), by); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -359,7 +409,7 @@ func mergeConsent(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.UUID) e
 		sourceID, targetID); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`UPDATE consent_event SET person_id = $2 WHERE person_id = $1`,
 		sourceID, targetID)
 	return err

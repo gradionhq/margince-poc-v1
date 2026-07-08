@@ -29,7 +29,7 @@ const partnerColumns = `organization_id, cert_status, partner_role, margin_tier,
 	certified_staff, retention_rate, version, created_at, updated_at, archived_at`
 
 type partnerRow struct {
-	OrganizationID ids.UUID
+	OrganizationID ids.OrganizationID
 	CertStatus     string
 	PartnerRole    *string
 	MarginTier     *string
@@ -49,7 +49,7 @@ func scanPartner(r pgx.Row) (partnerRow, error) {
 }
 
 type UpsertPartnerInput struct {
-	OrganizationID ids.UUID
+	OrganizationID ids.OrganizationID
 	PartnerRole    string
 	CertStatus     *string
 	MarginTier     *string
@@ -75,7 +75,13 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 	var out partnerRow
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The org reference is a client-supplied FK argument (H1).
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID); err != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+			return err
+		}
+		// The row lock makes the version pre-read and the upsert below one
+		// race-free unit; partner is keyed by its organization, so the org
+		// row is the serialization point.
+		if _, err := storekit.LockRow(ctx, tx, "organization", in.OrganizationID.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		if in.IfVersion != nil {
@@ -121,18 +127,18 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 			"margin_tier": in.MarginTier, "certified_staff": in.CertifiedStaff,
 			"retention_rate": in.RetentionRate,
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID, nil, auditImage)
+		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID.UUID, nil, auditImage)
 		if err != nil {
 			return err
 		}
-		return storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID, map[string]any{
+		return storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", in.OrganizationID.UUID, map[string]any{
 			"delta": map[string]any{"partner": map[string]any{"role": in.PartnerRole, "cert_status": out.CertStatus}},
 		})
 	})
 	return out, err
 }
 
-func (s *Store) GetPartner(ctx context.Context, organizationID ids.UUID) (partnerRow, error) {
+func (s *Store) GetPartner(ctx context.Context, organizationID ids.OrganizationID) (partnerRow, error) {
 	if err := auth.Require(ctx, "partner", principal.ActionRead); err != nil {
 		return partnerRow{}, err
 	}
@@ -142,7 +148,7 @@ func (s *Store) GetPartner(ctx context.Context, organizationID ids.UUID) (partne
 	}
 	var out partnerRow
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", organizationID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", organizationID.UUID); err != nil {
 			return err
 		}
 		var err error
@@ -251,7 +257,7 @@ func partnerListWhere(ctx context.Context, in ListPartnersInput, arg func(any) i
 
 func wirePartner(p partnerRow) crmcontracts.Partner {
 	out := crmcontracts.Partner{
-		OrganizationId: openapi_types.UUID(p.OrganizationID),
+		OrganizationId: openapi_types.UUID(p.OrganizationID.UUID),
 		CertStatus:     crmcontracts.PartnerCertStatus(p.CertStatus),
 		CreatedAt:      p.CreatedAt,
 		UpdatedAt:      p.UpdatedAt,

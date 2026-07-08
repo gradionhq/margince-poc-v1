@@ -14,7 +14,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -27,7 +26,7 @@ import (
 // existing id").
 type DuplicateEmailError struct {
 	Email      string
-	ExistingID ids.UUID
+	ExistingID ids.PersonID
 }
 
 func (e *DuplicateEmailError) Error() string {
@@ -55,8 +54,9 @@ type CreatePersonInput struct {
 	FirstName *string
 	LastName  *string
 	Title     *string
-	OwnerID   *ids.UUID
+	OwnerID   *ids.UserID
 	Social    map[string]any
+	Address   *crmcontracts.Address
 	Emails    []PersonEmailInput
 	Phones    []PersonPhoneInput
 	Source    string
@@ -66,6 +66,9 @@ type CreatePersonInput struct {
 // The email dedupe unique index turns a duplicate into the 409 contract.
 func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
+		return crmcontracts.Person{}, err
+	}
+	if err := parsePersonContacts(in.Emails, in.Phones); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
@@ -79,16 +82,24 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return err
 		}
 
-		wsID := storekit.MustWorkspace(ctx)
-		id := ids.NewV7()
+		wsID := workspaceID(ctx)
+		id := ids.New[ids.PersonKind]()
+		addr := addressColumns(in.Address)
 		_, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id, social, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, coalesce($8, '{}'::jsonb), $9, $10)`,
-			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID, storekit.JSONArg(in.Social), in.Source, by)
+			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
+			                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
+			                     source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID,
+			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
+			in.Source, by)
 		if err != nil {
 			return fmt.Errorf("insert person: %w", err)
 		}
 
+		if err := replacePersonSocial(ctx, tx, wsID, id, in.Social); err != nil {
+			return err
+		}
 		if err := insertPersonEmails(ctx, tx, wsID, id, in.Source, by, in.Emails); err != nil {
 			return err
 		}
@@ -96,11 +107,11 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return err
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "create", "person", id, nil, map[string]any{"full_name": in.FullName})
+		auditID, err := storekit.Audit(ctx, tx, "create", "person", id.UUID, nil, map[string]any{"full_name": in.FullName})
 		if err != nil {
 			return fmt.Errorf("audit person create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "person.created", "person", id, map[string]any{"full_name": in.FullName}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.created", "person", id.UUID, map[string]any{"full_name": in.FullName}); err != nil {
 			return fmt.Errorf("emit person.created: %w", err)
 		}
 
@@ -112,80 +123,15 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 	return out, err
 }
 
-// insertPersonEmails lands the person's emails; the unique index stays
-// the structural guarantee under races, mapping uq_person_email_dedupe
-// to the typed 409 (which omits existing_id — the aborted transaction
-// cannot re-query) and two primary emails of one type to a plain conflict.
-func insertPersonEmails(ctx context.Context, tx pgx.Tx, wsID, personID ids.UUID, source, by string, emails []PersonEmailInput) error {
-	for _, e := range emails {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
-			 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8)`,
-			wsID, personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by); err != nil {
-			if name, ok := storekit.UniqueViolation(err); ok {
-				if name == "uq_person_email_dedupe" {
-					return &DuplicateEmailError{Email: e.Email}
-				}
-				return apperrors.ErrConflict
-			}
-			return fmt.Errorf("insert person email: %w", err)
-		}
-	}
-	return nil
-}
-
-// insertPersonPhones lands the person's phone rows.
-func insertPersonPhones(ctx context.Context, tx pgx.Tx, wsID, personID ids.UUID, source, by string, phones []PersonPhoneInput) error {
-	for _, p := range phones {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			wsID, personID, p.Phone, p.PhoneType, p.IsPrimary, p.Position, source, by); err != nil {
-			return fmt.Errorf("insert person phone: %w", err)
-		}
-	}
-	return nil
-}
-
-// ensurePersonEmailsUnclaimed is the dedupe pre-check, so the 409 can
-// carry the existing id; the unique index remains the structural
-// guarantee under races. The existing id is disclosed only when the
-// caller could read that row; the conflict itself is still answered
-// (existence-hiding survives the 409).
-func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []PersonEmailInput) error {
-	for _, e := range emails {
-		var existing ids.UUID
-		err := tx.QueryRow(ctx,
-			`SELECT person_id FROM person_email WHERE email = lower($1) AND archived_at IS NULL`,
-			e.Email).Scan(&existing)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("probe email dedupe: %w", err)
-		}
-		dup := &DuplicateEmailError{Email: e.Email}
-		visible, err := auth.VisibleTo(ctx, tx, "person", existing)
-		if err != nil {
-			return err
-		}
-		if visible {
-			dup.ExistingID = existing
-		}
-		return dup
-	}
-	return nil
-}
-
 // GetPerson returns one person with child rows; archived rows resolve
 // only under IncludeArchived (they stay fetchable by id after merge).
-func (s *Store) GetPerson(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
+func (s *Store) GetPerson(ctx context.Context, id ids.PersonID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, archived)
@@ -198,7 +144,7 @@ type ListPeopleInput struct {
 	Cursor          *string
 	Limit           *int
 	Query           *string
-	OwnerID         *ids.UUID
+	OwnerID         *ids.UserID
 	IncludeArchived bool
 }
 
@@ -227,7 +173,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), "full_name"))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)
@@ -278,19 +224,20 @@ type UpdatePersonInput struct {
 	FirstName *string
 	LastName  *string
 	Title     *string
-	OwnerID   *ids.UUID
+	OwnerID   *ids.UserID
 	Social    map[string]any
+	Address   *crmcontracts.Address
 	IfVersion *int64
 	Source    string
 }
 
-func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonInput) (crmcontracts.Person, error) {
+func (s *Store) UpdatePerson(ctx context.Context, id ids.PersonID, in UpdatePersonInput) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
 		current, err := readPerson(ctx, tx, id, storekit.LiveOnly)
@@ -299,19 +246,35 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.UUID, in UpdatePersonIn
 		}
 
 		p := buildPersonPatch(current, in)
+		if in.Social != nil {
+			// The relation replacement rides the person row's version
+			// bump (updated_at below), so If-Match still guards it and
+			// the audit row still records the transition.
+			p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+		}
 		if p.Empty() {
 			out = current
 			return nil
 		}
 
-		if err := p.Apply(ctx, tx, "person", id, in.IfVersion); err != nil {
+		if err := p.ApplyGuarded(ctx, tx, "person", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply person patch: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "person", id, p.Before(), p.After())
+		if in.Social != nil {
+			if err := replacePersonSocial(ctx, tx, workspaceID(ctx), id, in.Social); err != nil {
+				return err
+			}
+		}
+		before, after := p.Before(), p.After()
+		if in.Social != nil {
+			before["social"] = current.Social
+			after["social"] = in.Social
+		}
+		auditID, err := storekit.Audit(ctx, tx, "update", "person", id.UUID, before, after)
 		if err != nil {
 			return fmt.Errorf("audit person update: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id, p.After()); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id.UUID, after); err != nil {
 			return fmt.Errorf("emit person.updated: %w", err)
 		}
 		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -342,21 +305,27 @@ func buildPersonPatch(current crmcontracts.Person, in UpdatePersonInput) *storek
 	if in.OwnerID != nil {
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
 	}
-	if in.Social != nil {
-		p.Set("social", current.Social, storekit.JSONArg(in.Social))
+	if in.Address != nil {
+		cur := addressColumns(current.Address)
+		p.Set("address_line1", cur.Line1, in.Address.Line1)
+		p.Set("address_line2", cur.Line2, in.Address.Line2)
+		p.Set("address_city", cur.City, in.Address.City)
+		p.Set("address_region", cur.Region, in.Address.Region)
+		p.Set("address_postal_code", cur.PostalCode, in.Address.PostalCode)
+		p.Set("address_country", cur.Country, in.Address.Country)
 	}
 	return p
 }
 
 // ArchivePerson soft-deletes the person and cascades to its owned child
 // rows and referencing edges in the same transaction (data-model §1.10).
-func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Person, error) {
+func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return crmcontracts.Person{}, err
 	}
 	var out crmcontracts.Person
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
 		if _, err := readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -385,132 +354,17 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.UUID) (crmcontracts.Pe
 			return err
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "archive", "person", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "person", id.UUID, nil, nil)
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "person.archived", "person", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "person.archived", "person", id.UUID, nil); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, storekit.IncludeArchived)
 		return err
 	})
 	return out, err
-}
-
-const personColumns = `id, workspace_id, full_name, first_name, last_name, title, owner_id,
-	social, merged_into_id, converted_from_lead_id, source, captured_by,
-	version, created_at, updated_at, archived_at`
-
-func readPerson(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
-	q := `SELECT ` + personColumns + ` FROM person WHERE id = $1`
-	if archived == storekit.LiveOnly {
-		q += ` AND archived_at IS NULL`
-	}
-	row := tx.QueryRow(ctx, q, id)
-	p, err := scanPerson(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Person{}, apperrors.ErrNotFound
-	}
-	if err != nil {
-		return crmcontracts.Person{}, err
-	}
-
-	people := []crmcontracts.Person{p}
-	if err := attachPersonChildren(ctx, tx, people); err != nil {
-		return crmcontracts.Person{}, err
-	}
-	return people[0], nil
-}
-
-func scanPerson(row pgx.Row) (crmcontracts.Person, error) {
-	var p crmcontracts.Person
-	var id, wsID ids.UUID
-	var ownerID, mergedInto, fromLead *ids.UUID
-	var social map[string]any
-	var version int64
-
-	err := row.Scan(&id, &wsID, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
-		&social, &mergedInto, &fromLead, &p.Source, &p.CapturedBy,
-		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
-	if err != nil {
-		return p, err
-	}
-
-	p.Id = openapi_types.UUID(id)
-	p.WorkspaceId = openapi_types.UUID(wsID)
-	p.OwnerId = uuidPtr(ownerID)
-	p.MergedIntoId = uuidPtr(mergedInto)
-	p.ConvertedFromLeadId = uuidPtr(fromLead)
-	if social != nil {
-		p.Social = &social
-	}
-	p.Version = &version
-	return p, nil
-}
-
-// attachPersonChildren loads emails + phones for a page in two queries,
-// not 2N.
-func attachPersonChildren(ctx context.Context, tx pgx.Tx, people []crmcontracts.Person) error {
-	if len(people) == 0 {
-		return nil
-	}
-	idx := make(map[openapi_types.UUID]*crmcontracts.Person, len(people))
-	personIDs := make([]ids.UUID, len(people))
-	for i := range people {
-		idx[people[i].Id] = &people[i]
-		personIDs[i] = ids.UUID(people[i].Id)
-	}
-
-	rows, err := tx.Query(ctx,
-		`SELECT person_id, id, email, email_type, is_primary, position, source, captured_by
-		 FROM person_email WHERE person_id = ANY($1) AND archived_at IS NULL
-		 ORDER BY position, created_at`, personIDs)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var personID, emailID ids.UUID
-		var e crmcontracts.PersonEmail
-		var email string
-		if err := rows.Scan(&personID, &emailID, &email, &e.EmailType, &e.IsPrimary, &e.Position, &e.Source, &e.CapturedBy); err != nil {
-			return err
-		}
-		e.Id = openapi_types.UUID(emailID)
-		e.Email = openapi_types.Email(email)
-		p := idx[openapi_types.UUID(personID)]
-		if p.Emails == nil {
-			p.Emails = &[]crmcontracts.PersonEmail{}
-		}
-		*p.Emails = append(*p.Emails, e)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	phoneRows, err := tx.Query(ctx,
-		`SELECT person_id, id, phone, phone_type, is_primary, position, source, captured_by
-		 FROM person_phone WHERE person_id = ANY($1) AND archived_at IS NULL
-		 ORDER BY position, created_at`, personIDs)
-	if err != nil {
-		return err
-	}
-	defer phoneRows.Close()
-	for phoneRows.Next() {
-		var personID, phoneID ids.UUID
-		var ph crmcontracts.PersonPhone
-		if err := phoneRows.Scan(&personID, &phoneID, &ph.Phone, &ph.PhoneType, &ph.IsPrimary, &ph.Position, &ph.Source, &ph.CapturedBy); err != nil {
-			return err
-		}
-		ph.Id = openapi_types.UUID(phoneID)
-		p := idx[openapi_types.UUID(personID)]
-		if p.Phones == nil {
-			p.Phones = &[]crmcontracts.PersonPhone{}
-		}
-		*p.Phones = append(*p.Phones, ph)
-	}
-	return phoneRows.Err()
 }
 
 // EnsurePersonByEmail resolves the live person who owns email, or

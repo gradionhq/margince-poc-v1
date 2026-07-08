@@ -144,7 +144,7 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	if env.Type != "approval.decided" {
 		return nil
 	}
-	approvalID := env.Entity.ID
+	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
 	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
 
 	suspended, found, err := s.store.FindSuspendedByApproval(wsCtx, approvalID)

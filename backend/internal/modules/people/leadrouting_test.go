@@ -15,11 +15,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func routingPool(n int) ([]ids.UUID, map[ids.UUID]bool) {
-	owners := make([]ids.UUID, n)
-	active := map[ids.UUID]bool{}
+func routingPool(n int) ([]ids.UserID, map[ids.UserID]bool) {
+	owners := make([]ids.UserID, n)
+	active := map[ids.UserID]bool{}
 	for i := range owners {
-		owners[i] = ids.NewV7()
+		owners[i] = ids.New[ids.UserKind]()
 		active[owners[i]] = true
 	}
 	return owners, active
@@ -28,9 +28,9 @@ func routingPool(n int) ([]ids.UUID, map[ids.UUID]bool) {
 func TestChooseOwnerRoundRobinRotatesFairlyWithinOne(t *testing.T) {
 	owners, active := routingPool(3)
 	cfg := RoutingConfig{Owners: owners}
-	load := map[ids.UUID]int{}
+	load := map[ids.UserID]int{}
 
-	var sequence []ids.UUID
+	var sequence []ids.UserID
 	for range 7 {
 		chosen, reason, ok := chooseOwner(cfg, leadRoutingFacts{}, load, active)
 		if !ok || reason != "round_robin" {
@@ -52,7 +52,7 @@ func TestChooseOwnerRoundRobinRotatesFairlyWithinOne(t *testing.T) {
 	}
 }
 
-func indexOf(owners []ids.UUID, id ids.UUID) int {
+func indexOf(owners []ids.UserID, id ids.UserID) int {
 	for i, o := range owners {
 		if o == id {
 			return i
@@ -64,7 +64,7 @@ func indexOf(owners []ids.UUID, id ids.UUID) int {
 func TestChooseOwnerSkipsCappedOwnerAndStopsWhenAllAreFull(t *testing.T) {
 	owners, active := routingPool(3)
 	cfg := RoutingConfig{Owners: owners, CapPerOwner: 2}
-	load := map[ids.UUID]int{owners[0]: 2, owners[1]: 1, owners[2]: 2}
+	load := map[ids.UserID]int{owners[0]: 2, owners[1]: 1, owners[2]: 2}
 
 	chosen, _, ok := chooseOwner(cfg, leadRoutingFacts{}, load, active)
 	if !ok || chosen != owners[1] {
@@ -79,7 +79,7 @@ func TestChooseOwnerSkipsCappedOwnerAndStopsWhenAllAreFull(t *testing.T) {
 
 func TestChooseOwnerRuleOutranksRoundRobinButNeverTheCap(t *testing.T) {
 	owners, active := routingPool(2)
-	ruleOwner := ids.NewV7()
+	ruleOwner := ids.New[ids.UserKind]()
 	active[ruleOwner] = true
 	cfg := RoutingConfig{
 		Owners:      owners,
@@ -89,19 +89,19 @@ func TestChooseOwnerRuleOutranksRoundRobinButNeverTheCap(t *testing.T) {
 
 	// The matching rule wins over the emptier pool (match is
 	// case-insensitive: sources are free text).
-	chosen, reason, ok := chooseOwner(cfg, leadRoutingFacts{Source: "Webinar"}, map[ids.UUID]int{}, active)
+	chosen, reason, ok := chooseOwner(cfg, leadRoutingFacts{Source: "Webinar"}, map[ids.UserID]int{}, active)
 	if !ok || chosen != ruleOwner || reason != "rule:0:source" {
 		t.Fatalf("webinar lead routed to %v via %q, want the rule owner via rule:0:source", chosen, reason)
 	}
 
 	// A non-matching lead ignores the rule.
-	chosen, reason, ok = chooseOwner(cfg, leadRoutingFacts{Source: "cold_outbound"}, map[ids.UUID]int{}, active)
+	chosen, reason, ok = chooseOwner(cfg, leadRoutingFacts{Source: "cold_outbound"}, map[ids.UserID]int{}, active)
 	if !ok || chosen != owners[0] || reason != "round_robin" {
 		t.Fatalf("non-matching lead routed to %v via %q, want pool[0] via round_robin", chosen, reason)
 	}
 
 	// The rule owner at cap: the cap wins, the lead falls to the pool.
-	chosen, reason, ok = chooseOwner(cfg, leadRoutingFacts{Source: "webinar"}, map[ids.UUID]int{ruleOwner: 1}, active)
+	chosen, reason, ok = chooseOwner(cfg, leadRoutingFacts{Source: "webinar"}, map[ids.UserID]int{ruleOwner: 1}, active)
 	if !ok || chosen != owners[0] || reason != "round_robin" {
 		t.Fatalf("capped rule owner must fall through to the pool; got %v via %q", chosen, reason)
 	}
@@ -112,14 +112,14 @@ func TestChooseOwnerIgnoresInactiveOwners(t *testing.T) {
 	active[owners[0]] = false // suspended/deactivated/archived: cannot take work
 	cfg := RoutingConfig{Owners: owners}
 
-	chosen, _, ok := chooseOwner(cfg, leadRoutingFacts{}, map[ids.UUID]int{}, active)
+	chosen, _, ok := chooseOwner(cfg, leadRoutingFacts{}, map[ids.UserID]int{}, active)
 	if !ok || chosen != owners[1] {
 		t.Fatalf("inactive pool[0] must be skipped; got pool[%d] ok=%v", indexOf(owners, chosen), ok)
 	}
 }
 
 func TestParseRoutingConfigRoundTripsAndRejectsMalformedParams(t *testing.T) {
-	owner := ids.NewV7()
+	owner := ids.New[ids.UserKind]()
 	params, err := json.Marshal(map[string]any{
 		"owners":        []string{owner.String()},
 		"cap_per_owner": 3,

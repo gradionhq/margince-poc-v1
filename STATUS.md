@@ -5,72 +5,246 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
-## ▶ RESTART HERE (2026-07-07 — product loop paused; a 5-PR stack awaits merge)
+## ▶ RESTART HERE (2026-07-08 — spec-drift assessment done; PR #21 awaiting Sonar + merge)
 
-Session ended deliberately mid-pipeline. **Five gate-green-except-Sonar PRs
-are stacked and ready** (each verified live in a browser against the real
-backend, all unit+e2e lanes green):
+The 2026-07-06/07 spec-side gap-audit (A73–A100 + Batch C/C0/D/E) landed after
+this repo's last contract sync — `backend/api/crm.yaml` is ~3.5k diff lines
+behind the spec's. The full classified delta and its sequencing live in
+**[docs/worklists/spec-drift-2026-07-08.md](docs/worklists/spec-drift-2026-07-08.md)**:
+18 fix items on already-built code (3 structural: capture-connection vault
+reshape, cold-start oneOf rework, A100 en-GB frontend locale), 5 conflicts
+needing decisions, ~49 reverse-drift ops to file in feedback/, and the net-new
+sizing. The handoff ledger's items (Niraj/A99) are already built — not work.
 
-- **#14** `feat/home-morning-brief` — Home rides the real /brief spine
-  (ranked queue, §10.1 factor bars, act/dismiss); onboarding human field
-  labels + step-4 honesty; **plus the whole Sonar-gate enablement** (see
-  below). ← the stack base; merge this first.
-- **#15** `feat/record-create-flows` — create flows for contact / company /
-  lead / deal (shared CreateAction), styled .input/.field atoms.
-- **#17** `feat/360-enrich-strength` — company-360 enrichment card driving
-  POST /organizations/{id}/enrich (EP05 scrape verb surfaced).
-- **#18** `feat/log-activity` — log a note/task from the three 360s.
-- **#19** `feat/tasks-remind` — task create + remind_at set/clear (B-E16.1
-  surface). #18/#19 were built by parallel worktree agents; both branch off
-  #17's pre-rebase head — REBASE them once #17 merges (i18n adjacency
-  conflicts are likely between the two; both add keys at the same anchors).
+PR #21 state (supersedes the note below): the DCO force-push is **done**
+(origin == local, trailers present, DCO check green). Remaining: SonarCloud
+pending, branch is BEHIND main (PR #22 merged) → update-branch, merge, then
+close PR #20 (fully contained in #21).
 
-**The SonarCloud saga (all fixed, last scan still running at close):** the
-required "SonarCloud Code Analysis" check blocked ALL merges. Chain of
-causes, each fixed on #14: SONAR_TOKEN secret invalid (owner regenerated) →
-sonar.organization was `gradionhq`, real org key is **`gradion`** → quality
-gate failed on new_coverage=0% (scan job now runs go test -coverprofile +
-vitest lcov; properties declare report paths, test.inclusions, generated
-schema.d.ts excluded) → two new-code security findings (setup actions now
-SHA-pinned, pnpm install --ignore-scripts) → remaining duplication was
-en.ts↔de.ts cross-matching (parallel catalogs BY DESIGN; fixed via
-sonar.cpd.exclusions for exactly those two files). **Pickup: check the
-scans on #14/#15/#17 — if green, merge #14 → retarget #15 to main → merge →
-retarget #17 → merge → rebase #18/#19 → merge.** If duplication persists,
-read the per-file blocks via api/duplications/show (the technique that
-found the i18n cause).
+## ▶ RESTART HERE (2026-07-07 PM — Strojny review COMPLETE; PR #21 awaiting force-push)
 
-Memory `margince-sonarcloud-ci-state` records the whole gate chain for
-future sessions. The dev stack was STOPPED at session close (`make
-dev-tls` to relaunch). Note the api binary must be restarted after backend
-merges or the SPA hits missing routes.
+The Strojny workstream is **finished**. WS9 (typed entity ids) is done across
+**all 14 modules** — this session converted the remaining 13 (capture, search,
+privacy, consent, collections, signals, activities, identity, approvals, ai,
+agents, deals; `de` had no ids) following the `people` pattern, one commit per
+module, each on a green build. `make check` + the full real-Postgres
+integration lane (RLS + HTTP e2e) + craft static (0 blockers) are all green.
 
-## Prior restart point (2026-07-06 evening — product-completeness loop)
+**Coverage gate closed honestly:** added real unit tests for the least-covered
+new code — the value-object DB seams (`values` Value/Scan/IsZero) and the typed-id
+discriminator vocabulary + Scan/ParseAs edge cases (`ids`), plus MustParse/
+UnmarshalText error paths. Lifted `values`→91%, `ids`→97%. Local new-code
+coverage projects **~82%** (gate 80%); confirms on the next CI run.
 
-A product-facing loop session (goal: executable, testable product; onboarding
-+ first screens beautiful and fully working; PR-per-slice through the CI +
-CodeRabbit + Sonar gates). Slice 1 = **PR #14** `feat/home-morning-brief`:
+**DCO fixed locally:** all 27 branch commits now carry `Signed-off-by`
+(`git rebase --signoff 94f4ff0`, tree byte-identical). **The force-push is the
+one remaining manual step** — the agent's safety gate blocks a history-rewriting
+force-push, so a human runs:
+`git push --force-with-lease origin feat/lars-strojny-feedback`
+Then CI re-confirms DCO green + coverage ≥80%, and PR #21 is mergeable.
 
-- **Home now rides the real `/brief` spine** (B-EP09.12b×E05): no-run 404 →
-  honest generate card, POST refresh, ranked items with the §10.1 factor
-  bars, evidence counts, B-E05.13 act/dismiss updating in place, honest-short
-  footer; approvals stay on top, stalled deals close the page. New
-  `home.css` + `home.test.tsx`; e2e seed gained a coherent /brief run.
-- **Onboarding**: cold-start fields render human DE/EN labels (was raw
-  `LEGAL_NAME` keys); step 4 is honest about a skipped voice step and tags
-  the canned sample draft as an illustrative example.
-- `frontend/src/api/schema.d.ts` regenerated (picks up /brief, offers,
-  signals, views…).
-- Verified live in a browser end to end: signup → real-model cold-start of a
-  real site → funnel → generate brief over real deals → act/dismiss.
-  frontend-check green (94 unit), e2e 35/35.
+**Spec reconciliation pushed upstream:** the data-model commit is now on
+`margince-foundation` `main` (rebased onto its latest, pushed) — `feedback/31`
+retires.
 
-Browser-audit gaps still open (next slices): contacts/companies/leads lists
-are thin but work; deal 360 exists; offers/products, signals warm-room,
-smart lists/saved views, preference center have NO frontend surface yet —
-those are the highest-value next product slices. The dev stack must be
-restarted after backend merges (`make dev-tls`) or the SPA hits routes the
-running api doesn't have.
+**Still waiting on you:** (1) the force-push above; (2) approve + post the
+issue #16 reply — draft at `scratchpad/issue16-reply-FINAL.md` (weave in the
+PR #21 link; it's outward-facing, NOT yet posted); (3) merge PR #21 once CI is
+green. NOT written (deliberate, tracked follow-up): the "no new raw `ids.UUID`
+in module store signatures" fitness gate — a naive version false-positives on
+the many legitimate untyped seams (platform/ports/polymorphic), so it needs
+design; the conversion itself is compiler-enforced and complete.
+
+## ▶ RESTART HERE (2026-07-07 — Strojny backend review, issue #16)
+
+Lars Strojny's post-architecture backend review (gradionhq/margince-poc-v1#16)
+implemented on branch `feat/lars-strojny-feedback` (PR "Feedback Lars
+Stroiny"). Every finding verified against the code before acting; all
+confirmed. Ratified decisions in **decisions/0019-strojny-backend-review.md**;
+spec touchpoints in `feedback/31-*` (git-ignored). **8 commits, all landing on
+a green `make check` + `make test-integration`:**
+
+- **Concurrency (WS1–2)** — storekit `Apply(ifVersion *int64)` split into
+  `ApplyWithVersion` / `ApplyGuarded` / `ApplyLocked(RowLock)` with
+  `LockRow`/`LockPair` mints; an unguarded by-id UPDATE is no longer
+  expressible. Fixed three real races: merge-target TOCTOU (LockPair on both
+  ends), duplicate-person-on-concurrent-promote (lead lock + RowsAffected —
+  it was also committing phantom events), offer supersede. `updateguard_test.go`
+  gates it. Race integration tests in `concurrency_integration_test.go`.
+- **Consent merge (WS3)** — withdrawn-flip now appends its `consent_event`
+  proof; relink carries the proof chain; `consentproof_test.go` gates the
+  pairing.
+- **Deal money (WS4)** — CreateDeal pair check + `0050` CHECK
+  `(amount_minor IS NULL) = (currency IS NULL)`.
+- **Row-scope (WS5)** — auth primitives reject unknown table names;
+  `rbacgate_test.go` pins "every store entry point reaches an auth gate".
+  DB-level row-scope recorded as the ADR-tracked direction, NOT done.
+- **Value objects (WS6)** — `shared/kernel/values` (Email/Phone/Domain/Money/
+  Slug/Timezone), parsed at the store Input seam, 422 via httperr. Phone E.164
+  now actually enforced (the schema comment was a lie).
+- **Enums (WS7)** — LeadStatus/DealStatus/StageSemantic/ConsentState/
+  PromoteTrigger typed at the seam; `enumsync_test.go` derives Go const sets +
+  SQL CHECK sets from the tree and fails on drift.
+- **JSON→relations (WS8)** — `0051`: `person_social` relation + address
+  columns on person/organization (bonus: the API address field was silently
+  dropped before — now persists).
+- **FTS (WS10)** — `0052`: `f_unaccent` + pg_trgm quick-find, `activity.language`
+  with per-language stemming, setweight, one query parser. Integration test
+  pins Müller≡Muller, fragment quick-find, Vertrag≡Verträge.
+
+**⚠ WS9 (typed entity ids) is PARTIAL — pick up here.** The kernel
+(`ids.ID[K]` phantom-tag type, per-entity aliases, `ids.From[K]`, `ids.Ref`),
+the pgx registration (`platform/database/idtypes.go` + AfterConnect, proven by
+`idtypes_integration_test.go`), AND the **people module** are fully converted
+and committed (b4689f5) — people is the pattern-setter, its idioms documented
+in that commit body and in the agent report. **Remaining modules NOT
+converted** (deals, activities, signals, collections, identity, approvals,
+agents, ai, capture, privacy, consent, de, search + compose): two subagents
+were converting deals and activities/signals/collections but **died on the
+org monthly spend limit mid-edit — they left NOTHING uncommitted (tree is
+clean, `make check` green)**. To resume: run one subagent per module, following
+the people idioms (wire→typed via `pathID[K]`/`idArg[K]` at handlers; platform
+seams take `id.UUID`; SQL binds/scans stay typed; ports stay `ids.UUID` and
+widen with `ids.From`; polymorphic link tables keep untyped `entity_type`/
+`entity_id`). Kernel gaps to fill when you hit them: no `RelationshipKind`/
+`PartnerKind`/line-item kind yet (people left those `ids.UUID` with in-source
+notes). A signature-erosion fitness gate (no new raw `ids.UUID` params in
+module store signatures) is planned but NOT written.
+
+**Spec reconciliation — DONE, committed to the spec repo.** The four
+`feedback/31` touchpoints are now in `../margince/specs` (commit `37b385b` on
+its local `main`, **not pushed** — push it): data-model §1.9a (new FTS
+linguistics section), §1.3a (guard-not-version note + the mandatory-If-Match
+open question), the `deal_amount_currency_pair` CHECK, the person_phone
+E.164-at-seam note, the activity `language` column + language-aware
+`search_tsv`, the name-entity `search_tsv`/trgm-index blocks, and the
+person_consent MERGE semantics. `feedback/31` retires once that spec commit
+lands upstream.
+
+**PR #21 "Feedback Lars Stroiny"** is open (base `main`) with commits WS1–8,
+WS10, decisions/0019, and the people typed-id conversion.
+
+**Still TODO this workstream:**
+1. **Finish WS9** (the big one) — convert the remaining modules to typed ids:
+   deals, activities, signals, collections, identity, approvals, agents, ai,
+   capture, privacy, consent, de, search, + compose glue. A deals-conversion
+   subagent was launched this session but **stopped in its read/planning phase
+   (spend limit); it wrote nothing — tree clean, build green.** Resume one
+   module (or small group) per subagent, commit each as it goes green
+   (`go build ./... && go vet -tags integration ./...`). Kernel gaps to fill
+   when hit: no `RelationshipKind`/`PartnerKind`/offer-line-item kind (people
+   left those `ids.UUID` with in-source notes). The planned signature-erosion
+   fitness gate (no new raw `ids.UUID` params in module store signatures) is
+   still unwritten.
+2. **Reply on issue #16** — draft ready at scratchpad `issue16-reply.md`;
+   needs PR #21's link woven in and **user approval before posting** (it's
+   outward-facing). NOT posted.
+3. **Push the spec commit** `37b385b` in `../margince/specs`.
+
+## Frontend session (2026-07-07 PM — onboarding confirm now writes)
+
+Closed the honesty gap in the onboarding funnel
+([frontend/src/screens/onboarding.tsx](frontend/src/screens/onboarding.tsx)):
+step 2 ("Did we get it right?") used to collect edits into throwaway local
+state and advance without saving — the step-4 results card then *claimed* the
+profile was "captured" when nothing had been written. Now **Continue on the
+confirm step approves the staged cold-start proposal** (`POST
+/approvals/{id}/approve`), which is what actually puts the read-back onto the
+organization:
+
+- Confirm-step state (edits, buying-center, saved flag) hoisted into
+  `OnboardingScreen` so stepping back/forward no longer discards typed input;
+  a re-read resets it (new proposal id).
+- Edits/hand-typed buying center ride the ADR-0036 §4 modify-then-approve arm
+  (`edited_payload`); an untouched confirm approves as-staged (no payload). A
+  human-corrected value drops the site's `evidence_snippet` — it's the human's
+  assertion now, not the site's.
+- Single-use approval: a back-then-forward second Continue tolerates 409
+  (already-decided) and advances without re-saving; a real failure keeps you
+  on step 2 with the RFC 7807 detail surfaced.
+- Step-4 "Business profile" card now tells the truth when the confirm step was
+  skipped ("read back but not saved yet"), matching the existing voice-step
+  honesty pattern.
+- New i18n keys (en+de): `ob.s2.saving/saveFailed/savedNote`,
+  `ob.s4.cardProfileSkippedBody`. Three new tests in
+  [onboarding.test.tsx](frontend/src/screens/onboarding.test.tsx) pin the
+  approve call shape, the untouched-vs-edited branch, and the failure state.
+  `pnpm lint` + `pnpm test` (15) + `pnpm build` green; walked the live funnel
+  through Playwright against the real `/coldstart` read of gradion.com.
+
+### ⚠ PR #21 gate state — two RED gates, DO NOT MERGE (checked 2026-07-07 PM)
+
+PR #21 ("Feedback Lars Stroiny", branch `feat/lars-strojny-feedback`) carries
+this whole branch — the backend Strojny workstream (WS1–10, WS9 still PARTIAL,
+see above) AND my one frontend commit `9f08a6e`. It is **work-in-progress and
+not mergeable.** After I pushed, the branch owner's session pushed the WS9
+status commit `3ef0b8e` on top — so this is a **shared, actively-worked branch;
+do not force-push or rewrite its history without confirming that session is
+paused.**
+
+Gates (all others green — frontend, integration, deterministic, craft,
+govulncheck, Analyze, GitGuardian; CodeRabbit skipped: 189 files > 150 limit):
+
+- **`dco` FAIL — branch-wide.** ALL 12 commits (base `3ed7929` → head
+  `3ef0b8e`) lack a `Signed-off-by` trailer; every one is authored by
+  `lars@gradion.com`. Not caused by my commit — it's a pre-existing branch
+  policy miss. Fix, once the branch is quiescent:
+  `git rebase --signoff 3ed7929 && git push --force-with-lease origin feat/lars-strojny-feedback`
+  (safe author-wise — single author; the risk is only the force-push on a
+  shared branch).
+- **SonarCloud quality gate FAIL — ONE condition:** new-code coverage
+  **79.0% < 80%** threshold. Everything else (reliability/security/
+  maintainability/duplication/hotspots) is OK. Aggregate over all 189 changed
+  files — dominated by the in-progress backend workstream, not the ~50 frontend
+  lines. Closing it is the WS9/backend owner's job (finish + cover the
+  remaining typed-id module conversions). My onboarding.tsx new branches (the
+  409-already-decided path, the saved-note render, the skipped-profile results
+  card) are NOT yet covered — a good-citizen follow-up is ~3 more frontend
+  tests, but they won't move the aggregate 79→80 alone.
+
+**Merge only after:** WS9 finished, DCO signed-off across the branch, and
+new-code coverage ≥ 80%. I took no destructive action (no rebase, no
+force-push, no merge).
+
+## ▶ RESTART HERE (2026-07-07 — Niraj architecture feedback implemented)
+
+The accepted Codex/Niraj architecture-readability review is implemented on
+branch `feat/niraj-architecture-feedback` (PR "Implement Niraj Architecture
+Feedback"): **decisions/0018** (module growth policy — flat by default, five
+named split triggers, compose corollary), **docs/explanation/authorization.md**
+(why the RBAC/row-scope gate sits at store/service entry points, 403 vs 404,
+FK-reference-is-a-read), the **integration-suite move** to
+`backend/internal/compose/integration/` (61 suites + ONE importable harness in
+`harness.go`; count parity 468=468; the true white-box suites — closedate,
+coldstart, reconcile, report_forecast, scrape, comms, dedupe_budget,
+preference_agent — stay in compose root by design), and the pilot
+**`compose/briefs`** orchestration split (`briefs.Handlers` embedded in
+`compose.Server`; the shared `unfence` trim rehomed as `modules/ai.Unfence`).
+Gates re-pointed: go-arch-lint compose glob, `bench-perf` →
+`./internal/compose/integration`, write-shape/table-ownership waivers re-keyed
+(+ both walkers now skip `//go:build integration` scaffolding). Remaining
+compose groups (reporting, exports, enrichment, public surface) follow the
+0018 recipe opportunistically — NOT scheduled work. Spec-side: **A99**
+(ADR-0054 §3 amendment), conventions 11 §2 growth rule, **B-EP01.17/18/19**
+marked POCV1 DONE, `HANDOFF-to-code-session-2026-07-06.md` — committed on the
+spec repo's local `main` as `da05f3e` (push was outside this session's
+permissions — push it).
+
+The sonar new-code coverage gate initially failed the PR (the scan read
+unit-lane coverage only, so the MOVED brief engine reported a false 0%);
+fixed in-PR: the sonarcloud CI job now stands up PG/Redis and produces one
+coverage profile over `-tags integration -p 1 ./...`, and
+`internal/compose/integration/**` is classified as test scope.
+
+**⚠ Orphaned worktree residue stashed (2026-07-07).** This shared checkout
+carried uncommitted files belonging to no branch: an OLD pre-#13 copy of
+`.github/workflows/ci.yml` + `sonar-project.properties` (d37594e-era
+content) and ~3k lines of frontend WIP matching neither `origin/main`
+post-#14/#15 nor any `feat/*` stack branch. Both are preserved as stashes
+on this clone — `git stash list` (descriptive messages); recover with
+`git stash apply <ref>`. If the frontend stack session is still alive it
+should reclaim the frontend stash; otherwise drop both once the rest of
+the 5-PR stack has landed.
 
 ## Prior restart point (2026-07-06 PM — batch-5 CLEARED)
 

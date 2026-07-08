@@ -68,16 +68,16 @@ const (
 // triggering activity id) — a proposal never floats free of the record
 // it came from (P5/P12).
 type FollowUpProposal struct {
-	DealID ids.UUID `json:"deal_id"`
+	DealID ids.DealID `json:"deal_id"`
 	// DueDate is the proposed follow-up due date, date-only wire form.
 	DueDate string `json:"due_date"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
 	// EvidenceActivityID resolves to the interaction that triggered the
 	// proposal; EvidenceKind/EvidenceOccurredAt render it without a join.
-	EvidenceActivityID ids.UUID  `json:"evidence_activity_id"`
-	EvidenceKind       string    `json:"evidence_kind"`
-	EvidenceOccurredAt time.Time `json:"evidence_occurred_at"`
+	EvidenceActivityID ids.ActivityID `json:"evidence_activity_id"`
+	EvidenceKind       string         `json:"evidence_kind"`
+	EvidenceOccurredAt time.Time      `json:"evidence_occurred_at"`
 }
 
 // UnmarshalFollowUpProposal decodes a staged (possibly human-edited)
@@ -152,9 +152,9 @@ func (r *FollowUpReconciler) Reconcile(ctx context.Context) error {
 // followUpCandidate is one open deal the pass found touched-but-without-
 // a-next-step, carrying the interaction that is its evidence.
 type followUpCandidate struct {
-	dealID       ids.UUID
+	dealID       ids.DealID
 	dealName     string
-	activityID   ids.UUID
+	activityID   ids.ActivityID
 	activityKind string
 	occurredAt   time.Time
 	subject      *string
@@ -218,7 +218,7 @@ func (r *FollowUpReconciler) reconcileWorkspace(ctx context.Context) error {
 // stage records one deal's follow-up proposal unless one is already
 // pending — the pass proposes, it never writes the follow-up itself.
 func (r *FollowUpReconciler) stage(ctx context.Context, cand followUpCandidate, now time.Time) error {
-	pending, err := r.stager.HasPendingFollowUp(ctx, cand.dealID)
+	pending, err := r.stager.HasPendingFollowUp(ctx, cand.dealID.UUID)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (r *FollowUpReconciler) stage(ctx context.Context, cand followUpCandidate, 
 	}
 	summary := fmt.Sprintf("Draft a follow-up on %q — a %s on %s left no next step planned",
 		cand.dealName, cand.activityKind, cand.occurredAt.Format(time.DateOnly))
-	return r.stager.StageFollowUp(ctx, cand.dealID, summary, proposal)
+	return r.stager.StageFollowUp(ctx, cand.dealID.UUID, summary, proposal)
 }
 
 // followUpBody grounds the drafted follow-up in the real last exchange

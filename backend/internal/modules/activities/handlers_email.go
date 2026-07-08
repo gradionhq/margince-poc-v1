@@ -40,7 +40,7 @@ func (h Handlers) DraftEmail(w http.ResponseWriter, r *http.Request, id crmcontr
 	if r.ContentLength > 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	activity, err := h.store.GetActivity(r.Context(), ids.UUID(id), storekit.LiveOnly)
+	activity, err := h.store.GetActivity(r.Context(), pathID[ids.ActivityKind](id), storekit.LiveOnly)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -119,7 +119,7 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 		}
 	}
 
-	sent, err := h.store.SendEmail(r.Context(), ids.UUID(id), SendEmailInput{
+	sent, err := h.store.SendEmail(r.Context(), pathID[ids.ActivityKind](id), SendEmailInput{
 		Recipients:     recipients,
 		Subject:        req.Subject,
 		Body:           body,

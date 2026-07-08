@@ -55,7 +55,7 @@ type slot struct {
 // business-hour candidates minus the host's existing meetings. A
 // non-positive duration means the caller named none and takes the
 // default.
-func (s *Store) Availability(ctx context.Context, host ids.UUID, from, to time.Time, duration time.Duration) ([]slot, error) {
+func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time.Time, duration time.Duration) ([]slot, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func overlapsAny(candidate slot, busy []slot) bool {
 }
 
 type BookMeetingInput struct {
-	Host           ids.UUID
+	Host           ids.UserID
 	Start          time.Time
 	End            time.Time
 	Subject        string
@@ -187,7 +187,7 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 	if !ok {
 		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
 	}
-	if in.Host != actor.UserID && !auth.Unbounded(actor) {
+	if in.Host.UUID != actor.UserID && !auth.Unbounded(actor) {
 		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
 	}
 	if !in.End.After(in.Start) {
@@ -252,9 +252,9 @@ func (h Handlers) GetAvailability(w http.ResponseWriter, r *http.Request, params
 		httperr.Unauthorized(w, r, "availability needs an authenticated caller")
 		return
 	}
-	host := actor.UserID
+	host := ids.From[ids.UserKind](actor.UserID)
 	if params.HostUserId != nil {
-		host = ids.UUID(*params.HostUserId)
+		host = ids.From[ids.UserKind](ids.UUID(*params.HostUserId))
 	}
 	var duration time.Duration
 	if params.DurationMinutes != nil {
@@ -292,14 +292,14 @@ func (h Handlers) BookMeeting(w http.ResponseWriter, r *http.Request, _ crmcontr
 		return
 	}
 	in := BookMeetingInput{
-		Host:           actor.UserID,
+		Host:           ids.From[ids.UserKind](actor.UserID),
 		Start:          req.Start,
 		End:            req.End,
 		Subject:        req.Subject,
 		AttendeeEmails: req.AttendeeEmails,
 	}
 	if req.HostUserId != nil {
-		in.Host = ids.UUID(*req.HostUserId)
+		in.Host = ids.From[ids.UserKind](ids.UUID(*req.HostUserId))
 	}
 	for _, l := range req.Links {
 		in.Links = append(in.Links, ActivityLinkInput{EntityType: l.EntityType, EntityID: l.EntityID})

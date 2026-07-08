@@ -42,7 +42,7 @@ components:
   approvals:   { in: internal/modules/approvals }
   agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
   de:          { in: internal/modules/de }
-  compose:     { in: internal/compose }
+  compose:     { in: [internal/compose, internal/compose/**] }
   migrations:  { in: migrations }
   web:         { in: web }
   cmd:         { in: cmd/** }

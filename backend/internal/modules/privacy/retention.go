@@ -107,12 +107,12 @@ func (s *RetentionService) Evaluate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.WorkspaceID])
 	if err != nil {
 		return err
 	}
 	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
+		wsCtx := principal.WithWorkspaceID(ctx, wsID.UUID)
 		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 		if err := s.evaluateWorkspace(wsCtx); err != nil {
@@ -124,6 +124,8 @@ func (s *RetentionService) Evaluate(ctx context.Context) error {
 }
 
 type retentionPolicy struct {
+	// ID stays ids.UUID: a retention policy is a config row, not a
+	// first-class entity, so the kernel mints no kind for it.
 	ID         ids.UUID
 	ObjectType string
 	Category   *string
@@ -166,6 +168,9 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 			}
 			args = append(args, floor)
 		}
+		// due stays untyped: the selector's entity varies by policy scope
+		// (lead, activity, person, deal), so the id kind is only known one
+		// dispatch deeper, in apply.
 		var due []ids.UUID
 		err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 			rows, err := tx.Query(ctx, selector, args...)
@@ -223,9 +228,14 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			// suppression list — the subject may lawfully return.
 			_, err = tx.Exec(ctx, `
 				UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
-				  title = NULL, social = '{}'::jsonb, address = NULL, raw = NULL,
+				  title = NULL, raw = NULL,
+				  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
+				  address_region = NULL, address_postal_code = NULL, address_country = NULL,
 				  archived_at = coalesce(archived_at, now())
 				WHERE id = $1`, id, erasedName)
+			if err == nil {
+				_, err = tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, id)
+			}
 			if err == nil {
 				_, err = tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, id)
 			}

@@ -26,8 +26,8 @@ var errInvalidApprovalID = errors.New("approval_id must be a UUID string")
 // approvals module and injected at the composition root (this package
 // depends on seams, never on sibling modules).
 type Approvals interface {
-	Stage(ctx context.Context, in StageRequest) (ids.UUID, error)
-	Redeem(ctx context.Context, approvalID ids.UUID, tool, diffHash string) error
+	Stage(ctx context.Context, in StageRequest) (ids.ApprovalID, error)
+	Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) error
 }
 
 // StageRequest carries what the inbox shows the human and what redemption
@@ -78,25 +78,25 @@ func approvalRedeemed(ctx context.Context) bool {
 // computed over the SAME bytes on staging, redemption, and
 // modify-then-approve, so "identical call" is a property of content,
 // not of whitespace or key order.
-func splitApproval(in json.RawMessage) (args json.RawMessage, approvalID ids.UUID, diffHash string, err error) {
+func splitApproval(in json.RawMessage) (args json.RawMessage, approvalID ids.ApprovalID, diffHash string, err error) {
 	var m map[string]any
 	if err := json.Unmarshal(in, &m); err != nil {
-		return nil, ids.Nil, "", &BadArgsError{Cause: err}
+		return nil, ids.ApprovalID{}, "", &BadArgsError{Cause: err}
 	}
 	if raw, ok := m["approval_id"]; ok {
 		s, isStr := raw.(string)
 		if !isStr {
-			return nil, ids.Nil, "", &BadArgsError{Cause: errInvalidApprovalID}
+			return nil, ids.ApprovalID{}, "", &BadArgsError{Cause: errInvalidApprovalID}
 		}
-		approvalID, err = ids.Parse(s)
+		approvalID, err = ids.ParseAs[ids.ApprovalKind](s)
 		if err != nil {
-			return nil, ids.Nil, "", &BadArgsError{Cause: err}
+			return nil, ids.ApprovalID{}, "", &BadArgsError{Cause: err}
 		}
 		delete(m, "approval_id")
 	}
 	canonical, diffHash, err := diffhash.Object(m)
 	if err != nil {
-		return nil, ids.Nil, "", err
+		return nil, ids.ApprovalID{}, "", err
 	}
 	return canonical, approvalID, diffHash, nil
 }

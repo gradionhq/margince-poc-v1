@@ -32,13 +32,13 @@ var ErrNoEnrichTarget = errors.New("people: organization has no domain to enrich
 // org's primary domain as https://<domain>. Row-scoped — an org the caller
 // cannot see is ErrNotFound (existence-hiding); a visible org with no domain
 // is ErrNoEnrichTarget.
-func (s *Store) EnrichTargetURL(ctx context.Context, orgID ids.UUID) (string, error) {
+func (s *Store) EnrichTargetURL(ctx context.Context, orgID ids.OrganizationID) (string, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return "", err
 	}
 	var domain string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", orgID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
 		err := tx.QueryRow(ctx,
@@ -62,7 +62,7 @@ func (s *Store) EnrichTargetURL(ctx context.Context, orgID ids.UUID) (string, er
 // overwrite a human-set value. One transaction, one audit row, one
 // organization.updated event; captured_by is the executing principal
 // (agent:scrape), source is scrape.
-func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.UUID, in ApplyColdStartProfileInput) error {
+func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.OrganizationID, in ApplyColdStartProfileInput) error {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return err
 	}
@@ -75,24 +75,24 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.UUID, in ApplyCol
 	}
 
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
+		wsID := workspaceID(ctx)
 		// The target is a KNOWN row — an enrichment never creates or resolves
 		// by domain. Row-scope is re-checked here so a leaked org id buys
 		// nothing (existence-hiding 404).
-		if err := auth.EnsureVisible(ctx, tx, "organization", orgID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
 		applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "scrape", by, in.Fields)
 		if err != nil {
 			return err
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization", orgID, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "update", "organization", orgID.UUID, nil, map[string]any{
 			"source": "scrape", "source_url": in.SourceURL, "fields": applied,
 		})
 		if err != nil {
 			return fmt.Errorf("audit enrichment apply: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", orgID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", orgID.UUID, map[string]any{
 			"delta": applied, "source": "scrape", "source_url": in.SourceURL,
 		}); err != nil {
 			return fmt.Errorf("emit organization.updated: %w", err)
@@ -104,10 +104,10 @@ func (s *Store) ApplyEnrichment(ctx context.Context, orgID ids.UUID, in ApplyCol
 // UnmarshalEnrichment decodes a staged enrichment proposal — the org id plus
 // the shared field array. Shared with the compose effect so both sides agree
 // on the JSON shape.
-func UnmarshalEnrichment(raw json.RawMessage) (ids.UUID, string, []ColdStartFieldInput, error) {
+func UnmarshalEnrichment(raw json.RawMessage) (ids.OrganizationID, string, []ColdStartFieldInput, error) {
 	var proposal struct {
-		OrganizationID ids.UUID `json:"organization_id"`
-		SourceURL      string   `json:"source_url"`
+		OrganizationID ids.OrganizationID `json:"organization_id"`
+		SourceURL      string             `json:"source_url"`
 		Fields         []struct {
 			Field           string  `json:"field"`
 			Value           string  `json:"value"`
@@ -117,7 +117,7 @@ func UnmarshalEnrichment(raw json.RawMessage) (ids.UUID, string, []ColdStartFiel
 		} `json:"fields"`
 	}
 	if err := json.Unmarshal(raw, &proposal); err != nil {
-		return ids.Nil, "", nil, fmt.Errorf("people: enrichment proposal payload: %w", err)
+		return ids.OrganizationID{}, "", nil, fmt.Errorf("people: enrichment proposal payload: %w", err)
 	}
 	fields := make([]ColdStartFieldInput, 0, len(proposal.Fields))
 	for _, f := range proposal.Fields {

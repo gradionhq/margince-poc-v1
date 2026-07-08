@@ -20,6 +20,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// pathID asserts a contract path id as entity K's id — the widening
+// point between the wire and the typed store surface (the route already
+// names the entity, so the assertion lives here, not in the store).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
+}
+
 // Handlers is the agents module's HTTP surface.
 type Handlers struct {
 	automations *AutomationStore
@@ -100,7 +107,7 @@ func (h Handlers) CreateAutomation(w http.ResponseWriter, r *http.Request) {
 
 // GetAutomation implements (GET /automations/{id}).
 func (h Handlers) GetAutomation(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	a, err := h.automations.Get(r.Context(), ids.UUID(id))
+	a, err := h.automations.Get(r.Context(), pathID[ids.AutomationKind](id))
 	if err != nil {
 		writeAutomationErr(w, r, err)
 		return
@@ -141,7 +148,7 @@ func (h Handlers) UpdateAutomation(w http.ResponseWriter, r *http.Request, id cr
 			return
 		}
 	}
-	updated, err := h.automations.Update(r.Context(), ids.UUID(id), in)
+	updated, err := h.automations.Update(r.Context(), pathID[ids.AutomationKind](id), in)
 	if err != nil {
 		writeAutomationErr(w, r, err)
 		return
@@ -156,7 +163,7 @@ func (h Handlers) UpdateAutomation(w http.ResponseWriter, r *http.Request, id cr
 
 // DeleteAutomation implements (DELETE /automations/{id}): soft archive.
 func (h Handlers) DeleteAutomation(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	if err := h.automations.Archive(r.Context(), ids.UUID(id)); err != nil {
+	if err := h.automations.Archive(r.Context(), pathID[ids.AutomationKind](id)); err != nil {
 		writeAutomationErr(w, r, err)
 		return
 	}
@@ -185,7 +192,7 @@ func wireAutomation(a Automation) (crmcontracts.Automation, error) {
 	}
 	version := int(a.Version)
 	return crmcontracts.Automation{
-		Id:        openapi_types.UUID(a.ID),
+		Id:        openapi_types.UUID(a.ID.UUID),
 		Key:       a.Key,
 		Name:      a.Name,
 		Status:    status,

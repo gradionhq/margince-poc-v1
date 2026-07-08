@@ -38,19 +38,19 @@ func ref(t datasource.EntityType, id openapi_types.UUID) datasource.EntityRef {
 func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource.Record, error) {
 	switch r.Type {
 	case datasource.EntityPerson:
-		v, err := p.store.GetPerson(ctx, r.ID, storekit.LiveOnly)
+		v, err := p.store.GetPerson(ctx, ids.From[ids.PersonKind](r.ID), storekit.LiveOnly)
 		if err != nil {
 			return datasource.Record{}, err
 		}
 		return datasource.NewRecord(r, v, v.Version)
 	case datasource.EntityOrganization:
-		v, err := p.store.GetOrganization(ctx, r.ID, storekit.LiveOnly)
+		v, err := p.store.GetOrganization(ctx, ids.From[ids.OrganizationKind](r.ID), storekit.LiveOnly)
 		if err != nil {
 			return datasource.Record{}, err
 		}
 		return datasource.NewRecord(r, v, v.Version)
 	case datasource.EntityLead:
-		v, err := p.store.GetLead(ctx, r.ID, storekit.LiveOnly)
+		v, err := p.store.GetLead(ctx, ids.From[ids.LeadKind](r.ID), storekit.LiveOnly)
 		if err != nil {
 			return datasource.Record{}, err
 		}
@@ -170,21 +170,21 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 		if err := datasource.StrictDecode(raw, &req); err != nil {
 			return datasource.EntityRef{}, err
 		}
-		v, err := p.store.UpdatePerson(ctx, in.Ref.ID, personUpdateInput(req, in.IfVersion))
+		v, err := p.store.UpdatePerson(ctx, ids.From[ids.PersonKind](in.Ref.ID), personUpdateInput(req, in.IfVersion))
 		return ref(datasource.EntityPerson, v.Id), err
 	case datasource.EntityOrganization:
 		var req crmcontracts.UpdateOrganizationRequest
 		if err := datasource.StrictDecode(raw, &req); err != nil {
 			return datasource.EntityRef{}, err
 		}
-		v, err := p.store.UpdateOrganization(ctx, in.Ref.ID, organizationUpdateInput(req, in.IfVersion))
+		v, err := p.store.UpdateOrganization(ctx, ids.From[ids.OrganizationKind](in.Ref.ID), organizationUpdateInput(req, in.IfVersion))
 		return ref(datasource.EntityOrganization, v.Id), err
 	case datasource.EntityLead:
 		var req crmcontracts.UpdateLeadRequest
 		if err := datasource.StrictDecode(raw, &req); err != nil {
 			return datasource.EntityRef{}, err
 		}
-		v, err := p.store.UpdateLead(ctx, in.Ref.ID, leadUpdateInput(req, in.IfVersion))
+		v, err := p.store.UpdateLead(ctx, ids.From[ids.LeadKind](in.Ref.ID), leadUpdateInput(req, in.IfVersion))
 		return ref(datasource.EntityLead, v.Id), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
@@ -194,10 +194,10 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
 	switch r.Type {
 	case datasource.EntityPerson:
-		v, err := p.store.ArchivePerson(ctx, r.ID)
+		v, err := p.store.ArchivePerson(ctx, ids.From[ids.PersonKind](r.ID))
 		return ref(datasource.EntityPerson, v.Id), err
 	case datasource.EntityOrganization:
-		v, err := p.store.ArchiveOrganization(ctx, r.ID)
+		v, err := p.store.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](r.ID))
 		return ref(datasource.EntityOrganization, v.Id), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
@@ -210,10 +210,10 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 func (p *Provider) Merge(ctx context.Context, in datasource.MergeInput) (datasource.EntityRef, error) {
 	switch in.Type {
 	case datasource.EntityPerson:
-		v, err := p.store.MergePerson(ctx, in.SourceID, in.TargetID)
+		v, err := p.store.MergePerson(ctx, ids.From[ids.PersonKind](in.SourceID), ids.From[ids.PersonKind](in.TargetID))
 		return ref(datasource.EntityPerson, v.Id), err
 	case datasource.EntityOrganization:
-		v, err := p.store.MergeOrganization(ctx, in.SourceID, in.TargetID)
+		v, err := p.store.MergeOrganization(ctx, ids.From[ids.OrganizationKind](in.SourceID), ids.From[ids.OrganizationKind](in.TargetID))
 		return ref(datasource.EntityOrganization, v.Id), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Type)}
@@ -223,7 +223,7 @@ func (p *Provider) Merge(ctx context.Context, in datasource.MergeInput) (datasou
 // PromoteLead exposes the features/01 §6.4 graduation to the tool surface
 // (a provider extension: interfaces.md §3 has no promotion verb yet).
 func (p *Provider) PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (datasource.EntityRef, bool, error) {
-	person, merged, err := p.store.PromoteLead(ctx, id, PromoteLeadInput{
+	person, merged, err := p.store.PromoteLead(ctx, ids.From[ids.LeadKind](id), PromoteLeadInput{
 		Trigger: trigger, EvidenceNote: evidenceNote,
 	})
 	return ref(datasource.EntityPerson, person.Id), merged, err

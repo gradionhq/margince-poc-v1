@@ -71,7 +71,7 @@ func publicPreferences(store *consent.Store, limits publicPreferenceLimiters) fu
 				return
 			}
 
-			ctx := principal.WithWorkspaceID(r.Context(), ref.WorkspaceID)
+			ctx := principal.WithWorkspaceID(r.Context(), ref.WorkspaceID.UUID)
 			ctx = principal.WithActor(ctx, principal.Principal{
 				Type: principal.PrincipalSystem,
 				ID:   "system:public_preferences",

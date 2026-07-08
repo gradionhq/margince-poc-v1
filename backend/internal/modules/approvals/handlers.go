@@ -22,6 +22,13 @@ type Handlers struct {
 
 func NewHandlers(svc *Service) Handlers { return Handlers{svc: svc} }
 
+// pathID asserts a contract path id as entity K's id — the widening
+// point between the wire and the typed service surface (the route already
+// names the entity, so the assertion lives here, not in the service).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
+}
+
 func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params crmcontracts.ListApprovalsParams) {
 	var status *string
 	if params.Status != nil {
@@ -48,7 +55,7 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 }
 
 func (h Handlers) GetApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	a, err := h.svc.Get(r.Context(), ids.UUID(id))
+	a, err := h.svc.Get(r.Context(), pathID[ids.ApprovalKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -64,6 +71,7 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 			return
 		}
 	}
+	approvalID := pathID[ids.ApprovalKind](id)
 	var a row
 	var err error
 	if req.EditedPayload != nil {
@@ -72,9 +80,9 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 			httperr.Write(w, r, httperr.Validation("edited_payload", "malformed_json", marshalErr.Error()))
 			return
 		}
-		a, err = h.svc.DecideEdited(r.Context(), ids.UUID(id), edited)
+		a, err = h.svc.DecideEdited(r.Context(), approvalID, edited)
 	} else {
-		a, err = h.svc.Decide(r.Context(), ids.UUID(id), true, nil)
+		a, err = h.svc.Decide(r.Context(), approvalID, true, nil)
 	}
 	if err != nil {
 		writeErr(w, r, err)
@@ -84,7 +92,7 @@ func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crm
 	// The approve response carries the ADR-0036 compact JWS so a remote
 	// redeemer can present a signed, effect-bound proof; the row remains
 	// the single-use authority either way.
-	token, err := h.svc.MintApprovalToken(r.Context(), ids.UUID(id))
+	token, err := h.svc.MintApprovalToken(r.Context(), approvalID)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -103,7 +111,7 @@ func (h Handlers) RejectApproval(w http.ResponseWriter, r *http.Request, id crmc
 			return
 		}
 	}
-	a, err := h.svc.Decide(r.Context(), ids.UUID(id), false, req.Reason)
+	a, err := h.svc.Decide(r.Context(), pathID[ids.ApprovalKind](id), false, req.Reason)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -131,7 +139,7 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 // lazy expiry in so a stale pending row never reads as approvable.
 func (h Handlers) wire(a row) crmcontracts.Approval {
 	out := crmcontracts.Approval{
-		Id:         openapi_types.UUID(a.ID),
+		Id:         openapi_types.UUID(a.ID.UUID),
 		Kind:       a.Kind,
 		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus(h.svc.now())),
 		ProposedBy: a.ProposedBy,
@@ -142,11 +150,11 @@ func (h Handlers) wire(a row) crmcontracts.Approval {
 		DecidedAt:  a.DecidedAt,
 	}
 	if a.OnBehalfOf != nil {
-		v := openapi_types.UUID(*a.OnBehalfOf)
+		v := openapi_types.UUID(a.OnBehalfOf.UUID)
 		out.OnBehalfOf = &v
 	}
 	if a.DecidedBy != nil {
-		v := openapi_types.UUID(*a.DecidedBy)
+		v := openapi_types.UUID(a.DecidedBy.UUID)
 		out.DecidedBy = &v
 	}
 	if a.TargetType != nil {

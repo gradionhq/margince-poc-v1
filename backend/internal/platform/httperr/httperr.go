@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 const problemTypeBase = "https://errors.gradion.com/"
@@ -75,6 +76,15 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 	var badCursor *storekit.MalformedCursorError
 	if errors.As(err, &badCursor) {
 		Write(w, r, Validation("cursor", "malformed_cursor", "cursor is not a valid page token"))
+		return
+	}
+
+	// A value object refused to parse: client input in the wrong format,
+	// carrying its own field and machine code — the parse-don't-validate
+	// seam's single wire mapping.
+	var badValue *values.ParseError
+	if errors.As(err, &badValue) {
+		Write(w, r, Validation(badValue.Field, badValue.Code, badValue.Message))
 		return
 	}
 

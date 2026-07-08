@@ -50,7 +50,7 @@ type RelationshipStrength struct {
 	InteractionCount90d int
 	Inbound90d          int
 	Outbound90d         int
-	ContributingIDs     []ids.UUID
+	ContributingIDs     []ids.ActivityID
 }
 
 // strengthKinds are the qualifying interaction kinds (§4 inputs).
@@ -59,13 +59,13 @@ const strengthKinds = `('email','call','meeting')`
 // PersonStrength computes the §4 baseline for one person. The person
 // read is row-scoped exactly like GetPerson: a person the caller cannot
 // see has no strength to disclose.
-func (s *Store) PersonStrength(ctx context.Context, personID ids.UUID, now time.Time) (RelationshipStrength, error) {
+func (s *Store) PersonStrength(ctx context.Context, personID ids.PersonID, now time.Time) (RelationshipStrength, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return RelationshipStrength{}, err
 	}
 	var out RelationshipStrength
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		return strengthInputs(ctx, tx, personID, now, &out)
@@ -80,13 +80,13 @@ func (s *Store) PersonStrength(ctx context.Context, personID ids.UUID, now time.
 // OrganizationStrength is the §4 org roll-up: the MAX over the org's
 // current employees' strengths — one strong relationship makes the
 // account warm; an average would dilute it.
-func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.UUID, now time.Time) (RelationshipStrength, error) {
+func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.OrganizationID, now time.Time) (RelationshipStrength, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return RelationshipStrength{}, err
 	}
-	var people []ids.UUID
+	var people []ids.PersonID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", orgID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `
@@ -98,7 +98,7 @@ func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.UUID, now ti
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var id ids.UUID
+			var id ids.PersonID
 			if err := rows.Scan(&id); err != nil {
 				return err
 			}
@@ -124,7 +124,7 @@ func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.UUID, now ti
 	return best, nil
 }
 
-func strengthInputs(ctx context.Context, tx pgx.Tx, personID ids.UUID, now time.Time, out *RelationshipStrength) error {
+func strengthInputs(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, out *RelationshipStrength) error {
 	windowStart := now.AddDate(0, 0, -relStrengthWindowDays)
 
 	// One pass over the person's qualifying interactions: overall last
@@ -152,7 +152,7 @@ func strengthInputs(ctx context.Context, tx pgx.Tx, personID ids.UUID, now time.
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id ids.UUID
+		var id ids.ActivityID
 		if err := rows.Scan(&id); err != nil {
 			return err
 		}

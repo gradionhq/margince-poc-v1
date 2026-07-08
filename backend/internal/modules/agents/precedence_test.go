@@ -102,12 +102,12 @@ type recordingApprovals struct {
 	redeemErr error
 }
 
-func (r *recordingApprovals) Stage(_ context.Context, in StageRequest) (ids.UUID, error) {
+func (r *recordingApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalID, error) {
 	r.staged = append(r.staged, in)
-	return ids.NewV7(), nil
+	return ids.New[ids.ApprovalKind](), nil
 }
 
-func (r *recordingApprovals) Redeem(_ context.Context, id ids.UUID, tool, hash string) error {
+func (r *recordingApprovals) Redeem(_ context.Context, id ids.ApprovalID, tool, hash string) error {
 	if r.redeemErr != nil {
 		return r.redeemErr
 	}
@@ -165,7 +165,7 @@ func splitRegistry(conflicts []string, approvals *recordingApprovals, provider *
 
 // replayPlusApprovalID rebuilds the advertised replay call with the
 // approval reference attached — what a compliant agent re-sends.
-func replayPlusApprovalID(t *testing.T, replay json.RawMessage, approvalID ids.UUID) json.RawMessage {
+func replayPlusApprovalID(t *testing.T, replay json.RawMessage, approvalID ids.ApprovalID) json.RawMessage {
 	t.Helper()
 	var call map[string]json.RawMessage
 	if err := json.Unmarshal(replay, &call); err != nil {
@@ -236,7 +236,7 @@ func TestUpdateRecordMixedPatchSplitsAndBindsTheSubPatch(t *testing.T) {
 	var result struct {
 		Version        int64 `json:"version"`
 		StagedApproval struct {
-			ApprovalID ids.UUID        `json:"approval_id"`
+			ApprovalID ids.ApprovalID  `json:"approval_id"`
 			Fields     []string        `json:"fields"`
 			Replay     json.RawMessage `json:"replay"`
 		} `json:"staged_approval"`

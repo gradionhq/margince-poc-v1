@@ -72,7 +72,7 @@ func (h Handlers) CreateConsentPurpose(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetPersonConsent(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	states, events, err := h.store.PersonConsent(r.Context(), ids.UUID(id))
+	states, events, err := h.store.PersonConsent(r.Context(), pathID[ids.PersonKind](id))
 	if err != nil {
 		writeConsentErr(w, r, err)
 		return
@@ -94,8 +94,8 @@ func (h Handlers) RecordConsent(w http.ResponseWriter, r *http.Request, id crmco
 		return
 	}
 	state, err := h.store.Record(r.Context(), RecordInput{
-		PersonID:         ids.UUID(id),
-		PurposeID:        ids.UUID(req.PurposeId),
+		PersonID:         pathID[ids.PersonKind](id),
+		PurposeID:        pathID[ids.PurposeKind](req.PurposeId),
 		NewState:         string(req.NewState),
 		LawfulBasis:      req.LawfulBasis,
 		Source:           req.Source,
@@ -121,7 +121,7 @@ func (h Handlers) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id cr
 	if req.Deliver != nil {
 		deliver = *req.Deliver
 	}
-	issued, err := h.store.IssueDoubleOptIn(r.Context(), ids.UUID(id), ids.UUID(req.PurposeId), deliver)
+	issued, err := h.store.IssueDoubleOptIn(r.Context(), pathID[ids.PersonKind](id), pathID[ids.PurposeKind](req.PurposeId), deliver)
 	if err != nil {
 		writeConsentErr(w, r, err)
 		return
@@ -143,8 +143,8 @@ func writeConsentErr(w http.ResponseWriter, r *http.Request, err error) {
 
 func wirePurpose(p Purpose) crmcontracts.ConsentPurpose {
 	return crmcontracts.ConsentPurpose{
-		Id:                  openapi_types.UUID(p.ID),
-		WorkspaceId:         openapi_types.UUID(p.WorkspaceID),
+		Id:                  openapi_types.UUID(p.ID.UUID),
+		WorkspaceId:         openapi_types.UUID(p.WorkspaceID.UUID),
 		Key:                 p.Key,
 		Label:               p.Label,
 		RequiresDoubleOptIn: &p.RequiresDoubleOptIn,
@@ -154,7 +154,7 @@ func wirePurpose(p Purpose) crmcontracts.ConsentPurpose {
 
 func wireState(st State) crmcontracts.PersonConsentState {
 	out := crmcontracts.PersonConsentState{
-		PurposeId:              openapi_types.UUID(st.PurposeID),
+		PurposeId:              openapi_types.UUID(st.PurposeID.UUID),
 		State:                  crmcontracts.PersonConsentStateState(st.State),
 		LawfulBasis:            st.LawfulBasis,
 		DoubleOptInConfirmedAt: st.DoubleOptInConfirmedAt,
@@ -171,7 +171,7 @@ func wireEvent(ev ProofEvent) crmcontracts.ConsentEvent {
 	wireActorType := crmcontracts.ConsentEventActorType(actorType)
 	return crmcontracts.ConsentEvent{
 		Id:          openapi_types.UUID(ev.ID),
-		PurposeId:   openapi_types.UUID(ev.PurposeID),
+		PurposeId:   openapi_types.UUID(ev.PurposeID.UUID),
 		NewState:    crmcontracts.ConsentEventNewState(ev.NewState),
 		LawfulBasis: ev.LawfulBasis,
 		Source:      ev.Source,

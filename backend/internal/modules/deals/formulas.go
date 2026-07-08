@@ -20,7 +20,7 @@ const StalledThresholdDays = 60
 // comparison on UTC instants, never a calendar-day count — stable under
 // a fixed test clock, identical across zones.
 func IsStalled(status string, createdAt time.Time, lastActivityAt, waitUntil *time.Time, now time.Time) bool {
-	if status != "open" {
+	if DealStatus(status) != DealOpen {
 		return false // closed deals never stall
 	}
 	base := createdAt

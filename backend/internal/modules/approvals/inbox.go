@@ -24,12 +24,15 @@ import (
 
 // row is the store shape of one approval.
 type row struct {
-	ID             ids.UUID
-	Kind           string
-	Status         string
-	ProposedBy     string
-	OnBehalfOf     *ids.UUID
-	PassportID     *ids.UUID
+	ID         ids.ApprovalID
+	Kind       string
+	Status     string
+	ProposedBy string
+	OnBehalfOf *ids.UserID
+	PassportID *ids.PassportID
+	// TargetType + TargetID are the polymorphic pointer to the entity the
+	// staging acts on (deal, org, person, lead, activity, …); the id stays
+	// untyped because the pair IS the discriminated reference.
 	TargetType     *string
 	TargetID       *ids.UUID
 	TargetVersion  *int64
@@ -37,7 +40,7 @@ type row struct {
 	ProposedChange json.RawMessage
 	DiffHash       string
 	ExpiresAt      time.Time
-	DecidedBy      *ids.UUID
+	DecidedBy      *ids.UserID
 	DecidedAt      *time.Time
 	ConsumedAt     *time.Time
 	CreatedAt      time.Time
@@ -92,7 +95,7 @@ func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, e
 		// batches and filter in memory until the display limit fills or the
 		// table runs out.
 		var afterCreated *time.Time
-		var afterID *ids.UUID
+		var afterID *ids.ApprovalID
 		for {
 			q, args := inboxPageQuery(status, afterCreated, afterID)
 			batch, err := collect(ctx, tx, q, args)
@@ -117,7 +120,7 @@ func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, e
 // inboxPageQuery builds one keyset page of the inbox scan: newest first,
 // optionally filtered by status and paged past the (created_at, id)
 // cursor of the previous batch.
-func inboxPageQuery(status *string, afterCreated *time.Time, afterID *ids.UUID) (string, []any) {
+func inboxPageQuery(status *string, afterCreated *time.Time, afterID *ids.ApprovalID) (string, []any) {
 	q := `SELECT ` + columns + ` FROM approval`
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -180,7 +183,7 @@ func collect(ctx context.Context, tx pgx.Tx, q string, args []any) ([]row, error
 	return out, rows.Err()
 }
 
-func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
+func (s *Service) Get(ctx context.Context, id ids.ApprovalID) (row, error) {
 	if err := humanOnly(ctx); err != nil {
 		return row{}, err
 	}
@@ -211,7 +214,7 @@ func (s *Service) Get(ctx context.Context, id ids.UUID) (row, error) {
 	return a, nil
 }
 
-func get(ctx context.Context, tx pgx.Tx, id ids.UUID) (row, error) {
+func get(ctx context.Context, tx pgx.Tx, id ids.ApprovalID) (row, error) {
 	a, err := scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM approval WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return row{}, apperrors.ErrNotFound

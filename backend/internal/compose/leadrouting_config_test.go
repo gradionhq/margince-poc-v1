@@ -28,7 +28,7 @@ func TestLeadRoutingConfigValidatesAndDecodesFromOneFixture(t *testing.T) {
 		t.Fatalf("route_lead entry drifted: trigger=%s action=%s tier=%s", entry.Trigger, entry.Action, entry.Tier)
 	}
 
-	poolA, poolB, ruleOwner := ids.NewV7(), ids.NewV7(), ids.NewV7()
+	poolA, poolB, ruleOwner := ids.New[ids.UserKind](), ids.New[ids.UserKind](), ids.New[ids.UserKind]()
 	fixture := map[string]any{
 		"owners":        []any{poolA.String(), poolB.String()},
 		"cap_per_owner": float64(5),

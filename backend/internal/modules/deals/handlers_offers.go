@@ -83,7 +83,7 @@ func (c clientSuppliedTotals) reject(w http.ResponseWriter, r *http.Request) boo
 func lineInputRow(in crmcontracts.OfferLineItemInput) OfferLineInputRow {
 	row := OfferLineInputRow{
 		Position:       in.Position,
-		ProductID:      uuidArg(in.ProductId),
+		ProductID:      idArg[ids.ProductKind](in.ProductId),
 		Description:    in.Description,
 		Unit:           in.Unit,
 		Quantity:       formatQuantity(in.Quantity),
@@ -106,7 +106,7 @@ func (h Handlers) ListDealOffers(w http.ResponseWriter, r *http.Request, id crmc
 		s := string(*params.Status)
 		in.Status = &s
 	}
-	offers, page, err := h.store.ListDealOffers(r.Context(), ids.UUID(id), in)
+	offers, page, err := h.store.ListDealOffers(r.Context(), pathID[ids.DealKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -147,7 +147,7 @@ func (h Handlers) CreateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	}
 	in := CreateOfferInput{
 		Currency:   req.Currency,
-		BuyerOrgID: uuidArg(req.BuyerOrgId),
+		BuyerOrgID: idArg[ids.OrganizationKind](req.BuyerOrgId),
 		IntroText:  req.IntroText,
 		TermsText:  req.TermsText,
 		Source:     req.Source,
@@ -162,7 +162,7 @@ func (h Handlers) CreateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		}
 	}
 
-	offer, err := h.store.CreateOffer(r.Context(), ids.UUID(id), in)
+	offer, err := h.store.CreateOffer(r.Context(), pathID[ids.DealKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -172,7 +172,7 @@ func (h Handlers) CreateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 func (h Handlers) GetOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	offer, err := h.store.GetOffer(r.Context(), ids.UUID(id), storekit.IncludeArchived)
+	offer, err := h.store.GetOffer(r.Context(), pathID[ids.OfferKind](id), storekit.IncludeArchived)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -194,7 +194,7 @@ func (h Handlers) UpdateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	}
 	in := UpdateOfferInput{
 		Currency:   req.Currency,
-		BuyerOrgID: uuidArg(req.BuyerOrgId),
+		BuyerOrgID: idArg[ids.OrganizationKind](req.BuyerOrgId),
 		IntroText:  req.IntroText,
 		TermsText:  req.TermsText,
 		IfVersion:  ifVersion,
@@ -204,7 +204,7 @@ func (h Handlers) UpdateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		in.ValidUntil = &v
 	}
 
-	offer, err := h.store.UpdateOffer(r.Context(), ids.UUID(id), in)
+	offer, err := h.store.UpdateOffer(r.Context(), pathID[ids.OfferKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -213,7 +213,7 @@ func (h Handlers) UpdateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 func (h Handlers) ArchiveOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	offer, err := h.store.ArchiveOffer(r.Context(), ids.UUID(id))
+	offer, err := h.store.ArchiveOffer(r.Context(), pathID[ids.OfferKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -232,7 +232,7 @@ func (h Handlers) AddOfferLineItem(w http.ResponseWriter, r *http.Request, id cr
 	if !req.reject(w, r) {
 		return
 	}
-	offer, err := h.store.AddOfferLineItem(r.Context(), ids.UUID(id), lineInputRow(req.OfferLineItemInput))
+	offer, err := h.store.AddOfferLineItem(r.Context(), pathID[ids.OfferKind](id), lineInputRow(req.OfferLineItemInput))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -269,7 +269,7 @@ func (h Handlers) UpdateOfferLineItem(w http.ResponseWriter, r *http.Request, id
 		v := formatPct(*req.TaxRate)
 		in.TaxRate = &v
 	}
-	offer, err := h.store.UpdateOfferLineItem(r.Context(), ids.UUID(id), ids.UUID(lineItemId), in)
+	offer, err := h.store.UpdateOfferLineItem(r.Context(), pathID[ids.OfferKind](id), ids.UUID(lineItemId), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -278,7 +278,7 @@ func (h Handlers) UpdateOfferLineItem(w http.ResponseWriter, r *http.Request, id
 }
 
 func (h Handlers) RemoveOfferLineItem(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, lineItemId openapi_types.UUID) {
-	offer, err := h.store.RemoveOfferLineItem(r.Context(), ids.UUID(id), ids.UUID(lineItemId))
+	offer, err := h.store.RemoveOfferLineItem(r.Context(), pathID[ids.OfferKind](id), ids.UUID(lineItemId))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -291,7 +291,7 @@ func (h Handlers) SendOffer(w http.ResponseWriter, r *http.Request, id crmcontra
 	if !ok {
 		return
 	}
-	offer, err := h.store.SendOffer(r.Context(), ids.UUID(id), ifVersion)
+	offer, err := h.store.SendOffer(r.Context(), pathID[ids.OfferKind](id), ifVersion)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -304,7 +304,7 @@ func (h Handlers) AcceptOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	if !ok {
 		return
 	}
-	offer, err := h.store.AcceptOffer(r.Context(), ids.UUID(id), ifVersion)
+	offer, err := h.store.AcceptOffer(r.Context(), pathID[ids.OfferKind](id), ifVersion)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -321,7 +321,7 @@ func (h Handlers) RejectOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	if r.ContentLength > 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	offer, err := h.store.RejectOffer(r.Context(), ids.UUID(id), req.Reason, ifVersion)
+	offer, err := h.store.RejectOffer(r.Context(), pathID[ids.OfferKind](id), req.Reason, ifVersion)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -330,7 +330,7 @@ func (h Handlers) RejectOffer(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 func (h Handlers) RegenerateOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.RegenerateOfferParams) {
-	offer, err := h.store.RegenerateOffer(r.Context(), ids.UUID(id))
+	offer, err := h.store.RegenerateOffer(r.Context(), pathID[ids.OfferKind](id))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

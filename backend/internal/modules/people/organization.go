@@ -22,36 +22,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// DuplicateDomainError carries the org already owning a domain: a domain
-// maps to at most one org per workspace (data-model §4.2).
-type DuplicateDomainError struct {
-	Domain     string
-	ExistingID ids.UUID
-}
-
-func (e *DuplicateDomainError) Error() string {
-	return "domain " + e.Domain + " already belongs to an organization"
-}
-func (e *DuplicateDomainError) Is(target error) bool { return target == apperrors.ErrConflict }
-
-type OrgDomainInput struct {
-	Domain    string
-	IsPrimary bool
-}
-
 type CreateOrganizationInput struct {
 	DisplayName string
 	LegalName   *string
 	Industry    *string
 	SizeBand    *string
-	OwnerID     *ids.UUID
-	ParentOrgID *ids.UUID
+	OwnerID     *ids.UserID
+	ParentOrgID *ids.OrganizationID
+	Address     *crmcontracts.Address
 	Domains     []OrgDomainInput
 	Source      string
 }
 
 func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInput) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionCreate); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	if err := parseOrgDomains(in.Domains); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
@@ -61,7 +48,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := storekit.MustWorkspace(ctx)
+		wsID := workspaceID(ctx)
 
 		if err := ensureOrgDomainsUnclaimed(ctx, tx, in.Domains); err != nil {
 			return err
@@ -72,16 +59,21 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		// row scope, not merely same-workspace (H1 — an FK argument to a
 		// row-scoped record is a read of that record).
 		if in.ParentOrgID != nil {
-			if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.ParentOrgID); err != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {
 				return err
 			}
 		}
 
-		id := ids.NewV7()
+		id := ids.New[ids.OrganizationKind]()
+		addr := addressColumns(in.Address)
 		_, err := tx.Exec(ctx,
-			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID, in.Source, by)
+			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id,
+			                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
+			                           source, captured_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID,
+			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
+			in.Source, by)
 		if err != nil {
 			return fmt.Errorf("insert organization: %w", err)
 		}
@@ -90,11 +82,11 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			return err
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "create", "organization", id, nil, map[string]any{"display_name": in.DisplayName})
+		auditID, err := storekit.Audit(ctx, tx, "create", "organization", id.UUID, nil, map[string]any{"display_name": in.DisplayName})
 		if err != nil {
 			return fmt.Errorf("audit organization create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id, map[string]any{"display_name": in.DisplayName}); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id.UUID, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return fmt.Errorf("emit organization.created: %w", err)
 		}
 		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -105,63 +97,13 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 	return out, err
 }
 
-// ensureOrgDomainsUnclaimed answers the domain dedupe probe with the
-// contract's 409, disclosing the existing org id only when the caller
-// could read that row (a domain maps to at most one org per workspace,
-// data-model §4.2).
-func ensureOrgDomainsUnclaimed(ctx context.Context, tx pgx.Tx, domains []OrgDomainInput) error {
-	for _, d := range domains {
-		var existing ids.UUID
-		err := tx.QueryRow(ctx,
-			`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
-			d.Domain).Scan(&existing)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("probe domain dedupe: %w", err)
-		}
-		dup := &DuplicateDomainError{Domain: d.Domain}
-		visible, verr := auth.VisibleTo(ctx, tx, "organization", existing)
-		if verr != nil {
-			return verr
-		}
-		if visible {
-			dup.ExistingID = existing
-		}
-		return dup
-	}
-	return nil
-}
-
-// insertOrgDomains lands the org's domains; the unique index remains the
-// structural guarantee under races, mapping uq_org_domain to the typed
-// 409 and a second primary domain to a plain conflict.
-func insertOrgDomains(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, source, by string, domains []OrgDomainInput) error {
-	for _, d := range domains {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			 VALUES ($1, $2, lower($3), $4, $5, $6)`,
-			wsID, orgID, d.Domain, d.IsPrimary, source, by); err != nil {
-			if name, ok := storekit.UniqueViolation(err); ok {
-				if name == "uq_org_domain" {
-					return &DuplicateDomainError{Domain: d.Domain}
-				}
-				return apperrors.ErrConflict // e.g. a second primary domain
-			}
-			return fmt.Errorf("insert organization domain: %w", err)
-		}
-	}
-	return nil
-}
-
-func (s *Store) GetOrganization(ctx context.Context, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
+func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, archived)
@@ -174,7 +116,7 @@ type ListOrganizationsInput struct {
 	Cursor          *string
 	Limit           *int
 	Query           *string
-	OwnerID         *ids.UUID
+	OwnerID         *ids.UserID
 	Classification  *string
 	IncludeArchived bool
 }
@@ -207,7 +149,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.SQLf("search_tsv @@ plainto_tsquery('simple', $%d)", arg(*in.Query)))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), "display_name"))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)
@@ -256,18 +198,19 @@ type UpdateOrganizationInput struct {
 	LegalName   *string
 	Industry    *string
 	SizeBand    *string
-	OwnerID     *ids.UUID
-	ParentOrgID *ids.UUID
+	OwnerID     *ids.UserID
+	ParentOrgID *ids.OrganizationID
+	Address     *crmcontracts.Address
 	IfVersion   *int64
 }
 
-func (s *Store) UpdateOrganization(ctx context.Context, id ids.UUID, in UpdateOrganizationInput) (crmcontracts.Organization, error) {
+func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, in UpdateOrganizationInput) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
 		current, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
@@ -309,10 +252,19 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
 	}
 	if in.ParentOrgID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", *in.ParentOrgID); err != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {
 			return nil, err
 		}
 		p.Set("parent_org_id", current.ParentOrgId, *in.ParentOrgID)
+	}
+	if in.Address != nil {
+		cur := addressColumns(current.Address)
+		p.Set("address_line1", cur.Line1, in.Address.Line1)
+		p.Set("address_line2", cur.Line2, in.Address.Line2)
+		p.Set("address_city", cur.City, in.Address.City)
+		p.Set("address_region", cur.Region, in.Address.Region)
+		p.Set("address_postal_code", cur.PostalCode, in.Address.PostalCode)
+		p.Set("address_country", cur.Country, in.Address.Country)
 	}
 	return p, nil
 }
@@ -320,15 +272,15 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 // writeOrganizationUpdate lands the patch on the write shape — domain row,
 // audit row, and organization.updated event in the one transaction — and
 // returns the reloaded survivor.
-func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, ifVersion *int64, p *storekit.Patch) (crmcontracts.Organization, error) {
-	if err := p.Apply(ctx, tx, "organization", id, ifVersion); err != nil {
+func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, ifVersion *int64, p *storekit.Patch) (crmcontracts.Organization, error) {
+	if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, ifVersion); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("apply organization patch: %w", err)
 	}
-	auditID, err := storekit.Audit(ctx, tx, "update", "organization", id, p.Before(), p.After())
+	auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, p.Before(), p.After())
 	if err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("audit organization update: %w", err)
 	}
-	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id, p.After()); err != nil {
+	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id.UUID, p.After()); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("emit organization.updated: %w", err)
 	}
 	out, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
@@ -338,13 +290,13 @@ func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.UUID, ifVers
 	return out, nil
 }
 
-func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontracts.Organization, error) {
+func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
 	}
 	var out crmcontracts.Organization
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
 		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
@@ -370,11 +322,11 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontra
 			return err
 		}
 
-		auditID, err := storekit.Audit(ctx, tx, "archive", "organization", id, nil, nil)
+		auditID, err := storekit.Audit(ctx, tx, "archive", "organization", id.UUID, nil, nil)
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "organization.archived", "organization", id, nil); err != nil {
+		if err := storekit.Emit(ctx, tx, auditID, "organization.archived", "organization", id.UUID, nil); err != nil {
 			return err
 		}
 		out, err = readOrganization(ctx, tx, id, storekit.IncludeArchived)
@@ -384,10 +336,11 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.UUID) (crmcontra
 }
 
 const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_band, owner_id,
+	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 	classification, relevance, parent_org_id, merged_into_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
-func readOrganization(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
+func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
 	q := `SELECT ` + orgColumns + ` FROM organization WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
@@ -412,9 +365,11 @@ func scanOrganization(row pgx.Row) (crmcontracts.Organization, error) {
 	var ownerID, parentID, mergedInto *ids.UUID
 	var classification string
 	var relevance *int16
+	var addr crmcontracts.Address
 	var version int64
 
 	err := row.Scan(&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
+		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&classification, &relevance, &parentID, &mergedInto, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt)
 	if err != nil {
@@ -428,41 +383,9 @@ func scanOrganization(row pgx.Row) (crmcontracts.Organization, error) {
 	o.MergedIntoId = uuidPtr(mergedInto)
 	cls := crmcontracts.OrganizationClassification(classification)
 	o.Classification = &cls
+	if a := addressOrNil(addr); a != nil {
+		o.Address = a
+	}
 	o.Version = &version
 	return o, nil
-}
-
-func attachOrgDomains(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organization) error {
-	if len(orgs) == 0 {
-		return nil
-	}
-	idx := make(map[openapi_types.UUID]*crmcontracts.Organization, len(orgs))
-	orgIDs := make([]ids.UUID, len(orgs))
-	for i := range orgs {
-		idx[orgs[i].Id] = &orgs[i]
-		orgIDs[i] = ids.UUID(orgs[i].Id)
-	}
-
-	rows, err := tx.Query(ctx,
-		`SELECT organization_id, id, domain, is_primary, source, captured_by
-		 FROM organization_domain WHERE organization_id = ANY($1) AND archived_at IS NULL
-		 ORDER BY is_primary DESC, created_at`, orgIDs)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var orgID, domainID ids.UUID
-		var d crmcontracts.OrganizationDomain
-		if err := rows.Scan(&orgID, &domainID, &d.Domain, &d.IsPrimary, &d.Source, &d.CapturedBy); err != nil {
-			return err
-		}
-		d.Id = openapi_types.UUID(domainID)
-		o := idx[openapi_types.UUID(orgID)]
-		if o.Domains == nil {
-			o.Domains = &[]crmcontracts.OrganizationDomain{}
-		}
-		*o.Domains = append(*o.Domains, d)
-	}
-	return rows.Err()
 }

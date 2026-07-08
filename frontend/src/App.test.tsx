@@ -6,9 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { LocaleProvider } from "./i18n";
 
-// B-EP09.17: the locale switch flips the whole UI between DE and EN. The app
-// mounts in the A24 default (de); one click renders the English chrome. The
-// browser-level e2e twin of this test rides the 09.22 harness.
+// B-EP09.17: the locale switch flips the whole UI between DE and EN. With the
+// browser asking for a language we don't ship, the app mounts in the A24
+// fallback (de); one click renders the English chrome. The browser-level e2e
+// twin of this test rides the 09.22 harness.
 //
 // The shell only renders behind a session: App probes GET /v1/me and shows the
 // authenticated chrome once it is 200. The test seeds a workspace slug + a
@@ -35,6 +36,12 @@ function memoryStorage(): Storage {
 beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
   globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+  // Pin the browser language to one we don't ship so mount resolves to the
+  // A24 fallback deterministically, independent of the CI machine's locale.
+  Object.defineProperty(globalThis.navigator, "languages", {
+    value: ["fr-FR"],
+    configurable: true,
+  });
   // Only the session probe succeeds; the home screen's own data calls fail and
   // fall to their QueryGate error state (the rail still renders — that is what
   // this test asserts). Routing by URL keeps the stub honest per endpoint.

@@ -33,7 +33,7 @@ type SendEmailInput struct {
 // consent gate → outbound activity in the write shape. The transport
 // hand-off is the deployment's SMTP/provider seam; V1's durable fact
 // is the logged activity.
-func (s *Store) SendEmail(ctx context.Context, anchorID ids.UUID, in SendEmailInput, gate ConsentGate) (crmcontracts.Activity, error) {
+func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendEmailInput, gate ConsentGate) (crmcontracts.Activity, error) {
 	if gate == nil {
 		// Fail closed: a send surface without its suppression gate is a
 		// wiring defect, not an implicit allow.

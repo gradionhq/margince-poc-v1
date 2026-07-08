@@ -33,19 +33,19 @@ import (
 // warmContact pairs the contract evidence row with its person id for the
 // intro-path ranking.
 type warmContact struct {
-	PersonID ids.UUID
+	PersonID ids.PersonID
 	Contact  crmcontracts.SignalWarmContact
 }
 
 // Warmth computes the warm/cold branch for a resolved signal.
-func (s *Store) Warmth(ctx context.Context, signalID ids.UUID, now time.Time) (crmcontracts.SignalWarmth, error) {
+func (s *Store) Warmth(ctx context.Context, signalID ids.SignalID, now time.Time) (crmcontracts.SignalWarmth, error) {
 	if err := auth.Require(ctx, "signal", principal.ActionRead); err != nil {
 		return crmcontracts.SignalWarmth{}, err
 	}
 	var sig crmcontracts.Signal
 	var contacts []warmContact
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureSignalVisible(ctx, tx, signalID); err != nil {
+		if err := auth.EnsureSignalVisible(ctx, tx, signalID.UUID); err != nil {
 			return err
 		}
 		var err error
@@ -56,7 +56,7 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.UUID, now time.Time) (c
 			return &NoWarmthError{Reason: fmt.Sprintf(
 				"signal is %s: only a signal resolved to an organization has a warm/cold branch", sig.ResolutionState)}
 		}
-		contacts, err = contactEdges(ctx, tx, ids.UUID(*sig.ResolvedOrgId))
+		contacts, err = contactEdges(ctx, tx, ids.From[ids.OrganizationKind](ids.UUID(*sig.ResolvedOrgId)))
 		return err
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.UUID, now time.Time) (c
 		out.Routing = crmcontracts.SignalWarmthRouting("warm_room")
 	}
 	for _, c := range scored {
-		out.ContactIds = append(out.ContactIds, openapi_types.UUID(c.PersonID))
+		out.ContactIds = append(out.ContactIds, openapi_types.UUID(c.PersonID.UUID))
 		out.Contacts = append(out.Contacts, c.Contact)
 	}
 	return out, nil
@@ -112,7 +112,7 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.UUID, now time.Time) (c
 // graph: current employment at the org, or a stakeholder seat on one of
 // the org's live deals. Row-scoped — a contact the caller cannot see
 // cannot be their evidence.
-func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]warmContact, error) {
+func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]warmContact, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -142,10 +142,10 @@ func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]warmContact
 
 	// One evidence row per person: employment is the primary edge when a
 	// person holds both (it is the durable "we know someone there" fact).
-	byPerson := map[ids.UUID]warmContact{}
-	var order []ids.UUID
+	byPerson := map[ids.PersonID]warmContact{}
+	var order []ids.PersonID
 	for rows.Next() {
-		var personID ids.UUID
+		var personID ids.PersonID
 		var fullName, role *string
 		var kind string
 		if err := rows.Scan(&personID, &fullName, &kind, &role); err != nil {
@@ -161,7 +161,7 @@ func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]warmContact
 		byPerson[personID] = warmContact{
 			PersonID: personID,
 			Contact: crmcontracts.SignalWarmContact{
-				PersonId:         openapi_types.UUID(personID),
+				PersonId:         openapi_types.UUID(personID.UUID),
 				FullName:         fullName,
 				RelationshipKind: crmcontracts.SignalWarmContactRelationshipKind(kind),
 				RelationshipRole: role,

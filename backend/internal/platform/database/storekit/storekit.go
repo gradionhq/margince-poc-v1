@@ -11,35 +11,16 @@ package storekit
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-)
-
-// ArchivedFilter exists for call-site legibility on row-visibility
-// reads: a positional bool ("readDeal(ctx, tx, id, true)") hides which
-// way the archived rows go, so every by-id read spells it with these
-// constants instead.
-type ArchivedFilter uint8
-
-const (
-	// LiveOnly resolves only unarchived rows — the default read posture.
-	LiveOnly ArchivedFilter = iota
-	// IncludeArchived resolves archived rows too: archived and merged
-	// records stay fetchable by id.
-	IncludeArchived
 )
 
 // Actor resolves the audit identity of the current call. A missing actor
@@ -190,181 +171,10 @@ func JSONArg(m map[string]any) any {
 	return raw
 }
 
-// Page is a keyset-paginated result window.
-type Page struct {
-	NextCursor string
-	HasMore    bool
-}
-
-// Cursor is the opaque keyset token: the last row's (created_at, id)
-// under the default -created_at,id sort. Keyset, never offset (CAP-PAGE).
-type Cursor struct {
-	CreatedAt time.Time `json:"t"`
-	ID        ids.UUID  `json:"id"`
-}
-
-func EncodeCursor(createdAt time.Time, id ids.UUID) string {
-	raw, _ := json.Marshal(Cursor{CreatedAt: createdAt, ID: id})
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
-
-// MalformedCursorError is a client fault: the opaque keyset token is
-// client-supplied input, so failing to decode it maps to a 4xx at the
-// transport (httperr), never a 500.
-type MalformedCursorError struct{}
-
-func (*MalformedCursorError) Error() string { return "store: malformed cursor" }
-
-func DecodeCursor(token string) (Cursor, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return Cursor{}, &MalformedCursorError{}
-	}
-	var c Cursor
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return Cursor{}, &MalformedCursorError{}
-	}
-	return c, nil
-}
-
-// SQLf keeps store-side SQL assembly lines readable; arguments are
-// always positional parameters or fixed identifiers, never user input.
-func SQLf(format string, a ...any) string { return fmt.Sprintf(format, a...) }
-
-// ClampLimit applies the contract's CAP-PAGE bounds (default 50, max 200).
-func ClampLimit(limit *int) int {
-	switch {
-	case limit == nil:
-		return 50
-	case *limit < 1:
-		return 1
-	case *limit > 200:
-		return 200
-	default:
-		return *limit
-	}
-}
-
-// Patch accumulates a partial UPDATE: only fields the client sent, plus
-// the before/after diff the audit row records.
-type Patch struct {
-	sets   []string
-	args   []any
-	before map[string]any
-	after  map[string]any
-}
-
-func NewPatch() *Patch {
-	return &Patch{before: map[string]any{}, after: map[string]any{}}
-}
-
-// Set records one changed column. oldVal comes from the row read inside
-// the same transaction, so the audit diff is exact.
-//
-//craft:ignore naked-any column values span every SQL type a module owns; they flow to bind parameters and the schemaless audit diff
-func (p *Patch) Set(column string, oldVal, newVal any) {
-	p.args = append(p.args, newVal)
-	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", column, len(p.args)))
-	p.before[column] = oldVal
-	p.after[column] = newVal
-}
-
-func (p *Patch) Empty() bool { return len(p.sets) == 0 }
-
-// Before and After expose the audit diff the accumulated Set calls built.
-func (p *Patch) Before() map[string]any { return p.before }
-func (p *Patch) After() map[string]any  { return p.after }
-
-// Apply runs the UPDATE with optimistic concurrency: the WHERE clause
-// carries the If-Match version when given; zero rows affected on a live
-// row means version skew (data-model §1.3a).
-func (p *Patch) Apply(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, ifVersion *int64) error {
-	p.args = append(p.args, id)
-	where := fmt.Sprintf("id = $%d AND archived_at IS NULL", len(p.args))
-	if ifVersion != nil {
-		p.args = append(p.args, *ifVersion)
-		where += fmt.Sprintf(" AND version = $%d", len(p.args))
-	}
-
-	tag, err := tx.Exec(ctx,
-		fmt.Sprintf(`UPDATE %s SET %s WHERE %s`, table, strings.Join(p.sets, ", "), where),
-		p.args...)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 1 {
-		return nil
-	}
-
-	// Distinguish "gone" from "stale": a live row that didn't match can
-	// only mean the version clause failed.
-	var exists bool
-	if err := tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $1 AND archived_at IS NULL)`, table),
-		id).Scan(&exists); err != nil {
-		return err
-	}
-	if exists {
-		return apperrors.ErrVersionSkew
-	}
-	return apperrors.ErrNotFound
-}
-
 //craft:ignore naked-any marshals the audit seam's schemaless before/after images (see Audit)
 func marshalOrNil(v any) ([]byte, error) {
 	if v == nil {
 		return nil, nil
 	}
 	return json.Marshal(v)
-}
-
-// The SQLSTATEs the stores branch on, named once.
-const (
-	pgUniqueViolation     = "23505"
-	pgForeignKeyViolation = "23503"
-	pgCheckViolation      = "23514"
-	pgExclusionViolation  = "23P01"
-)
-
-// pgViolation names the violated constraint when err is the given
-// SQLSTATE class — the single spelling of "which constraint fired".
-func pgViolation(err error, code string) (constraint string, ok bool) {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == code {
-		return pgErr.ConstraintName, true
-	}
-	return "", false
-}
-
-// IsUniqueViolation detects the 23505 dedupe path (409 + existing id).
-func IsUniqueViolation(err error) bool {
-	_, ok := UniqueViolation(err)
-	return ok
-}
-
-// UniqueViolation names the violated constraint of a 23505, so callers
-// can tell an email/domain dedupe hit from an unrelated uniqueness rule
-// (e.g. the one-primary-email index) instead of mislabeling both as
-// duplicates.
-func UniqueViolation(err error) (constraint string, ok bool) {
-	return pgViolation(err, pgUniqueViolation)
-}
-
-func IsForeignKeyViolation(err error) bool {
-	_, ok := pgViolation(err, pgForeignKeyViolation)
-	return ok
-}
-
-// ExclusionViolation names a fired EXCLUDE constraint — the overlap
-// guards (double-booking) map it to their domain conflict.
-func ExclusionViolation(err error) (constraint string, ok bool) {
-	return pgViolation(err, pgExclusionViolation)
-}
-
-// CheckViolation exposes a fired CHECK constraint's name so the transport
-// can answer a typed 422 instead of an opaque 500 — the defense-in-depth
-// net under the per-path validations: a CHECK is a business rule, and a
-// business-rule breach is never a server fault.
-func CheckViolation(err error) (constraint string, ok bool) {
-	return pgViolation(err, pgCheckViolation)
 }

@@ -33,6 +33,8 @@ const maxCorpusSourceBytes = 1 << 20
 // VoiceCorpusSource is one manifest row; the ingested text stays
 // store-internal (the builder reads it, the API never echoes it).
 type VoiceCorpusSource struct {
+	// note: neither voice_corpus_source nor its parent voice_profile is a
+	// kernel entity kind, so both ids stay untyped (rule 7 kernel gap).
 	ID          ids.UUID
 	ProfileID   ids.UUID
 	Kind        string

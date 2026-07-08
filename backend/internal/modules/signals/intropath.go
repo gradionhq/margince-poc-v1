@@ -34,7 +34,7 @@ const art50Disclosure = "This message was drafted with AI assistance (EU AI Act 
 
 // IntroPath proposes the warm-intro path for a warm signal: the strongest
 // visible contact at the resolved organization is the route in.
-func (s *Store) IntroPath(ctx context.Context, signalID ids.UUID, now time.Time) (crmcontracts.SignalIntroPath, error) {
+func (s *Store) IntroPath(ctx context.Context, signalID ids.SignalID, now time.Time) (crmcontracts.SignalIntroPath, error) {
 	warmth, err := s.Warmth(ctx, signalID, now)
 	if err != nil {
 		return crmcontracts.SignalIntroPath{}, err

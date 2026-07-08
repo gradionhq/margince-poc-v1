@@ -56,30 +56,30 @@ var columnBackedColdStartFields = map[string]string{
 // standing values (features/07 §2: colliding writes need their own 🟡).
 // The evidence row is upserted for EVERY accepted field, column-backed
 // or not, so provenance stays queryable either way.
-func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProfileInput) (ids.UUID, error) {
+func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProfileInput) (ids.OrganizationID, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
-		return ids.Nil, err
+		return ids.OrganizationID{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
-		return ids.Nil, err
+		return ids.OrganizationID{}, err
 	}
 	host, err := coldStartHost(in.SourceURL)
 	if err != nil {
-		return ids.Nil, err
+		return ids.OrganizationID{}, err
 	}
 	if len(in.Fields) == 0 {
-		return ids.Nil, errors.New("people: an accepted coldstart proposal carries no fields")
+		return ids.OrganizationID{}, errors.New("people: an accepted coldstart proposal carries no fields")
 	}
 
-	var orgID ids.UUID
+	var orgID ids.OrganizationID
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		orgID, err = applyColdStartTx(ctx, tx, in, host, by)
 		return err
 	})
 	if err != nil {
-		return ids.Nil, err
+		return ids.OrganizationID{}, err
 	}
 	return orgID, nil
 }
@@ -88,34 +88,34 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 // accepted fields (evidence for every one, columns only when empty), and
 // runs the write shape — create vs update chosen by whether the org was
 // just minted — all inside the caller's transaction.
-func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.UUID, error) {
-	wsID := storekit.MustWorkspace(ctx)
+func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.OrganizationID, error) {
+	wsID := workspaceID(ctx)
 	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, wsID, host, by, in.Fields)
 	if err != nil {
-		return ids.Nil, err
+		return ids.OrganizationID{}, err
 	}
 	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, "coldstart", by, in.Fields)
 	if err != nil {
-		return ids.Nil, err
+		return ids.OrganizationID{}, err
 	}
 
 	action, eventType := "update", "organization.updated"
 	if created {
 		action, eventType = "create", "organization.created"
 	}
-	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID, nil, map[string]any{
+	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
 		"source": "coldstart", "source_url": in.SourceURL, "fields": applied,
 	})
 	if err != nil {
-		return ids.Nil, fmt.Errorf("audit coldstart apply: %w", err)
+		return ids.OrganizationID{}, fmt.Errorf("audit coldstart apply: %w", err)
 	}
 	payload := map[string]any{"delta": applied, "source": "coldstart", "source_url": in.SourceURL}
 	if created {
 		payload = map[string]any{"display_name": fieldValue(in.Fields, "legal_name"), "primary_domain": host,
 			"source": "coldstart", "captured_by": by}
 	}
-	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID, payload); err != nil {
-		return ids.Nil, fmt.Errorf("emit %s: %w", eventType, err)
+	if err := storekit.Emit(ctx, tx, auditID, eventType, "organization", orgID.UUID, payload); err != nil {
+		return ids.OrganizationID{}, fmt.Errorf("emit %s: %w", eventType, err)
 	}
 	return orgID, nil
 }
@@ -124,8 +124,8 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 // names, or creates it (with its primary domain) when absent. It reports
 // whether it created the org so the caller selects the create/update audit
 // action and event.
-func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.UUID, host, by string, fields []ColdStartFieldInput) (ids.UUID, bool, error) {
-	var orgID ids.UUID
+func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, host, by string, fields []ColdStartFieldInput) (ids.OrganizationID, bool, error) {
+	var orgID ids.OrganizationID
 	err := tx.QueryRow(ctx,
 		`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
 		host).Scan(&orgID)
@@ -133,10 +133,10 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 		return orgID, false, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return ids.Nil, false, fmt.Errorf("resolve organization by domain: %w", err)
+		return ids.OrganizationID{}, false, fmt.Errorf("resolve organization by domain: %w", err)
 	}
 
-	orgID = ids.NewV7()
+	orgID = ids.New[ids.OrganizationKind]()
 	displayName := host
 	if legal := fieldValue(fields, "legal_name"); legal != "" {
 		displayName = legal
@@ -145,13 +145,13 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 		`INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
 		 VALUES ($1, $2, $3, 'coldstart', $4)`,
 		orgID, wsID, displayName, by); err != nil {
-		return ids.Nil, false, fmt.Errorf("insert coldstart organization: %w", err)
+		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
 		 VALUES ($1, $2, lower($3), true, 'coldstart', $4)`,
 		wsID, orgID, host, by); err != nil {
-		return ids.Nil, false, fmt.Errorf("insert coldstart organization domain: %w", err)
+		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization domain: %w", err)
 	}
 	return orgID, true, nil
 }
@@ -161,7 +161,10 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 var coldStartColumns = map[string]string{
 	"legal_name": `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
 	"industry":   `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
-	"address":    `UPDATE organization SET address = jsonb_build_object('formatted', $2::text) WHERE id = $1 AND address IS NULL`,
+	// A scraped registered address arrives as one formatted line; it
+	// fills line1 only when no structured address exists yet.
+	"address": `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS NULL
+	            AND address_city IS NULL AND address_postal_code IS NULL`,
 }
 
 // applyEvidenceFields fills the column-backed fields (only when empty) and
@@ -170,7 +173,7 @@ var coldStartColumns = map[string]string{
 // identically; the caller supplies the executing principal (by) and owns the
 // audit source. A re-accept refreshes an agent-captured row and never touches
 // one a human has since claimed.
-func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, source, by string, fields []ColdStartFieldInput) (map[string]any, error) {
+func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgID ids.OrganizationID, source, by string, fields []ColdStartFieldInput) (map[string]any, error) {
 	applied := map[string]any{}
 	for _, f := range fields {
 		if column, backed := columnBackedColdStartFields[f.Field]; backed {
@@ -189,7 +192,7 @@ func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, s
 					// A missing source link reads as NULL, never as ''.
 					stamp.EvidenceRef = &f.SourceURL
 				}
-				if err := storekit.StampFields(ctx, tx, "organization", orgID, source, by, []storekit.FieldStamp{stamp}); err != nil {
+				if err := storekit.StampFields(ctx, tx, "organization", orgID.UUID, source, by, []storekit.FieldStamp{stamp}); err != nil {
 					return nil, err
 				}
 			}
@@ -215,7 +218,7 @@ func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID, orgID ids.UUID, s
 	return applied, nil
 }
 
-func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.UUID, column, value string) (bool, error) {
+func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, column, value string) (bool, error) {
 	query, ok := coldStartColumns[column]
 	if !ok {
 		return false, fmt.Errorf("people: %q is not a coldstart-fillable column", column)

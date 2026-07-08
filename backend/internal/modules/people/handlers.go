@@ -50,17 +50,17 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var dupEmail *DuplicateEmailError
 	if errors.As(err, &dupEmail) {
-		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupEmail.ExistingID)))
+		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupEmail.ExistingID.UUID)))
 		return
 	}
 	var dupDomain *DuplicateDomainError
 	if errors.As(err, &dupDomain) {
-		httperr.Write(w, r, httperr.Duplicate("duplicate_domain", duplicateID(dupDomain.ExistingID)))
+		httperr.Write(w, r, httperr.Duplicate("duplicate_domain", duplicateID(dupDomain.ExistingID.UUID)))
 		return
 	}
 	var dupLead *DuplicateLeadError
 	if errors.As(err, &dupLead) {
-		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID)))
+		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID.UUID)))
 		return
 	}
 	var needsReason *ScoreOverrideReasonRequiredError

@@ -23,15 +23,24 @@ shared  →  platform  →  modules  →  compose  →  cmd
   `database/storekit` (the one spelling of the write shape), `auth` (the
   one admission point), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr`, `httpserver`.
-- **`internal/modules/`** — twelve bounded capabilities, flat per
-  ADR-0054 §3 (store + mapping + transport + provider in one package):
-  identity, people, deals, activities, approvals, agents, ai, search,
-  capture, consent, collections, and the `de` jurisdiction pack. A
-  module **never imports a sibling**; every cross-module edge is
-  injected by the composition layer.
+- **`internal/modules/`** — the bounded capabilities (identity, people,
+  deals, activities, approvals, agents, ai, search, capture, consent,
+  privacy, collections, signals, and the `de` jurisdiction pack). A
+  module package starts flat (store + mapping + transport + provider in
+  one package, ADR-0054 §3) and earns a subpackage only under the
+  growth policy in
+  [decisions/0018](../../decisions/0018-module-growth-policy.md) —
+  e.g. `capture/imap` (protocol adapter), `agents/runner` (independent
+  engine), `identity/internal/policy` (hidden ruleset). A module
+  **never imports a sibling**; every cross-module edge is injected by
+  the composition layer.
 - **`internal/compose/`** — the one composition seam every process role
   shares: the contract HTTP surface, the composite datasource provider,
-  the MCP registry, and all cross-module wiring.
+  the MCP registry, and all cross-module wiring. Cross-module
+  orchestration groups live in subpackages under the same growth policy
+  (`compose/briefs`), and the cross-module integration suites live in
+  `compose/integration`; compose subpackages coordinate modules and
+  never durably own a business entity.
 - **`cmd/{api,worker,migrate,mcp}`** — thin process roles.
 
 The DAG is enforced three ways, and deliberately mechanically: depguard

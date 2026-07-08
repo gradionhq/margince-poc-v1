@@ -20,11 +20,20 @@ type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
 
-func uuidArg(u *openapi_types.UUID) *ids.UUID {
+// pathID asserts a contract path id as entity K's id — the widening
+// point between the wire and the typed store surface (the route already
+// names the entity, so the assertion lives here, not in the store).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
+}
+
+// idArg asserts an optional wire UUID (body field or query parameter)
+// as entity K's id; nil stays nil.
+func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 	if u == nil {
 		return nil
 	}
-	v := ids.UUID(*u)
+	v := ids.From[K](ids.UUID(*u))
 	return &v
 }
 
@@ -36,11 +45,11 @@ func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error
 		Name:           req.Name,
 		AmountMinor:    req.AmountMinor,
 		Currency:       req.Currency,
-		PipelineID:     ids.UUID(req.PipelineId),
-		StageID:        ids.UUID(req.StageId),
+		PipelineID:     pathID[ids.PipelineKind](req.PipelineId),
+		StageID:        pathID[ids.StageKind](req.StageId),
 		Source:         req.Source,
-		OrganizationID: uuidArg(req.OrganizationId),
-		OwnerID:        uuidArg(req.OwnerId),
+		OrganizationID: idArg[ids.OrganizationKind](req.OrganizationId),
+		OwnerID:        idArg[ids.UserKind](req.OwnerId),
 	}
 	if req.ExpectedCloseDate != nil {
 		in.ExpectedClose = &req.ExpectedCloseDate.Time
@@ -53,9 +62,9 @@ func dealUpdateInput(req crmcontracts.UpdateDealRequest, ifVersion *int64) Updat
 		Name:                  req.Name,
 		AmountMinor:           req.AmountMinor,
 		Currency:              req.Currency,
-		OrganizationID:        uuidArg(req.OrganizationId),
-		OwnerID:               uuidArg(req.OwnerId),
-		PartnerOrganizationID: uuidArg(req.PartnerOrgId),
+		OrganizationID:        idArg[ids.OrganizationKind](req.OrganizationId),
+		OwnerID:               idArg[ids.UserKind](req.OwnerId),
+		PartnerOrganizationID: idArg[ids.OrganizationKind](req.PartnerOrgId),
 		IfVersion:             ifVersion,
 	}
 	if req.ExpectedCloseDate != nil {

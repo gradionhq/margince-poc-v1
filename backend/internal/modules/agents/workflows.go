@@ -135,7 +135,7 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 		}
 		for _, inst := range instances[h.Spec().Name] {
 			iev := ev
-			iev.AutomationID = inst.id
+			iev.AutomationID = inst.id.UUID
 			iev.Params = inst.params
 			if err := e.runOne(runCtx, h, iev); err != nil && firstErr == nil {
 				firstErr = fmt.Errorf("workflow %s: %w", h.Spec().Name, err)
@@ -147,7 +147,7 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 
 // automationInstance is the enabled-row slice dispatch needs.
 type automationInstance struct {
-	id     ids.UUID
+	id     ids.AutomationID
 	params json.RawMessage
 }
 

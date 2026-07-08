@@ -8,12 +8,30 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// pathID asserts a contract path id as entity K's id — the widening
+// point between the wire and the typed store surface (the route already
+// names the entity, so the assertion lives here, not in the store).
+func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
+	return ids.From[K](ids.UUID(id))
+}
+
+// idArg asserts an optional wire UUID (a body field) as entity K's id;
+// nil stays nil.
+func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
+	if u == nil {
+		return nil
+	}
+	v := ids.From[K](ids.UUID(*u))
+	return &v
+}
 
 // Handlers is the module's transport slice; compose embeds it so the
 // generated list/tag stubs are shadowed by real code.
@@ -59,14 +77,8 @@ func (h Handlers) CreateList(w http.ResponseWriter, r *http.Request) {
 	if req.Definition != nil {
 		in.Definition = *req.Definition
 	}
-	if req.OwnerId != nil {
-		owner := ids.UUID(*req.OwnerId)
-		in.OwnerID = &owner
-	}
-	if req.TeamId != nil {
-		team := ids.UUID(*req.TeamId)
-		in.TeamID = &team
-	}
+	in.OwnerID = idArg[ids.UserKind](req.OwnerId)
+	in.TeamID = idArg[ids.TeamKind](req.TeamId)
 	list, err := h.store.CreateList(r.Context(), in)
 	if err != nil {
 		writeErr(w, r, err)
@@ -76,7 +88,7 @@ func (h Handlers) CreateList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetList(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	list, err := h.store.GetList(r.Context(), ids.UUID(id))
+	list, err := h.store.GetList(r.Context(), pathID[ids.ListKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -85,7 +97,7 @@ func (h Handlers) GetList(w http.ResponseWriter, r *http.Request, id crmcontract
 }
 
 func (h Handlers) ArchiveList(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	list, err := h.store.ArchiveList(r.Context(), ids.UUID(id))
+	list, err := h.store.ArchiveList(r.Context(), pathID[ids.ListKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -102,7 +114,7 @@ func (h Handlers) ListListMembers(w http.ResponseWriter, r *http.Request, id crm
 	if params.Cursor != nil {
 		cursor = *params.Cursor
 	}
-	members, page, err := h.store.ListMembers(r.Context(), ids.UUID(id), limit, cursor)
+	members, page, err := h.store.ListMembers(r.Context(), pathID[ids.ListKind](id), limit, cursor)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -123,7 +135,10 @@ func (h Handlers) AddListMember(w http.ResponseWriter, r *http.Request, id crmco
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	member, err := h.store.AddMember(r.Context(), ids.UUID(id), string(req.EntityType), ids.UUID(req.EntityId))
+	// req.EntityId is a polymorphic member target (any entity), so it stays
+	// an untyped ids.UUID; the store validates it against the list's own
+	// entity_type and the row-scope link gate.
+	member, err := h.store.AddMember(r.Context(), pathID[ids.ListKind](id), string(req.EntityType), ids.UUID(req.EntityId))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -162,7 +177,7 @@ func (h Handlers) CreateTag(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) ArchiveTag(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	tag, err := h.store.ArchiveTag(r.Context(), ids.UUID(id))
+	tag, err := h.store.ArchiveTag(r.Context(), pathID[ids.TagKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -175,7 +190,9 @@ func (h Handlers) ApplyTag(w http.ResponseWriter, r *http.Request, id crmcontrac
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	applied, err := h.store.ApplyTag(r.Context(), ids.UUID(id), string(req.EntityType), ids.UUID(req.EntityId))
+	// req.EntityId is a polymorphic tag target (any entity), so it stays an
+	// untyped ids.UUID; the store row-scope-gates it as a link target.
+	applied, err := h.store.ApplyTag(r.Context(), pathID[ids.TagKind](id), string(req.EntityType), ids.UUID(req.EntityId))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -223,7 +240,7 @@ func (h Handlers) CreateSavedView(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handlers) GetSavedView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	view, err := h.store.GetSavedView(r.Context(), ids.UUID(id))
+	view, err := h.store.GetSavedView(r.Context(), pathID[ids.SavedViewKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -245,7 +262,7 @@ func (h Handlers) UpdateSavedView(w http.ResponseWriter, r *http.Request, id crm
 		q := *req.Query
 		in.Query = &q
 	}
-	view, err := h.store.UpdateSavedView(r.Context(), ids.UUID(id), in)
+	view, err := h.store.UpdateSavedView(r.Context(), pathID[ids.SavedViewKind](id), in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -254,7 +271,7 @@ func (h Handlers) UpdateSavedView(w http.ResponseWriter, r *http.Request, id crm
 }
 
 func (h Handlers) ArchiveSavedView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	view, err := h.store.ArchiveSavedView(r.Context(), ids.UUID(id))
+	view, err := h.store.ArchiveSavedView(r.Context(), pathID[ids.SavedViewKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return

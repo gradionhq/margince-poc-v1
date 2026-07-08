@@ -30,10 +30,10 @@ import (
 // never stages, it only reads the declared surface.
 type stubApprovals struct{}
 
-func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.UUID, error) {
-	return ids.Nil, nil
+func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
+	return ids.ApprovalID{}, nil
 }
-func (stubApprovals) Redeem(_ context.Context, _ ids.UUID, _, _ string) error { return nil }
+func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) error { return nil }
 
 // stubRetriever/stubComms exist so the derived tool list covers the
 // intent and comms registrations; the test only reads Specs().

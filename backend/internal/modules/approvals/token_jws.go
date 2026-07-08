@@ -32,11 +32,14 @@ import (
 // ApprovalTokenClaims is the effect binding (ADR-0036): exactly one
 // approval, exactly one tool + diff, dead at the approval's own TTL.
 type ApprovalTokenClaims struct {
-	ApprovalID    ids.UUID  `json:"jti"`
-	WorkspaceID   ids.UUID  `json:"ws"`
-	Kind          string    `json:"kind"`
-	DiffHash      string    `json:"diff_hash"`
-	PassportID    *ids.UUID `json:"passport_id,omitempty"`
+	ApprovalID  ids.ApprovalID  `json:"jti"`
+	WorkspaceID ids.UUID        `json:"ws"`
+	Kind        string          `json:"kind"`
+	DiffHash    string          `json:"diff_hash"`
+	PassportID  *ids.PassportID `json:"passport_id,omitempty"`
+	// TargetType + TargetID are the polymorphic reference to the approved
+	// action's target; the id stays untyped because the pair is the
+	// discriminated reference, not one entity's typed id.
 	TargetType    *string   `json:"target_type,omitempty"`
 	TargetID      *ids.UUID `json:"target_id,omitempty"`
 	TargetVersion *int64    `json:"target_version,omitempty"`
@@ -51,7 +54,7 @@ type jwsHeader struct {
 // MintApprovalToken serializes an APPROVED staging as a compact JWS.
 // Called by the approve handler so the deciding human's response
 // carries the token the agent will redeem.
-func (s *Service) MintApprovalToken(ctx context.Context, approvalID ids.UUID) (string, error) {
+func (s *Service) MintApprovalToken(ctx context.Context, approvalID ids.ApprovalID) (string, error) {
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return "", errors.New("crmapprovals: minting outside workspace context")

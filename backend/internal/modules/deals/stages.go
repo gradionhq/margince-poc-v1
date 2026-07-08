@@ -32,12 +32,17 @@ type UpdatePipelineInput struct {
 	IfVersion *int64
 }
 
-func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipelineInput) (crmcontracts.Pipeline, error) {
+func (s *Store) UpdatePipeline(ctx context.Context, id ids.PipelineID, in UpdatePipelineInput) (crmcontracts.Pipeline, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionUpdate); err != nil {
 		return crmcontracts.Pipeline{}, err
 	}
 	var out crmcontracts.Pipeline
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The row lock makes the version read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "pipeline", id.UUID, storekit.LiveOnly); err != nil {
+			return err
+		}
 		var version int64
 		err := tx.QueryRow(ctx, `SELECT version FROM pipeline WHERE id = $1 AND archived_at IS NULL`, id).Scan(&version)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -66,13 +71,13 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipeli
 			id, in.Name, in.IsDefault, in.Position); err != nil {
 			return fmt.Errorf("update pipeline: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "pipeline", id, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "update", "pipeline", id.UUID, nil, map[string]any{
 			"name": in.Name, "is_default": in.IsDefault, "position": in.Position,
 		})
 		if err != nil {
 			return fmt.Errorf("audit pipeline update: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", id, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", id.UUID, map[string]any{
 			"delta": map[string]any{"name": in.Name, "is_default": in.IsDefault, "position": in.Position},
 		}); err != nil {
 			return fmt.Errorf("emit pipeline.updated: %w", err)
@@ -86,7 +91,7 @@ func (s *Store) UpdatePipeline(ctx context.Context, id ids.UUID, in UpdatePipeli
 }
 
 type CreateStageInput struct {
-	PipelineID     ids.UUID
+	PipelineID     ids.PipelineID
 	Name           string
 	Position       int
 	Semantic       string
@@ -98,7 +103,10 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		return crmcontracts.Stage{}, err
 	}
 	if in.Semantic == "" {
-		in.Semantic = "open"
+		in.Semantic = string(SemanticOpen)
+	}
+	if _, err := ParseStageSemantic(in.Semantic); err != nil {
+		return crmcontracts.Stage{}, err
 	}
 	// The terminal-probability rule (won=100, lost=0) is a DDL CHECK;
 	// filling the canonical value here turns an omitted probability into
@@ -106,7 +114,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 	probability := 0
 	if in.WinProbability != nil {
 		probability = *in.WinProbability
-	} else if in.Semantic == "won" {
+	} else if StageSemantic(in.Semantic) == SemanticWon {
 		probability = 100
 	}
 	var out crmcontracts.Stage
@@ -120,7 +128,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		if !exists {
 			return apperrors.ErrNotFound
 		}
-		var stageID ids.UUID
+		var stageID ids.StageID
 		err := tx.QueryRow(ctx, `
 			INSERT INTO stage (workspace_id, pipeline_id, name, position, semantic, win_probability)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
@@ -132,13 +140,13 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 			}
 			return fmt.Errorf("insert stage: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "create", "stage", stageID, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "create", "stage", stageID.UUID, nil, map[string]any{
 			"pipeline_id": in.PipelineID, "name": in.Name, "semantic": in.Semantic,
 		})
 		if err != nil {
 			return fmt.Errorf("audit stage create: %w", err)
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "stage.created", "stage", stageID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "stage.created", "stage", stageID.UUID, map[string]any{
 			"pipeline_id": in.PipelineID, "name": in.Name, "position": in.Position,
 			"semantic": in.Semantic, "win_probability": probability,
 		}); err != nil {
@@ -152,7 +160,7 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 	return out, err
 }
 
-func (s *Store) GetStage(ctx context.Context, id ids.UUID) (crmcontracts.Stage, error) {
+func (s *Store) GetStage(ctx context.Context, id ids.StageID) (crmcontracts.Stage, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return crmcontracts.Stage{}, err
 	}
@@ -164,7 +172,7 @@ func (s *Store) GetStage(ctx context.Context, id ids.UUID) (crmcontracts.Stage, 
 	return out, err
 }
 
-func (s *Store) ListStages(ctx context.Context, pipelineID *ids.UUID, archived storekit.ArchivedFilter) ([]crmcontracts.Stage, error) {
+func (s *Store) ListStages(ctx context.Context, pipelineID *ids.PipelineID, archived storekit.ArchivedFilter) ([]crmcontracts.Stage, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
 		return nil, err
 	}
@@ -184,9 +192,9 @@ func (s *Store) ListStages(ctx context.Context, pipelineID *ids.UUID, archived s
 		if err != nil {
 			return err
 		}
-		var stageIDs []ids.UUID
+		var stageIDs []ids.StageID
 		for rows.Next() {
-			var id ids.UUID
+			var id ids.StageID
 			if err := rows.Scan(&id); err != nil {
 				rows.Close()
 				return err
@@ -217,14 +225,19 @@ type UpdateStageInput struct {
 	IfVersion      *int64
 }
 
-func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInput) (crmcontracts.Stage, error) {
+func (s *Store) UpdateStage(ctx context.Context, id ids.StageID, in UpdateStageInput) (crmcontracts.Stage, error) {
 	if err := auth.Require(ctx, "pipeline", principal.ActionUpdate); err != nil {
 		return crmcontracts.Stage{}, err
 	}
 	var out crmcontracts.Stage
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// The row lock makes the version read and the update below one
+		// race-free unit.
+		if _, err := storekit.LockRow(ctx, tx, "stage", id.UUID, storekit.LiveOnly); err != nil {
+			return err
+		}
 		var version int64
-		var pipelineID ids.UUID
+		var pipelineID ids.PipelineID
 		err := tx.QueryRow(ctx,
 			`SELECT version, pipeline_id FROM stage WHERE id = $1 AND archived_at IS NULL`, id).
 			Scan(&version, &pipelineID)
@@ -253,7 +266,7 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 			}
 			return fmt.Errorf("update stage: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "stage", id, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "update", "stage", id.UUID, nil, map[string]any{
 			"name": in.Name, "position": in.Position, "semantic": in.Semantic, "win_probability": in.WinProbability,
 		})
 		if err != nil {
@@ -262,11 +275,11 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 		// Reorders are pipeline-level facts (ONE pipeline.updated with
 		// the position delta); everything else is a stage.updated.
 		if in.Position != nil {
-			err = storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", pipelineID, map[string]any{
+			err = storekit.Emit(ctx, tx, auditID, "pipeline.updated", "pipeline", pipelineID.UUID, map[string]any{
 				"delta": map[string]any{"stage_positions": map[string]any{id.String(): *in.Position}},
 			})
 		} else {
-			err = storekit.Emit(ctx, tx, auditID, "stage.updated", "stage", id, map[string]any{
+			err = storekit.Emit(ctx, tx, auditID, "stage.updated", "stage", id.UUID, map[string]any{
 				"pipeline_id": pipelineID,
 				"delta":       map[string]any{"name": in.Name, "semantic": in.Semantic, "win_probability": in.WinProbability},
 			})
@@ -282,7 +295,7 @@ func (s *Store) UpdateStage(ctx context.Context, id ids.UUID, in UpdateStageInpu
 	return out, err
 }
 
-func readStage(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.ArchivedFilter) (crmcontracts.Stage, error) {
+func readStage(ctx context.Context, tx pgx.Tx, id ids.StageID, archived storekit.ArchivedFilter) (crmcontracts.Stage, error) {
 	q := `SELECT id, workspace_id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at, archived_at
 	      FROM stage WHERE id = $1`
 	if archived == storekit.LiveOnly {

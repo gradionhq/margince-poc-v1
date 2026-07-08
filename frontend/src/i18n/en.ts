@@ -258,7 +258,7 @@ export const en = {
     "an agent acts as you, never above you — every call re-checks your RBAC",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
-  "settings.tokenOnce": "Copy it now — this token is shown once.",
+  "settings.tokenOnce": "Copy it now — you'll only see this token once.",
   "settings.autonomy": "Autonomy tiers",
   "settings.autonomySub": "what runs instantly vs. what waits in the inbox",
   "settings.tierRead": "Read, summarize, draft — runs instantly, fully logged.",
@@ -349,7 +349,11 @@ export const en = {
   "ob.s2.kick": "Step 2 of 5",
   "ob.s2.title": "Did we get it right?",
   "ob.s2.sub":
-    "Fix anything below — edits are saved as typed by you. We left buying-center blank rather than guess, so tell us who you sell to.",
+    "Fix anything below — when you continue, this is saved to your workspace as confirmed by you. We left buying-center blank rather than guess, so tell us who you sell to.",
+  "ob.s2.saving": "Saving…",
+  "ob.s2.saveFailed": "Couldn't save your profile",
+  "ob.s2.savedNote":
+    "Saved to your workspace. Later changes live on your company page — this step won't re-save.",
   "ob.s2.buyerLabel": "Who buys this?",
   "ob.s2.buyerHint": "we couldn't read this — your turn",
   "ob.s2.buyerPlaceholder": "e.g. Head of Operations, Plant Manager, VP Sales",
@@ -405,7 +409,7 @@ export const en = {
   "ob.s3.modelling": "Modelling your voice from {count} words…",
   "ob.s3.starterVoice": "your starter voice",
   "ob.s3.vpMeta": "{count} words · {sources} sources · good",
-  "ob.s3.vpLead": "Direct, warm, practitioner-operator.",
+  "ob.s3.vpLead": "Direct, warm, straight from the work.",
   "ob.s3.vpRest":
     "Short declarative sentences with the occasional long build-up. Backs opinions with specific numbers and names, not abstractions. Low on corporate filler.",
   "ob.s3.movesLabel": "Signature moves",
@@ -425,7 +429,9 @@ export const en = {
     "Your workspace already knows your business and your voice. Connect your inbox next and it fills itself with your real people, companies, and deals.",
   "ob.s4.cardProfile": "Business profile",
   "ob.s4.cardProfileBody":
-    "ICP, value proposition & USP captured from your site — each with its source.",
+    "What we read from your site is confirmed and saved to your company page — each field with its source.",
+  "ob.s4.cardProfileSkippedBody":
+    "Read back from your site but not saved yet — you skipped the confirm step. Go back and confirm to put it on your company page.",
   "ob.s4.cardVoice": "Your writing voice",
   "ob.s4.cardVoiceBody":
     "Built from the corpus you just gave us. Drafts will sound like you from day one.",

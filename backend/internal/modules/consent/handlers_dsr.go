@@ -43,10 +43,7 @@ func (h Handlers) CreateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 		Kind:       string(req.Kind),
 		SubjectRef: req.SubjectRef,
 		DueAt:      req.DueAt,
-	}
-	if req.AssigneeId != nil {
-		assignee := ids.UUID(*req.AssigneeId)
-		in.AssigneeID = &assignee
+		AssigneeID: idArg[ids.UserKind](req.AssigneeId),
 	}
 	created, err := h.store.CreateDSR(r.Context(), in)
 	if err != nil {
@@ -61,14 +58,10 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in := UpdateDSRInput{Resolution: req.Resolution}
+	in := UpdateDSRInput{Resolution: req.Resolution, AssigneeID: idArg[ids.UserKind](req.AssigneeId)}
 	if req.Status != nil {
 		status := string(*req.Status)
 		in.Status = &status
-	}
-	if req.AssigneeId != nil {
-		assignee := ids.UUID(*req.AssigneeId)
-		in.AssigneeID = &assignee
 	}
 	// Fulfilling an erasure request EXECUTES the erasure first — the
 	// status flip and the actual deletion must not drift apart. A

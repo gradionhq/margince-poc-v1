@@ -38,7 +38,7 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 	if r.Type != datasource.EntityDeal {
 		return datasource.Record{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.GetDeal(ctx, r.ID, storekit.LiveOnly)
+	v, err := p.store.GetDeal(ctx, ids.From[ids.DealKind](r.ID), storekit.LiveOnly)
 	if err != nil {
 		return datasource.Record{}, err
 	}
@@ -98,7 +98,7 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	if err := datasource.StrictDecode(raw, &req); err != nil {
 		return datasource.EntityRef{}, err
 	}
-	v, err := p.store.UpdateDeal(ctx, in.Ref.ID, dealUpdateInput(req, in.IfVersion))
+	v, err := p.store.UpdateDeal(ctx, ids.From[ids.DealKind](in.Ref.ID), dealUpdateInput(req, in.IfVersion))
 	return ref(datasource.EntityDeal, v.Id), err
 }
 
@@ -106,13 +106,13 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 	if r.Type != datasource.EntityDeal {
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.ArchiveDeal(ctx, r.ID)
+	v, err := p.store.ArchiveDeal(ctx, ids.From[ids.DealKind](r.ID))
 	return ref(datasource.EntityDeal, v.Id), err
 }
 
 func (p *Provider) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealInput) (datasource.EntityRef, error) {
-	v, err := p.store.AdvanceDeal(ctx, in.DealID, AdvanceDealInput{
-		ToStageID:  in.ToStageID,
+	v, err := p.store.AdvanceDeal(ctx, ids.From[ids.DealKind](in.DealID), AdvanceDealInput{
+		ToStageID:  ids.From[ids.StageKind](in.ToStageID),
 		LostReason: in.LostReason,
 		IfVersion:  in.IfVersion,
 	})
