@@ -5,9 +5,9 @@ package briefs
 
 // The brief read model (B-E05.3b): a ranking pass persists as one
 // brief_run plus its brief_item rows so the home open re-reads the
-// latest run instead of re-ranking, and the acted/dismissed marks
-// (B-E05.13) live on the items as the per-rep queue state the next
-// run's candidate filter honors. A brief is strictly personal: every
+// latest run instead of re-ranking, and the acted/dismissed/snoozed
+// marks (B-E05.13, A77) live on the items as the per-rep queue state
+// the next run's candidate filter honors. A brief is strictly personal: every
 // read and mark resolves through run.user_id = the acting principal —
 // another rep's brief reads as not-found, never as forbidden.
 
@@ -28,11 +28,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// Brief item states (data-model §12.5).
+// Brief item states (data-model §12.5). A snooze (A77/AC-home-6) hides
+// the item until `snoozed_until` passes, then it re-surfaces as
+// actionable — unlike acted/dismissed, whose return needs a material
+// change on the deal.
 const (
 	briefStateNew       = "new"
 	briefStateActed     = "acted"
 	briefStateDismissed = "dismissed"
+	briefStateSnoozed   = "snoozed"
 )
 
 // BriefRun is one persisted brief for a rep: the queue snapshot plus the
@@ -51,14 +55,15 @@ type BriefRun struct {
 
 // BriefRunItem is one persisted queue entry with its per-rep state.
 type BriefRunItem struct {
-	ID          ids.UUID
-	DealID      ids.UUID
-	Rank        int
-	Composite   float64
-	Features    BriefFeatureVector
-	EvidenceIDs []ids.UUID
-	State       string
-	StateAt     *time.Time
+	ID           ids.UUID
+	DealID       ids.UUID
+	Rank         int
+	Composite    float64
+	Features     BriefFeatureVector
+	EvidenceIDs  []ids.UUID
+	State        string
+	StateAt      *time.Time
+	SnoozedUntil *time.Time
 }
 
 // SnapshotRun ranks and persists one brief run for the acting rep at the
@@ -134,7 +139,11 @@ func (e *BriefEngine) SnapshotRun(ctx context.Context, now time.Time) (BriefRun,
 
 // LatestRun re-reads the acting rep's most recent persisted brief — the
 // on-open path that must not re-rank. No run yet reads as not-found.
-func (e *BriefEngine) LatestRun(ctx context.Context) (BriefRun, error) {
+// This read is where a snooze resolves (A77/AC-home-6): an expired
+// snooze flips back to actionable inside the read's own transaction,
+// and a still-running one keeps its item hidden — so the returned run
+// is always what the rep should see NOW, without a refresh.
+func (e *BriefEngine) LatestRun(ctx context.Context, now time.Time) (BriefRun, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return BriefRun{}, err
 	}
@@ -159,10 +168,16 @@ func (e *BriefEngine) LatestRun(ctx context.Context) (BriefRun, error) {
 			return err
 		}
 
+		if err := resurfaceExpiredSnoozes(ctx, tx, run.ID, now); err != nil {
+			return err
+		}
+
+		// Unexpired snoozes stay hidden; everything else (incl. the rows
+		// just re-surfaced) reads back in rank order.
 		rows, err := tx.Query(ctx, `
-			SELECT id, deal_id, rank, composite, feature_vector, evidence_ids, state, state_at
+			SELECT id, deal_id, rank, composite, feature_vector, evidence_ids, state, state_at, snoozed_until
 			FROM brief_item
-			WHERE brief_run_id = $1
+			WHERE brief_run_id = $1 AND state <> 'snoozed'
 			ORDER BY rank`, run.ID)
 		if err != nil {
 			return err
@@ -183,25 +198,60 @@ func (e *BriefEngine) LatestRun(ctx context.Context) (BriefRun, error) {
 	return run, nil
 }
 
+// resurfaceExpiredSnoozes flips a run's expired snoozes back to
+// actionable — the A77 re-surface half of the snooze contract. Each flip
+// is a state change on per-rep queue data, so it is audited like the
+// rep's own marks (brief rows are audit-only; no brief.* event exists in
+// the events.md catalog).
+func resurfaceExpiredSnoozes(ctx context.Context, tx pgx.Tx, runID ids.UUID, now time.Time) error {
+	resurfaced, err := collectIDList(tx.Query(ctx, `
+		UPDATE brief_item
+		SET state = 'new', state_at = NULL, snoozed_until = NULL
+		WHERE brief_run_id = $1 AND state = 'snoozed' AND snoozed_until <= $2
+		RETURNING id`, runID, now.UTC()))
+	if err != nil {
+		return err
+	}
+	for _, itemID := range resurfaced {
+		before := map[string]any{"state": briefStateSnoozed}
+		after := map[string]any{"state": briefStateNew, "state_at": nil, "snoozed_until": nil}
+		if _, err := storekit.Audit(ctx, tx, "update", "brief_item", itemID, before, after); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // MarkActed records that the rep acted on a queue item; the next run's
 // candidate filter drops the deal until it materially changes.
 func (e *BriefEngine) MarkActed(ctx context.Context, itemID ids.UUID, now time.Time) (BriefRunItem, error) {
-	return e.markItem(ctx, itemID, briefStateActed, now)
+	return e.markItem(ctx, itemID, briefStateActed, nil, now)
 }
 
 // MarkDismissed records that the rep dismissed a queue item; the deal
 // does not reappear unless a new linked activity arrives after the mark.
 func (e *BriefEngine) MarkDismissed(ctx context.Context, itemID ids.UUID, now time.Time) (BriefRunItem, error) {
-	return e.markItem(ctx, itemID, briefStateDismissed, now)
+	return e.markItem(ctx, itemID, briefStateDismissed, nil, now)
 }
 
-// markItem is the one acted/dismissed transition: only the run's owner
-// may mark, only a pending item transitions (a second mark is a
+// MarkSnoozed hides a queue item until the given instant (A77/AC-home-6),
+// after which it re-surfaces as actionable. The transport validates that
+// `until` lies in the future; this transition only records it.
+func (e *BriefEngine) MarkSnoozed(ctx context.Context, itemID ids.UUID, until, now time.Time) (BriefRunItem, error) {
+	untilUTC := until.UTC()
+	return e.markItem(ctx, itemID, briefStateSnoozed, &untilUTC, now)
+}
+
+// markItem is the one acted/dismissed/snoozed transition: only the run's
+// owner may mark, only an actionable item transitions (a second mark is a
 // conflict, not a silent overwrite), and the write is audited in the
-// same transaction. The brief is per-rep personal queue state — the
-// object gate is the deal-read grant the brief itself rides on, and the
-// real authority is run ownership.
-func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state string, now time.Time) (BriefRunItem, error) {
+// same transaction. An expired snooze counts as actionable — a rep who
+// marks straight from a stale screen must not read differently from one
+// who re-opened the brief and had the item re-surfaced first. The brief
+// is per-rep personal queue state — the object gate is the deal-read
+// grant the brief itself rides on, and the real authority is run
+// ownership.
+func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state string, snoozedUntil *time.Time, now time.Time) (BriefRunItem, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return BriefRunItem{}, err
 	}
@@ -214,14 +264,14 @@ func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state strin
 	err = database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var owner ids.UUID
 		row := tx.QueryRow(ctx, `
-			SELECT bi.id, bi.deal_id, bi.rank, bi.composite, bi.feature_vector, bi.evidence_ids, bi.state, bi.state_at, br.user_id
+			SELECT bi.id, bi.deal_id, bi.rank, bi.composite, bi.feature_vector, bi.evidence_ids, bi.state, bi.state_at, bi.snoozed_until, br.user_id
 			FROM brief_item bi
 			JOIN brief_run br ON br.id = bi.brief_run_id
 			WHERE bi.id = $1
 			FOR UPDATE OF bi`, itemID)
 		var featuresRaw []byte
 		err := row.Scan(&item.ID, &item.DealID, &item.Rank, &item.Composite, &featuresRaw,
-			&item.EvidenceIDs, &item.State, &item.StateAt, &owner)
+			&item.EvidenceIDs, &item.State, &item.StateAt, &item.SnoozedUntil, &owner)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -235,23 +285,24 @@ func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state strin
 			// Another rep's brief: existence-hiding, like every row-scope miss.
 			return apperrors.ErrNotFound
 		}
-		if item.State != briefStateNew {
+		if !briefItemActionable(item, now) {
 			return apperrors.ErrConflict
 		}
 
 		markedAt := now.UTC()
 		if _, err := tx.Exec(ctx, `
-			UPDATE brief_item SET state = $2, state_at = $3 WHERE id = $1`,
-			itemID, state, markedAt); err != nil {
+			UPDATE brief_item SET state = $2, state_at = $3, snoozed_until = $4 WHERE id = $1`,
+			itemID, state, markedAt, snoozedUntil); err != nil {
 			return err
 		}
-		before := map[string]any{"state": briefStateNew, "state_at": nil}
-		after := map[string]any{"state": state, "state_at": markedAt}
+		before := map[string]any{"state": item.State, "state_at": item.StateAt, "snoozed_until": item.SnoozedUntil}
+		after := map[string]any{"state": state, "state_at": markedAt, "snoozed_until": snoozedUntil}
 		if _, err := storekit.Audit(ctx, tx, "update", "brief_item", itemID, before, after); err != nil {
 			return err
 		}
 		item.State = state
 		item.StateAt = &markedAt
+		item.SnoozedUntil = snoozedUntil
 		return nil
 	})
 	if err != nil {
@@ -260,12 +311,22 @@ func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state strin
 	return item, nil
 }
 
+// briefItemActionable says whether a rep may still mark this item: fresh,
+// or snoozed past its snoozed_until (the re-surface may not have been
+// materialized by a read yet, but the item is already actionable again).
+func briefItemActionable(item BriefRunItem, now time.Time) bool {
+	if item.State == briefStateNew {
+		return true
+	}
+	return item.State == briefStateSnoozed && item.SnoozedUntil != nil && !now.UTC().Before(*item.SnoozedUntil)
+}
+
 // scanBriefItem reads one brief_item row in the LatestRun column order.
 func scanBriefItem(rows pgx.Rows) (BriefRunItem, error) {
 	var item BriefRunItem
 	var featuresRaw []byte
 	if err := rows.Scan(&item.ID, &item.DealID, &item.Rank, &item.Composite,
-		&featuresRaw, &item.EvidenceIDs, &item.State, &item.StateAt); err != nil {
+		&featuresRaw, &item.EvidenceIDs, &item.State, &item.StateAt, &item.SnoozedUntil); err != nil {
 		return BriefRunItem{}, err
 	}
 	if err := json.Unmarshal(featuresRaw, &item.Features); err != nil {

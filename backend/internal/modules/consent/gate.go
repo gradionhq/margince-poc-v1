@@ -27,11 +27,12 @@ func NewGate(store *Store) *Gate {
 }
 
 // RequireGrantedForEmails suppresses unless EVERY recipient resolves to
-// a person with an active granted consent for the named purpose.
-// Default-deny in all directions: an unknown purpose key, an address no
-// person carries, state unknown, and state withdrawn all block. A DOI
-// purpose additionally demands the confirmed round-trip on the proof
-// log — a granted-but-unconfirmed row does not send.
+// a person — or a live, unpromoted lead (E12.20) — with an active
+// granted consent for the named purpose. Default-deny in all
+// directions: an unknown purpose key, an address neither subject
+// carries, state unknown, and state withdrawn all block. A DOI purpose
+// additionally demands the confirmed round-trip on the proof log — a
+// granted-but-unconfirmed row does not send.
 func (g *Gate) RequireGrantedForEmails(ctx context.Context, recipients []string, purposeKey string) error {
 	if len(recipients) == 0 {
 		return fmt.Errorf("consent: a send needs at least one recipient: %w", apperrors.ErrConsentNotGranted)
@@ -60,6 +61,16 @@ func (g *Gate) RequireGrantedForEmails(ctx context.Context, recipients []string,
 				    AND (NOT $3::boolean OR EXISTS (
 				      SELECT 1 FROM consent_event ce
 				      WHERE ce.person_id = p.id AND ce.purpose_id = $2
+				        AND ce.new_state = 'granted' AND ce.double_opt_in_confirmed_at IS NOT NULL))
+				) OR EXISTS (
+				  SELECT 1
+				  FROM lead l
+				  JOIN person_consent pc ON pc.lead_id = l.id AND pc.purpose_id = $2
+				  WHERE lower(l.email) = lower($1) AND l.archived_at IS NULL
+				    AND pc.state = 'granted'
+				    AND (NOT $3::boolean OR EXISTS (
+				      SELECT 1 FROM consent_event ce
+				      WHERE ce.lead_id = l.id AND ce.purpose_id = $2
 				        AND ce.new_state = 'granted' AND ce.double_opt_in_confirmed_at IS NOT NULL))
 				)`, email, purposeID, requiresDOI).Scan(&granted)
 			if err != nil {

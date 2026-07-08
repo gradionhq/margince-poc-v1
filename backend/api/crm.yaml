@@ -4112,6 +4112,51 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /brief/items/{itemId}/snooze:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+        description: A brief_item id belonging to one of the acting rep's runs.
+    post:
+      tags: [Brief]
+      operationId: snoozeBriefItem
+      summary: Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+      description: |
+        Sets the item to `state=snoozed` with the given `snoozed_until`. While the instant has not
+        passed, the item is hidden from the home read AND the deal is suppressed from freshly
+        generated runs. Once `snoozed_until` passes, the item re-surfaces as actionable — distinct
+        from `dismissed` (which needs a new linked activity) and `acted` (which needs a material
+        change). Per-rep queue state, like act/dismiss.
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BriefSnoozeRequest' }
+      responses:
+        '200':
+          description: The updated brief item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningBriefItem' }
+        '404':
+          description: No such item in one of the acting rep's runs (another rep's item reads as not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: The item was already acted on or dismissed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`snoozed_until` is missing or not in the future.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # =========================================================================
   # =========================================================================
   # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
@@ -6613,8 +6658,16 @@ components:
           type: array
           items: { type: string, format: uuid }
           description: The source rows (deal / activity / relationship) behind the factors; never empty (evidence-or-omit).
-        state: { type: string, enum: [new, acted, dismissed], description: The acting rep's queue state for this item. }
-        state_at: { type: [string, 'null'], format: date-time, description: When the rep acted/dismissed; null while new. }
+        state: { type: string, enum: [new, acted, dismissed, snoozed], description: The acting rep's queue state for this item. }
+        state_at: { type: [string, 'null'], format: date-time, description: When the rep acted/dismissed/snoozed; null while new. }
+        snoozed_until: { type: [string, 'null'], format: date-time, description: 'When a snoozed item re-surfaces (A77/AC-home-6); set exactly while state=snoozed, null otherwise.' }
+
+    BriefSnoozeRequest:
+      type: object
+      description: Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
+      required: [snoozed_until]
+      properties:
+        snoozed_until: { type: string, format: date-time, description: When the item re-surfaces; must be in the future. }
 
     MorningBriefFeatureVector:
       type: object

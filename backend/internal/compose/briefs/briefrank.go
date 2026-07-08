@@ -231,7 +231,9 @@ func briefRevenueNorm(ctx context.Context, tx pgx.Tx, now time.Time) (int64, err
 // the ones this user acted on or dismissed with no linked activity since
 // the mark (B-E05.13: a dismissed deal reappears only when it materially
 // changed; an unchanged one stays out — across ALL previous runs, not
-// just the last).
+// just the last). A snoozed item suppresses its deal on time alone
+// (A77/AC-home-6): out while snoozed_until lies ahead, back once it
+// passes — no material change required.
 func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.Time, facts map[ids.UUID]briefDealFacts, order *[]ids.UUID) error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -252,11 +254,13 @@ func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.T
 			SELECT 1 FROM brief_item bi
 			JOIN brief_run br ON br.id = bi.brief_run_id
 			WHERE br.user_id = $%d AND bi.deal_id = d.id AND bi.state <> 'new'
-			  AND NOT EXISTS (
+			  AND CASE WHEN bi.state = 'snoozed'
+			      THEN bi.snoozed_until > $%d
+			      ELSE NOT EXISTS (
 				SELECT 1 FROM activity a
 				JOIN activity_link l ON l.activity_id = a.id AND l.deal_id = d.id
-				WHERE a.archived_at IS NULL AND a.occurred_at > bi.state_at))`,
-		briefBaseValueSQL(asOfPos), userPos)
+				WHERE a.archived_at IS NULL AND a.occurred_at > bi.state_at) END)`,
+		briefBaseValueSQL(asOfPos), userPos, asOfPos)
 	if scope != "" {
 		q += " AND " + scope
 	}

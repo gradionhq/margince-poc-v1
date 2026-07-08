@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -133,12 +134,7 @@ type PassportRow struct {
 // own; the admin role sees the workspace's (the same authority split
 // RevokePassport enforces).
 func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow, error) {
-	isAdmin := false
-	for _, r := range id.Roles {
-		if r == "admin" {
-			isAdmin = true
-		}
-	}
+	isAdmin := id.hasRole("admin")
 	var out []PassportRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		query := `SELECT id, label, scopes, created_at, expires_at, revoked_at
@@ -171,15 +167,15 @@ func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow
 	return out, nil
 }
 
-// RevokePassport is the kill switch: enforced at the next token lookup.
-// A user revokes their own; the admin role may revoke anyone's.
+// RevokePassport is the kill switch: enforced at the next token lookup
+// (every MCP/REST agent call re-authenticates the passport row), and
+// published as passport.revoked (events.md §5.6a) so long-lived
+// consumers — in-flight agent sessions, read-models — drop it within
+// one bus cycle. A user revokes their own; the admin role may revoke
+// anyone's.
 func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.PassportID) error {
-	isAdmin := false
-	for _, r := range id.Roles {
-		if r == "admin" {
-			isAdmin = true
-		}
-	}
+	isAdmin := id.hasRole("admin")
+	ctx = actorCtx(ctx, id)
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var onBehalfOf ids.UserID
 		var revokedAt *time.Time
@@ -204,11 +200,14 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 			`UPDATE passport SET revoked_at = now() WHERE id = $1`, passportID); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-			 VALUES ($1, 'human', $2, 'archive', 'passport', $3)`,
-			id.WorkspaceID, "human:"+id.UserID.String(), passportID)
-		return err
+		auditID, err := storekit.Audit(ctx, tx, "archive", "passport", passportID.UUID, nil, nil)
+		if err != nil {
+			return err
+		}
+		// agent_connection_id is omitted: the A1/local issuance path has
+		// no agent-connection storage (the hosted A2 surface adds it).
+		return storekit.Emit(ctx, tx, auditID, "passport.revoked", "passport", passportID.UUID,
+			map[string]any{"passport_id": passportID, "by": id.UserID})
 	})
 }
 

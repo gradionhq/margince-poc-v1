@@ -115,6 +115,9 @@ func TestBinaryDocumentFormatsAreRefusedNotEstimated(t *testing.T) {
 		if ingest.Field != "format" || !strings.Contains(ingest.Reason, "txt, md, vtt, srt, json") {
 			t.Fatalf("%s: error %+v does not name the field and the accepted formats", format, ingest)
 		}
+		if !strings.Contains(ingest.Reason, "text only") {
+			t.Fatalf("%s: error %+v does not state the text-only rule (ADR-0058)", format, ingest)
+		}
 	}
 }
 

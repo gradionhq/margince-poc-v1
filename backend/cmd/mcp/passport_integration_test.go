@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/migrations"
 )
@@ -82,7 +83,11 @@ func passportEnv(t *testing.T) (*identity.Service, identity.Identity, *pgx.Conn)
 }
 
 func wsCtx(id identity.Identity) context.Context {
-	return principal.WithWorkspaceID(context.Background(), id.WorkspaceID.UUID)
+	// Workspace + a correlation id — what the serving layer (HTTP
+	// middleware / the stdio per-call mint in main.go) binds before any
+	// service call; revocation's audit+event write requires the trace key.
+	ctx := principal.WithWorkspaceID(context.Background(), id.WorkspaceID.UUID)
+	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
 func TestPassportLifecycle(t *testing.T) {

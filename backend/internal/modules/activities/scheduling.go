@@ -17,8 +17,6 @@ import (
 	"net/http"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -272,17 +270,7 @@ func (h Handlers) GetAvailability(w http.ResponseWriter, r *http.Request, params
 }
 
 func (h Handlers) BookMeeting(w http.ResponseWriter, r *http.Request, _ crmcontracts.BookMeetingParams) {
-	var req struct {
-		HostUserId     *openapi_types.UUID `json:"host_user_id"`
-		Start          time.Time           `json:"start"`
-		End            time.Time           `json:"end"`
-		Subject        string              `json:"subject"`
-		AttendeeEmails []string            `json:"attendee_emails"`
-		Links          []struct {
-			EntityType string   `json:"entity_type"`
-			EntityID   ids.UUID `json:"entity_id"`
-		} `json:"links"`
-	}
+	var req crmcontracts.BookMeetingJSONRequestBody
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
@@ -292,18 +280,61 @@ func (h Handlers) BookMeeting(w http.ResponseWriter, r *http.Request, _ crmcontr
 		return
 	}
 	in := BookMeetingInput{
-		Host:           ids.From[ids.UserKind](actor.UserID),
-		Start:          req.Start,
-		End:            req.End,
-		Subject:        req.Subject,
-		AttendeeEmails: req.AttendeeEmails,
+		Host:  ids.From[ids.UserKind](actor.UserID),
+		Start: req.Start,
+		End:   req.End,
+	}
+	if req.Subject != nil {
+		in.Subject = *req.Subject
+	}
+	if req.AttendeeEmails != nil {
+		for _, e := range *req.AttendeeEmails {
+			in.AttendeeEmails = append(in.AttendeeEmails, string(e))
+		}
 	}
 	if req.HostUserId != nil {
 		in.Host = ids.From[ids.UserKind](ids.UUID(*req.HostUserId))
 	}
 	for _, l := range req.Links {
-		in.Links = append(in.Links, ActivityLinkInput{EntityType: l.EntityType, EntityID: l.EntityID})
+		in.Links = append(in.Links, ActivityLinkInput{EntityType: string(l.EntityType), EntityID: ids.UUID(l.EntityId)})
 	}
+
+	// The optional CaptureConsent passthrough records the booked subject's
+	// consent BEFORE the slot commits, on the same seam the anonymous
+	// booking page rides — and with the same stance: a slot_taken 409
+	// after the grant leaves the grant standing, because the subject DID
+	// give it. Recording it is mandatory once the field is present; a
+	// process role composed without the consent seam refuses rather than
+	// booking with an unrecorded consent.
+	if req.Consent != nil {
+		if h.publicConsent == nil {
+			httperr.Write(w, r, apperrors.ErrPermissionDenied)
+			return
+		}
+		if req.Consent.PolicyVersion == "" {
+			httperr.Write(w, r, httperr.Validation("consent.policy_version", "required", "the consent wording version shown to the subject is required"))
+			return
+		}
+		personID, ok := consentSubjectLink(w, r, in.Links)
+		if !ok {
+			return
+		}
+		purposeID := ids.UUID(req.Consent.PurposeId)
+		if err := h.publicConsent.ValidatePurpose(r.Context(), purposeID); err != nil {
+			writeStoreErr(w, r, err)
+			return
+		}
+		if err := h.publicConsent.CaptureBookingConsent(r.Context(), personID, BookingConsent{
+			PurposeID:        purposeID,
+			PolicyVersion:    req.Consent.PolicyVersion,
+			Wording:          req.Consent.Wording,
+			DoubleOptInToken: req.Consent.DoubleOptInToken,
+		}); err != nil {
+			writeStoreErr(w, r, err)
+			return
+		}
+	}
+
 	booked, err := h.store.BookMeeting(r.Context(), in)
 	if err != nil {
 		var slotTaken *SlotTakenError
@@ -315,4 +346,31 @@ func (h Handlers) BookMeeting(w http.ResponseWriter, r *http.Request, _ crmcontr
 		return
 	}
 	httperr.WriteJSON(w, http.StatusCreated, booked)
+}
+
+// consentSubjectLink resolves which linked record the CaptureConsent
+// passthrough attaches to: exactly one linked person. The ConsentCapturer
+// seam is person-keyed (the compose adapter records against a person), so
+// a lead-only booking cannot carry consent through this endpoint yet —
+// that refuses loudly rather than accepting a consent it would not
+// record. Returns false after writing the response.
+func consentSubjectLink(w http.ResponseWriter, r *http.Request, links []ActivityLinkInput) (ids.UUID, bool) {
+	var persons []ids.UUID
+	for _, l := range links {
+		if l.EntityType == "person" {
+			persons = append(persons, l.EntityID)
+		}
+	}
+	switch len(persons) {
+	case 1:
+		return persons[0], true
+	case 0:
+		httperr.Write(w, r, httperr.Validation("consent", "subject_required",
+			"recording consent with a booking requires a linked person to attach it to"))
+		return ids.UUID{}, false
+	default:
+		httperr.Write(w, r, httperr.Validation("consent", "subject_ambiguous",
+			"recording consent with a booking requires exactly one linked person"))
+		return ids.UUID{}, false
+	}
 }

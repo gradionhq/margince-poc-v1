@@ -1499,6 +1499,7 @@ const (
 	MorningBriefItemStateActed     MorningBriefItemState = "acted"
 	MorningBriefItemStateDismissed MorningBriefItemState = "dismissed"
 	MorningBriefItemStateNew       MorningBriefItemState = "new"
+	MorningBriefItemStateSnoozed   MorningBriefItemState = "snoozed"
 )
 
 // Valid indicates whether the value is a known member of the MorningBriefItemState enum.
@@ -1509,6 +1510,8 @@ func (e MorningBriefItemState) Valid() bool {
 	case MorningBriefItemStateDismissed:
 		return true
 	case MorningBriefItemStateNew:
+		return true
+	case MorningBriefItemStateSnoozed:
 		return true
 	default:
 		return false
@@ -3746,6 +3749,12 @@ type BootstrapWorkspaceRequest struct {
 	WorkspaceName string  `json:"workspace_name"`
 }
 
+// BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
+type BriefSnoozeRequest struct {
+	// SnoozedUntil When the item re-surfaces; must be in the future.
+	SnoozedUntil time.Time `json:"snoozed_until"`
+}
+
 // CaptureConsent The consent passthrough every capture surface (booking, public forms, imports) must carry
 // (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
 // wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
@@ -4628,10 +4637,13 @@ type MorningBriefItem struct {
 	// Rank Position in the queue (1 = top)
 	Rank int `json:"rank"`
 
+	// SnoozedUntil When a snoozed item re-surfaces (A77/AC-home-6); set exactly while state=snoozed, null otherwise.
+	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
+
 	// State The acting rep's queue state for this item.
 	State MorningBriefItemState `json:"state"`
 
-	// StateAt When the rep acted/dismissed; null while new.
+	// StateAt When the rep acted/dismissed/snoozed; null while new.
 	StateAt *time.Time `json:"state_at,omitempty"`
 }
 
@@ -7375,6 +7387,9 @@ type PreviewAutomationJSONRequestBody = AutomationPreviewRequest
 
 // BookMeetingJSONRequestBody defines body for BookMeeting for application/json ContentType.
 type BookMeetingJSONRequestBody BookMeetingJSONBody
+
+// SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
+type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
@@ -11554,6 +11569,9 @@ type ServerInterface interface {
 	// Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
 	// (POST /brief/items/{itemId}/dismiss)
 	MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+	// (POST /brief/items/{itemId}/snooze)
+	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -12079,6 +12097,12 @@ func (_ Unimplemented) MarkBriefItemActed(w http.ResponseWriter, r *http.Request
 // Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
 // (POST /brief/items/{itemId}/dismiss)
 func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+// (POST /brief/items/{itemId}/snooze)
+func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14236,6 +14260,40 @@ func (siw *ServerInterfaceWrapper) MarkBriefItemDismissed(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MarkBriefItemDismissed(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SnoozeBriefItem operation middleware
+func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "itemId" -------------
+	var itemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "itemId", chi.URLParam(r, "itemId"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "itemId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SnoozeBriefItem(w, r, itemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20357,6 +20415,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/dismiss", wrapper.MarkBriefItemDismissed)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

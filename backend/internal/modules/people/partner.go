@@ -26,36 +26,122 @@ import (
 )
 
 const partnerColumns = `organization_id, cert_status, partner_role, margin_tier,
-	certified_staff, retention_rate, version, created_at, updated_at, archived_at`
+	certified_staff, retention_rate, relationship_stage, next_step, next_step_due_at,
+	served_segments, partner_fit_score, partner_fit_score_computed,
+	partner_fit_override_reason, relationship_health::text, last_contact_at,
+	version, created_at, updated_at, archived_at`
 
 type partnerRow struct {
-	OrganizationID ids.OrganizationID
-	CertStatus     string
-	PartnerRole    *string
-	MarginTier     *string
-	CertifiedStaff int16
-	RetentionRate  *int16
-	Version        int64
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	ArchivedAt     *time.Time
+	OrganizationID    ids.OrganizationID
+	CertStatus        string
+	PartnerRole       *string
+	MarginTier        *string
+	CertifiedStaff    int16
+	RetentionRate     *int16
+	RelationshipStage string
+	NextStep          *string
+	NextStepDueAt     *time.Time
+	ServedSegments    []string
+	// The A68/ADR-0053 Commercial Judgement pair (formulas §17): a non-nil
+	// FitOverrideReason marks FitScore human-set; the machine value is then
+	// retained in FitScoreComputed instead of overwriting FitScore.
+	FitScore           *int16
+	FitScoreComputed   *int16
+	FitOverrideReason  *string
+	RelationshipHealth *string // numeric(3,2) rendered ::text — no float touches it
+	LastContactAt      *time.Time
+	Version            int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ArchivedAt         *time.Time
 }
 
 func scanPartner(r pgx.Row) (partnerRow, error) {
 	var p partnerRow
 	err := r.Scan(&p.OrganizationID, &p.CertStatus, &p.PartnerRole, &p.MarginTier,
-		&p.CertifiedStaff, &p.RetentionRate, &p.Version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
+		&p.CertifiedStaff, &p.RetentionRate, &p.RelationshipStage, &p.NextStep, &p.NextStepDueAt,
+		&p.ServedSegments, &p.FitScore, &p.FitScoreComputed, &p.FitOverrideReason,
+		&p.RelationshipHealth, &p.LastContactAt, &p.Version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
 	return p, err
 }
 
 type UpsertPartnerInput struct {
-	OrganizationID ids.OrganizationID
-	PartnerRole    string
-	CertStatus     *string
-	MarginTier     *string
-	CertifiedStaff *int16
-	RetentionRate  *int16
-	IfVersion      *int64
+	OrganizationID    ids.OrganizationID
+	PartnerRole       string
+	CertStatus        *string
+	MarginTier        *string
+	CertifiedStaff    *int16
+	RetentionRate     *int16
+	RelationshipStage *string
+	NextStep          *string
+	NextStepDueAt     *time.Time
+	ServedSegments    *[]string
+	// The fit-override pair is store-seam only: the contract exposes
+	// partner_fit_score/…_override_reason read-only, so no handler maps
+	// them — the invariant is pinned here for the future fit engine.
+	FitScore *int16
+	// FitOverrideReason is tri-state, mirroring the lead-score pair: nil =
+	// no override change; non-nil empty = the explicit CLEAR gesture;
+	// non-nil non-empty = the written reason for a human fit score.
+	FitOverrideReason *string
+	IfVersion         *int64
+}
+
+// PartnerFitOverrideReasonRequiredError rejects a human partner-fit score
+// with no written reason — the Commercial Judgement rule (formulas §17,
+// A68/ADR-0053): an override is auditable or it does not happen.
+type PartnerFitOverrideReasonRequiredError struct{}
+
+func (e *PartnerFitOverrideReasonRequiredError) Error() string {
+	return "a partner_fit_score override requires a non-empty partner_fit_override_reason"
+}
+
+// partnerFitState is the override pair's column triple as one value.
+type partnerFitState struct {
+	Score          *int16
+	Computed       *int16
+	OverrideReason *string
+}
+
+// applyPartnerFitOverride folds the §17 sticky-override rules — the exact
+// sibling of the lead-score applyScoreOverride: setting a score demands a
+// written reason and retains the machine value in Computed the first
+// time; an explicit empty reason clears the override and Score reverts to
+// the retained machine value (recompute, once the fit engine exists,
+// resumes from there); a non-empty reason with no score amends the note
+// on an override already in force.
+func applyPartnerFitOverride(current partnerFitState, score *int16, reason *string) (partnerFitState, error) {
+	overrideInForce := current.OverrideReason != nil
+
+	switch {
+	case score != nil:
+		trimmed := ""
+		if reason != nil {
+			trimmed = strings.TrimSpace(*reason)
+		}
+		if trimmed == "" {
+			return partnerFitState{}, &PartnerFitOverrideReasonRequiredError{}
+		}
+		next := partnerFitState{Score: score, OverrideReason: &trimmed, Computed: current.Computed}
+		if !overrideInForce {
+			next.Computed = current.Score
+		}
+		return next, nil
+
+	case reason != nil && strings.TrimSpace(*reason) == "":
+		if !overrideInForce {
+			return current, nil // no override to clear — a no-op
+		}
+		return partnerFitState{Score: current.Computed}, nil
+
+	case reason != nil:
+		if !overrideInForce {
+			return partnerFitState{}, &PartnerFitOverrideReasonRequiredError{} // a reason without a score sets nothing
+		}
+		trimmed := strings.TrimSpace(*reason)
+		return partnerFitState{Score: current.Score, Computed: current.Computed, OverrideReason: &trimmed}, nil
+	}
+	return current, nil
 }
 
 func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partnerRow, error) {
@@ -84,33 +170,11 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		if _, err := storekit.LockRow(ctx, tx, "organization", in.OrganizationID.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
-		if in.IfVersion != nil {
-			var current int64
-			err := tx.QueryRow(ctx,
-				`SELECT version FROM partner WHERE organization_id = $1`, in.OrganizationID).Scan(&current)
-			if err == nil && current != *in.IfVersion {
-				return apperrors.ErrVersionSkew
-			}
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
+		fit, err := resolvePartnerFit(ctx, tx, in)
+		if err != nil {
+			return err
 		}
-		row := tx.QueryRow(ctx, `
-			INSERT INTO partner (workspace_id, organization_id, partner_role, cert_status, margin_tier,
-			                     certified_staff, retention_rate, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, coalesce($3, 'applied'), $4, coalesce($5, 0), $6, 'manual', $7)
-			ON CONFLICT (organization_id) DO UPDATE SET
-			  partner_role = EXCLUDED.partner_role,
-			  cert_status = coalesce($3, partner.cert_status),
-			  margin_tier = coalesce($4, partner.margin_tier),
-			  certified_staff = coalesce($5, partner.certified_staff),
-			  retention_rate = coalesce($6, partner.retention_rate),
-			  archived_at = NULL
-			RETURNING `+partnerColumns,
-			in.OrganizationID, in.PartnerRole, in.CertStatus, in.MarginTier,
-			in.CertifiedStaff, in.RetentionRate, capturedBy)
-		if out, err = scanPartner(row); err != nil {
+		if out, err = upsertPartnerRow(ctx, tx, in, fit, capturedBy); err != nil {
 			return err
 		}
 		// Promotion is an org fact: classification flips with the row.
@@ -125,7 +189,15 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		auditImage := map[string]any{
 			"partner_role": in.PartnerRole, "cert_status": out.CertStatus,
 			"margin_tier": in.MarginTier, "certified_staff": in.CertifiedStaff,
-			"retention_rate": in.RetentionRate,
+			"retention_rate": in.RetentionRate, "relationship_stage": out.RelationshipStage,
+			"next_step": in.NextStep, "next_step_due_at": in.NextStepDueAt,
+			"served_segments": in.ServedSegments,
+		}
+		// The fit pair enters the image only on an override gesture, so a
+		// plain lifecycle edit never claims ownership of the fit fields.
+		if in.FitScore != nil || in.FitOverrideReason != nil {
+			auditImage["partner_fit_score"] = fit.Score
+			auditImage["partner_fit_override_reason"] = fit.OverrideReason
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID.UUID, nil, auditImage)
 		if err != nil {
@@ -136,6 +208,65 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		})
 	})
 	return out, err
+}
+
+// resolvePartnerFit pre-reads the current row under the org lock — one
+// read feeds both the version guard and the fit-override fold (ErrNoRows
+// means this upsert is the promotion) — and folds the §17 override rules.
+func resolvePartnerFit(ctx context.Context, tx pgx.Tx, in UpsertPartnerInput) (partnerFitState, error) {
+	var currentVersion *int64
+	var current partnerFitState
+	err := tx.QueryRow(ctx,
+		`SELECT version, partner_fit_score, partner_fit_score_computed, partner_fit_override_reason
+		 FROM partner WHERE organization_id = $1`, in.OrganizationID).
+		Scan(&currentVersion, &current.Score, &current.Computed, &current.OverrideReason)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return partnerFitState{}, err
+	}
+	if in.IfVersion != nil && currentVersion != nil && *currentVersion != *in.IfVersion {
+		return partnerFitState{}, apperrors.ErrVersionSkew
+	}
+	return applyPartnerFitOverride(current, in.FitScore, in.FitOverrideReason)
+}
+
+// upsertPartnerRow lands the promotion-or-update: absent lifecycle fields
+// keep their current value (coalesce), while the fit triple is always
+// written as resolved — a cleared override must land its NULLs.
+func upsertPartnerRow(ctx context.Context, tx pgx.Tx, in UpsertPartnerInput, fit partnerFitState, capturedBy string) (partnerRow, error) {
+	// served_segments keeps its current value only when the field is
+	// absent; pgx maps a nil any to SQL NULL for the coalesce.
+	var segments any
+	if in.ServedSegments != nil {
+		segments = *in.ServedSegments
+	}
+	row := tx.QueryRow(ctx, `
+		INSERT INTO partner (workspace_id, organization_id, partner_role, cert_status, margin_tier,
+		                     certified_staff, retention_rate, relationship_stage, next_step,
+		                     next_step_due_at, served_segments, partner_fit_score,
+		                     partner_fit_score_computed, partner_fit_override_reason, source, captured_by)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		        $1, $2, coalesce($3, 'applied'), $4, coalesce($5, 0), $6,
+		        coalesce($8, 'research'), $9, $10, $11, $12, $13, $14, 'manual', $7)
+		ON CONFLICT (organization_id) DO UPDATE SET
+		  partner_role = EXCLUDED.partner_role,
+		  cert_status = coalesce($3, partner.cert_status),
+		  margin_tier = coalesce($4, partner.margin_tier),
+		  certified_staff = coalesce($5, partner.certified_staff),
+		  retention_rate = coalesce($6, partner.retention_rate),
+		  relationship_stage = coalesce($8, partner.relationship_stage),
+		  next_step = coalesce($9, partner.next_step),
+		  next_step_due_at = coalesce($10, partner.next_step_due_at),
+		  served_segments = coalesce($11, partner.served_segments),
+		  partner_fit_score = $12,
+		  partner_fit_score_computed = $13,
+		  partner_fit_override_reason = $14,
+		  archived_at = NULL
+		RETURNING `+partnerColumns,
+		in.OrganizationID, in.PartnerRole, in.CertStatus, in.MarginTier,
+		in.CertifiedStaff, in.RetentionRate, capturedBy,
+		in.RelationshipStage, in.NextStep, in.NextStepDueAt, segments,
+		fit.Score, fit.Computed, fit.OverrideReason)
+	return scanPartner(row)
 }
 
 func (s *Store) GetPartner(ctx context.Context, organizationID ids.OrganizationID) (partnerRow, error) {
@@ -273,10 +404,35 @@ func wirePartner(p partnerRow) crmcontracts.Partner {
 		tier := crmcontracts.PartnerMarginTier(*p.MarginTier)
 		out.MarginTier = &tier
 	}
+	stage := crmcontracts.PartnerRelationshipStage(p.RelationshipStage)
+	out.RelationshipStage = &stage
+	out.NextStep = p.NextStep
+	if p.NextStepDueAt != nil {
+		out.NextStepDueAt = &openapi_types.Date{Time: *p.NextStepDueAt}
+	}
+	if p.ServedSegments != nil {
+		segments := p.ServedSegments
+		out.ServedSegments = &segments
+	}
+	out.PartnerFitScore = intPtr(p.FitScore)
+	out.PartnerFitScoreComputed = intPtr(p.FitScoreComputed)
+	out.PartnerFitOverrideReason = p.FitOverrideReason
+	out.RelationshipHealth = p.RelationshipHealth
+	out.LastContactAt = p.LastContactAt
 	metrics := map[string]any{"certified_staff": p.CertifiedStaff}
 	if p.RetentionRate != nil {
 		metrics["retention_rate"] = *p.RetentionRate
 	}
 	out.GateMetrics = &metrics
 	return out
+}
+
+// intPtr widens the DB's smallint to the contract's int without sharing
+// the row's storage.
+func intPtr(v *int16) *int {
+	if v == nil {
+		return nil
+	}
+	w := int(*v)
+	return &w
 }

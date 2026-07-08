@@ -25,12 +25,13 @@ func TestStreamsMatchSpecList(t *testing.T) {
 		"gw:events:crm:capture",
 		"gw:events:crm:coldstart",
 		"gw:events:crm:deal",
+		"gw:events:crm:identity",
 		"gw:events:crm:lead",
 		"gw:events:crm:organization",
 		"gw:events:crm:person",
 	}
 	if got := Streams(); !reflect.DeepEqual(got, want) {
-		t.Errorf("Streams() = %v, want the nine events.md §4.1 streams %v", got, want)
+		t.Errorf("Streams() = %v, want the events.md §4.1 + §5.6a streams %v", got, want)
 	}
 }
 
@@ -50,6 +51,7 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"rejected": true, "superseded": true, "disqualified": true,
 		"received": true, "normalized": true, "skipped": true,
 		"read_back_proposed": true, "detected": true, "resolved": true,
+		"deactivated": true, "revoked": true,
 	}
 
 	for _, typ := range Types() {
@@ -74,13 +76,16 @@ func TestStreamForRoutesFamiliesWithoutOwnStream(t *testing.T) {
 	// consent/retention ride the person family, offer rides deal — the
 	// documented routing for §5 types whose entity segment has no §4.1
 	// stream.
-	for typ, want := range map[string]string{
+	for typ, want := range map[string]string{ // #nosec G101 -- event-type→stream routing pins, not credentials
 		"consent.changed":   "gw:events:crm:person",
 		"retention.applied": "gw:events:crm:person",
 		"offer.accepted":    "gw:events:crm:deal",
 		"deal.updated":      "gw:events:crm:deal",
 		"signal.detected":   "gw:events:crm:capture",
 		"signal.resolved":   "gw:events:crm:capture",
+		"user.deactivated":  "gw:events:crm:identity",
+		"role.changed":      "gw:events:crm:identity",
+		"passport.revoked":  "gw:events:crm:identity",
 	} {
 		if got, err := StreamFor(typ); err != nil || got != want {
 			t.Errorf("StreamFor(%q) = %q, %v; want %q", typ, got, err, want)

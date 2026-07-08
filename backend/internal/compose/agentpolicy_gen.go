@@ -65,6 +65,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/brief":                                   {Op: "generateMorningBrief", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/brief/items/{itemId}/act":                {Op: "markBriefItemActed", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/brief/items/{itemId}/dismiss":            {Op: "markBriefItemDismissed", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/brief/items/{itemId}/snooze":             {Op: "snoozeBriefItem", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/coldstart":                               {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
 	"POST /v1/connectors/imap/connect":                 {Op: "connectImap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/consent-purposes":                        {Op: "createConsentPurpose", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

@@ -154,3 +154,48 @@ func roundedIntDiv(n, d *big.Int) int64 {
 	twice.Div(twice, new(big.Int).Mul(d, big.NewInt(2)))
 	return twice.Int64()
 }
+
+// E03.21a: staged (AI-proposed, not yet accepted) lines never move the
+// server-computed offer totals — only accepted lines feed the engine.
+func TestAcceptedLinesExcludeStagedFromTotals(t *testing.T) {
+	accepted := statefulOfferLine{
+		Line:  OfferLineInput{Quantity: "1.000", UnitPriceMinor: 10000, DiscountPct: "0.00", TaxRate: "19.00"},
+		State: ProposalAccepted,
+	}
+	staged := statefulOfferLine{
+		Line:  OfferLineInput{Quantity: "3.000", UnitPriceMinor: 50000, DiscountPct: "0.00", TaxRate: "19.00"},
+		State: ProposalStaged,
+	}
+	acceptedOnly := OfferFigures{NetMinor: 10000, TaxMinor: 1900, GrossMinor: 11900}
+
+	cases := []struct {
+		name  string
+		lines []statefulOfferLine
+		want  OfferFigures
+	}{
+		{name: "no lines totals to zero", lines: nil, want: OfferFigures{}},
+		{name: "accepted line counts", lines: []statefulOfferLine{accepted}, want: acceptedOnly},
+		{name: "staged line alone contributes nothing", lines: []statefulOfferLine{staged}, want: OfferFigures{}},
+		{
+			name:  "staged beside accepted leaves totals untouched",
+			lines: []statefulOfferLine{accepted, staged},
+			want:  acceptedOnly,
+		},
+		{
+			name:  "accepting the staged line flips it into the totals",
+			lines: []statefulOfferLine{accepted, {Line: staged.Line, State: ProposalAccepted}},
+			want:  OfferFigures{NetMinor: 160000, TaxMinor: 30400, GrossMinor: 190400},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := OfferTotals(acceptedLines(tc.lines))
+			if err != nil {
+				t.Fatalf("OfferTotals: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("totals = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

@@ -223,7 +223,7 @@ func TestBriefSnapshotRoundTripsTheReadModel(t *testing.T) {
 	b := setupBrief(t)
 	owner := integration.OwnerConn(t)
 
-	if _, err := b.engine.LatestRun(b.repCtx); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := b.engine.LatestRun(b.repCtx, briefClock); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("latest run before any snapshot → %v, want ErrNotFound", err)
 	}
 
@@ -231,7 +231,7 @@ func TestBriefSnapshotRoundTripsTheReadModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := b.engine.LatestRun(b.repCtx)
+	read, err := b.engine.LatestRun(b.repCtx, briefClock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestBriefSnapshotRoundTripsTheReadModel(t *testing.T) {
 	// Another rep has no view into this run: their latest is not-found,
 	// not their colleague's brief.
 	rep2 := b.As(b.Rep2, []ids.UUID{b.Team1}, integration.AdminPerms)
-	if _, err := b.engine.LatestRun(rep2); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := b.engine.LatestRun(rep2, briefClock); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("rep2's latest run → %v, want ErrNotFound (a brief is personal)", err)
 	}
 }

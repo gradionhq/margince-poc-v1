@@ -36,10 +36,15 @@ const (
 // Service owns identity: workspaces, users, opaque server-side sessions.
 type Service struct {
 	pool *pgxpool.Pool
+	// now is the service's clock: the §27 lockout window and duration are
+	// judged against it, so tests prove the lock/expiry transitions
+	// without sleeping. Session/passport expiries stay on the database's
+	// now() — they are enforced inside SQL predicates, not Go logic.
+	now func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
 }
 
 // Identity is the authenticated principal's resolved state — what /me
@@ -279,38 +284,20 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 
 	var id Identity
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var userID ids.UserID
-		var hash *string
-		var displayName, seatType string
-		err := tx.QueryRow(ctx,
-			`SELECT id, password_hash, display_name, seat_type FROM app_user
-			 WHERE lower(email) = lower($1) AND status = 'active' AND archived_at IS NULL`,
-			email).Scan(&userID, &hash, &displayName, &seatType)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && hash == nil) {
-			//craft:ignore swallowed-errors the decoy verification exists only to equalize timing; its result is meaningless by design
-			_ = password.Verify(plaintext, decoyHash) // equal work on both paths
-			return ErrBadCredentials
-		}
+		account, err := s.checkCredentials(ctx, tx, email, plaintext)
 		if err != nil {
 			return err
 		}
-		if err := password.Verify(plaintext, *hash); err != nil {
-			if errors.Is(err, password.ErrMismatch) {
-				return ErrBadCredentials
-			}
+		if err := insertSession(ctx, tx, wsID, account.UserID, tokenHash); err != nil {
+			return err
+		}
+		if err := auditLogin(ctx, tx, wsID, account.UserID, "password login"); err != nil {
 			return err
 		}
 
-		if err := insertSession(ctx, tx, wsID, userID, tokenHash); err != nil {
-			return err
-		}
-		if err := auditLogin(ctx, tx, wsID, userID, "password login"); err != nil {
-			return err
-		}
-
-		id = Identity{UserID: userID, WorkspaceID: wsID, Email: email, DisplayName: displayName, SeatType: seatType}
+		id = Identity{UserID: account.UserID, WorkspaceID: wsID, Email: email, DisplayName: account.DisplayName, SeatType: account.SeatType}
 		var loadErr error
-		id.Roles, id.Teams, id.Permissions, loadErr = loadGrants(ctx, tx, userID)
+		id.Roles, id.Teams, id.Permissions, loadErr = loadGrants(ctx, tx, account.UserID)
 		return loadErr
 	})
 	if errors.Is(err, ErrBadCredentials) {
@@ -318,7 +305,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		// failure audit needs its own transaction — an invisible
 		// brute-force is exactly what the audit trail exists to catch.
 		// A failure writing it outranks the 401.
-		if auditErr := s.auditFailedLogin(ctx, wsID, email); auditErr != nil {
+		if auditErr := s.recordFailedLogin(ctx, wsID, email); auditErr != nil {
 			return Identity{}, "", auditErr
 		}
 		return Identity{}, "", err
@@ -327,20 +314,6 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		return Identity{}, "", err
 	}
 	return id, token, nil
-}
-
-// auditFailedLogin records one failed password attempt. The attempted
-// email rides evidence (there may be no user row to reference); the
-// actor is the anonymous claimant, not a resolved identity.
-func (s *Service) auditFailedLogin(ctx context.Context, wsID ids.WorkspaceID, email string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, evidence)
-			 VALUES ($1, 'human', 'human:unauthenticated', 'login', 'session',
-			         jsonb_build_object('outcome', 'failed', 'email', $2::text))`,
-			wsID, email)
-		return err
-	})
 }
 
 // Authenticate resolves a session cookie value to its Identity, enforcing

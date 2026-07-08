@@ -39,6 +39,7 @@ type CreateLeadInput struct {
 	Title           *string
 	CompanyName     *string
 	CandidateOrgKey *string
+	LinkedInURL     *string
 	Status          string
 	OwnerID         *ids.UserID
 	SourceSystem    *string
@@ -58,22 +59,9 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	if err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
-	if in.Status == "" {
-		in.Status = string(LeadStatusNew)
-	}
-	if _, err := ParseLeadStatus(in.Status); err != nil {
+	in, err = normalizedCreateLeadInput(in)
+	if err != nil {
 		return crmcontracts.Lead{}, false, err
-	}
-	// Parse-don't-validate: the address normalizes once here, so the
-	// dedupe probe, the insert and the audit image all see one spelling
-	// (the SQL lower() stays as defense in depth).
-	if in.Email != nil {
-		parsed, err := values.ParseEmail(*in.Email)
-		if err != nil {
-			return crmcontracts.Lead{}, false, err
-		}
-		normalized := parsed.String()
-		in.Email = &normalized
 	}
 
 	var out crmcontracts.Lead
@@ -99,10 +87,10 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
 		_, err = tx.Exec(ctx,
 			`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-			                   status, score, owner_id, source_system, source_id, source, captured_by)
-			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			                   linkedin_url, status, score, owner_id, source_system, source_id, source, captured_by)
+			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 			id, wsID, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
-			in.Status, fitScore, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by)
+			in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by)
 		if err != nil {
 			// Race behind the pre-checks: the constraint name tells an
 			// email dedupe hit from a concurrent same-source import — the
@@ -128,6 +116,36 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		return nil
 	})
 	return out, created, err
+}
+
+// normalizedCreateLeadInput is CreateLead's parse-don't-validate step:
+// status defaults and is membership-checked, and the two identity keys —
+// email and LinkedIn URL — normalize ONCE here, so the dedupe probes,
+// the insert and the audit image all see one spelling (the SQL lower()
+// stays as defense in depth).
+func normalizedCreateLeadInput(in CreateLeadInput) (CreateLeadInput, error) {
+	if in.Status == "" {
+		in.Status = string(LeadStatusNew)
+	}
+	if _, err := ParseLeadStatus(in.Status); err != nil {
+		return CreateLeadInput{}, err
+	}
+	if in.Email != nil {
+		parsed, err := values.ParseEmail(*in.Email)
+		if err != nil {
+			return CreateLeadInput{}, err
+		}
+		normalized := parsed.String()
+		in.Email = &normalized
+	}
+	if in.LinkedInURL != nil {
+		normalized, err := NormalizeLinkedInURL(*in.LinkedInURL)
+		if err != nil {
+			return CreateLeadInput{}, err
+		}
+		in.LinkedInURL = &normalized
+	}
+	return in, nil
 }
 
 // replayedLead resolves the (source_system, source_id) idempotency key:
@@ -189,6 +207,53 @@ func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) err
 		dup.ExistingID = existing
 	}
 	return dup
+}
+
+// FindLeadByLinkedInURL is the E12.11 exact-match dedupe probe: the
+// earliest-captured live lead holding this profile URL (the canonical
+// original when duplicates slipped in), or nil when the workspace has none.
+// The lookup normalizes its input the way CreateLead stores it, so the
+// comparison is exact by construction. Returning a record makes this a
+// read: the caller's row scope applies, and an out-of-scope match reads
+// as no match — the capture path then warns on what the caller could see,
+// never on hidden rows (idx_lead_linkedin is a lookup index, not UNIQUE:
+// merging duplicates is a human decision, so the probe warns, it does not
+// refuse).
+func (s *Store) FindLeadByLinkedInURL(ctx context.Context, rawURL string) (*crmcontracts.Lead, error) {
+	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	normalized, err := NormalizeLinkedInURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	args := []any{normalized}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := auth.ScopeClauseFor(ctx, "lead", "", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope == "" {
+		scope = "TRUE"
+	}
+
+	var out *crmcontracts.Lead
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		l, err := scanLead(tx.QueryRow(ctx,
+			`SELECT `+leadColumns+` FROM lead
+			 WHERE linkedin_url = $1 AND archived_at IS NULL AND `+scope+`
+			 ORDER BY created_at ASC, id ASC LIMIT 1`, args...))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("probe linkedin dedupe: %w", err)
+		}
+		out = &l
+		return nil
+	})
+	return out, err
 }
 
 func (s *Store) GetLead(ctx context.Context, id ids.LeadID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
@@ -342,7 +407,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 }
 
 const leadColumns = `id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-	status, score, score_override_reason, score_computed, owner_id, source_system, source_id,
+	linkedin_url, status, score, score_override_reason, score_computed, owner_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at`
 
 func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
@@ -366,7 +431,7 @@ func scanLead(row pgx.Row) (crmcontracts.Lead, error) {
 	var version int64
 
 	err := row.Scan(&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
-		&status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &l.SourceSystem, &l.SourceId,
+		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt)
 	if err != nil {
 		return l, err

@@ -193,11 +193,11 @@ func setupMCPEnv(t *testing.T) *mcpEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, admin.WorkspaceID.UUID)
-	// The seed emits pipeline.created, and every emission needs the
-	// correlation the HTTP layer normally mints.
-	seedCtx := principal.WithCorrelationID(
-		principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"}), ids.NewV7())
+	// Every emission (the seed's pipeline.created, revocation's
+	// passport.revoked) needs the correlation the serving layer mints.
+	wsCtx := principal.WithCorrelationID(
+		principal.WithWorkspaceID(ctx, admin.WorkspaceID.UUID), ids.NewV7())
+	seedCtx := principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 	if err := deals.NewHandlers(pool).SeedWorkspaceDefaults(seedCtx); err != nil {
 		t.Fatal(err)
 	}

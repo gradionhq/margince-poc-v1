@@ -378,11 +378,14 @@ func copyOfferIntoRevision(ctx context.Context, tx pgx.Tx, fromID, newID ids.Off
 		newID, fromID, nextRevision, by); err != nil {
 		return fmt.Errorf("copy offer into new revision: %w", err)
 	}
+	// proposal_state travels with the line: a still-staged proposal must
+	// not silently become accepted (and start counting toward totals)
+	// just because the offer grew a revision.
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
-		                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence)
+		                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state)
 		 SELECT uuidv7(), workspace_id, $2, position, product_id, description,
-		        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence
+		        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state
 		 FROM offer_line_item WHERE offer_id = $1`,
 		fromID, newID); err != nil {
 		return fmt.Errorf("copy lines into new revision: %w", err)

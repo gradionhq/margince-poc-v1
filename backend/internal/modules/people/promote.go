@@ -114,11 +114,63 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 		if err != nil {
 			return err
 		}
+		if err := carryLeadConsent(ctx, tx, id, personID, by); err != nil {
+			return fmt.Errorf("carry lead consent: %w", err)
+		}
 
 		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged)
 		return err
 	})
 	return person, merged, err
+}
+
+// carryLeadConsent re-points the lead's consent state to the promoted
+// person (data-model §7: subject re-pointed, proof preserved), in the
+// same single transaction — people's sanctioned cross-aggregate SQL
+// ownership, the mergeConsent (merge.go) rule applied to promotion:
+//
+//   - withdrawal wins: the lead's withdrawn flips an existing person
+//     grant, with an appended consent_event proof row — a state change
+//     without proof would break the Art. 7(1) invariant.
+//   - where the person already holds a row for a purpose, the person's
+//     state stands — the lead's grant never overrides it; the colliding
+//     lead row is dropped (its proof events remain).
+//   - the lead's remaining rows re-point: person_id set, lead_id
+//     cleared, so the carried state no longer rides the retired lead's
+//     lifecycle (person_consent.lead_id cascades on lead deletion).
+//
+// Historical consent_event rows stay AS WRITTEN — the lead-scoped
+// entries ARE the proof that consent predates promotion.
+func carryLeadConsent(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID ids.PersonID, by string) error {
+	if _, err := tx.Exec(ctx, `
+		WITH flipped AS (
+		  UPDATE person_consent b SET state = 'withdrawn', captured_at = $3, source = 'promotion'
+		  FROM person_consent a
+		  WHERE a.lead_id = $1 AND b.person_id = $2
+		    AND a.purpose_id = b.purpose_id
+		    AND a.state = 'withdrawn' AND b.state <> 'withdrawn'
+		  RETURNING b.purpose_id
+		)
+		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, source,
+		                           policy_text, policy_version, captured_at, captured_by)
+		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, purpose_id, 'withdrawn', 'promotion',
+		       'withdrawal carried over from the promoted lead', 'promotion', $3, $4
+		FROM flipped`,
+		leadID, personID, time.Now().UTC(), by); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM person_consent a
+		WHERE a.lead_id = $1 AND EXISTS (
+		  SELECT 1 FROM person_consent b
+		  WHERE b.person_id = $2 AND b.purpose_id = a.purpose_id)`,
+		leadID, personID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE person_consent SET person_id = $2, lead_id = NULL WHERE lead_id = $1`,
+		leadID, personID)
+	return err
 }
 
 // finalizeLeadPromotion retires the lead and lands the write shape for the

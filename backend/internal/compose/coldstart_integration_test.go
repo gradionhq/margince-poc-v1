@@ -13,12 +13,14 @@ package compose
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -90,6 +92,95 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	})
 	if err != nil || accepted != 1 {
 		t.Fatalf("coldstart.accepted events = %d (%v), want 1", accepted, err)
+	}
+}
+
+// The paste-text fallback (B-E01.2b): the same model+gate seam as the url
+// path, grounded in the pasted text itself — source_kind=text, no source_url,
+// and the char offset of each evidence snippet for highlight-back. Evidence
+// the paste does not contain is dropped, and the result stages 🟡 exactly
+// like a url read-back.
+func TestColdStartTextInputGroundsFieldsInThePaste(t *testing.T) {
+	e := integration.Setup(t)
+	pasted := "Acme GmbH helps RevOps teams onboard in minutes. Built for scaling B2B SaaS companies."
+	brain := ai.NewFakeClient().Script(`{"fields":[
+		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"onboard in minutes","confidence":0.8},
+		{"field":"icp","value":"Scaling B2B SaaS","evidence_snippet":"scaling B2B SaaS companies","confidence":0.7},
+		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"registered as Acme GmbH in Berlin","confidence":0.9}]}`)
+	engine := &coldStartEngine{extract: evidenceExtractor{brain: brain}, approvals: approvals.NewService(e.Pool)}
+
+	proposal, err := engine.ProposeText(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), pasted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.SourceKind != crmcontracts.ColdStartProposalSourceKindText || proposal.SourceUrl != nil {
+		t.Fatalf("proposal source = %s/%v, want text with no source_url", proposal.SourceKind, proposal.SourceUrl)
+	}
+	if proposal.Status != "staged" || proposal.ProposalId.String() == ids.Nil.String() {
+		t.Fatalf("text proposal not staged: %+v", proposal)
+	}
+	if len(proposal.Fields) != 2 {
+		t.Fatalf("gate kept %d fields, want 2 (evidence not in the paste must drop): %+v", len(proposal.Fields), proposal.Fields)
+	}
+	for _, f := range proposal.Fields {
+		if f.SourceKind != crmcontracts.ColdStartFieldSourceKindText || f.SourceUrl != nil {
+			t.Fatalf("field %s source = %s/%v, want text with no source_url", f.Field, f.SourceKind, f.SourceUrl)
+		}
+		if f.EvidenceOffset == nil {
+			t.Fatalf("field %s carries no evidence_offset, want the snippet's char position", f.Field)
+		}
+		if want := strings.Index(pasted, f.EvidenceSnippet); *f.EvidenceOffset != want {
+			t.Fatalf("field %s evidence_offset = %d, want %d", f.Field, *f.EvidenceOffset, want)
+		}
+	}
+}
+
+// The self-description input (B-E01.13): a field is grounded in the user's
+// own statement — its evidence IS that statement's words — and a field the
+// statement does not support is ABSENT (the no-guess gate). No fetch, no
+// source_url, and it stages 🟡 like every other kind.
+func TestColdStartSelfDescriptionGroundsOnlyWhatTheStatementSupports(t *testing.T) {
+	e := integration.Setup(t)
+	statement := "We sell fractional CFO services to seed-stage German startups."
+	brain := ai.NewFakeClient().Script(`{"fields":[
+		{"field":"icp","value":"Seed-stage German startups","evidence_snippet":"seed-stage German startups","confidence":0.8},
+		{"field":"value_proposition","value":"Fractional CFO services","evidence_snippet":"We sell fractional CFO services","confidence":0.9},
+		{"field":"industry","value":"Financial consulting","evidence_snippet":"a leading financial consultancy","confidence":0.9}]}`)
+	engine := &coldStartEngine{extract: evidenceExtractor{brain: brain}, approvals: approvals.NewService(e.Pool)}
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
+
+	proposal, err := engine.ProposeSelfDescription(ctx, statement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.SourceKind != crmcontracts.ColdStartProposalSourceKindSelfDescription || proposal.SourceUrl != nil {
+		t.Fatalf("proposal source = %s/%v, want self_description with no source_url", proposal.SourceKind, proposal.SourceUrl)
+	}
+	if proposal.Status != "staged" || proposal.ProposalId.String() == ids.Nil.String() {
+		t.Fatalf("self-description proposal not staged: %+v", proposal)
+	}
+	// icp and value_proposition are the user's own words; the industry claim
+	// is not in the statement — absent, never fabricated.
+	if len(proposal.Fields) != 2 {
+		t.Fatalf("gate kept %d fields, want 2 (the unsupported industry must be absent): %+v", len(proposal.Fields), proposal.Fields)
+	}
+	for _, f := range proposal.Fields {
+		if f.SourceKind != crmcontracts.ColdStartFieldSourceKindSelfDescription || f.SourceUrl != nil {
+			t.Fatalf("field %s source = %s/%v, want self_description with no source_url", f.Field, f.SourceKind, f.SourceUrl)
+		}
+		if !strings.Contains(statement, f.EvidenceSnippet) {
+			t.Fatalf("field %s evidence %q is not the user's own words", f.Field, f.EvidenceSnippet)
+		}
+	}
+
+	// A statement that supports nothing yields zero fields — refused, not
+	// padded (the same honest degradation as an unreadable page).
+	unsupported := ai.NewFakeClient().Script(`{"fields":[
+		{"field":"icp","value":"guessed","evidence_snippet":"enterprise Fortune-500 buyers","confidence":0.9}]}`)
+	empty := &coldStartEngine{extract: evidenceExtractor{brain: unsupported}, approvals: approvals.NewService(e.Pool)}
+	var unreadable *unreadableError
+	if _, err := empty.ProposeSelfDescription(ctx, statement); !errors.As(err, &unreadable) {
+		t.Fatalf("unsupported statement → %v, want unreadable (no-guess)", err)
 	}
 }
 

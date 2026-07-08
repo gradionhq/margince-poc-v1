@@ -95,6 +95,13 @@ func (e *WorkflowEngine) RegisterSystemWorkflow(h workflow.Handler) {
 // failures are isolated — one broken automation never starves its
 // siblings — and land on the run row.
 func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) error {
+	// The engine consumes its own staging outcomes on the same group: a
+	// rejected approval flips the parked run to 'blocked' (A72 honest
+	// run history). No workflow triggers on approval.decided, so this is
+	// the event's only engine-side effect.
+	if env.Type == "approval.decided" {
+		return e.HandleApprovalDecided(ctx, env)
+	}
 	e.mu.RLock()
 	handlers := append([]workflow.Handler(nil), e.handlers...)
 	system := append([]workflow.Handler(nil), e.system...)
@@ -186,48 +193,48 @@ func runKey(h workflow.Handler, ev workflow.Event) string {
 	return h.IdempotencyKey(ev) + "@" + ev.AutomationID.String()
 }
 
+// runOne makes EVERY firing outcome durable (B-E15.3a): matched-and-applied,
+// skipped, failed, and staged-for-approval all land on the run row, each
+// terminal reason on the `error` column — a run history that only shows
+// successes hides exactly the runs a human needs to see.
 func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev workflow.Event) error {
 	matched, err := h.Match(ctx, ev)
 	if err != nil {
-		return err
+		return e.recordFailedBeforeApply(ctx, h, ev, "matching the trigger: "+err.Error(), err)
 	}
 	if !matched {
-		return nil
+		return e.recordSkip(ctx, h, ev)
 	}
 	effect, err := h.Plan(ctx, ev)
 	if err != nil {
-		return err
+		return e.recordFailedBeforeApply(ctx, h, ev, "planning the effect: "+err.Error(), err)
 	}
 	plannedJSON, err := json.Marshal(effect.Actions)
 	if err != nil {
-		return err
+		return e.recordFailedBeforeApply(ctx, h, ev, "encoding the planned actions: "+err.Error(), err)
 	}
 
-	// Claim the (handler, key) row FIRST: whoever inserts runs; a
-	// redelivery finds the claim and stops (AC-W3).
-	claimed := false
-	err = database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-			INSERT INTO workflow_run (workspace_id, handler, idempotency_key, trigger_event, planned, status)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'applied')
-			ON CONFLICT (workspace_id, handler, idempotency_key) DO NOTHING`,
-			h.Spec().Name, runKey(h, ev), ev.ID, plannedJSON)
-		if err != nil {
-			return err
-		}
-		claimed = tag.RowsAffected() > 0
-		return nil
-	})
-	if err != nil {
+	claimed, err := e.claimRun(ctx, h, ev, plannedJSON, "applied", nil)
+	if err != nil || !claimed {
 		return err
-	}
-	if !claimed {
-		return nil
 	}
 
 	result, applyErr := h.Apply(ctx, ev, effect, nil)
-	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	// The outcome record commits in its OWN transaction before the apply
+	// error surfaces — returning applyErr from inside the tx closure would
+	// roll the very 'failed' row back and leave the claim lying 'applied'.
+	recordErr := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		var staged *StagedApprovalError
 		switch {
+		case errors.As(applyErr, &staged):
+			// The staging pointer rides the detail column — the run row's
+			// only free seam — so a later rejection can find and block
+			// exactly this run (workflows_blocked.go).
+			_, err := tx.Exec(ctx, `
+				UPDATE workflow_run SET status = 'requires_approval', error = $3
+				WHERE handler = $1 AND idempotency_key = $2`,
+				h.Spec().Name, runKey(h, ev), stagedApprovalDetail(staged.ApprovalID))
+			return err
 		case errors.Is(applyErr, apperrors.ErrRequiresApproval):
 			_, err = tx.Exec(ctx, `
 				UPDATE workflow_run SET status = 'requires_approval'
@@ -237,10 +244,7 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 			_, err = tx.Exec(ctx, `
 				UPDATE workflow_run SET status = 'failed', error = $3
 				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev), applyErr.Error())
-			if err != nil {
-				return err
-			}
-			return applyErr
+			return err
 		default:
 			appliedJSON, err := json.Marshal(result.Applied)
 			if err != nil {
@@ -252,6 +256,66 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 			return err
 		}
 	})
+	if recordErr != nil {
+		return errors.Join(applyErr, recordErr)
+	}
+	if applyErr != nil && !errors.Is(applyErr, apperrors.ErrRequiresApproval) {
+		// A staged 🟡 is a healthy suspension, not a dispatch failure; a
+		// real apply failure still surfaces after its record committed.
+		return applyErr
+	}
+	return nil
+}
+
+// claimRun claims the (handler, key) row FIRST: whoever inserts runs; a
+// redelivery finds the claim and stops (AC-W3). Terminal-at-claim
+// outcomes (skipped, failed before Apply) insert directly in their final
+// state, so the claim doubles as the honest run record.
+func (e *WorkflowEngine) claimRun(ctx context.Context, h workflow.Handler, ev workflow.Event, planned []byte, status string, detail *string) (bool, error) {
+	claimed := false
+	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO workflow_run (workspace_id, handler, idempotency_key, trigger_event, planned, status, error)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+			ON CONFLICT (workspace_id, handler, idempotency_key) DO NOTHING`,
+			h.Spec().Name, runKey(h, ev), ev.ID, planned, status, detail)
+		if err != nil {
+			return err
+		}
+		claimed = tag.RowsAffected() > 0
+		return nil
+	})
+	return claimed, err
+}
+
+// emptyPlan is the planned column of a run that never reached Plan (a
+// skip or a pre-Apply failure): no actions were ever on the table.
+var emptyPlan = []byte(`[]`)
+
+// recordFailedBeforeApply lands a Match/Plan/encode failure as a durable
+// 'failed' run and still surfaces the cause to the dispatcher. The claim
+// makes the failure terminal for this (handler, key) — the same
+// no-retry-after-claim contract the Apply path already has.
+func (e *WorkflowEngine) recordFailedBeforeApply(ctx context.Context, h workflow.Handler, ev workflow.Event, detail string, cause error) error {
+	if _, claimErr := e.claimRun(ctx, h, ev, emptyPlan, "failed", &detail); claimErr != nil {
+		return errors.Join(cause, claimErr)
+	}
+	return cause
+}
+
+// recordSkip lands a trigger-matched-but-conditions-declined outcome as a
+// durable 'skipped' run (B-E15.3a): the designer's history shows the
+// event arrived and why nothing happened, never a silent gap. System
+// handlers are invariant executors with no automation instance behind
+// them — no run history reads their skips, so recording them would only
+// accrete rows.
+func (e *WorkflowEngine) recordSkip(ctx context.Context, h workflow.Handler, ev workflow.Event) error {
+	if ev.AutomationID == ids.Nil {
+		return nil
+	}
+	detail := "the trigger event did not satisfy this automation's conditions"
+	_, err := e.claimRun(ctx, h, ev, emptyPlan, "skipped", &detail)
+	return err
 }
 
 // ApplyActions is the shared executor handlers delegate Apply to: each

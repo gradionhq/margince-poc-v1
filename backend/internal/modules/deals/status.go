@@ -44,3 +44,16 @@ func ParseStageSemantic(raw string) (StageSemantic, error) {
 // Offer status needs no local vocabulary: the generated contract enum
 // (crmcontracts.OfferStatus + its constants) is the source of truth the
 // stores compare against.
+
+// ProposalState is the offer line's approval vocabulary — the Go
+// spelling of the offer_line_item.proposal_state CHECK (0059). A staged
+// line is an AI-drafted proposal awaiting human acceptance (E03.21a):
+// it never contributes to the server-computed offer totals, so a draft
+// can never move a number the buyer sees. Not exposed on the contract —
+// the accept transition is store-internal until a drafting surface ships.
+type ProposalState string
+
+const (
+	ProposalStaged   ProposalState = "staged"
+	ProposalAccepted ProposalState = "accepted"
+)

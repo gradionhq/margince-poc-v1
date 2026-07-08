@@ -13,12 +13,13 @@ import (
 // (03-architecture §3.4: the same bus Dispact rides).
 const StreamPrefix = "gw:events:crm:"
 
-// streamEntities are the nine V1 per-entity-type streams (events.md
-// §4.1). Workspace is a field inside the envelope, never a stream —
+// streamEntities are the ten V1 per-entity-type streams: the nine of
+// events.md §4.1 plus the §5.6a identity/access-revocation stream.
+// Workspace is a field inside the envelope, never a stream —
 // per-tenant streams would explode key count at multi-tenant scale.
 var streamEntities = []string{
 	"person", "organization", "deal", "lead", "activity",
-	"approval", "capture", "coldstart", "audit",
+	"approval", "capture", "coldstart", "audit", "identity",
 }
 
 // Streams returns the full stream key set, sorted, for the subscriber
@@ -106,6 +107,13 @@ var catalog = map[string]struct {
 	"coldstart.rejected":           {"coldstart", 1},
 
 	"audit.appended": {"audit", 1},
+
+	// §5.6a: the access-revocation cascade (B-EP03.10) — user, role and
+	// passport are identity-owned facts, so all three ride the identity
+	// stream rather than gaining per-entity streams of their own.
+	"user.deactivated": {"identity", 1},
+	"role.changed":     {"identity", 1},
+	"passport.revoked": {"identity", 1},
 }
 
 // Types returns every catalog event type, sorted — the enumerable set

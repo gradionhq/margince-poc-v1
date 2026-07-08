@@ -154,15 +154,34 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 		t.Fatalf("failed-login audit rows = %d, want 1", failed)
 	}
 
-	// The per-email window admits 10/min; the 11th answers 429 before
-	// any Argon2 work runs.
-	last := 0
-	for range 10 {
-		last = e.call(t, "POST", "/v1/auth/login", anyMap{
+	// Failures two through five stay 401; the fifth consecutive failure
+	// locks the account (formulas §27), so every later attempt — even
+	// the CORRECT password — answers 403 before any Argon2 work runs.
+	// The in-process 429 flood throttle sits in front for distinct-email
+	// sprays; on a single account the persistent lock wins first.
+	for i := 2; i <= 5; i++ {
+		if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 			"email": "ada@example.com", "password": "wrong-password-entirely",
-		}, nil, nil)
+		}, nil, nil); status != http.StatusUnauthorized {
+			t.Fatalf("failure %d = %d, want 401", i, status)
+		}
 	}
-	if last != http.StatusTooManyRequests {
-		t.Fatalf("11th attempt inside the window = %d, want 429", last)
+	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+		"email": "ada@example.com", "password": "wrong-password-entirely",
+	}, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("attempt past the lock threshold = %d, want 403", status)
+	}
+	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
+		"email": "ada@example.com", "password": "correct-horse-battery",
+	}, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("correct password on a locked account = %d, want 403", status)
+	}
+	var lockouts int
+	if err := owner.QueryRow(t.Context(),
+		`SELECT count(*) FROM audit_log WHERE action = 'login' AND evidence->>'outcome' = 'lockout'`).Scan(&lockouts); err != nil {
+		t.Fatal(err)
+	}
+	if lockouts != 1 {
+		t.Fatalf("lockout audit rows = %d, want 1", lockouts)
 	}
 }

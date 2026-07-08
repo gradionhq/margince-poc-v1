@@ -4,13 +4,15 @@
 package compose
 
 // The evidence-grounded extraction engine behind BOTH the onboarding
-// read-back (coldStartReadback) and per-company enrichment (scrapeCompany) —
-// the ADR-0006 scrape/enrichment seam. It fetches ONE public page, asks the
-// routed model for company facts, and enforces the no-guess gate HERE, not in
-// the model: a field whose evidence snippet is not VERBATIM in the fetched
-// page is dropped, whatever the model claims. The two callers differ only in
-// which field vocabulary they accept and what they stage — the fetch, the
-// model call, and the evidence gate are one implementation, not two.
+// read-back (coldStartReadback — url, pasted text, or self-description) and
+// per-company enrichment (scrapeCompany) — the ADR-0006 scrape/enrichment
+// seam. It takes ONE source text (fetched from a public page, or handed in by
+// the user), asks the routed model for company facts, and enforces the
+// no-guess gate HERE, not in the model: a field whose evidence snippet is not
+// VERBATIM in the source text is dropped, whatever the model claims. The
+// callers differ only in where the text comes from, which field vocabulary
+// they accept and what they stage — the model call and the evidence gate are
+// one implementation, not two.
 
 import (
 	"context"
@@ -125,24 +127,39 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 	if err != nil {
 		return nil, &unreadableError{cause: fmt.Errorf("fetch %s: %w", rawURL, err)}
 	}
+	// The rune floor measures FETCH quality: a page that reduced to
+	// nav-crumbs is not worth a model call. Text a human supplied
+	// deliberately (paste / self-description) skips it — the evidence gate
+	// below still refuses to fabricate from thin input.
 	if n := len([]rune(pageText)); n < minReadableRunes {
 		return nil, &unreadableError{cause: fmt.Errorf("page read %d runes, below the %d-rune floor", n, minReadableRunes)}
 	}
-	runes := []rune(pageText)
-	if len(runes) > maxExtractionText {
-		pageText = string(runes[:maxExtractionText])
+	return x.extractGrounded(ctx, "Page "+rawURL, pageText, rawURL, accept)
+}
+
+// extractGrounded is the model+gate half of the seam, shared by every
+// input kind (fetched page, pasted text, self-description): it asks the
+// routed model for company facts over already-obtained source text and
+// keeps only the fields whose evidence is VERBATIM in that text. An
+// empty gate result is *unreadableError — honest degradation, zero
+// fabricated fields. sourceURL is stamped onto the surviving fields and
+// is empty for the non-URL kinds.
+func (x evidenceExtractor) extractGrounded(ctx context.Context, sourceLabel, sourceText, sourceURL string, accept func(string) bool) ([]evidencedField, error) {
+	if runes := []rune(sourceText); len(runes) > maxExtractionText {
+		sourceText = string(runes[:maxExtractionText])
 	}
 
 	req := model.Request{
 		System: companyFactsSystem,
 		Messages: []model.Message{{
 			Role:    "user",
-			Content: fmt.Sprintf("Page %s:\n<untrusted>%s</untrusted>", rawURL, pageText),
+			Content: fmt.Sprintf("%s:\n<untrusted>%s</untrusted>", sourceLabel, sourceText),
 		}},
 		MaxTokens:      2048,
 		SecretStripper: ai.NewSecretStripper(),
 	}
 	var resp model.Response
+	var err error
 	if structured, ok := x.brain.(validatedBrain); ok {
 		resp, err = structured.CompleteValidated(ctx, req, extractionShapeValid)
 	} else {
@@ -152,7 +169,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 		return nil, err
 	}
 
-	fields := gateEvidence(resp.Text, pageText, rawURL, accept)
+	fields := gateEvidence(resp.Text, sourceText, sourceURL, accept)
 	if len(fields) == 0 {
 		return nil, &unreadableError{cause: errors.New("no field survived the no-guess evidence gate")}
 	}

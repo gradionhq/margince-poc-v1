@@ -136,6 +136,10 @@ func (stubs) MarkBriefItemDismissed(w nethttp.ResponseWriter, r *nethttp.Request
 	httperr.NotImplemented(w, r, "MarkBriefItemDismissed")
 }
 
+func (stubs) SnoozeBriefItem(w nethttp.ResponseWriter, r *nethttp.Request, itemId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "SnoozeBriefItem")
+}
+
 func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartReadback")
 }

@@ -131,7 +131,11 @@ func NormalizeCorpusText(format, content, speakerLabel string, requireAttributio
 		}
 		turns = parsed
 	default:
-		return "", &CorpusIngestError{Field: "format", Reason: "must be one of txt, md, vtt, srt, json"}
+		// The V1 corpus is text only (ADR-0058, features/09 §B1.1): a
+		// binary document (.docx/.pdf) has no honest word count without
+		// real extraction, so it is refused, never estimated from bytes.
+		return "", &CorpusIngestError{Field: "format",
+			Reason: "the corpus is text only — must be one of txt, md, vtt, srt, json; convert a binary document or paste its text"}
 	}
 	return filterOwnTurns(turns, speakerLabel, requireAttribution)
 }

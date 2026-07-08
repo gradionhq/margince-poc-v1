@@ -5,7 +5,7 @@ package briefs
 
 // The Morning-Brief HTTP surface (E05): the home read (GetMorningBrief),
 // the on-open/explicit refresh (GenerateMorningBrief), and the per-rep
-// acted/dismissed marks (B-E05.13). It shadows the generated stubs over
+// acted/dismissed/snoozed marks (B-E05.13, A77). It shadows the generated stubs over
 // the BriefEngine. The brief is a PERSONAL lens — every operation is
 // scoped to the acting rep by the engine, and another rep's item reads as
 // not-found (existence-hiding), never forbidden.
@@ -40,9 +40,11 @@ func (h Handlers) WithL2Ranker(brain briefBrain, log *slog.Logger) {
 
 // GetMorningBrief re-reads the acting rep's latest persisted run — the
 // on-open path that never re-ranks (B-E05.3b). No run yet is a 404, the
-// same existence-hiding shape as any absent personal resource.
+// same existence-hiding shape as any absent personal resource. The read
+// resolves snoozes against the current instant: expired ones re-surface,
+// running ones stay hidden (A77/AC-home-6).
 func (h Handlers) GetMorningBrief(w http.ResponseWriter, r *http.Request) {
-	run, err := h.engine.LatestRun(r.Context())
+	run, err := h.engine.LatestRun(r.Context(), time.Now().UTC())
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -84,6 +86,28 @@ func (h Handlers) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request,
 	httperr.WriteJSON(w, http.StatusOK, briefItemToWire(item))
 }
 
+// SnoozeBriefItem hides a queue item until the requested instant, after
+// which it re-surfaces as actionable (A77/AC-home-6). A snooze that is
+// already over would be a no-op wearing a success code — refused as
+// client error instead.
+func (h Handlers) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemID openapi_types.UUID) {
+	var req crmcontracts.BriefSnoozeRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	now := time.Now().UTC()
+	if !req.SnoozedUntil.After(now) {
+		httperr.Write(w, r, httperr.Validation("snoozed_until", "not_in_future", "snoozed_until must lie in the future"))
+		return
+	}
+	item, err := h.engine.MarkSnoozed(r.Context(), ids.UUID(itemID), req.SnoozedUntil, now)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, briefItemToWire(item))
+}
+
 func briefRunToWire(run BriefRun) crmcontracts.MorningBrief {
 	items := make([]crmcontracts.MorningBriefItem, 0, len(run.Items))
 	for _, item := range run.Items {
@@ -117,8 +141,9 @@ func briefItemToWire(item BriefRunItem) crmcontracts.MorningBriefItem {
 			Momentum:    float32(item.Features.Momentum),
 			Warmth:      float32(item.Features.Warmth),
 		},
-		EvidenceIds: evidence,
-		State:       crmcontracts.MorningBriefItemState(item.State),
-		StateAt:     item.StateAt,
+		EvidenceIds:  evidence,
+		State:        crmcontracts.MorningBriefItemState(item.State),
+		StateAt:      item.StateAt,
+		SnoozedUntil: item.SnoozedUntil,
 	}
 }

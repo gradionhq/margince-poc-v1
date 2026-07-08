@@ -27,12 +27,18 @@ type UpdateLeadInput struct {
 	CandidateOrgKey *string
 	Status          *string // only new ↔ working here; terminal states have their own paths
 	Score           *int
-	// ScoreOverrideReason is tri-state: nil = field absent (no override
-	// change); a non-nil empty string = the explicit CLEAR gesture; a
-	// non-nil non-empty string = the written reason for a score override.
+	// ScoreOverrideReason is the written reason for a score override; nil
+	// means the field was absent (no override change). The explicit CLEAR
+	// gesture is ClearScoreOverride, not an empty string — an empty reason
+	// is invalid input (contract minLength 1).
 	ScoreOverrideReason *string
-	OwnerID             *ids.UserID
-	IfVersion           *int64
+	// ClearScoreOverride is the wire's explicit JSON null on score or
+	// score_override_reason: drop the override and resume recompute.
+	// encoding/json erases null-vs-absent on pointer fields, so the
+	// transports carry the distinction here.
+	ClearScoreOverride bool
+	OwnerID            *ids.UserID
+	IfVersion          *int64
 }
 
 // ScoreOverrideReasonRequiredError rejects a human score with no written
@@ -42,6 +48,26 @@ type ScoreOverrideReasonRequiredError struct{}
 
 func (e *ScoreOverrideReasonRequiredError) Error() string {
 	return "a score override requires a non-empty score_override_reason"
+}
+
+// ScoreOverrideReasonEmptyError rejects an empty-string reason: the
+// contract's clear gesture is JSON null (minLength 1 on the field), so a
+// blank reason is neither a written justification nor a clear — it is
+// invalid input.
+type ScoreOverrideReasonEmptyError struct{}
+
+func (e *ScoreOverrideReasonEmptyError) Error() string {
+	return "score_override_reason must not be empty; pass null to clear the override"
+}
+
+// ScoreOverrideClearConflictError rejects a null score arriving together
+// with a written reason: null says "drop the override", the reason says
+// "keep one" — honoring either would silently discard the other half of
+// the request.
+type ScoreOverrideClearConflictError struct{}
+
+func (e *ScoreOverrideClearConflictError) Error() string {
+	return "a null score clears the override; it cannot be combined with a score_override_reason"
 }
 
 func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInput) (crmcontracts.Lead, error) {
@@ -146,9 +172,10 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 // and reports whether the caller must resume recompute (an override was
 // cleared). Setting `score` establishes/refreshes an override — it
 // requires a non-empty reason and captures the machine value into
-// score_computed the first time. An explicit empty reason clears the
-// override. A non-empty reason with no score amends the note on an
-// override already in force.
+// score_computed the first time. An explicit JSON null on score or the
+// reason clears the override. A non-empty reason with no score amends
+// the note on an override already in force; an empty-string reason is
+// invalid input (the clear gesture is null, not "").
 func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateLeadInput) (resumeRecompute bool, err error) {
 	overrideInForce := current.ScoreOverrideReason != nil
 
@@ -172,7 +199,10 @@ func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateL
 		}
 		return false, nil
 
-	case in.ScoreOverrideReason != nil && strings.TrimSpace(*in.ScoreOverrideReason) == "":
+	case in.ClearScoreOverride:
+		if in.ScoreOverrideReason != nil {
+			return false, &ScoreOverrideClearConflictError{}
+		}
 		if !overrideInForce {
 			return false, nil // no override to clear — a no-op
 		}
@@ -186,6 +216,9 @@ func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateL
 		return true, nil
 
 	case in.ScoreOverrideReason != nil:
+		if strings.TrimSpace(*in.ScoreOverrideReason) == "" {
+			return false, &ScoreOverrideReasonEmptyError{}
+		}
 		if !overrideInForce {
 			return false, &ScoreOverrideReasonRequiredError{} // a reason without a score sets nothing
 		}
