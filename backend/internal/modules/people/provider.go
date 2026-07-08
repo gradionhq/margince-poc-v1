@@ -180,7 +180,7 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 		v, err := p.store.UpdateOrganization(ctx, ids.From[ids.OrganizationKind](in.Ref.ID), organizationUpdateInput(req, in.IfVersion))
 		return ref(datasource.EntityOrganization, v.Id), err
 	case datasource.EntityLead:
-		var req crmcontracts.UpdateLeadRequest
+		var req LeadUpdateRequest
 		if err := datasource.StrictDecode(raw, &req); err != nil {
 			return datasource.EntityRef{}, err
 		}

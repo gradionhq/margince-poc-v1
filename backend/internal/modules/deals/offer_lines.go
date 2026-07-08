@@ -349,6 +349,60 @@ func buildOfferLinePatch(lineID ids.UUID, in UpdateOfferLineInput, curPosition i
 	return sets, args, before, after, line
 }
 
+// AcceptOfferLineItem flips a staged (AI-proposed) line to accepted, at
+// which point it starts counting toward the offer totals (E03.21a). The
+// contract does not expose proposal_state yet, so this is the store seam
+// the future drafting surface confirms through; accepting an already
+// accepted line is a no-op because the desired end-state already holds.
+func (s *Store) AcceptOfferLineItem(ctx context.Context, offerID ids.OfferID, lineID ids.UUID) (crmcontracts.Offer, error) {
+	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	var out crmcontracts.Offer
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, _, err := visibleOfferLocked(ctx, tx, offerID, storekit.LiveOnly)
+		if err != nil {
+			return err
+		}
+		if err := ensureDraft(current); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE offer_line_item SET proposal_state = $3 WHERE id = $1 AND offer_id = $2 AND proposal_state = $4`,
+			lineID, offerID, ProposalAccepted, ProposalStaged)
+		if err != nil {
+			return fmt.Errorf("accept offer line: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			// Missing line is 404; an existing accepted one is idempotent.
+			var exists bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM offer_line_item WHERE id = $1 AND offer_id = $2)`,
+				lineID, offerID).Scan(&exists); err != nil {
+				return fmt.Errorf("probe offer line: %w", err)
+			}
+			if !exists {
+				return apperrors.ErrNotFound
+			}
+			out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly)
+			return err
+		}
+		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {
+			return err
+		}
+		if _, err := storekit.Audit(ctx, tx, "update", "offer", offerID.UUID,
+			map[string]any{"line_id": lineID, "proposal_state": ProposalStaged},
+			map[string]any{"line_id": lineID, "proposal_state": ProposalAccepted}); err != nil {
+			return fmt.Errorf("audit line accept: %w", err)
+		}
+		if out, err = readOfferWithLines(ctx, tx, offerID, storekit.LiveOnly); err != nil {
+			return fmt.Errorf("read offer after line accept: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
 func (s *Store) RemoveOfferLineItem(ctx context.Context, offerID ids.OfferID, lineID ids.UUID) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err

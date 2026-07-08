@@ -853,6 +853,14 @@ paths:
           in: query
           schema: { type: boolean }
           description: Deterministic stalled flag (no activity past the threshold).
+        - name: partner_org_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filter to deals attributed to a specific partner org (deal.partner_org_id).
+        - name: partner_sourced
+          in: query
+          schema: { type: boolean }
+          description: true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice.
       responses:
         '200':
           description: A page of deals.
@@ -1515,6 +1523,7 @@ paths:
                     properties:
                       entity_type: { type: string, enum: [person, organization, deal, lead] }
                       entity_id:   { type: string, format: uuid }
+                consent: { $ref: '#/components/schemas/CaptureConsent' }
       responses:
         '201':
           description: Meeting booked; the logged meeting activity.
@@ -1833,6 +1842,73 @@ paths:
       summary: Delete an automation instance.
       responses:
         '204': { description: Deleted. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /automations/{id}/preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Automations]
+      operationId: previewAutomation
+      security: [ { cookieAuth: [] } ]   # human session only — see the deviation note above
+      x-agent-access: human-only
+      summary: Dry-run an automation's blast radius (🟢 read; no writes, no sends).
+      description: |
+        Powers the designer's live dry-run (A72/ADR-0035 Am.1). Evaluates the recipe's trigger + filter and
+        returns how many records match **now** and an estimate of how many times it *would have* fired over a
+        trailing window — **without** performing any action. This is a **🟢 read**, executed under the caller's
+        Passport: it never mutates a record, never sends, and never stages an approval. Accepts either the stored
+        automation or, for a not-yet-created draft, an inline recipe in the body (so the editor can preview
+        before the first save). `x-mcp-tool` read tier.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutomationPreviewRequest' }
+      responses:
+        '200':
+          description: Blast-radius preview.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutomationPreview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /automations/{id}/runs:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Automations]
+      operationId: listAutomationRuns
+      security: [ { cookieAuth: [] } ]   # human session only — see the deviation note above
+      x-agent-access: human-only
+      summary: Read-only run history for one automation — successes AND errored/blocked/skipped runs.
+      description: |
+        The designer's run history (A72/ADR-0035 Am.1 — **promoted into V1**, previously fast-follow). Each
+        `AutomationRun` is reconstructed from `audit_log`/`automation_run` (data-model §12.5) and stamped with
+        the tier that fired and whether approval was needed. Runs of every outcome are first-class (mapping to
+        `automation_run.status`) — including `failed` (a provider/action error), `blocked` (a 🟡 step whose
+        approval expired or was rejected — **added to the status set by A72/ADR-0035 Am.1**), and `skipped`
+        (e.g. the Passport no longer permits the action) — never only `fired` successes. Read-only: runs are
+        produced by the engine, not created via the API. 🟡 actions still queue to `/approvals` at run time.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: outcome
+          in: query
+          description: Filter by run outcome (matches automation_run.status, data-model §12.5).
+          schema: { type: string, enum: [fired, failed, blocked, skipped, queued_for_approval] }
+      responses:
+        '200':
+          description: A page of run records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/AutomationRun' } }
+                  page: { $ref: '#/components/schemas/PageInfo' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ------------------------------ /leads ------------------------------------
@@ -2569,11 +2645,15 @@ paths:
       operationId: coldStartReadback
       summary: Website cold-start read-back — returns a staged proposal with evidence.
       description: |
-        Given a company URL, fetches + parses it (via the ADR-0006 connector) and returns a
-        structured read-back: ICP, buying center, value proposition, USP, buying intents.
-        EVERY returned field carries a non-empty `evidence_snippet` + `source_url` +
-        `confidence`, or it is ABSENT (the no-guess gate, features/07 §1). NOTHING is written
-        to real records — this is a 🟡 staging surface; the user accepts via /approvals.
+        Reads back a structured company profile (ICP, buying center, value proposition, USP, buying
+        intents) from EXACTLY ONE input (B-E01.2b/.13): a company `url` (fetched+parsed via the ADR-0006
+        connector), pasted `text` (the manual fallback when a site is robots-disallowed/unreadable — a
+        paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
+        EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
+        (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
+        NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
+        A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
+        that is honest grounding, not fabrication, and it still stages 🟡.
       x-mcp-tool: { verb: enrich, tier: yellow }
       requestBody:
         required: true
@@ -2583,6 +2663,12 @@ paths:
             examples:
               url:
                 value: { url: 'https://acme.com' }
+              pasteText:
+                summary: Manual paste-text fallback (unreadable/robots-disallowed site)
+                value: { text: 'Acme onboards RevOps teams in minutes. Built for scaling B2B SaaS…' }
+              selfDescription:
+                summary: User's own dictated/typed ICP (B-E01.13 speech input)
+                value: { self_description: 'We sell fractional CFO services to seed-stage German startups.' }
       responses:
         '200':
           description: A staged proposal with per-field evidence (no records written).
@@ -2621,6 +2707,7 @@ paths:
                     status: 422
                     code: coldstart_unreadable
                     detail: Couldn't read enough from this page. Retry or paste text.
+                    details: { populated_fields: 0 }
 
   # -------------------------- /connectors/imap ------------------------------
   /connectors/imap/connect:
@@ -4025,6 +4112,51 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /brief/items/{itemId}/snooze:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+        description: A brief_item id belonging to one of the acting rep's runs.
+    post:
+      tags: [Brief]
+      operationId: snoozeBriefItem
+      summary: Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+      description: |
+        Sets the item to `state=snoozed` with the given `snoozed_until`. While the instant has not
+        passed, the item is hidden from the home read AND the deal is suppressed from freshly
+        generated runs. Once `snoozed_until` passes, the item re-surfaces as actionable — distinct
+        from `dismissed` (which needs a new linked activity) and `acted` (which needs a material
+        change). Per-rep queue state, like act/dismiss.
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BriefSnoozeRequest' }
+      responses:
+        '200':
+          description: The updated brief item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MorningBriefItem' }
+        '404':
+          description: No such item in one of the acting rep's runs (another rep's item reads as not-found).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: The item was already acted on or dismissed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`snoozed_until` is missing or not in the future.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # =========================================================================
   # =========================================================================
   # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
@@ -4037,7 +4169,6 @@ paths:
   #   /voice-profiles     (E07; now SPECIFIED above, B-E07.4/.5a — corpus sources via /voice-profiles/{id}/sources)
   #   /drafting-assets    (E07/E08; approval flips `approved` — admin/🟡)
   #   /agent-connections  (E10; revoke via POST /agent-connections/{id}/revoke; events read-only)
-  #   /automations/{id}/runs   (run records; the CRUD + catalog surface is now SPECIFIED above, feedback/14; run records stay fast-follow — 🟡 actions still queue to /approvals)
   #   /saved-views        (E15; V1 enforces shared_scope=private)
   #   /quotas             (E09; owner XOR team)
   #   /webhook-subscriptions (E10/S-E10.6, A51; HTTPS-only target_url, event_types ⊆ the published
@@ -4468,6 +4599,32 @@ components:
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
 
+    RelationshipStrength:
+      type: object
+      description: |
+        Deterministic relationship-strength (features/07 §4) — a transparent function over captured
+        interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
+        interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
+        `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
+      required: [score, bucket, factors]
+      properties:
+        score: { type: integer, minimum: 0, maximum: 100, description: 0..100 composite. }
+        bucket: { type: string, enum: [dormant, weak, warm, strong], description: Coarse band derived from score for display. }
+        factors:
+          type: object
+          description: The 0..1 sub-scores the composite was built from (the explanation).
+          required: [recency, frequency, reciprocity, direction]
+          properties:
+            recency:     { type: number, minimum: 0, maximum: 1 }
+            frequency:   { type: number, minimum: 0, maximum: 1 }
+            reciprocity: { type: number, minimum: 0, maximum: 1 }
+            direction:   { type: number, minimum: 0, maximum: 1 }
+        contributing_activity_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: The activities the score was computed from (the receipts behind the number).
+        computed_at: { type: string, format: date-time, description: When this value was last recomputed (fixed-clock reproducible). }
+
     Person:
       type: object
       description: A contact. Mirrors the `person` table.
@@ -4502,6 +4659,7 @@ components:
           items: { $ref: '#/components/schemas/PersonConsentState' }
         merged_into_id: { type: [string, 'null'], format: uuid, description: Set when this row was merged away. }
         converted_from_lead_id: { type: [string, 'null'], format: uuid, description: Canonical origin pointer if promoted from a lead. }
+        strength: { allOf: [ { $ref: '#/components/schemas/RelationshipStrength' } ], readOnly: true, description: 'Deterministic relationship-strength (features/07 §4). Read-only derived view; NULL until capture has interactions. No mystery number — the factors + contributing activities are the explanation.' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
@@ -4612,6 +4770,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/OrganizationDomain' }
         classification: { type: [string, 'null'], enum: [null, prospect, customer, agency, reseller, tech_vendor, platform, partner, competitor, other], description: "An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK." }
+        strength: { allOf: [ { $ref: '#/components/schemas/RelationshipStrength' } ], readOnly: true, description: 'Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
@@ -4905,7 +5064,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         activity_id: { type: string, format: uuid }
-        entity_type: { type: string, enum: [person, organization, deal] }
+        entity_type: { type: string, enum: [person, organization, deal, lead] }
         entity_id: { type: string, format: uuid }
 
     Activity:
@@ -4927,7 +5086,7 @@ components:
         body: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
         due_at: { type: [string, 'null'], format: date-time, description: Task only. }
-        remind_at: { type: [string, 'null'], format: date-time, description: Task only. }
+        remind_at: { type: [string, 'null'], format: date-time, description: 'Task only. Reminder-fire time; the B-E16.6 scan reads tasks whose reminder is due, not-done, and un-archived.' }
         assignee_id: { type: [string, 'null'], format: uuid, description: Task only. }
         is_done: { type: boolean, default: false, description: Task only. }
         done_at: { type: [string, 'null'], format: date-time }
@@ -4957,7 +5116,7 @@ components:
         body: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
         due_at: { type: [string, 'null'], format: date-time }
-        remind_at: { type: [string, 'null'], format: date-time }
+        remind_at: { type: [string, 'null'], format: date-time, description: Task only. }
         assignee_id: { type: [string, 'null'], format: uuid }
         duration_seconds: { type: [integer, 'null'] }
         direction: { type: [string, 'null'], enum: [null, inbound, outbound] }
@@ -4970,7 +5129,7 @@ components:
             type: object
             required: [entity_type, entity_id]
             properties:
-              entity_type: { type: string, enum: [person, organization, deal] }
+              entity_type: { type: string, enum: [person, organization, deal, lead] }
               entity_id: { type: string, format: uuid }
         source: { type: string }
         raw: { type: [object, 'null'], additionalProperties: true }
@@ -4982,9 +5141,9 @@ components:
         body: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
         due_at: { type: [string, 'null'], format: date-time }
-        remind_at: { type: [string, 'null'], format: date-time }
         assignee_id: { type: [string, 'null'], format: uuid }
-        is_done: { type: boolean, description: Completing a task writes one audit row + task.completed event. }
+        remind_at: { type: [string, 'null'], format: date-time, description: 'Task only. Set/clear the reminder; PATCH target for B-E16.2/.3. The reminder scan (B-E16.6) fires on this.' }
+        is_done: { type: boolean, description: 'Completing a task writes one audit row + an `activity.updated` event carrying the `is_done` delta (events.md §5.5 — there is no separate `task.*` family).' }
 
     ActivityListResponse:
       type: object
@@ -5028,12 +5187,13 @@ components:
         workspace_id: { type: string, format: uuid }
         full_name: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email, description: Lowercased; lead-internal dedupe key. }
+        linkedin_url: { type: [string, 'null'], description: 'Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.' }
         title: { type: [string, 'null'] }
         company_name: { type: [string, 'null'], description: FREE TEXT — NOT an organization FK. }
         candidate_org_key: { type: [string, 'null'], description: Loose key for ABM routing without creating an org. }
         status: { type: string, enum: [new, working, promoted, disqualified], default: new }
         score: { type: integer, default: 0, description: 'Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).' }
-        score_override_reason: { type: [string, 'null'], description: 'Non-null when a human has set score as a Commercial Judgement override (formulas §3.1, A68/ADR-0053). A non-empty reason makes score sticky: the §3 recompute stops touching score and tracks the machine value in score_computed instead. Cleared → recompute resumes.' }
+        score_override_reason: { type: [string, 'null'], readOnly: true, description: 'Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.' }
         score_computed: { type: [integer, 'null'], readOnly: true, description: 'Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value).' }
         owner_id: { type: [string, 'null'], format: uuid }
         source_system: { type: [string, 'null'] }
@@ -5054,6 +5214,7 @@ components:
       properties:
         full_name: { type: [string, 'null'] }
         email: { type: [string, 'null'], format: email }
+        linkedin_url: { type: [string, 'null'], description: 'Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key for LinkedIn-captured leads.' }
         title: { type: [string, 'null'] }
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'] }
@@ -5077,8 +5238,8 @@ components:
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'], description: 'Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK.' }
         status: { type: string, enum: [new, working] }
-        score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Human Commercial-Judgement score override (formulas §3.1, AC-S1). Setting it REQUIRES a non-empty score_override_reason in the SAME request — a score with no reason is rejected 422. Establishing an override makes the value sticky (recompute stops overwriting it). Omit to keep the current value.' }
-        score_override_reason: { type: string, description: 'The written reason accompanying a score override (mandatory whenever score is set, AC-S1). Two gestures only: a non-empty reason SETS/keeps the override; an explicit empty string CLEARS an in-force override (resumes the §3 recompute so score tracks score_computed again). Omit the field to leave the override untouched. null is not accepted — omit instead.' }
+        score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.' }
+        score_override_reason: { type: [string, 'null'], minLength: 1, description: 'Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.' }
         owner_id: { type: [string, 'null'], format: uuid }
 
     PromoteLeadRequest:
@@ -5560,7 +5721,7 @@ components:
         action:
           type: string
           # Every mutation is attributable (P12). connector captures audit as actor_type=connector.
-          enum: [create, update, archive, merge, promote, disqualify, restore, export, erase, anonymize, login, assign, advance_stage, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, login, assign, advance_stage, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo]
         entity_type: { type: string }
         entity_id: { type: [string, 'null'], format: uuid }
         before: { type: [object, 'null'], additionalProperties: true }
@@ -5698,28 +5859,44 @@ components:
     # ---- AI: cold-start ----
     ColdStartRequest:
       type: object
-      required: [url]
+      description: |
+        EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
+        manual paste-text fallback — a robots-disallowed / unreadable site degrades to "paste the text",
+        never an error wall), or `self_description` (the user's own dictated/typed description of their
+        ICP — B-E01.13 speech input). Provide one; supplying more than one is `422`.
+      oneOf:
+        - { required: [url] }
+        - { required: [text] }
+        - { required: [self_description] }
       properties:
-        url: { type: string, format: uri, description: Company website URL to read back. }
+        url: { type: [string, 'null'], format: uri, description: Company website URL to read back. }
+        text: { type: [string, 'null'], description: 'Pasted page/company text (the paste-text fallback when a URL is unfetchable). Treated as T2 untrusted; extraction cites text offsets, not a URL.' }
+        self_description: { type: [string, 'null'], description: 'The user''s own words describing their business/ICP (typed or dictated). Grounded in the user''s own statement — source_kind=self_description; still 🟡-staged, never auto-written.' }
 
     ColdStartField:
       type: object
-      description: One read-back field. EVERY field carries non-empty evidence + confidence, or it is omitted (no-guess gate).
-      required: [field, value, evidence_snippet, source_url, confidence]
+      description: |
+        One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
+        omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
+        ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
+      required: [field, value, evidence_snippet, source_kind, confidence]
       properties:
         field: { type: string, enum: [icp, buying_center, value_proposition, usp, buying_intents, legal_name, registered_address, register_vat, industry, history] }
         value: { type: string }
-        evidence_snippet: { type: string, minLength: 1, description: Verbatim source text — non-empty or the field is absent. }
-        source_url: { type: string, format: uri }
+        evidence_snippet: { type: string, minLength: 1, description: 'Verbatim source text (from the page, the pasted text, or the user''s own words) — non-empty or the field is absent.' }
+        source_kind: { type: string, enum: [url, text, self_description], description: 'Where evidence_snippet came from. For self_description the "evidence" is the user''s own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.' }
+        source_url: { type: [string, 'null'], format: uri, description: 'Present only when source_kind=url; null for text/self_description.' }
+        evidence_offset: { type: [integer, 'null'], description: 'Optional char offset of evidence_snippet within the pasted text (source_kind=text), for highlight-back; null for url/self_description.' }
         confidence: { type: number, minimum: 0, maximum: 1 }
 
     ColdStartProposal:
       type: object
       description: A staged proposal. NOTHING is written to real records until accepted via /approvals.
-      required: [proposal_id, source_url, status, fields]
+      required: [proposal_id, source_kind, status, fields]
       properties:
         proposal_id: { type: string, format: uuid }
-        source_url: { type: string, format: uri }
+        source_kind: { type: string, enum: [url, text, self_description], description: The input source this proposal was read from. }
+        source_url: { type: [string, 'null'], format: uri, description: 'The company URL when source_kind=url; null for text/self_description.' }
         status: { type: string, enum: [staged], description: Always staged — accept via the approval inbox. }
         fields:
           type: array
@@ -5849,6 +6026,9 @@ components:
       description: |
         First-class partner state as a 1:1 extension of an organization (an org IS a partner iff it
         has a `partner` row + classification='partner'). Company identity is never duplicated.
+        A68/ADR-0053 adds the relationship-in-flight layer: lifecycle stage, relationship health,
+        partner fit, next step, and served segments. Behavior is Fast-follow, but the V1 schema is
+        forward-compatible.
       required: [organization_id, cert_status, created_at, updated_at]   # partner_role is nullable (data-model §4.3)
       properties:
         organization_id: { type: string, format: uuid, description: The org this partner record extends (PK = FK). }
@@ -5856,6 +6036,15 @@ components:
         cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
         margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25], description: Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK). }
         gate_metrics: { type: [object, 'null'], additionalProperties: true, description: Program gate metrics (certified seats, CSAT, ...). }
+        relationship_stage: { type: string, enum: [research, identified, contacted, in_conversation, fit_confirmed, agreement_pending, active, active_referring, dormant, no_fit], default: research }
+        partner_fit_score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Current partner-fit score; if partner_fit_override_reason is non-null this is the Commercial Judgement value.' }
+        partner_fit_score_computed: { type: [integer, 'null'], minimum: 0, maximum: 100, readOnly: true, description: 'Retained machine-computed partner-fit value while a Commercial Judgement override is in force.' }
+        partner_fit_override_reason: { type: [string, 'null'], readOnly: true, description: 'Non-null ⇒ partner_fit_score is a human Commercial Judgement override and recompute is suppressed until cleared.' }
+        relationship_health: { type: [string, 'null'], description: 'Decimal-as-string 0..1 derived by formulas §16; basis for 30/60/90 partner dormancy flags.' }
+        last_contact_at: { type: [string, 'null'], format: date-time }
+        next_step: { type: [string, 'null'] }
+        next_step_due_at: { type: [string, 'null'], format: date }
+        served_segments: { type: [array, 'null'], items: { type: string } }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -5869,6 +6058,10 @@ components:
         cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
         margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25] }
         gate_metrics: { type: [object, 'null'], additionalProperties: true }
+        relationship_stage: { type: string, enum: [research, identified, contacted, in_conversation, fit_confirmed, agreement_pending, active, active_referring, dormant, no_fit] }
+        next_step: { type: [string, 'null'] }
+        next_step_due_at: { type: [string, 'null'], format: date }
+        served_segments: { type: [array, 'null'], items: { type: string } }
 
     # ---- Per-purpose consent (A22/ADR-0011) ----
     ConsentPurpose:
@@ -6062,6 +6255,48 @@ components:
         name: { type: [string, 'null'] }
         params: { type: [object, 'null'], additionalProperties: true }
         status: { type: [string, 'null'], enum: [enabled, paused, null] }
+
+    AutomationPreviewRequest:
+      type: object
+      description: |
+        Optional body for POST /automations/{id}/preview. Omit to preview the stored automation as-is; supply
+        an inline draft recipe (key + params) to preview a not-yet-created or edited automation from the
+        designer before saving (A72/ADR-0035 Am.1). Never causes a write or send — preview is a 🟢 read.
+      properties:
+        key: { type: [string, 'null'], description: Catalog type for a draft preview (defaults to the stored instance's key). }
+        params: { type: [object, 'null'], additionalProperties: true, description: Draft parameters (trigger/filter/actions) to preview instead of the stored ones. }
+        window_days: { type: [integer, 'null'], minimum: 1, maximum: 90, description: 'Trailing window for the would-have-fired estimate (default 30).' }
+
+    AutomationPreview:
+      type: object
+      description: Read-only blast-radius result for the designer's dry-run. No side effects.
+      required: [matches_now, window_days]
+      properties:
+        matches_now: { type: integer, description: 'Records matching the trigger+filter right now, bounded by the caller''s Passport visibility.' }
+        would_have_fired: { type: [integer, 'null'], description: 'Estimated firings over the trailing window (null when not computable).' }
+        window_days: { type: integer, description: 'The trailing window used for would_have_fired.' }
+        sample: { type: array, items: { type: string, format: uuid }, description: 'Up to a few matching record ids for the "affects these" preview (visibility-bounded).' }
+        excluded_by_permission: { type: integer, description: 'Matches the caller cannot see (masked, not silently dropped) — honest count, never widens scope.' }
+
+    AutomationRun:
+      type: object
+      description: |
+        One firing of an automation, reconstructed from audit_log/automation_run (data-model §12.5). Runs of
+        EVERY outcome are first-class — including errored/blocked/skipped — so the designer's run history is
+        honest, not success-only (A72/ADR-0035 Am.1). Read-only: produced by the engine, never created via API.
+      required: [id, automation_id, occurred_at, outcome, tier]
+      properties:
+        id: { type: string, format: uuid }
+        automation_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time, description: 'Maps to automation_run.ran_at.' }
+        outcome: { type: string, enum: [fired, failed, blocked, skipped, queued_for_approval], description: 'Maps 1:1 to automation_run.status (data-model §12.5); `blocked` added by A72/ADR-0035 Am.1.' }
+        tier: { type: string, enum: [green, yellow], description: 'The tier that fired for this run.' }
+        approval_required: { type: boolean }
+        trigger_evidence: { type: [string, 'null'], description: 'What matched (e.g. "no activity 14d on deal BÄR Pharma") — the "why did this fire?" line.' }
+        target_ref: { type: [string, 'null'], description: 'Record the run acted on (type + id or label).' }
+        action_result: { type: [string, 'null'], description: 'What happened (e.g. "created task", "queued to approval inbox").' }
+        reason: { type: [string, 'null'], description: 'For failed/blocked/skipped: why (e.g. "provider error", "approval expired", "Passport no longer permits send") — from automation_run.detail.' }
+        audit_id: { type: [string, 'null'], description: 'Link into the audit_log row for this run.' }
 
     # ---- Voice DNA (E07, B-E07.4/.5a; data-model §12.5 + features/09 §B0.2) ----
     VoiceProfile:
@@ -6423,8 +6658,16 @@ components:
           type: array
           items: { type: string, format: uuid }
           description: The source rows (deal / activity / relationship) behind the factors; never empty (evidence-or-omit).
-        state: { type: string, enum: [new, acted, dismissed], description: The acting rep's queue state for this item. }
-        state_at: { type: [string, 'null'], format: date-time, description: When the rep acted/dismissed; null while new. }
+        state: { type: string, enum: [new, acted, dismissed, snoozed], description: The acting rep's queue state for this item. }
+        state_at: { type: [string, 'null'], format: date-time, description: When the rep acted/dismissed/snoozed; null while new. }
+        snoozed_until: { type: [string, 'null'], format: date-time, description: 'When a snoozed item re-surfaces (A77/AC-home-6); set exactly while state=snoozed, null otherwise.' }
+
+    BriefSnoozeRequest:
+      type: object
+      description: Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
+      required: [snoozed_until]
+      properties:
+        snoozed_until: { type: string, format: date-time, description: When the item re-surfaces; must be in the future. }
 
     MorningBriefFeatureVector:
       type: object

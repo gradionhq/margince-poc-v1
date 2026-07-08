@@ -158,19 +158,20 @@ func nextOfferNumber(ctx context.Context, tx pgx.Tx, wsID ids.UUID) (string, err
 
 // recomputeOfferTotals re-derives net/tax/gross from the offer's live
 // lines through the totals engine — the ONE writer of the stored totals,
-// called inside every transaction that touches a line.
+// called inside every transaction that touches a line. Only accepted
+// lines count: a staged AI proposal must never move a total (E03.21a).
 func recomputeOfferTotals(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) error {
 	rows, err := tx.Query(ctx,
-		`SELECT quantity::text, unit_price_minor, discount_pct::text, tax_rate::text
+		`SELECT quantity::text, unit_price_minor, discount_pct::text, tax_rate::text, proposal_state
 		 FROM offer_line_item WHERE offer_id = $1`, offerID)
 	if err != nil {
 		return fmt.Errorf("read lines for totals: %w", err)
 	}
 	defer rows.Close()
-	var lines []OfferLineInput
+	var lines []statefulOfferLine
 	for rows.Next() {
-		var l OfferLineInput
-		if err := rows.Scan(&l.Quantity, &l.UnitPriceMinor, &l.DiscountPct, &l.TaxRate); err != nil {
+		var l statefulOfferLine
+		if err := rows.Scan(&l.Line.Quantity, &l.Line.UnitPriceMinor, &l.Line.DiscountPct, &l.Line.TaxRate, &l.State); err != nil {
 			return err
 		}
 		lines = append(lines, l)
@@ -180,7 +181,7 @@ func recomputeOfferTotals(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) e
 	}
 	rows.Close()
 
-	totals, err := OfferTotals(lines)
+	totals, err := OfferTotals(acceptedLines(lines))
 	if err != nil {
 		return err
 	}

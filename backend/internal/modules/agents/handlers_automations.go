@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -18,6 +19,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // pathID asserts a contract path id as entity K's id — the widening
@@ -168,6 +170,154 @@ func (h Handlers) DeleteAutomation(w http.ResponseWriter, r *http.Request, id cr
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// PreviewAutomation implements (POST /automations/{id}/preview): the
+// designer's dry-run blast radius (A72/ADR-0035 Am.1). A 🟢 read — the
+// store evaluates the When/If without applying, staging, or sending. The
+// body is optional: absent previews the stored instance as-is, present
+// previews a draft recipe before it is saved.
+func (h Handlers) PreviewAutomation(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	var req crmcontracts.AutomationPreviewRequest
+	if r.ContentLength != 0 {
+		if !httperr.Decode(w, r, &req) {
+			return
+		}
+	}
+	in := AutomationPreviewInput{Key: req.Key, WindowDays: req.WindowDays}
+	if req.Params != nil {
+		in.Params = *req.Params
+	}
+	res, err := h.automations.Preview(r.Context(), pathID[ids.AutomationKind](id), in)
+	if err != nil {
+		writeAutomationErr(w, r, err)
+		return
+	}
+	wire := crmcontracts.AutomationPreview{
+		MatchesNow:     res.MatchesNow,
+		WindowDays:     res.WindowDays,
+		WouldHaveFired: res.WouldHaveFired,
+	}
+	// The masked count ships even at zero: "nothing was hidden from you"
+	// is information, not noise.
+	excluded := res.ExcludedByPermission
+	wire.ExcludedByPermission = &excluded
+	sample := make([]openapi_types.UUID, 0, len(res.Sample))
+	for _, sid := range res.Sample {
+		sample = append(sample, openapi_types.UUID(sid))
+	}
+	wire.Sample = &sample
+	httperr.WriteJSON(w, http.StatusOK, wire)
+}
+
+// ListAutomationRuns implements (GET /automations/{id}/runs): the honest
+// run history — every outcome including failed/blocked/skipped, each
+// with its reason (A72/ADR-0035 Am.1, B-E15.3a).
+func (h Handlers) ListAutomationRuns(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ListAutomationRunsParams) {
+	var outcome *string
+	if params.Outcome != nil {
+		s := string(*params.Outcome)
+		outcome = &s
+	}
+	page, err := h.automations.ListRuns(r.Context(), pathID[ids.AutomationKind](id), params.Cursor, params.Limit, outcome)
+	if err != nil {
+		writeAutomationErr(w, r, err)
+		return
+	}
+	data := make([]crmcontracts.AutomationRun, 0, len(page.Items))
+	for _, rec := range page.Items {
+		data = append(data, wireAutomationRun(id, rec))
+	}
+	resp := struct {
+		Data []crmcontracts.AutomationRun `json:"data"`
+		Page crmcontracts.PageInfo        `json:"page"`
+	}{Data: data, Page: crmcontracts.PageInfo{HasMore: page.HasMore}}
+	if page.NextCursor != "" {
+		resp.Page.NextCursor = &page.NextCursor
+	}
+	httperr.WriteJSON(w, http.StatusOK, resp)
+}
+
+// wireAutomationRun renders one run record in the contract shape: the
+// reason rides only the reasoned outcomes, and the target/action lines
+// come from the run's own planned/applied trace.
+func wireAutomationRun(automationID crmcontracts.Id, rec AutomationRunRecord) crmcontracts.AutomationRun {
+	run := crmcontracts.AutomationRun{
+		Id:           openapi_types.UUID(rec.ID),
+		AutomationId: openapi_types.UUID(automationID),
+		OccurredAt:   rec.CreatedAt,
+		Outcome:      crmcontracts.AutomationRunOutcome(rec.Outcome()),
+		Tier:         crmcontracts.AutomationRunTier(rec.Tier),
+	}
+	switch rec.Status {
+	case "failed", "blocked", "skipped":
+		run.Reason = rec.Detail
+	}
+	if rec.Status == "requires_approval" || rec.Status == "blocked" {
+		approvalRequired := true
+		run.ApprovalRequired = &approvalRequired
+	}
+	evidence := "triggered by event " + rec.TriggerEvent.String()
+	run.TriggerEvidence = &evidence
+	if result := runActionResult(rec); result != "" {
+		run.ActionResult = &result
+	}
+	if target := runTargetRef(rec); target != "" {
+		run.TargetRef = &target
+	}
+	return run
+}
+
+// runActionResult summarizes what the run did in the contract's
+// one-liner: the applied action kinds for a fired run, the inbox queue
+// for a staged one; the reasoned outcomes speak through Reason instead.
+func runActionResult(rec AutomationRunRecord) string {
+	switch rec.Status {
+	case "applied":
+		kinds := runActionKinds(rec.Applied)
+		if len(kinds) == 0 {
+			return "applied"
+		}
+		return "applied " + strings.Join(kinds, ", ")
+	case "requires_approval":
+		return "queued to approval inbox"
+	default:
+		return ""
+	}
+}
+
+// runTargetRef names the record the run acted on — the first planned
+// action's target, as "type:id".
+func runTargetRef(rec AutomationRunRecord) string {
+	var actions []workflow.Action
+	if err := json.Unmarshal(rec.Planned, &actions); err != nil || len(actions) == 0 {
+		// A pre-Plan run (skipped, failed at Match) has an empty plan —
+		// there is honestly no target to name.
+		return ""
+	}
+	target := actions[0].Target
+	if target.ID == ids.Nil {
+		return ""
+	}
+	return string(target.Type) + ":" + target.ID.String()
+}
+
+// runActionKinds lists the distinct action kinds of a run trace, in
+// trace order.
+func runActionKinds(trace json.RawMessage) []string {
+	var actions []workflow.Action
+	if err := json.Unmarshal(trace, &actions); err != nil {
+		return nil
+	}
+	var kinds []string
+	seen := map[workflow.ActionKind]bool{}
+	for _, a := range actions {
+		if !seen[a.Kind] {
+			seen[a.Kind] = true
+			kinds = append(kinds, string(a.Kind))
+		}
+	}
+	return kinds
 }
 
 func writeAutomationErr(w http.ResponseWriter, r *http.Request, err error) {

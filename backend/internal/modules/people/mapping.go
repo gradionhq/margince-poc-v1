@@ -9,6 +9,9 @@ package people
 // them would make the two surfaces silently disagree.
 
 import (
+	"bytes"
+	"encoding/json"
+
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -152,6 +155,7 @@ func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
 		Title:           req.Title,
 		CompanyName:     req.CompanyName,
 		CandidateOrgKey: req.CandidateOrgKey,
+		LinkedInURL:     req.LinkedinUrl,
 		SourceSystem:    req.SourceSystem,
 		SourceID:        req.SourceId,
 		Source:          req.Source,
@@ -167,7 +171,38 @@ func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
 	return in
 }
 
-func leadUpdateInput(req crmcontracts.UpdateLeadRequest, ifVersion *int64) UpdateLeadInput {
+// LeadUpdateRequest is the contract's UpdateLeadRequest plus the
+// null-vs-absent distinction encoding/json erases on pointer fields: the
+// §3.1 override gestures give JSON null a meaning (clear the override)
+// distinct from omitting the field (leave it alone). Both transports —
+// the HTTP handler and the SoR provider — decode into this one type, so
+// the gesture cannot drift between surfaces.
+type LeadUpdateRequest struct {
+	crmcontracts.UpdateLeadRequest
+	scoreNull  bool
+	reasonNull bool
+}
+
+func (r *LeadUpdateRequest) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, &r.UpdateLeadRequest); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	r.scoreNull = isJSONNull(fields["score"])
+	r.reasonNull = isJSONNull(fields["score_override_reason"])
+	return nil
+}
+
+// isJSONNull distinguishes a field explicitly sent as null (raw present,
+// value null) from one omitted (raw nil).
+func isJSONNull(raw json.RawMessage) bool {
+	return raw != nil && bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func leadUpdateInput(req LeadUpdateRequest, ifVersion *int64) UpdateLeadInput {
 	in := UpdateLeadInput{
 		FullName:            req.FullName,
 		Title:               req.Title,
@@ -175,6 +210,7 @@ func leadUpdateInput(req crmcontracts.UpdateLeadRequest, ifVersion *int64) Updat
 		CandidateOrgKey:     req.CandidateOrgKey,
 		Score:               req.Score,
 		ScoreOverrideReason: req.ScoreOverrideReason,
+		ClearScoreOverride:  req.scoreNull || req.reasonNull,
 		OwnerID:             idArg[ids.UserKind](req.OwnerId),
 		IfVersion:           ifVersion,
 	}

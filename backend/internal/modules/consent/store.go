@@ -120,13 +120,25 @@ func (s *Store) CreatePurpose(ctx context.Context, key, label string, requiresDO
 // proof log (Art. 7 demonstrability). The person is the read target —
 // row scope gates the whole answer.
 func (s *Store) PersonConsent(ctx context.Context, personID ids.PersonID) ([]State, []ProofEvent, error) {
-	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+	return s.subjectConsent(ctx, subject{entityType: "person", column: "person_id", id: personID.UUID})
+}
+
+// LeadConsent is the lead arm of the same read (E12.20): the per-purpose
+// state and proof log a capture surface recorded before promotion.
+func (s *Store) LeadConsent(ctx context.Context, leadID ids.LeadID) ([]State, []ProofEvent, error) {
+	return s.subjectConsent(ctx, subject{entityType: "lead", column: "lead_id", id: leadID.UUID})
+}
+
+// subjectConsent answers either arm — the subject is the read target, so
+// its object grant and row scope gate the whole answer.
+func (s *Store) subjectConsent(ctx context.Context, sub subject) ([]State, []ProofEvent, error) {
+	if err := auth.Require(ctx, sub.entityType, principal.ActionRead); err != nil {
 		return nil, nil, err
 	}
 	var states []State
 	var events []ProofEvent
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		if err := auth.EnsureVisible(ctx, tx, sub.entityType, sub.id); err != nil {
 			return err
 		}
 		// Every tracked purpose appears — absent rows read as the honest
@@ -134,9 +146,9 @@ func (s *Store) PersonConsent(ctx context.Context, personID ids.PersonID) ([]Sta
 		rows, err := tx.Query(ctx, `
 			SELECT cp.id, cp.key, coalesce(pc.state, 'unknown'), pc.lawful_basis, pc.captured_at
 			FROM consent_purpose cp
-			LEFT JOIN person_consent pc ON pc.purpose_id = cp.id AND pc.person_id = $1
+			LEFT JOIN person_consent pc ON pc.purpose_id = cp.id AND pc.`+sub.column+` = $1
 			WHERE cp.archived_at IS NULL
-			ORDER BY cp.key`, personID)
+			ORDER BY cp.key`, sub.id)
 		if err != nil {
 			return err
 		}
@@ -155,7 +167,7 @@ func (s *Store) PersonConsent(ctx context.Context, personID ids.PersonID) ([]Sta
 
 		rows, err = tx.Query(ctx, `
 			SELECT id, purpose_id, new_state, lawful_basis, source, captured_by, captured_at
-			FROM consent_event WHERE person_id = $1 ORDER BY captured_at DESC, id DESC`, personID)
+			FROM consent_event WHERE `+sub.column+` = $1 ORDER BY captured_at DESC, id DESC`, sub.id)
 		if err != nil {
 			return err
 		}
@@ -173,7 +185,12 @@ func (s *Store) PersonConsent(ctx context.Context, personID ids.PersonID) ([]Sta
 }
 
 type RecordInput struct {
+	// PersonID / LeadID name the consent subject — exactly one is set
+	// (data-model §7: a public form or LinkedIn capture obtains consent
+	// from someone who is still a lead). The DB CHECK only rules out
+	// both-null; the XOR is enforced here.
 	PersonID         ids.PersonID
+	LeadID           ids.LeadID
 	PurposeID        ids.PurposeID
 	NewState         string // granted | withdrawn
 	LawfulBasis      *string
@@ -195,12 +212,41 @@ type RecordInput struct {
 	NeverOverrideExisting bool
 }
 
-// Record sets one person×purpose state and appends the proof row —
+// subject is the resolved consent subject: which entity the state and
+// proof rows hang on, and which column carries it.
+type subject struct {
+	entityType string // person | lead — the RBAC object and the audit/event entity
+	column     string // person_id | lead_id
+	id         ids.UUID
+}
+
+// consentSubject enforces the exactly-one-subject rule (data-model §7):
+// person XOR lead. The DB CHECK only guards both-null, so both-set and
+// neither-set are refused here, before any grant is admitted.
+func consentSubject(in RecordInput) (subject, error) {
+	personSet, leadSet := !in.PersonID.IsZero(), !in.LeadID.IsZero()
+	switch {
+	case personSet && leadSet:
+		return subject{}, &ValidationError{Field: "subject", Reason: "consent takes exactly one subject — a person or a lead, not both"}
+	case personSet:
+		return subject{entityType: "person", column: "person_id", id: in.PersonID.UUID}, nil
+	case leadSet:
+		return subject{entityType: "lead", column: "lead_id", id: in.LeadID.UUID}, nil
+	}
+	return subject{}, &ValidationError{Field: "subject", Reason: "consent needs a subject — a person or a lead"}
+}
+
+// Record sets one subject×purpose state and appends the proof row —
 // audited (consent_grant/consent_withdraw) and emitted (consent.changed)
-// in the same transaction as every other mutation. Re-asserting the
+// in the same transaction as every other mutation. The subject is a
+// person or, before promotion, a lead (E12.20). Re-asserting the
 // current state is idempotent: no second proof row, no second event.
 func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
-	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+	sub, err := consentSubject(in)
+	if err != nil {
+		return State{}, err
+	}
+	if err := auth.Require(ctx, sub.entityType, principal.ActionUpdate); err != nil {
 		return State{}, err
 	}
 	if _, err := ParseRecordableState(in.NewState); err != nil {
@@ -209,8 +255,8 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 	actor, _ := principal.Actor(ctx)
 
 	var out State
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", in.PersonID.UUID); err != nil {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := auth.EnsureVisible(ctx, tx, sub.entityType, sub.id); err != nil {
 			return err
 		}
 		purposeKey, requiresDOI, err := loadConsentPurpose(ctx, tx, in.PurposeID)
@@ -219,8 +265,8 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		}
 		var current string
 		err = tx.QueryRow(ctx,
-			`SELECT state FROM person_consent WHERE person_id = $1 AND purpose_id = $2`,
-			in.PersonID, in.PurposeID).Scan(&current)
+			`SELECT state FROM person_consent WHERE `+sub.column+` = $1 AND purpose_id = $2`,
+			sub.id, in.PurposeID).Scan(&current)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
@@ -233,13 +279,13 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 			return nil // the decision on record stands; an anonymous capture cannot flip it
 		}
 
-		doiConfirmedAt, err := s.resolveDOIConfirmation(ctx, tx, in, requiresDOI)
+		doiConfirmedAt, err := s.resolveDOIConfirmation(ctx, tx, in, sub, requiresDOI)
 		if err != nil {
 			return err
 		}
 
 		capturedAt := s.now().UTC()
-		if err := upsertConsentWithProof(ctx, tx, in, doiConfirmedAt, capturedAt, actor.ID); err != nil {
+		if err := upsertConsentWithProof(ctx, tx, in, sub, doiConfirmedAt, capturedAt, actor.ID); err != nil {
 			return err
 		}
 
@@ -247,13 +293,13 @@ func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
 		if ConsentState(in.NewState) == StateWithdrawn {
 			action = "consent_withdraw"
 		}
-		auditID, err := storekit.Audit(ctx, tx, action, "person", in.PersonID.UUID, map[string]any{"state": stateOrUnknown(current)}, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, action, sub.entityType, sub.id, map[string]any{"state": stateOrUnknown(current)}, map[string]any{
 			"purpose": purposeKey, "state": in.NewState,
 		})
 		if err != nil {
 			return err
 		}
-		if err := storekit.Emit(ctx, tx, auditID, "consent.changed", "person", in.PersonID.UUID, map[string]any{
+		if err := storekit.Emit(ctx, tx, auditID, "consent.changed", sub.entityType, sub.id, map[string]any{
 			"purpose_id": in.PurposeID, "purpose": purposeKey, "new_state": in.NewState,
 		}); err != nil {
 			return err
@@ -285,9 +331,15 @@ func loadConsentPurpose(ctx context.Context, tx pgx.Tx, purposeID ids.PurposeID)
 // The token must be one this server issued (hash-matched, unconsumed,
 // unexpired) — consuming it here makes the confirmation single-use and
 // unfabricatable rather than stored half-true. Non-DOI paths return nil.
-func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in RecordInput, requiresDOI bool) (*time.Time, error) {
+// The DOI round-trip is person-keyed (consent_doi_token has no lead arm),
+// so a DOI grant on a lead subject is refused rather than recorded
+// unconfirmed — the lead promotes first, then confirms.
+func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in RecordInput, sub subject, requiresDOI bool) (*time.Time, error) {
 	if ConsentState(in.NewState) != StateGranted || !requiresDOI {
 		return nil, nil
+	}
+	if sub.entityType != "person" {
+		return nil, &ValidationError{Field: "purpose_id", Reason: "a double opt-in purpose needs a person subject; promote the lead before granting it"}
 	}
 	if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
 		return nil, &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}
@@ -301,23 +353,25 @@ func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in Record
 
 // upsertConsentWithProof writes the state row and appends the immutable
 // proof row — one concept: the current state is always backed by an
-// append-only consent_event that says when, how, and by whom.
-func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, doiConfirmedAt *time.Time, capturedAt time.Time, actorID string) error {
+// append-only consent_event that says when, how, and by whom. The upsert
+// targets the subject arm's own unique key (person×purpose or
+// lead×purpose); the other arm's column stays NULL.
+func upsertConsentWithProof(ctx context.Context, tx pgx.Tx, in RecordInput, sub subject, doiConfirmedAt *time.Time, capturedAt time.Time, actorID string) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO person_consent (workspace_id, person_id, purpose_id, state, lawful_basis, captured_at, source)
+		INSERT INTO person_consent (workspace_id, `+sub.column+`, purpose_id, state, lawful_basis, captured_at, source)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
-		ON CONFLICT (workspace_id, person_id, purpose_id)
+		ON CONFLICT (workspace_id, `+sub.column+`, purpose_id)
 		DO UPDATE SET state = EXCLUDED.state, lawful_basis = EXCLUDED.lawful_basis,
 		              captured_at = EXCLUDED.captured_at, source = EXCLUDED.source`,
-		in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, capturedAt, in.Source); err != nil {
+		sub.id, in.PurposeID, in.NewState, in.LawfulBasis, capturedAt, in.Source); err != nil {
 		return err
 	}
 	_, err := tx.Exec(ctx, `
-		INSERT INTO consent_event (workspace_id, person_id, purpose_id, new_state, lawful_basis, source,
+		INSERT INTO consent_event (workspace_id, `+sub.column+`, purpose_id, new_state, lawful_basis, source,
 		                           policy_text, policy_version, double_opt_in_confirmed_at, captured_at, captured_by)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, $2, $3, $4, coalesce($5, 'api'), coalesce($6, 'recorded via API'), coalesce($7, 'v1'), $8, $9, $10)`,
-		in.PersonID, in.PurposeID, in.NewState, in.LawfulBasis, in.Source,
+		sub.id, in.PurposeID, in.NewState, in.LawfulBasis, in.Source,
 		in.PolicyText, in.PolicyVersion, doiConfirmedAt, capturedAt, actorID)
 	return err
 }

@@ -80,6 +80,26 @@ func LineTotals(line OfferLineInput) (LineFigures, error) {
 	return LineFigures{NetMinor: netMinor, TaxMinor: taxMinor, TotalMinor: netMinor + taxMinor}, nil
 }
 
+// statefulOfferLine pairs a line's money inputs with its proposal state
+// so the totals derivation can honor the staged/accepted split.
+type statefulOfferLine struct {
+	Line  OfferLineInput
+	State ProposalState
+}
+
+// acceptedLines narrows an offer's lines to the ones that count toward
+// its totals: a staged line is an unaccepted AI proposal (E03.21a) and
+// must never move a number the buyer can see.
+func acceptedLines(lines []statefulOfferLine) []OfferLineInput {
+	out := make([]OfferLineInput, 0, len(lines))
+	for _, l := range lines {
+		if l.State == ProposalAccepted {
+			out = append(out, l.Line)
+		}
+	}
+	return out
+}
+
 // OfferTotals sums the per-line figures: net/tax/gross are Σ over lines,
 // so the stored totals reconcile to the displayed lines with zero drift.
 func OfferTotals(lines []OfferLineInput) (OfferFigures, error) {

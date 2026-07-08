@@ -105,6 +105,7 @@ func (e ActivityMeetingStatus) Valid() bool {
 // Defines values for ActivityLinkEntityType.
 const (
 	ActivityLinkEntityTypeDeal         ActivityLinkEntityType = "deal"
+	ActivityLinkEntityTypeLead         ActivityLinkEntityType = "lead"
 	ActivityLinkEntityTypeOrganization ActivityLinkEntityType = "organization"
 	ActivityLinkEntityTypePerson       ActivityLinkEntityType = "person"
 )
@@ -113,6 +114,8 @@ const (
 func (e ActivityLinkEntityType) Valid() bool {
 	switch e {
 	case ActivityLinkEntityTypeDeal:
+		return true
+	case ActivityLinkEntityTypeLead:
 		return true
 	case ActivityLinkEntityTypeOrganization:
 		return true
@@ -248,6 +251,7 @@ func (e ApprovalStatus) Valid() bool {
 
 // Defines values for AuditLogEntryAction.
 const (
+	ActivityRelink  AuditLogEntryAction = "activity_relink"
 	AdvanceStage    AuditLogEntryAction = "advance_stage"
 	Anonymize       AuditLogEntryAction = "anonymize"
 	Approve         AuditLogEntryAction = "approve"
@@ -256,9 +260,12 @@ const (
 	ConsentGrant    AuditLogEntryAction = "consent_grant"
 	ConsentWithdraw AuditLogEntryAction = "consent_withdraw"
 	Create          AuditLogEntryAction = "create"
+	Demote          AuditLogEntryAction = "demote"
 	Disqualify      AuditLogEntryAction = "disqualify"
 	Erase           AuditLogEntryAction = "erase"
 	Export          AuditLogEntryAction = "export"
+	Import          AuditLogEntryAction = "import"
+	ImportUndo      AuditLogEntryAction = "import_undo"
 	Login           AuditLogEntryAction = "login"
 	Merge           AuditLogEntryAction = "merge"
 	Promote         AuditLogEntryAction = "promote"
@@ -273,6 +280,8 @@ const (
 // Valid indicates whether the value is a known member of the AuditLogEntryAction enum.
 func (e AuditLogEntryAction) Valid() bool {
 	switch e {
+	case ActivityRelink:
+		return true
 	case AdvanceStage:
 		return true
 	case Anonymize:
@@ -289,11 +298,17 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case Create:
 		return true
+	case Demote:
+		return true
 	case Disqualify:
 		return true
 	case Erase:
 		return true
 	case Export:
+		return true
+	case Import:
+		return true
+	case ImportUndo:
 		return true
 	case Login:
 		return true
@@ -362,16 +377,61 @@ func (e AutomationStatus) Valid() bool {
 
 // Defines values for AutomationCatalogEntryTier.
 const (
-	Green  AutomationCatalogEntryTier = "green"
-	Yellow AutomationCatalogEntryTier = "yellow"
+	AutomationCatalogEntryTierGreen  AutomationCatalogEntryTier = "green"
+	AutomationCatalogEntryTierYellow AutomationCatalogEntryTier = "yellow"
 )
 
 // Valid indicates whether the value is a known member of the AutomationCatalogEntryTier enum.
 func (e AutomationCatalogEntryTier) Valid() bool {
 	switch e {
-	case Green:
+	case AutomationCatalogEntryTierGreen:
 		return true
-	case Yellow:
+	case AutomationCatalogEntryTierYellow:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationRunOutcome.
+const (
+	AutomationRunOutcomeBlocked           AutomationRunOutcome = "blocked"
+	AutomationRunOutcomeFailed            AutomationRunOutcome = "failed"
+	AutomationRunOutcomeFired             AutomationRunOutcome = "fired"
+	AutomationRunOutcomeQueuedForApproval AutomationRunOutcome = "queued_for_approval"
+	AutomationRunOutcomeSkipped           AutomationRunOutcome = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the AutomationRunOutcome enum.
+func (e AutomationRunOutcome) Valid() bool {
+	switch e {
+	case AutomationRunOutcomeBlocked:
+		return true
+	case AutomationRunOutcomeFailed:
+		return true
+	case AutomationRunOutcomeFired:
+		return true
+	case AutomationRunOutcomeQueuedForApproval:
+		return true
+	case AutomationRunOutcomeSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AutomationRunTier.
+const (
+	AutomationRunTierGreen  AutomationRunTier = "green"
+	AutomationRunTierYellow AutomationRunTier = "yellow"
+)
+
+// Valid indicates whether the value is a known member of the AutomationRunTier enum.
+func (e AutomationRunTier) Valid() bool {
+	switch e {
+	case AutomationRunTierGreen:
+		return true
+	case AutomationRunTierYellow:
 		return true
 	default:
 		return false
@@ -414,6 +474,48 @@ func (e ColdStartFieldField) Valid() bool {
 	case Usp:
 		return true
 	case ValueProposition:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ColdStartFieldSourceKind.
+const (
+	ColdStartFieldSourceKindSelfDescription ColdStartFieldSourceKind = "self_description"
+	ColdStartFieldSourceKindText            ColdStartFieldSourceKind = "text"
+	ColdStartFieldSourceKindUrl             ColdStartFieldSourceKind = "url"
+)
+
+// Valid indicates whether the value is a known member of the ColdStartFieldSourceKind enum.
+func (e ColdStartFieldSourceKind) Valid() bool {
+	switch e {
+	case ColdStartFieldSourceKindSelfDescription:
+		return true
+	case ColdStartFieldSourceKindText:
+		return true
+	case ColdStartFieldSourceKindUrl:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ColdStartProposalSourceKind.
+const (
+	ColdStartProposalSourceKindSelfDescription ColdStartProposalSourceKind = "self_description"
+	ColdStartProposalSourceKindText            ColdStartProposalSourceKind = "text"
+	ColdStartProposalSourceKindUrl             ColdStartProposalSourceKind = "url"
+)
+
+// Valid indicates whether the value is a known member of the ColdStartProposalSourceKind enum.
+func (e ColdStartProposalSourceKind) Valid() bool {
+	switch e {
+	case ColdStartProposalSourceKindSelfDescription:
+		return true
+	case ColdStartProposalSourceKindText:
+		return true
+	case ColdStartProposalSourceKindUrl:
 		return true
 	default:
 		return false
@@ -534,6 +636,7 @@ func (e CreateActivityRequestKind) Valid() bool {
 // Defines values for CreateActivityRequestLinksEntityType.
 const (
 	CreateActivityRequestLinksEntityTypeDeal         CreateActivityRequestLinksEntityType = "deal"
+	CreateActivityRequestLinksEntityTypeLead         CreateActivityRequestLinksEntityType = "lead"
 	CreateActivityRequestLinksEntityTypeOrganization CreateActivityRequestLinksEntityType = "organization"
 	CreateActivityRequestLinksEntityTypePerson       CreateActivityRequestLinksEntityType = "person"
 )
@@ -542,6 +645,8 @@ const (
 func (e CreateActivityRequestLinksEntityType) Valid() bool {
 	switch e {
 	case CreateActivityRequestLinksEntityTypeDeal:
+		return true
+	case CreateActivityRequestLinksEntityTypeLead:
 		return true
 	case CreateActivityRequestLinksEntityTypeOrganization:
 		return true
@@ -1394,6 +1499,7 @@ const (
 	MorningBriefItemStateActed     MorningBriefItemState = "acted"
 	MorningBriefItemStateDismissed MorningBriefItemState = "dismissed"
 	MorningBriefItemStateNew       MorningBriefItemState = "new"
+	MorningBriefItemStateSnoozed   MorningBriefItemState = "snoozed"
 )
 
 // Valid indicates whether the value is a known member of the MorningBriefItemState enum.
@@ -1404,6 +1510,8 @@ func (e MorningBriefItemState) Valid() bool {
 	case MorningBriefItemStateDismissed:
 		return true
 	case MorningBriefItemStateNew:
+		return true
+	case MorningBriefItemStateSnoozed:
 		return true
 	default:
 		return false
@@ -1578,6 +1686,48 @@ func (e PartnerPartnerRole) Valid() bool {
 	case PartnerPartnerRoleHosting:
 		return true
 	case PartnerPartnerRoleStrategic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PartnerRelationshipStage.
+const (
+	PartnerRelationshipStageActive           PartnerRelationshipStage = "active"
+	PartnerRelationshipStageActiveReferring  PartnerRelationshipStage = "active_referring"
+	PartnerRelationshipStageAgreementPending PartnerRelationshipStage = "agreement_pending"
+	PartnerRelationshipStageContacted        PartnerRelationshipStage = "contacted"
+	PartnerRelationshipStageDormant          PartnerRelationshipStage = "dormant"
+	PartnerRelationshipStageFitConfirmed     PartnerRelationshipStage = "fit_confirmed"
+	PartnerRelationshipStageIdentified       PartnerRelationshipStage = "identified"
+	PartnerRelationshipStageInConversation   PartnerRelationshipStage = "in_conversation"
+	PartnerRelationshipStageNoFit            PartnerRelationshipStage = "no_fit"
+	PartnerRelationshipStageResearch         PartnerRelationshipStage = "research"
+)
+
+// Valid indicates whether the value is a known member of the PartnerRelationshipStage enum.
+func (e PartnerRelationshipStage) Valid() bool {
+	switch e {
+	case PartnerRelationshipStageActive:
+		return true
+	case PartnerRelationshipStageActiveReferring:
+		return true
+	case PartnerRelationshipStageAgreementPending:
+		return true
+	case PartnerRelationshipStageContacted:
+		return true
+	case PartnerRelationshipStageDormant:
+		return true
+	case PartnerRelationshipStageFitConfirmed:
+		return true
+	case PartnerRelationshipStageIdentified:
+		return true
+	case PartnerRelationshipStageInConversation:
+		return true
+	case PartnerRelationshipStageNoFit:
+		return true
+	case PartnerRelationshipStageResearch:
 		return true
 	default:
 		return false
@@ -1794,6 +1944,30 @@ func (e RelationshipKind) Valid() bool {
 	case RelationshipKindPartnerOf:
 		return true
 	case RelationshipKindReferredBy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelationshipStrengthBucket.
+const (
+	RelationshipStrengthBucketDormant RelationshipStrengthBucket = "dormant"
+	RelationshipStrengthBucketStrong  RelationshipStrengthBucket = "strong"
+	RelationshipStrengthBucketWarm    RelationshipStrengthBucket = "warm"
+	RelationshipStrengthBucketWeak    RelationshipStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the RelationshipStrengthBucket enum.
+func (e RelationshipStrengthBucket) Valid() bool {
+	switch e {
+	case RelationshipStrengthBucketDormant:
+		return true
+	case RelationshipStrengthBucketStrong:
+		return true
+	case RelationshipStrengthBucketWarm:
+		return true
+	case RelationshipStrengthBucketWeak:
 		return true
 	default:
 		return false
@@ -2490,6 +2664,48 @@ func (e UpsertPartnerRequestPartnerRole) Valid() bool {
 	}
 }
 
+// Defines values for UpsertPartnerRequestRelationshipStage.
+const (
+	UpsertPartnerRequestRelationshipStageActive           UpsertPartnerRequestRelationshipStage = "active"
+	UpsertPartnerRequestRelationshipStageActiveReferring  UpsertPartnerRequestRelationshipStage = "active_referring"
+	UpsertPartnerRequestRelationshipStageAgreementPending UpsertPartnerRequestRelationshipStage = "agreement_pending"
+	UpsertPartnerRequestRelationshipStageContacted        UpsertPartnerRequestRelationshipStage = "contacted"
+	UpsertPartnerRequestRelationshipStageDormant          UpsertPartnerRequestRelationshipStage = "dormant"
+	UpsertPartnerRequestRelationshipStageFitConfirmed     UpsertPartnerRequestRelationshipStage = "fit_confirmed"
+	UpsertPartnerRequestRelationshipStageIdentified       UpsertPartnerRequestRelationshipStage = "identified"
+	UpsertPartnerRequestRelationshipStageInConversation   UpsertPartnerRequestRelationshipStage = "in_conversation"
+	UpsertPartnerRequestRelationshipStageNoFit            UpsertPartnerRequestRelationshipStage = "no_fit"
+	UpsertPartnerRequestRelationshipStageResearch         UpsertPartnerRequestRelationshipStage = "research"
+)
+
+// Valid indicates whether the value is a known member of the UpsertPartnerRequestRelationshipStage enum.
+func (e UpsertPartnerRequestRelationshipStage) Valid() bool {
+	switch e {
+	case UpsertPartnerRequestRelationshipStageActive:
+		return true
+	case UpsertPartnerRequestRelationshipStageActiveReferring:
+		return true
+	case UpsertPartnerRequestRelationshipStageAgreementPending:
+		return true
+	case UpsertPartnerRequestRelationshipStageContacted:
+		return true
+	case UpsertPartnerRequestRelationshipStageDormant:
+		return true
+	case UpsertPartnerRequestRelationshipStageFitConfirmed:
+		return true
+	case UpsertPartnerRequestRelationshipStageIdentified:
+		return true
+	case UpsertPartnerRequestRelationshipStageInConversation:
+		return true
+	case UpsertPartnerRequestRelationshipStageNoFit:
+		return true
+	case UpsertPartnerRequestRelationshipStageResearch:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive      UserStatus = "active"
@@ -2730,6 +2946,33 @@ func (e ListApprovalsParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListAutomationRunsParamsOutcome.
+const (
+	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
+	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
+	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
+	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
+func (e ListAutomationRunsParamsOutcome) Valid() bool {
+	switch e {
+	case ListAutomationRunsParamsOutcomeBlocked:
+		return true
+	case ListAutomationRunsParamsOutcomeFailed:
+		return true
+	case ListAutomationRunsParamsOutcomeFired:
+		return true
+	case ListAutomationRunsParamsOutcomeQueuedForApproval:
+		return true
+	case ListAutomationRunsParamsOutcomeSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BookMeetingJSONBodyLinksEntityType.
 const (
 	BookMeetingJSONBodyLinksEntityTypeDeal         BookMeetingJSONBodyLinksEntityType = "deal"
@@ -2900,19 +3143,19 @@ func (e ListPartnersParamsPartnerRole) Valid() bool {
 
 // Defines values for ListPartnersParamsCertStatus.
 const (
-	ListPartnersParamsCertStatusApplied   ListPartnersParamsCertStatus = "applied"
-	ListPartnersParamsCertStatusCertified ListPartnersParamsCertStatus = "certified"
-	ListPartnersParamsCertStatusSuspended ListPartnersParamsCertStatus = "suspended"
+	Applied   ListPartnersParamsCertStatus = "applied"
+	Certified ListPartnersParamsCertStatus = "certified"
+	Suspended ListPartnersParamsCertStatus = "suspended"
 )
 
 // Valid indicates whether the value is a known member of the ListPartnersParamsCertStatus enum.
 func (e ListPartnersParamsCertStatus) Valid() bool {
 	switch e {
-	case ListPartnersParamsCertStatusApplied:
+	case Applied:
 		return true
-	case ListPartnersParamsCertStatusCertified:
+	case Certified:
 		return true
-	case ListPartnersParamsCertStatusSuspended:
+	case Suspended:
 		return true
 	default:
 		return false
@@ -3182,7 +3425,7 @@ type Activity struct {
 	OccurredAt    time.Time               `json:"occurred_at"`
 	Raw           *map[string]interface{} `json:"raw,omitempty"`
 
-	// RemindAt Task only.
+	// RemindAt Task only. Reminder-fire time; the B-E16.6 scan reads tasks whose reminder is due, not-done, and un-archived.
 	RemindAt *time.Time `json:"remind_at,omitempty"`
 	Source   string     `json:"source"`
 
@@ -3423,6 +3666,76 @@ type AutomationCatalogEntry struct {
 // AutomationCatalogEntryTier yellow actions stage to /approvals at run time.
 type AutomationCatalogEntryTier string
 
+// AutomationPreview Read-only blast-radius result for the designer's dry-run. No side effects.
+type AutomationPreview struct {
+	// ExcludedByPermission Matches the caller cannot see (masked, not silently dropped) — honest count, never widens scope.
+	ExcludedByPermission *int `json:"excluded_by_permission,omitempty"`
+
+	// MatchesNow Records matching the trigger+filter right now, bounded by the caller's Passport visibility.
+	MatchesNow int `json:"matches_now"`
+
+	// Sample Up to a few matching record ids for the "affects these" preview (visibility-bounded).
+	Sample *[]openapi_types.UUID `json:"sample,omitempty"`
+
+	// WindowDays The trailing window used for would_have_fired.
+	WindowDays int `json:"window_days"`
+
+	// WouldHaveFired Estimated firings over the trailing window (null when not computable).
+	WouldHaveFired *int `json:"would_have_fired,omitempty"`
+}
+
+// AutomationPreviewRequest Optional body for POST /automations/{id}/preview. Omit to preview the stored automation as-is; supply
+// an inline draft recipe (key + params) to preview a not-yet-created or edited automation from the
+// designer before saving (A72/ADR-0035 Am.1). Never causes a write or send — preview is a 🟢 read.
+type AutomationPreviewRequest struct {
+	// Key Catalog type for a draft preview (defaults to the stored instance's key).
+	Key *string `json:"key,omitempty"`
+
+	// Params Draft parameters (trigger/filter/actions) to preview instead of the stored ones.
+	Params *map[string]interface{} `json:"params,omitempty"`
+
+	// WindowDays Trailing window for the would-have-fired estimate (default 30).
+	WindowDays *int `json:"window_days,omitempty"`
+}
+
+// AutomationRun One firing of an automation, reconstructed from audit_log/automation_run (data-model §12.5). Runs of
+// EVERY outcome are first-class — including errored/blocked/skipped — so the designer's run history is
+// honest, not success-only (A72/ADR-0035 Am.1). Read-only: produced by the engine, never created via API.
+type AutomationRun struct {
+	// ActionResult What happened (e.g. "created task", "queued to approval inbox").
+	ActionResult     *string `json:"action_result,omitempty"`
+	ApprovalRequired *bool   `json:"approval_required,omitempty"`
+
+	// AuditId Link into the audit_log row for this run.
+	AuditId      *string            `json:"audit_id,omitempty"`
+	AutomationId openapi_types.UUID `json:"automation_id"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// OccurredAt Maps to automation_run.ran_at.
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Outcome Maps 1:1 to automation_run.status (data-model §12.5); `blocked` added by A72/ADR-0035 Am.1.
+	Outcome AutomationRunOutcome `json:"outcome"`
+
+	// Reason For failed/blocked/skipped: why (e.g. "provider error", "approval expired", "Passport no longer permits send") — from automation_run.detail.
+	Reason *string `json:"reason,omitempty"`
+
+	// TargetRef Record the run acted on (type + id or label).
+	TargetRef *string `json:"target_ref,omitempty"`
+
+	// Tier The tier that fired for this run.
+	Tier AutomationRunTier `json:"tier"`
+
+	// TriggerEvidence What matched (e.g. "no activity 14d on deal BÄR Pharma") — the "why did this fire?" line.
+	TriggerEvidence *string `json:"trigger_evidence,omitempty"`
+}
+
+// AutomationRunOutcome Maps 1:1 to automation_run.status (data-model §12.5); `blocked` added by A72/ADR-0035 Am.1.
+type AutomationRunOutcome string
+
+// AutomationRunTier The tier that fired for this run.
+type AutomationRunTier string
+
 // BootstrapWorkspaceRequest defines model for BootstrapWorkspaceRequest.
 type BootstrapWorkspaceRequest struct {
 	AdminDisplayName string              `json:"admin_display_name"`
@@ -3434,6 +3747,12 @@ type BootstrapWorkspaceRequest struct {
 	// Timezone IANA zone for the first user.
 	Timezone      *string `json:"timezone,omitempty"`
 	WorkspaceName string  `json:"workspace_name"`
+}
+
+// BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
+type BriefSnoozeRequest struct {
+	// SnoozedUntil When the item re-surfaces; must be in the future.
+	SnoozedUntil time.Time `json:"snoozed_until"`
 }
 
 // CaptureConsent The consent passthrough every capture surface (booking, public forms, imports) must carry
@@ -3451,39 +3770,79 @@ type CaptureConsent struct {
 	Wording *string `json:"wording,omitempty"`
 }
 
-// ColdStartField One read-back field. EVERY field carries non-empty evidence + confidence, or it is omitted (no-guess gate).
+// ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
+// omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
+// ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
 type ColdStartField struct {
 	Confidence float32 `json:"confidence"`
 
-	// EvidenceSnippet Verbatim source text — non-empty or the field is absent.
+	// EvidenceOffset Optional char offset of evidence_snippet within the pasted text (source_kind=text), for highlight-back; null for url/self_description.
+	EvidenceOffset *int `json:"evidence_offset,omitempty"`
+
+	// EvidenceSnippet Verbatim source text (from the page, the pasted text, or the user's own words) — non-empty or the field is absent.
 	EvidenceSnippet string              `json:"evidence_snippet"`
 	Field           ColdStartFieldField `json:"field"`
-	SourceUrl       string              `json:"source_url"`
-	Value           string              `json:"value"`
+
+	// SourceKind Where evidence_snippet came from. For self_description the "evidence" is the user's own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.
+	SourceKind ColdStartFieldSourceKind `json:"source_kind"`
+
+	// SourceUrl Present only when source_kind=url; null for text/self_description.
+	SourceUrl *string `json:"source_url,omitempty"`
+	Value     string  `json:"value"`
 }
 
 // ColdStartFieldField defines model for ColdStartField.Field.
 type ColdStartFieldField string
+
+// ColdStartFieldSourceKind Where evidence_snippet came from. For self_description the "evidence" is the user's own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.
+type ColdStartFieldSourceKind string
 
 // ColdStartProposal A staged proposal. NOTHING is written to real records until accepted via /approvals.
 type ColdStartProposal struct {
 	CreatedAt  *time.Time         `json:"created_at,omitempty"`
 	Fields     []ColdStartField   `json:"fields"`
 	ProposalId openapi_types.UUID `json:"proposal_id"`
-	SourceUrl  string             `json:"source_url"`
+
+	// SourceKind The input source this proposal was read from.
+	SourceKind ColdStartProposalSourceKind `json:"source_kind"`
+
+	// SourceUrl The company URL when source_kind=url; null for text/self_description.
+	SourceUrl *string `json:"source_url,omitempty"`
 
 	// Status Always staged — accept via the approval inbox.
 	Status ColdStartProposalStatus `json:"status"`
 }
 
+// ColdStartProposalSourceKind The input source this proposal was read from.
+type ColdStartProposalSourceKind string
+
 // ColdStartProposalStatus Always staged — accept via the approval inbox.
 type ColdStartProposalStatus string
 
-// ColdStartRequest defines model for ColdStartRequest.
+// ColdStartRequest EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
+// manual paste-text fallback — a robots-disallowed / unreadable site degrades to "paste the text",
+// never an error wall), or `self_description` (the user's own dictated/typed description of their
+// ICP — B-E01.13 speech input). Provide one; supplying more than one is `422`.
 type ColdStartRequest struct {
+	// SelfDescription The user's own words describing their business/ICP (typed or dictated). Grounded in the user's own statement — source_kind=self_description; still 🟡-staged, never auto-written.
+	SelfDescription *string `json:"self_description,omitempty"`
+
+	// Text Pasted page/company text (the paste-text fallback when a URL is unfetchable). Treated as T2 untrusted; extraction cites text offsets, not a URL.
+	Text *string `json:"text,omitempty"`
+
 	// Url Company website URL to read back.
-	Url string `json:"url"`
+	Url   *string `json:"url,omitempty"`
+	union json.RawMessage
 }
+
+// ColdStartRequest0 defines model for .
+type ColdStartRequest0 = interface{}
+
+// ColdStartRequest1 defines model for .
+type ColdStartRequest1 = interface{}
+
+// ColdStartRequest2 defines model for .
+type ColdStartRequest2 = interface{}
 
 // ConsentEvent An append-only proof row (Art. 7 demonstrability). Never updated or deleted.
 type ConsentEvent struct {
@@ -3536,11 +3895,13 @@ type CreateActivityRequest struct {
 	MeetingStatus *CreateActivityRequestMeetingStatus `json:"meeting_status,omitempty"`
 	OccurredAt    *time.Time                          `json:"occurred_at,omitempty"`
 	Raw           *map[string]interface{}             `json:"raw,omitempty"`
-	RemindAt      *time.Time                          `json:"remind_at,omitempty"`
-	Source        string                              `json:"source"`
-	SourceId      *string                             `json:"source_id,omitempty"`
-	SourceSystem  *string                             `json:"source_system,omitempty"`
-	Subject       *string                             `json:"subject,omitempty"`
+
+	// RemindAt Task only.
+	RemindAt     *time.Time `json:"remind_at,omitempty"`
+	Source       string     `json:"source"`
+	SourceId     *string    `json:"source_id,omitempty"`
+	SourceSystem *string    `json:"source_system,omitempty"`
+	Subject      *string    `json:"subject,omitempty"`
 }
 
 // CreateActivityRequestDirection defines model for CreateActivityRequest.Direction.
@@ -3598,16 +3959,19 @@ type CreateDealRequest struct {
 
 // CreateLeadRequest defines model for CreateLeadRequest.
 type CreateLeadRequest struct {
-	CandidateOrgKey *string                  `json:"candidate_org_key,omitempty"`
-	CompanyName     *string                  `json:"company_name,omitempty"`
-	Email           *openapi_types.Email     `json:"email,omitempty"`
-	FullName        *string                  `json:"full_name,omitempty"`
-	OwnerId         *openapi_types.UUID      `json:"owner_id,omitempty"`
-	Source          string                   `json:"source"`
-	SourceId        *string                  `json:"source_id,omitempty"`
-	SourceSystem    *string                  `json:"source_system,omitempty"`
-	Status          *CreateLeadRequestStatus `json:"status,omitempty"`
-	Title           *string                  `json:"title,omitempty"`
+	CandidateOrgKey *string              `json:"candidate_org_key,omitempty"`
+	CompanyName     *string              `json:"company_name,omitempty"`
+	Email           *openapi_types.Email `json:"email,omitempty"`
+	FullName        *string              `json:"full_name,omitempty"`
+
+	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key for LinkedIn-captured leads.
+	LinkedinUrl  *string                  `json:"linkedin_url,omitempty"`
+	OwnerId      *openapi_types.UUID      `json:"owner_id,omitempty"`
+	Source       string                   `json:"source"`
+	SourceId     *string                  `json:"source_id,omitempty"`
+	SourceSystem *string                  `json:"source_system,omitempty"`
+	Status       *CreateLeadRequestStatus `json:"status,omitempty"`
+	Title        *string                  `json:"title,omitempty"`
 }
 
 // CreateLeadRequestStatus defines model for CreateLeadRequest.Status.
@@ -4091,11 +4455,14 @@ type Lead struct {
 	CreatedAt   time.Time `json:"created_at"`
 
 	// Email Lowercased; lead-internal dedupe key.
-	Email      *openapi_types.Email `json:"email,omitempty"`
-	FullName   *string              `json:"full_name,omitempty"`
-	Id         openapi_types.UUID   `json:"id"`
-	OwnerId    *openapi_types.UUID  `json:"owner_id,omitempty"`
-	PromotedAt *time.Time           `json:"promoted_at,omitempty"`
+	Email    *openapi_types.Email `json:"email,omitempty"`
+	FullName *string              `json:"full_name,omitempty"`
+	Id       openapi_types.UUID   `json:"id"`
+
+	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.
+	LinkedinUrl *string             `json:"linkedin_url,omitempty"`
+	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	PromotedAt  *time.Time          `json:"promoted_at,omitempty"`
 
 	// PromotedPersonId Set on promotion (convenience mirror).
 	PromotedPersonId *openapi_types.UUID     `json:"promoted_person_id,omitempty"`
@@ -4107,7 +4474,7 @@ type Lead struct {
 	// ScoreComputed Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value).
 	ScoreComputed *int `json:"score_computed,omitempty"`
 
-	// ScoreOverrideReason Non-null when a human has set score as a Commercial Judgement override (formulas §3.1, A68/ADR-0053). A non-empty reason makes score sticky: the §3 recompute stops touching score and tracks the machine value in score_computed instead. Cleared → recompute resumes.
+	// ScoreOverrideReason Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.
 	ScoreOverrideReason *string    `json:"score_override_reason,omitempty"`
 	Source              string     `json:"source"`
 	SourceId            *string    `json:"source_id,omitempty"`
@@ -4270,10 +4637,13 @@ type MorningBriefItem struct {
 	// Rank Position in the queue (1 = top)
 	Rank int `json:"rank"`
 
+	// SnoozedUntil When a snoozed item re-surfaces (A77/AC-home-6); set exactly while state=snoozed, null otherwise.
+	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
+
 	// State The acting rep's queue state for this item.
 	State MorningBriefItemState `json:"state"`
 
-	// StateAt When the rep acted/dismissed; null while new.
+	// StateAt When the rep acted/dismissed/snoozed; null while new.
 	StateAt *time.Time `json:"state_at,omitempty"`
 }
 
@@ -4438,11 +4808,17 @@ type Organization struct {
 
 	// Partner First-class partner state as a 1:1 extension of an organization (an org IS a partner iff it
 	// has a `partner` row + classification='partner'). Company identity is never duplicated.
-	Partner   *Partner                `json:"partner,omitempty"`
-	Raw       *map[string]interface{} `json:"raw,omitempty"`
-	SizeBand  *OrganizationSizeBand   `json:"size_band,omitempty"`
-	Source    string                  `json:"source"`
-	UpdatedAt time.Time               `json:"updated_at"`
+	// A68/ADR-0053 adds the relationship-in-flight layer: lifecycle stage, relationship health,
+	// partner fit, next step, and served segments. Behavior is Fast-follow, but the V1 schema is
+	// forward-compatible.
+	Partner  *Partner                `json:"partner,omitempty"`
+	Raw      *map[string]interface{} `json:"raw,omitempty"`
+	SizeBand *OrganizationSizeBand   `json:"size_band,omitempty"`
+	Source   string                  `json:"source"`
+
+	// Strength Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.
+	Strength  *RelationshipStrength `json:"strength,omitempty"`
+	UpdatedAt time.Time             `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -4493,23 +4869,43 @@ type PageInfo struct {
 
 // Partner First-class partner state as a 1:1 extension of an organization (an org IS a partner iff it
 // has a `partner` row + classification='partner'). Company identity is never duplicated.
+// A68/ADR-0053 adds the relationship-in-flight layer: lifecycle stage, relationship health,
+// partner fit, next step, and served segments. Behavior is Fast-follow, but the V1 schema is
+// forward-compatible.
 type Partner struct {
 	ArchivedAt *time.Time        `json:"archived_at,omitempty"`
 	CertStatus PartnerCertStatus `json:"cert_status"`
 	CreatedAt  time.Time         `json:"created_at"`
 
 	// GateMetrics Program gate metrics (certified seats
-	GateMetrics *map[string]interface{} `json:"gate_metrics,omitempty"`
+	GateMetrics   *map[string]interface{} `json:"gate_metrics,omitempty"`
+	LastContactAt *time.Time              `json:"last_contact_at,omitempty"`
 
 	// MarginTier Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK).
-	MarginTier *PartnerMarginTier `json:"margin_tier,omitempty"`
+	MarginTier    *PartnerMarginTier  `json:"margin_tier,omitempty"`
+	NextStep      *string             `json:"next_step,omitempty"`
+	NextStepDueAt *openapi_types.Date `json:"next_step_due_at,omitempty"`
 
 	// OrganizationId The org this partner record extends (PK = FK).
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 
+	// PartnerFitOverrideReason Non-null ⇒ partner_fit_score is a human Commercial Judgement override and recompute is suppressed until cleared.
+	PartnerFitOverrideReason *string `json:"partner_fit_override_reason,omitempty"`
+
+	// PartnerFitScore Current partner-fit score; if partner_fit_override_reason is non-null this is the Commercial Judgement value.
+	PartnerFitScore *int `json:"partner_fit_score,omitempty"`
+
+	// PartnerFitScoreComputed Retained machine-computed partner-fit value while a Commercial Judgement override is in force.
+	PartnerFitScoreComputed *int `json:"partner_fit_score_computed,omitempty"`
+
 	// PartnerRole Functional role (A44/ADR-0034); implementation + dev are Gradion's turf.
 	PartnerRole *PartnerPartnerRole `json:"partner_role,omitempty"`
-	UpdatedAt   time.Time           `json:"updated_at"`
+
+	// RelationshipHealth Decimal-as-string 0..1 derived by formulas §16; basis for 30/60/90 partner dormancy flags.
+	RelationshipHealth *string                   `json:"relationship_health,omitempty"`
+	RelationshipStage  *PartnerRelationshipStage `json:"relationship_stage,omitempty"`
+	ServedSegments     *[]string                 `json:"served_segments,omitempty"`
+	UpdatedAt          time.Time                 `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -4527,6 +4923,9 @@ type PartnerMarginTier string
 
 // PartnerPartnerRole Functional role (A44/ADR-0034); implementation + dev are Gradion's turf.
 type PartnerPartnerRole string
+
+// PartnerRelationshipStage defines model for Partner.RelationshipStage.
+type PartnerRelationshipStage string
 
 // PassportSummary Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.
 type PassportSummary struct {
@@ -4580,6 +4979,9 @@ type Person struct {
 	// Social { linkedin, twitter, github, ... }
 	Social *map[string]interface{} `json:"social,omitempty"`
 	Source string                  `json:"source"`
+
+	// Strength Deterministic relationship-strength (features/07 §4). Read-only derived view; NULL until capture has interactions. No mystery number — the factors + contributing activities are the explanation.
+	Strength *RelationshipStrength `json:"strength,omitempty"`
 
 	// Title Denormalized current title; authoritative title is on the employment relationship.
 	Title     *string   `json:"title,omitempty"`
@@ -4894,6 +5296,35 @@ type RelationshipListResponse struct {
 	Data []Relationship `json:"data"`
 	Page PageInfo       `json:"page"`
 }
+
+// RelationshipStrength Deterministic relationship-strength (features/07 §4) — a transparent function over captured
+// interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
+// interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
+// `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
+type RelationshipStrength struct {
+	// Bucket Coarse band derived from score for display.
+	Bucket RelationshipStrengthBucket `json:"bucket"`
+
+	// ComputedAt When this value was last recomputed (fixed-clock reproducible).
+	ComputedAt *time.Time `json:"computed_at,omitempty"`
+
+	// ContributingActivityIds The activities the score was computed from (the receipts behind the number).
+	ContributingActivityIds *[]openapi_types.UUID `json:"contributing_activity_ids,omitempty"`
+
+	// Factors The 0..1 sub-scores the composite was built from (the explanation).
+	Factors struct {
+		Direction   float32 `json:"direction"`
+		Frequency   float32 `json:"frequency"`
+		Recency     float32 `json:"recency"`
+		Reciprocity float32 `json:"reciprocity"`
+	} `json:"factors"`
+
+	// Score 0..100 composite.
+	Score int `json:"score"`
+}
+
+// RelationshipStrengthBucket Coarse band derived from score for display.
+type RelationshipStrengthBucket string
 
 // ReportDerivation The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
 // the exact filter+group+aggregate plus the underlying source rows, which reconcile
@@ -5260,11 +5691,13 @@ type UpdateActivityRequest struct {
 	Body       *string             `json:"body,omitempty"`
 	DueAt      *time.Time          `json:"due_at,omitempty"`
 
-	// IsDone Completing a task writes one audit row + task.completed event.
+	// IsDone Completing a task writes one audit row + an `activity.updated` event carrying the `is_done` delta (events.md §5.5 — there is no separate `task.*` family).
 	IsDone     *bool      `json:"is_done,omitempty"`
 	OccurredAt *time.Time `json:"occurred_at,omitempty"`
-	RemindAt   *time.Time `json:"remind_at,omitempty"`
-	Subject    *string    `json:"subject,omitempty"`
+
+	// RemindAt Task only. Set/clear the reminder; PATCH target for B-E16.2/.3. The reminder scan (B-E16.6) fires on this.
+	RemindAt *time.Time `json:"remind_at,omitempty"`
+	Subject  *string    `json:"subject,omitempty"`
 }
 
 // UpdateAutomationRequest Any subset; omit a field to leave it unchanged. `status` flips enable/pause.
@@ -5327,10 +5760,10 @@ type UpdateLeadRequest struct {
 	FullName        *string              `json:"full_name,omitempty"`
 	OwnerId         *openapi_types.UUID  `json:"owner_id,omitempty"`
 
-	// Score Human Commercial-Judgement score override (formulas §3.1, AC-S1). Setting it REQUIRES a non-empty score_override_reason in the SAME request — a score with no reason is rejected 422. Establishing an override makes the value sticky (recompute stops overwriting it). Omit to keep the current value.
+	// Score Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.
 	Score *int `json:"score,omitempty"`
 
-	// ScoreOverrideReason The written reason accompanying a score override (mandatory whenever score is set, AC-S1). Two gestures only: a non-empty reason SETS/keeps the override; an explicit empty string CLEARS an in-force override (resumes the §3 recompute so score tracks score_computed again). Omit the field to leave the override untouched. null is not accepted — omit instead.
+	// ScoreOverrideReason Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.
 	ScoreOverrideReason *string                  `json:"score_override_reason,omitempty"`
 	Status              *UpdateLeadRequestStatus `json:"status,omitempty"`
 	Title               *string                  `json:"title,omitempty"`
@@ -5463,10 +5896,14 @@ type UpdateVoiceProfileRequest struct {
 
 // UpsertPartnerRequest defines model for UpsertPartnerRequest.
 type UpsertPartnerRequest struct {
-	CertStatus  *UpsertPartnerRequestCertStatus `json:"cert_status,omitempty"`
-	GateMetrics *map[string]interface{}         `json:"gate_metrics,omitempty"`
-	MarginTier  *UpsertPartnerRequestMarginTier `json:"margin_tier,omitempty"`
-	PartnerRole UpsertPartnerRequestPartnerRole `json:"partner_role"`
+	CertStatus        *UpsertPartnerRequestCertStatus        `json:"cert_status,omitempty"`
+	GateMetrics       *map[string]interface{}                `json:"gate_metrics,omitempty"`
+	MarginTier        *UpsertPartnerRequestMarginTier        `json:"margin_tier,omitempty"`
+	NextStep          *string                                `json:"next_step,omitempty"`
+	NextStepDueAt     *openapi_types.Date                    `json:"next_step_due_at,omitempty"`
+	PartnerRole       UpsertPartnerRequestPartnerRole        `json:"partner_role"`
+	RelationshipStage *UpsertPartnerRequestRelationshipStage `json:"relationship_stage,omitempty"`
+	ServedSegments    *[]string                              `json:"served_segments,omitempty"`
 }
 
 // UpsertPartnerRequestCertStatus defines model for UpsertPartnerRequest.CertStatus.
@@ -5477,6 +5914,9 @@ type UpsertPartnerRequestMarginTier string
 
 // UpsertPartnerRequestPartnerRole defines model for UpsertPartnerRequest.PartnerRole.
 type UpsertPartnerRequestPartnerRole string
+
+// UpsertPartnerRequestRelationshipStage defines model for UpsertPartnerRequest.RelationshipStage.
+type UpsertPartnerRequestRelationshipStage string
 
 // User A seat — human or first-party agent. Mirrors `app_user`.
 type User struct {
@@ -5820,6 +6260,26 @@ type UpdateAutomationParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListAutomationRunsParams defines parameters for ListAutomationRuns.
+type ListAutomationRunsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Outcome Filter by run outcome (matches automation_run.status, data-model §12.5).
+	Outcome *ListAutomationRunsParamsOutcome `form:"outcome,omitempty" json:"outcome,omitempty"`
+}
+
+// ListAutomationRunsParamsOutcome defines parameters for ListAutomationRuns.
+type ListAutomationRunsParamsOutcome string
+
 // GetAvailabilityParams defines parameters for GetAvailability.
 type GetAvailabilityParams struct {
 	// HostUserId Host to check (defaults to the caller).
@@ -5832,8 +6292,13 @@ type GetAvailabilityParams struct {
 // BookMeetingJSONBody defines parameters for BookMeeting.
 type BookMeetingJSONBody struct {
 	AttendeeEmails *[]openapi_types.Email `json:"attendee_emails,omitempty"`
-	End            time.Time              `json:"end"`
-	HostUserId     *openapi_types.UUID    `json:"host_user_id,omitempty"`
+
+	// Consent The consent passthrough every capture surface (booking, public forms, imports) must carry
+	// (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
+	// wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
+	Consent    *CaptureConsent     `json:"consent,omitempty"`
+	End        time.Time           `json:"end"`
+	HostUserId *openapi_types.UUID `json:"host_user_id,omitempty"`
 
 	// Links Entities to associate the resulting meeting activity with.
 	Links []struct {
@@ -5945,6 +6410,12 @@ type ListDealsParams struct {
 
 	// Stalled Deterministic stalled flag (no activity past the threshold).
 	Stalled *bool `form:"stalled,omitempty" json:"stalled,omitempty"`
+
+	// PartnerOrgId Filter to deals attributed to a specific partner org (deal.partner_org_id).
+	PartnerOrgId *openapi_types.UUID `form:"partner_org_id,omitempty" json:"partner_org_id,omitempty"`
+
+	// PartnerSourced true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice.
+	PartnerSourced *bool `form:"partner_sourced,omitempty" json:"partner_sourced,omitempty"`
 }
 
 // ListDealsParamsStatus defines parameters for ListDeals.
@@ -6911,8 +7382,14 @@ type CreateAutomationJSONRequestBody = CreateAutomationRequest
 // UpdateAutomationJSONRequestBody defines body for UpdateAutomation for application/json ContentType.
 type UpdateAutomationJSONRequestBody = UpdateAutomationRequest
 
+// PreviewAutomationJSONRequestBody defines body for PreviewAutomation for application/json ContentType.
+type PreviewAutomationJSONRequestBody = AutomationPreviewRequest
+
 // BookMeetingJSONRequestBody defines body for BookMeeting for application/json ContentType.
 type BookMeetingJSONRequestBody BookMeetingJSONBody
+
+// SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
+type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
@@ -9157,6 +9634,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "source")
 	}
 
+	if raw, found := object["strength"]; found {
+		err = json.Unmarshal(raw, &a.Strength)
+		if err != nil {
+			return fmt.Errorf("error reading 'strength': %w", err)
+		}
+		delete(object, "strength")
+	}
+
 	if raw, found := object["updated_at"]; found {
 		err = json.Unmarshal(raw, &a.UpdatedAt)
 		if err != nil {
@@ -9307,6 +9792,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 	object["source"], err = json.Marshal(a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.Strength != nil {
+		object["strength"], err = json.Marshal(a.Strength)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'strength': %w", err)
+		}
 	}
 
 	object["updated_at"], err = json.Marshal(a.UpdatedAt)
@@ -9496,6 +9988,14 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "source")
 	}
 
+	if raw, found := object["strength"]; found {
+		err = json.Unmarshal(raw, &a.Strength)
+		if err != nil {
+			return fmt.Errorf("error reading 'strength': %w", err)
+		}
+		delete(object, "strength")
+	}
+
 	if raw, found := object["title"]; found {
 		err = json.Unmarshal(raw, &a.Title)
 		if err != nil {
@@ -9654,6 +10154,13 @@ func (a Person) MarshalJSON() ([]byte, error) {
 	object["source"], err = json.Marshal(a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.Strength != nil {
+		object["strength"], err = json.Marshal(a.Strength)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'strength': %w", err)
+		}
 	}
 
 	if a.Title != nil {
@@ -10823,6 +11330,156 @@ func (a UpdateProductRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// AsColdStartRequest0 returns the union data inside the ColdStartRequest as a ColdStartRequest0
+func (t ColdStartRequest) AsColdStartRequest0() (ColdStartRequest0, error) {
+	var body ColdStartRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromColdStartRequest0 overwrites any union data inside the ColdStartRequest as the provided ColdStartRequest0
+func (t *ColdStartRequest) FromColdStartRequest0(v ColdStartRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeColdStartRequest0 performs a merge with any union data inside the ColdStartRequest, using the provided ColdStartRequest0
+func (t *ColdStartRequest) MergeColdStartRequest0(v ColdStartRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsColdStartRequest1 returns the union data inside the ColdStartRequest as a ColdStartRequest1
+func (t ColdStartRequest) AsColdStartRequest1() (ColdStartRequest1, error) {
+	var body ColdStartRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromColdStartRequest1 overwrites any union data inside the ColdStartRequest as the provided ColdStartRequest1
+func (t *ColdStartRequest) FromColdStartRequest1(v ColdStartRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeColdStartRequest1 performs a merge with any union data inside the ColdStartRequest, using the provided ColdStartRequest1
+func (t *ColdStartRequest) MergeColdStartRequest1(v ColdStartRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsColdStartRequest2 returns the union data inside the ColdStartRequest as a ColdStartRequest2
+func (t ColdStartRequest) AsColdStartRequest2() (ColdStartRequest2, error) {
+	var body ColdStartRequest2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromColdStartRequest2 overwrites any union data inside the ColdStartRequest as the provided ColdStartRequest2
+func (t *ColdStartRequest) FromColdStartRequest2(v ColdStartRequest2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeColdStartRequest2 performs a merge with any union data inside the ColdStartRequest, using the provided ColdStartRequest2
+func (t *ColdStartRequest) MergeColdStartRequest2(v ColdStartRequest2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ColdStartRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.SelfDescription != nil {
+		object["self_description"], err = json.Marshal(t.SelfDescription)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'self_description': %w", err)
+		}
+	}
+
+	if t.Text != nil {
+		object["text"], err = json.Marshal(t.Text)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'text': %w", err)
+		}
+	}
+
+	if t.Url != nil {
+		object["url"], err = json.Marshal(t.Url)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'url': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ColdStartRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["self_description"]; found {
+		err = json.Unmarshal(raw, &t.SelfDescription)
+		if err != nil {
+			return fmt.Errorf("error reading 'self_description': %w", err)
+		}
+	}
+
+	if raw, found := object["text"]; found {
+		err = json.Unmarshal(raw, &t.Text)
+		if err != nil {
+			return fmt.Errorf("error reading 'text': %w", err)
+		}
+	}
+
+	if raw, found := object["url"]; found {
+		err = json.Unmarshal(raw, &t.Url)
+		if err != nil {
+			return fmt.Errorf("error reading 'url': %w", err)
+		}
+	}
+
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// List activities (the timeline; cursor-paginated, filterable by type/entity).
@@ -10888,6 +11545,12 @@ type ServerInterface interface {
 	// Update params or flip status (enable / pause).
 	// (PATCH /automations/{id})
 	UpdateAutomation(w http.ResponseWriter, r *http.Request, id Id, params UpdateAutomationParams)
+	// Dry-run an automation's blast radius (🟢 read; no writes, no sends).
+	// (POST /automations/{id}/preview)
+	PreviewAutomation(w http.ResponseWriter, r *http.Request, id Id)
+	// Read-only run history for one automation — successes AND errored/blocked/skipped runs.
+	// (GET /automations/{id}/runs)
+	ListAutomationRuns(w http.ResponseWriter, r *http.Request, id Id, params ListAutomationRunsParams)
 	// Free/busy availability for one or more hosts in a window (the `check_availability` MCP verb).
 	// (GET /availability)
 	GetAvailability(w http.ResponseWriter, r *http.Request, params GetAvailabilityParams)
@@ -10906,6 +11569,9 @@ type ServerInterface interface {
 	// Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
 	// (POST /brief/items/{itemId}/dismiss)
 	MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+	// (POST /brief/items/{itemId}/snooze)
+	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -11386,6 +12052,18 @@ func (_ Unimplemented) UpdateAutomation(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Dry-run an automation's blast radius (🟢 read; no writes, no sends).
+// (POST /automations/{id}/preview)
+func (_ Unimplemented) PreviewAutomation(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read-only run history for one automation — successes AND errored/blocked/skipped runs.
+// (GET /automations/{id}/runs)
+func (_ Unimplemented) ListAutomationRuns(w http.ResponseWriter, r *http.Request, id Id, params ListAutomationRunsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Free/busy availability for one or more hosts in a window (the `check_availability` MCP verb).
 // (GET /availability)
 func (_ Unimplemented) GetAvailability(w http.ResponseWriter, r *http.Request, params GetAvailabilityParams) {
@@ -11419,6 +12097,12 @@ func (_ Unimplemented) MarkBriefItemActed(w http.ResponseWriter, r *http.Request
 // Dismiss a brief item (B-E05.13) — it does not reappear unless a new linked activity arrives after the mark.
 // (POST /brief/items/{itemId}/dismiss)
 func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+// (POST /brief/items/{itemId}/snooze)
+func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13219,6 +13903,112 @@ func (siw *ServerInterfaceWrapper) UpdateAutomation(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// PreviewAutomation operation middleware
+func (siw *ServerInterfaceWrapper) PreviewAutomation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewAutomation(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAutomationRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListAutomationRuns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAutomationRunsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "outcome" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "outcome", r.URL.Query(), &params.Outcome, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "outcome"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "outcome", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAutomationRuns(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetAvailability operation middleware
 func (siw *ServerInterfaceWrapper) GetAvailability(w http.ResponseWriter, r *http.Request) {
 
@@ -13470,6 +14260,40 @@ func (siw *ServerInterfaceWrapper) MarkBriefItemDismissed(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MarkBriefItemDismissed(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SnoozeBriefItem operation middleware
+func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "itemId" -------------
+	var itemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "itemId", chi.URLParam(r, "itemId"), &itemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "itemId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SnoozeBriefItem(w, r, itemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13884,6 +14708,32 @@ func (siw *ServerInterfaceWrapper) ListDeals(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stalled"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stalled", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "partner_org_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "partner_org_id", r.URL.Query(), &params.PartnerOrgId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "partner_org_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "partner_org_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "partner_sourced" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "partner_sourced", r.URL.Query(), &params.PartnerSourced, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "partner_sourced"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "partner_sourced", Err: err})
 		}
 		return
 	}
@@ -19543,6 +20393,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/automations/{id}", wrapper.UpdateAutomation)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/automations/{id}/preview", wrapper.PreviewAutomation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/automations/{id}/runs", wrapper.ListAutomationRuns)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/availability", wrapper.GetAvailability)
 	})
 	r.Group(func(r chi.Router) {
@@ -19559,6 +20415,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/dismiss", wrapper.MarkBriefItemDismissed)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

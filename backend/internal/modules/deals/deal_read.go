@@ -46,6 +46,8 @@ type ListDealsInput struct {
 	StageID         *ids.StageID
 	OwnerID         *ids.UserID
 	OrganizationID  *ids.OrganizationID
+	PartnerOrgID    *ids.OrganizationID
+	PartnerSourced  *bool
 	Status          *string
 	Stalled         *bool
 	IncludeArchived bool
@@ -129,6 +131,18 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) ([]
 	}
 	if in.OrganizationID != nil {
 		where = append(where, storekit.SQLf("organization_id = $%d", arg(*in.OrganizationID)))
+	}
+	if in.PartnerOrgID != nil {
+		where = append(where, storekit.SQLf("partner_org_id = $%d", arg(*in.PartnerOrgID)))
+	}
+	// partner_sourced is attribution presence, not a value match: true is
+	// the partner-sourced pipeline slice, false its direct complement.
+	if in.PartnerSourced != nil {
+		if *in.PartnerSourced {
+			where = append(where, "partner_org_id IS NOT NULL")
+		} else {
+			where = append(where, "partner_org_id IS NULL")
+		}
 	}
 	if in.Status != nil {
 		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))

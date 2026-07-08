@@ -7,7 +7,7 @@ import type { Locale } from "../i18n";
 
 const INTL_LOCALE: Record<Locale, string> = {
   de: "de-DE",
-  en: "en-US",
+  en: "en-GB", // A100: unconfigured English is en-GB, not en-US
 };
 
 // Money arrives as integer minor units + ISO currency (data-semantics §1).

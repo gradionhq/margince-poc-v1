@@ -155,6 +155,23 @@ func (h Handlers) UpsertPartner(w http.ResponseWriter, r *http.Request, id crmco
 		tier := string(*req.MarginTier)
 		in.MarginTier = &tier
 	}
+	if req.RelationshipStage != nil {
+		// Membership-check the enum at the seam: the decoder accepts any
+		// string, and an unknown stage must answer 422 here, not surface
+		// as the DB CHECK's constraint-violated fallback.
+		if !req.RelationshipStage.Valid() {
+			httperr.Write(w, r, httperr.Validation("relationship_stage", "invalid_value",
+				"relationship_stage is not one of the partner lifecycle stages"))
+			return
+		}
+		stage := string(*req.RelationshipStage)
+		in.RelationshipStage = &stage
+	}
+	in.NextStep = req.NextStep
+	if req.NextStepDueAt != nil {
+		in.NextStepDueAt = &req.NextStepDueAt.Time
+	}
+	in.ServedSegments = req.ServedSegments
 	if req.GateMetrics != nil {
 		if staff, ok := (*req.GateMetrics)["certified_staff"].(float64); ok {
 			v := int16(staff)

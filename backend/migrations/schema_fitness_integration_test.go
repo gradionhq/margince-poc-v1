@@ -186,6 +186,8 @@ var rowScopedFKDecisions = map[string]string{
 	"person_email.person_id":              "child row: written through the person's own gated paths",
 	"person_phone.person_id":              "child row: written through the person's own gated paths",
 	"person_consent.person_id":            "child row: written through the person's own gated paths",
+	"person_consent.lead_id":              "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20)",
+	"consent_event.lead_id":               "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20); proof rows append only inside that path",
 	"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
 	"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
 	// Server-derived pointers: stamped from an operation's outcome,

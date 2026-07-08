@@ -47,6 +47,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/identity:IssuePassport":         "gated by the explicit Identity parameter (the authenticated session): a passport is minted for that identity only, capped by validScopes",
 	"internal/modules/identity:ListPassports":         "gated by the explicit Identity parameter: the query is pinned to on_behalf_of = the caller (admin sees the workspace's)",
 	"internal/modules/identity:RevokePassport":        "gated by the explicit Identity parameter: owner-or-admin is checked against the passport's on_behalf_of before revoking",
+	"internal/modules/identity:DeactivateUser":        "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
+	"internal/modules/identity:ChangeUserRole":        "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
 
 	// Public-by-design token surfaces: possession of the single-use
 	// token is the authority; there is no authenticated principal.

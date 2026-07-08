@@ -40,6 +40,28 @@ func duplicateID(id ids.UUID) string {
 	return id.String()
 }
 
+// writeScoreOverrideErr maps the §3.1 Commercial-Judgement gesture errors
+// (lead_update.go) onto their 422 wire shapes; false means the error was
+// none of them and the caller keeps mapping.
+func writeScoreOverrideErr(w http.ResponseWriter, r *http.Request, err error) bool {
+	var needsReason *ScoreOverrideReasonRequiredError
+	if errors.As(err, &needsReason) {
+		httperr.Write(w, r, httperr.Validation("score_override_reason", "required", needsReason.Error()))
+		return true
+	}
+	var emptyReason *ScoreOverrideReasonEmptyError
+	if errors.As(err, &emptyReason) {
+		httperr.Write(w, r, httperr.Validation("score_override_reason", "min_length", emptyReason.Error()))
+		return true
+	}
+	var clearConflict *ScoreOverrideClearConflictError
+	if errors.As(err, &clearConflict) {
+		httperr.Write(w, r, httperr.Validation("score", "clear_conflict", clearConflict.Error()))
+		return true
+	}
+	return false
+}
+
 // writeStoreErr maps this module's typed store errors onto the wire
 // codes the contract names, then falls through to the sentinel registry.
 func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
@@ -63,9 +85,12 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID.UUID)))
 		return
 	}
-	var needsReason *ScoreOverrideReasonRequiredError
-	if errors.As(err, &needsReason) {
-		httperr.Write(w, r, httperr.Validation("score_override_reason", "required", needsReason.Error()))
+	if wrote := writeScoreOverrideErr(w, r, err); wrote {
+		return
+	}
+	var fitReason *PartnerFitOverrideReasonRequiredError
+	if errors.As(err, &fitReason) {
+		httperr.Write(w, r, httperr.Validation("partner_fit_override_reason", "required", fitReason.Error()))
 		return
 	}
 	var promoted *AlreadyPromotedError

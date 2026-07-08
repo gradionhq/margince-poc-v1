@@ -5,7 +5,7 @@ import { DEFAULT_LOCALE, detectLocale, translate } from "./index";
 
 // B-EP09.16 acceptance: de and en carry the exact same key set (a missing or
 // extra key in either fails), placeholders interpolate, and the default
-// locale is the A24 mandate (de-DE).
+// locale is the A100 mandate (en-GB).
 
 describe("i18n catalogs", () => {
   it("de and en have exact key parity", () => {
@@ -33,8 +33,8 @@ describe("i18n catalogs", () => {
     expect(translate("en", "trust.agentTag", {})).toBe("agent: {agent}");
   });
 
-  it("the default locale is de (A24: de-DE)", () => {
-    expect(DEFAULT_LOCALE).toBe("de");
+  it("the default locale is en (A100: en-GB)", () => {
+    expect(DEFAULT_LOCALE).toBe("en");
   });
 });
 
@@ -49,7 +49,7 @@ describe("browser-language detection", () => {
     expect(detectLocale(["fr-FR", "es", "en-US"])).toBe("en");
   });
 
-  it("falls back to the A24 default when nothing matches or the list is empty", () => {
+  it("falls back to the A100 default when nothing matches or the list is empty", () => {
     expect(detectLocale(["fr", "ja"])).toBe(DEFAULT_LOCALE);
     expect(detectLocale([])).toBe(DEFAULT_LOCALE);
   });

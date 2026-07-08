@@ -109,9 +109,10 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 		t.Fatalf("machine value not tracked in score_computed: %v, want 48", afterEvent.ScoreComputed)
 	}
 
-	// (3) Clearing the reason (explicit empty string) resumes recompute:
-	// score tracks the machine value and both override columns go null.
-	cleared, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{ScoreOverrideReason: strp("")})
+	// (3) Clearing the override (an explicit null on the wire) resumes
+	// recompute: score tracks the machine value and both override
+	// columns go null.
+	cleared, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{ClearScoreOverride: true})
 	if err != nil {
 		t.Fatalf("clearing the override: %v", err)
 	}

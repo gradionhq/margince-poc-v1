@@ -11,16 +11,16 @@ import { en, type MessageKey } from "./en";
 // Locale is a presentation concern only (architecture/10 §3): it resolves at
 // the render edge and never participates in storage or math. The resolution
 // order is user.locale → workspace.locale → the browser's Accept-Language →
-// de-DE (A24). Until /v1/me carries a locale, the browser guess is the best
-// signal we have, and A24 stays the floor when the browser asks for a
+// en-GB (A100). Until /v1/me carries a locale, the browser guess is the best
+// signal we have, and A100 stays the floor when the browser asks for a
 // language we don't ship. An explicit `initial` (later fed from /v1/me)
 // always wins; the switch flips it locally after mount.
 
 export type Locale = "de" | "en";
-export const DEFAULT_LOCALE: Locale = "de";
+export const DEFAULT_LOCALE: Locale = "en";
 
 // detectLocale reads the visitor's own language preference and maps it to a
-// locale we ship, falling back to the A24 default when neither German nor
+// locale we ship, falling back to the A100 default when neither German nor
 // English is asked for. It never throws off-browser (SSR, tests): an absent
 // navigator yields the default.
 export function detectLocale(

@@ -68,7 +68,7 @@ func (h Handlers) UpdateLead(w http.ResponseWriter, r *http.Request, id crmcontr
 	if !ok {
 		return
 	}
-	var req crmcontracts.UpdateLeadRequest
+	var req LeadUpdateRequest
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
