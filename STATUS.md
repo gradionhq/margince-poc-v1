@@ -5,6 +5,20 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-08 PM — spec-drift reconciliation implemented; PR #23 awaiting CI)
+
+The worklist's §1+§2 (contract re-sync + all built-surface fixes) are
+implemented on `feat/spec-drift-reconciliation` → **PR #23**, one big PR
+by design. Local gates all green (`make check`, full integration lane,
+frontend). Check items off in
+[docs/worklists/spec-drift-2026-07-08.md](docs/worklists/spec-drift-2026-07-08.md)
+as CI confirms. Still open there: capture-connection vault reshape (own
+arc), audit `batch_id` (needs `bulk_operation`), automations-screen
+rework (frontend lane, L), and the §3 conflicts awaiting spec rulings
+(feedback/32 — not yet walked to the spec session). PR #21 merged;
+**PR #20 should be closed as superseded** (fully contained in #21 — the
+agent lacked permission to close it).
+
 ## ▶ RESTART HERE (2026-07-08 — spec-drift assessment done; PR #21 awaiting Sonar + merge)
 
 The 2026-07-06/07 spec-side gap-audit (A73–A100 + Batch C/C0/D/E) landed after
