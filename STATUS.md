@@ -19,11 +19,11 @@ B-EP07.22 Backlog); the local `feedback/` notes are deleted. Final state
 + remaining open items:
 [docs/worklists/spec-drift-2026-07-08.md](docs/worklists/spec-drift-2026-07-08.md).
 
-**Waiting on a human:** (1) close PR #20 (superseded, empty diff);
-(2) post the issue #16 reply (`scratchpad/issue16-reply-FINAL.md`);
-(3) founder call on a DECISIONS.md A66 erratum (the locked file still
-says the blobstore seam shipped; the four unlocked spec places are
-already corrected).
+**Session closed 2026-07-08 PM:** PR #20 closed (superseded); the issue
+#16 reply draft was deleted (founder: not posting it). The DECISIONS.md
+A66 blobstore wording stays AS-IS by founder decision — **Dung
+consolidates it**; the four unlocked spec places already carry the
+correction, so do not re-touch A66 from here.
 
 Next build arcs (worklist tail + backlog): capture-connection vault
 reshape (EP05 §B), `bulk_operation` + `audit_log.batch_id`,
