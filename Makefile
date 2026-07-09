@@ -3,9 +3,9 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync hooks
+.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval tools frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync check-image-pins hooks
 
-check: craft-drift
+check: craft-drift check-image-pins
 
 ## dev-tls — the full local stack in a real browser: an HTTPS front door on
 ## :8080 fronts the api (:8081) and the Vite dev server (:5173), so the SPA
@@ -60,6 +60,13 @@ craft-drift:
 craft-sync:
 	rsync -a --delete ../margince-foundation/skeleton/cli/craft/ cli/craft/
 	@$(MAKE) craft-drift
+
+## check-image-pins — every `uses:` in .github/workflows/ is pinned to a
+## full commit SHA or digest (supply-chain: a floating vN/main tag lets a
+## compromised action ride into CI unreviewed). Lives at the root because
+## the workflows do; also a CI step, so a pin can't regress.
+check-image-pins:
+	@./scripts/check-image-pins.sh
 
 ## hooks — install the repo's git hooks (the pre-push craft-static gate).
 ## Run once after cloning.
