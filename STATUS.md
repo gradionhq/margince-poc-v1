@@ -8,8 +8,9 @@
 ## ▶ RESTART HERE (2026-07-09 PM — skeleton-baseline PR C: gate parity landed)
 
 **PR C — the §1b gate-parity batch (this session):** all seven scoped
-gates ported from the foundation skeleton, each wired into `make check`
-(root or backend) AND CI; design decisions ratified in
+gates ported from the foundation skeleton — the backend/root ones wired
+into `make check`, the TS-drift gate into `make frontend-check`, and all
+of them enforced in CI; design decisions ratified in
 **decisions/0020-gate-parity.md**:
 
 - **contract-breaking-check** — pinned oasdiff (v1.22.0 via `go run`; also

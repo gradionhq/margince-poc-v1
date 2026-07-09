@@ -109,7 +109,8 @@ Skeleton gates we lack entirely (each is a small script; wire into
       ratchet/waiver list so the gate lands without a big-bang split.
       (Done PR C — ratchet via `scripts/go-file-length-waivers.txt`; the
       named offenders had already been split <500 by the Strojny work; the
-      only live waiver is `compose/report.go` at 501; decisions/0020 §6.)
+      only live waiver is `backend/internal/compose/report.go` at 501;
+      decisions/0020 §6.)
 - [x] `test-lanes` — hermetic-unit-lane check (no untagged test opens real
       PG/Redis). We rely on the `//go:build integration` convention with no
       enforcement. (Done PR C — `scripts/check-test-lanes.sh`, markers

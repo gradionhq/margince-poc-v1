@@ -18,7 +18,10 @@ All Go code lives under `backend/` (one Go module,
 ```
 make db-up              # start PG16 + Redis 7 containers, create the app role
 make migrate            # apply core + custom migrations (owner DSN)
-make check              # the merge gate: build, vet, lint (baseline + new-code strict), arch-lint, unit tests, contract drift + breaking-change, test-lanes, file-length, image pins
+make check              # the merge gate. Backend: build, vet, lint (baseline +
+                        # new-code strict), arch-lint, unit tests, contract drift.
+                        # Root adds: craft drift, image pins, contract
+                        # breaking-change, test-lanes, file-length
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up)
 make dev                # db-up + migrate + api on :8080
 ```

@@ -82,7 +82,7 @@ files exempt; `cli/craft` exempt as foundation-vendored).
 `scripts/go-file-length-waivers.txt` freezes pre-existing offenders at
 their current length — shrinking allowed, growing not; at ≤500 the entry
 must be removed so the cap re-arms. Seeded with the single current
-offender, `internal/compose/report.go` (501). The worklist's named
+offender, `backend/internal/compose/report.go` (501). The worklist's named
 offenders (`people/person.go`, `people/lead.go`, `deals/offer.go`) had
 already been split under 500 by the Strojny workstream.
 

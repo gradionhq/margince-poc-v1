@@ -7,20 +7,23 @@
 # integration lane. This keeps `make test` hermetic and kills the "DB test
 # that silently degrades in the unit lane" anti-pattern.
 #
-# Fakes are fine and NOT flagged: in-memory drivers and miniredis-style
-# clients carry none of the markers below.
+# Fakes are fine and NOT flagged: in-memory fake sql drivers carry none of
+# the markers below. If a miniredis-style fake (which does dial via
+# redis.NewClient) ever joins the unit lane, narrow that marker then —
+# deliberately, in this file — rather than pre-weakening the gate today.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Markers that only a real connection uses. MARGINCE_TEST_* are the env vars
 # the integration harness reads (backend/Makefile exports them from db-up's
 # port contract); a unit test reaching for them is in the wrong lane.
-real='sql\.Open\("(postgres|pgx)"|pgxpool\.New|os\.Getenv\("MARGINCE_TEST_(DSN|APP_DSN|REDIS)"\)|redis\.ParseURL'
+real='sql\.Open\("(postgres|pgx)"|pgxpool\.New|pgx\.Connect|os\.Getenv\("MARGINCE_TEST_(DSN|APP_DSN|REDIS)"\)|redis\.ParseURL|redis\.New(Universal)?Client'
 
 violations=0
 while IFS= read -r f; do
-  # Skip files already in a non-unit lane (build-tagged below the SPDX header).
-  if head -5 "$f" | grep -qE '^//go:build .*(integration|livesmoke)'; then
+  # Skip files already in a non-unit lane. Build constraints sit anywhere
+  # above the package clause, so scan up to it instead of a fixed head.
+  if sed -n '/^package /q;p' "$f" | grep -qE '^//go:build .*(integration|livesmoke)'; then
     continue
   fi
   if grep -Eq "$real" "$f"; then
