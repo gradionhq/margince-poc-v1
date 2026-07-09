@@ -1,0 +1,5 @@
+# Pre-existing files over the 500-LOC cap, frozen at their line count when
+# the gate landed (scripts/check-go-file-length.sh). Shrinking is allowed;
+# growing is not. When a file drops to 500 or below, DELETE its line here.
+# Format: <frozen-line-count> <path>
+501 backend/internal/compose/report.go

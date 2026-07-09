@@ -38,16 +38,37 @@ test: ## Unit tests (the root fitness tests run uncached)
 	# ride a stale green.
 	$(GO) test -count=1 .
 
+# -v is load-bearing, not chattiness: `go test` only names skipped tests in
+# verbose mode, and the zero-skip teeth below grep for them. A skip in this
+# lane means a security gate (RLS, erasure) silently didn't run — that must
+# read as red, never as green.
 test-integration: ## Integration lane: real Postgres, fails loudly without it (never skips)
-	$(GO) test -tags integration -p 1 ./...
+	@log=$$(mktemp); st=$$(mktemp); \
+	{ $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
+	code=$$(cat "$$st"); rm -f "$$st"; \
+	if [ "$$code" -ne 0 ]; then rm -f "$$log"; exit "$$code"; fi; \
+	if grep -q -- '--- SKIP' "$$log"; then \
+		echo "FAIL: the integration lane must not skip — provision the dependency, never skip:"; \
+		grep -- '--- SKIP' "$$log"; rm -f "$$log"; exit 1; \
+	fi; \
+	rm -f "$$log"; echo "test-integration: green with zero skips"
 
 # The integration lane above runs the same harness on the SMB tier as a
 # standing canary; this target is the tier the PERF-7 SLO binds at.
 bench-perf: ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
 	MARGINCE_BENCH_TIER=mid_market $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose/integration
 
-lint: ## golangci-lint (depguard, gosec, misspell, revive, gofmt)
+# Two passes, two scopes (decisions/0020): .golangci.yml is the repo-wide
+# baseline (the depguard DAG lives there and must never be diff-scoped);
+# .golangci.strict.yml is the expanded skeleton-parity set, gated to new
+# code via new-from-merge-base so the pre-existing backlog is not a burn-down.
+lint: ## golangci-lint: repo-wide baseline + new-code strict set (decisions/0020)
 	golangci-lint run ./...
+	@if git rev-parse --verify -q origin/main >/dev/null; then \
+		golangci-lint run --config .golangci.strict.yml ./...; \
+	else \
+		echo "SKIP strict lint: origin/main not found — fetch it to arm the new-code gate"; \
+	fi
 
 # Layer C of the boundary stack — a HARD gate: a forbidden import edge
 # fails `make check`, it is never advisory.
@@ -82,10 +103,15 @@ vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
 # binaries a PATH home for direct use). Installs are unconditional: a cached
 # binary at a different version must be overwritten, or the pin doesn't bind.
 GOLANGCI_LINT_VERSION ?= v2.12.2
+# The contract-breaking gate (scripts/check-contract-breaking.sh) runs oasdiff
+# via pinned `go run`, so this install is a convenience binary for direct use —
+# keep the version identical to the pin in that script; bump both together.
+OASDIFF_VERSION ?= v1.22.0
 tools: ## Install every gate binary at its pinned version (fresh-machine bootstrap)
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	$(GO) install github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION)
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	$(GO) install github.com/oasdiff/oasdiff@$(OASDIFF_VERSION)
 	@echo "gate binaries ready in $$($(GO) env GOPATH)/bin — ensure it is on PATH"
 
 # `git rev-parse --git-path hooks` honors core.hooksPath, so this works
