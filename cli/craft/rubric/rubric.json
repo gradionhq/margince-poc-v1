@@ -1,12 +1,12 @@
 {
   "version": "1",
-  "source": "docs/quality/craftsmanship.md (foundation architecture/15, ADR-0045/A60)",
+  "source": "specs/quality/craftsmanship.md (foundation architecture/15, ADR-0045/A60)",
   "binds": [
     "Google Go Style Guide",
     "Google Go Style Decisions",
     "Uber Go Style Guide",
     "Go Code Review Comments",
-    "docs/architecture/frontend.md (project React/TS conventions)"
+    "specs/architecture/frontend.md (project React/TS conventions)"
   ],
   "meta_rule": "The addition is indistinguishable in style from a senior human's edit to the surrounding file.",
   "severity_model": {

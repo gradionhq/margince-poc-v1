@@ -169,8 +169,10 @@ func panicInDomain(fc *fileContext, _ Config) []Finding {
 	return out
 }
 
-var todoRE = regexp.MustCompile(`(?i)\b(TODO|FIXME)\b`)
-var todoRefRE = regexp.MustCompile(`#\d|https?://|\(\w+\)|issue`)
+var (
+	todoRE    = regexp.MustCompile(`(?i)\b(TODO|FIXME)\b`)
+	todoRefRE = regexp.MustCompile(`#\d|https?://|\(\w+\)|issue`)
+)
 
 // todoWithoutRef flags a to-do / fix-me marker that names no owner, issue, or
 // URL — an untracked intent that will rot silently.

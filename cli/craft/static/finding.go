@@ -15,6 +15,7 @@ import "fmt"
 // MINOR are reported but non-blocking (unless the caller opts into -strict).
 type Severity int
 
+// The three rungs, weakest first so Blocker compares greatest.
 const (
 	Minor Severity = iota
 	Major

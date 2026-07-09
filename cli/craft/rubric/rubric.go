@@ -1,5 +1,5 @@
 // Package rubric is the machine-readable craftsmanship standard the review agent
-// reviews against. The canonical text lives in docs/quality/craftsmanship.md; rubric.json
+// reviews against. The canonical text lives in specs/quality/craftsmanship.md; rubric.json
 // is the version the gate consumes. See foundation architecture/15 (ADR-0045/A60).
 package rubric
 

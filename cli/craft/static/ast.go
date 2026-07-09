@@ -70,15 +70,8 @@ func hasAssertion(body *ast.BlockStmt, t string) bool {
 		if !ok {
 			return true
 		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if x, ok := sel.X.(*ast.Ident); ok {
-				if x.Name == t && assertMethods[sel.Sel.Name] {
-					found = true
-				}
-				if assertPackages[x.Name] {
-					found = true
-				}
-			}
+		if callAsserts(call, t) {
+			found = true
 		}
 		for _, arg := range call.Args {
 			if id, ok := arg.(*ast.Ident); ok && id.Name == t {
@@ -88,6 +81,20 @@ func hasAssertion(body *ast.BlockStmt, t string) bool {
 		return !found
 	})
 	return found
+}
+
+// callAsserts reports whether call is itself an assertion: a t-method from
+// assertMethods, or any call on a known assertion package.
+func callAsserts(call *ast.CallExpr, t string) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	x, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return (x.Name == t && assertMethods[sel.Sel.Name]) || assertPackages[x.Name]
 }
 
 // fieldsOf flattens the fields of the given field lists, skipping nils.
