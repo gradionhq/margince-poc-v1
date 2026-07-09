@@ -14,7 +14,7 @@ check: craft-drift check-image-pins
 dev-tls:
 	./dev/dev.sh
 
-check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev clean:
+check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev clean tools:
 	$(MAKE) -C backend $@
 
 ## eval — run the golden-dataset gates verbosely (they also run, quietly,

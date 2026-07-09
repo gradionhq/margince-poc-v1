@@ -17,7 +17,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev clean vuln hooks
+.PHONY: help check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev clean vuln tools hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -51,8 +51,9 @@ lint: ## golangci-lint (depguard, gosec, misspell, revive, gofmt)
 
 # Layer C of the boundary stack — a HARD gate: a forbidden import edge
 # fails `make check`, it is never advisory.
+GO_ARCH_LINT_VERSION ?= v1.12.0
 arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
-	$(GO) run github.com/fe3dback/go-arch-lint@v1.12.0 check
+	$(GO) run github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION) check
 
 # The stub and agent-policy generators run here explicitly (not via
 # `go generate ./...`): internal/compose is generated INTO, and its own
@@ -72,6 +73,20 @@ drift: gen ## Fail when any generated file drifted from the contract
 GOVULNCHECK_VERSION ?= v1.1.4
 vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+# Fresh-machine bootstrap. golangci-lint is the one gate binary `make check`
+# expects on PATH; this version must stay identical to the pin in
+# .tool-versions and the golangci-lint-action version in ci.yml — bump all
+# three together. arch-lint and vuln already run their tools via pinned
+# `go run`, so those installs just pre-warm the module cache (and give the
+# binaries a PATH home for direct use). Installs are unconditional: a cached
+# binary at a different version must be overwritten, or the pin doesn't bind.
+GOLANGCI_LINT_VERSION ?= v2.12.2
+tools: ## Install every gate binary at its pinned version (fresh-machine bootstrap)
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	$(GO) install github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION)
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	@echo "gate binaries ready in $$($(GO) env GOPATH)/bin — ensure it is on PATH"
 
 # `git rev-parse --git-path hooks` honors core.hooksPath, so this works
 # both on a plain clone (.git/hooks) and after the root `make hooks`
