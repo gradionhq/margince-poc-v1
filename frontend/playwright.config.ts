@@ -12,6 +12,10 @@ export default defineConfig({
   use: {
     baseURL: process.env.BASE_URL ?? "http://localhost:4317",
     viewport: { width: 1280, height: 800 },
+    // The AC criteria assert the German chrome; detectLocale reads the
+    // browser's language, so pin it — otherwise the suite only passes on a
+    // machine whose system locale happens to be German.
+    locale: "de-DE",
     // the SW would compete with the network-edge seed mocks
     serviceWorkers: "block",
   },

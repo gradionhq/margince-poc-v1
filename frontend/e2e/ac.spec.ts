@@ -27,6 +27,9 @@ test("AC-shell-1: the rail renders the canonical 9 items in order", async ({
   page,
 }) => {
   await page.goto("/#/home");
+  // evaluateAll never waits — anchor on the rendered count first, or the
+  // read races the auth splash and sees an empty rail.
+  await expect(page.locator("nav.rail a.navitem")).toHaveCount(9);
   const labels = await page
     .locator("nav.rail a.navitem")
     .evaluateAll((links) =>
