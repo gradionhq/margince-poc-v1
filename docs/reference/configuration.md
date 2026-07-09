@@ -88,5 +88,7 @@ migrate <up|down> --dsn <owner-dsn> [--steps n]
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile for the dev containers. |
 
 Model credentials (BYOK cloud tiers) are configured in
-`ai-routing.yaml`, not through binary flags — see the comments in
-`backend/ai-routing.yaml`.
+`ai-routing.yaml`, not through binary flags. The annotated reference is
+[`config/ai-routing.example.yaml`](../../config/ai-routing.example.yaml)
+(kept parseable by a fitness test in `modules/ai`);
+`backend/ai-routing.yaml` is the terse dev default the repo ships.
