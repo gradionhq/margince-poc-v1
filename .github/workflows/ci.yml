@@ -52,13 +52,19 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: ./scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
 
-  # The deterministic merge gate: build, vet, lint, arch-lint, unit + root
-  # fitness tests, generated-drift, and the craft-manifest drift check.
+  # The deterministic merge gate: build, vet, lint (baseline + new-code
+  # strict), arch-lint, unit + root fitness tests, generated-drift, and the
+  # script gates (image pins, contract breaking, test lanes, file length).
   deterministic-gates:
     name: deterministic-gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # The contract-breaking gate and the strict lint's
+          # new-from-merge-base both diff against origin/main — a shallow
+          # checkout has no base ref and would silently disarm them.
+          fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -67,9 +73,21 @@ jobs:
         with:
           version: v2.12.2
           working-directory: backend
-      - name: Workflow actions are SHA-pinned
+      - name: Workflow actions and container images are pinned
         working-directory: .
         run: make check-image-pins
+      - name: Contract breaking-change gate (oasdiff vs origin/main)
+        working-directory: .
+        env:
+          # In CI a missing base ref is a broken checkout, never a skip.
+          CONTRACT_BREAKING_REQUIRE_BASE: "1"
+        run: make contract-breaking-check
+      - name: Test-lane separation (unit lane stays hermetic)
+        working-directory: .
+        run: make test-lanes
+      - name: Go file-length ratchet
+        working-directory: .
+        run: make go-file-length
       - run: make check
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
@@ -107,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
         env:
           POSTGRES_USER: margince_owner
           POSTGRES_PASSWORD: dev
@@ -118,7 +136,7 @@ jobs:
           --health-cmd "pg_isready -U margince_owner"
           --health-interval 2s --health-timeout 5s --health-retries 15
       redis:
-        image: redis:7
+        image: redis:7@sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50
         ports:
           - 56379:6379
         options: >-
@@ -175,7 +193,7 @@ jobs:
     # integration job uses.
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
         env:
           POSTGRES_USER: margince_owner
           POSTGRES_PASSWORD: dev
@@ -186,7 +204,7 @@ jobs:
           --health-cmd "pg_isready -U margince_owner"
           --health-interval 2s --health-timeout 5s --health-retries 15
       redis:
-        image: redis:7
+        image: redis:7@sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50
         ports:
           - 56379:6379
         options: >-

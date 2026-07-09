@@ -3,9 +3,9 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval tools seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync check-image-pins hooks
+.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval tools seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync check-image-pins contract-breaking-check test-lanes go-file-length hooks
 
-check: craft-drift check-image-pins
+check: craft-drift check-image-pins contract-breaking-check test-lanes go-file-length
 
 ## dev-tls — the full local stack in a real browser: an HTTPS front door on
 ## :8080 fronts the api (:8081) and the Vite dev server (:5173), so the SPA
@@ -35,8 +35,15 @@ verify-boot:
 eval:
 	cd backend && go test ./internal/compose -run 'TestColdStartGolden' -v
 
+## frontend-check — the frontend merge lane. The gen:api + diff pair is the
+## TS type-drift gate: src/api/schema.d.ts is generated from crm.yaml, and a
+## contract change that skips regeneration would silently strand the frontend
+## types — regenerate and commit them together.
 frontend-check:
-	cd frontend && pnpm install --frozen-lockfile && pnpm check
+	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
+		{ git diff --exit-code -- src/api/schema.d.ts || \
+			{ echo "frontend types drifted from backend/api/crm.yaml — commit the regenerated src/api/schema.d.ts (printed above)"; exit 1; }; } && \
+		pnpm check
 
 frontend-dev:
 	cd frontend && pnpm install && pnpm dev
@@ -74,12 +81,30 @@ craft-sync:
 	rsync -a --delete ../margince-foundation/skeleton/cli/craft/ cli/craft/
 	@$(MAKE) craft-drift
 
-## check-image-pins — every `uses:` in .github/workflows/ is pinned to a
-## full commit SHA or digest (supply-chain: a floating vN/main tag lets a
-## compromised action ride into CI unreviewed). Lives at the root because
-## the workflows do; also a CI step, so a pin can't regress.
+## check-image-pins — every `uses:` in .github/workflows/ AND every container
+## `image:` (workflow service containers + infra/docker-compose.dev.yml) is
+## pinned to an immutable ref (supply-chain: a floating vN/main tag or image
+## tag lets a compromised artifact ride into CI unreviewed). Lives at the root
+## because the workflows do; also a CI step, so a pin can't regress.
 check-image-pins:
 	@./scripts/check-image-pins.sh
+
+## contract-breaking-check — oasdiff severity gate on backend/api/crm.yaml vs
+## origin/main: a breaking change (removed op, narrowed type…) fails; additive
+## changes pass. A deliberate spec re-sync runs with CONTRACT_STABILITY=pre-live.
+contract-breaking-check:
+	@./scripts/check-contract-breaking.sh
+
+## test-lanes — hermetic-unit-lane enforcement: no untagged test may open a
+## real Postgres/Redis; real-infra suites carry //go:build integration.
+test-lanes:
+	@./scripts/check-test-lanes.sh
+
+## go-file-length — hard 500-LOC cap on hand-written Go files, ratcheted via
+## scripts/go-file-length-waivers.txt (pre-existing offenders may shrink,
+## never grow).
+go-file-length:
+	@./scripts/check-go-file-length.sh
 
 ## hooks — install the repo's git hooks (the pre-push craft-static gate).
 ## Run once after cloning.

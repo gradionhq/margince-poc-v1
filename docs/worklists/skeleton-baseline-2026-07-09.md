@@ -91,32 +91,49 @@ Consequences:
 Skeleton gates we lack entirely (each is a small script; wire into
 `backend/Makefile check` or root):
 
-- [ ] `contract-breaking-check` — **oasdiff** severity gate on `crm.yaml` vs
+- [x] `contract-breaking-check` — **oasdiff** severity gate on `crm.yaml` vs
       `origin/main` (we only have whole-file drift on generated Go).
-- [ ] **TS type drift** — `frontend/src/api/schema.d.ts` is generated but
+      (Done PR C — `scripts/check-contract-breaking.sh`, pinned oasdiff via
+      `go run`, hard-fail default with a `CONTRACT_STABILITY=pre-live`
+      escape for deliberate spec re-syncs; decisions/0020 §2.)
+- [x] **TS type drift** — `frontend/src/api/schema.d.ts` is generated but
       *not* drift-gated; a `crm.yaml` change can silently strand the
       frontend types. Fold `pnpm gen:api` + `git diff --exit-code` into the
       gate (skeleton: `gen-types.sh check`).
-- [ ] `go-file-length` — hard 500-LOC cap (non-test, non-generated). We
+      (Done PR C — in `make frontend-check`, so the frontend CI job runs it;
+      the gate immediately caught schema.d.ts 400+ lines stale, regenerated
+      and committed with the PR; decisions/0020 §3.)
+- [x] `go-file-length` — hard 500-LOC cap (non-test, non-generated). We
       already carry known >500 offenders (`people/person.go`,
       `people/lead.go`, `deals/offer.go`) — adopt diff-scoped or with a
       ratchet/waiver list so the gate lands without a big-bang split.
-- [ ] `test-lanes` — hermetic-unit-lane check (no untagged test opens real
+      (Done PR C — ratchet via `scripts/go-file-length-waivers.txt`; the
+      named offenders had already been split <500 by the Strojny work; the
+      only live waiver is `backend/internal/compose/report.go` at 501;
+      decisions/0020 §6.)
+- [x] `test-lanes` — hermetic-unit-lane check (no untagged test opens real
       PG/Redis). We rely on the `//go:build integration` convention with no
-      enforcement.
-- [ ] `check-image-pins` — see 1a.
-- [ ] **Stricter `.golangci.yml`** — skeleton runs ~20 linters incl.
+      enforcement. (Done PR C — `scripts/check-test-lanes.sh`, markers
+      adapted to our `MARGINCE_TEST_*` env contract; decisions/0020 §4.)
+- [x] `check-image-pins` — see 1a. (Workflow `uses:` pins done PR A; PR C
+      extended the script to `image:` lines — CI service containers and the
+      compose stack are digest-pinned and gated; decisions/0020 §7.)
+- [x] **Stricter `.golangci.yml`** — skeleton runs ~20 linters incl.
       gofumpt+gci, gocritic, staticcheck, funlen/cyclop/gocognit, errcheck,
       rowserrcheck/sqlclosecheck/bodyclose, forcetypeassert, nolintlint;
       ours is `default: standard` + 4. `DECISION (build)`: adopt wholesale
       (big backlog burn-down) vs adopt with `new-from-rev` so only new code
       is gated. Recommend `new-from-rev`.
+      (Done PR C — the recommended arm, as `backend/.golangci.strict.yml`
+      with `new-from-merge-base: origin/main`; the baseline config is
+      untouched so the depguard DAG stays repo-wide; decisions/0020 §1.)
 - [ ] `check-doc-style` / subsystem-doc conventions — only if we adopt the
       foundation's subsystem-chapter format for `docs/` (ties to §0
       spec-reconciliation decision).
-- [ ] **Zero-skip integration enforcement** — our lane's "fails loudly
+- [x] **Zero-skip integration enforcement** — our lane's "fails loudly
       without a DB" claim is convention; skeleton scripts assert a skipped
-      test fails the run. Cheap to add.
+      test fails the run. Cheap to add. (Done PR C — `make test-integration`
+      greps `-v` output for `--- SKIP` and fails; decisions/0020 §5.)
 - [ ] Consider skeleton's **parallel integration harness** (per-package
       throwaway DB clones) — ours is `-p 1` serial; adopt when lane time
       hurts, not before.

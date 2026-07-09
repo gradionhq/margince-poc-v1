@@ -4,9 +4,10 @@
 # the backend Makefile's MARGINCE_TEST_* defaults, dev/dev.sh, and CI's
 # service containers — change them everywhere or nowhere.
 #
-# Images track the same floating tags CI's service containers use
-# (.github/workflows/ci.yml). The check-image-pins gate covers workflow
-# `uses:` refs; digest-pinning these images rides the PR C gate-parity work.
+# Images are digest-pinned to the multi-arch INDEX digest (works on both
+# arm64 dev machines and amd64 CI), same pins as CI's service containers
+# (.github/workflows/ci.yml) — bump tag and digest together, everywhere or
+# nowhere. The check-image-pins gate fails a floating tag here.
 #
 # The project name is repo-specific: a generic name (margince-dev) collides
 # with stale volumes from the frozen poc-era stack on machines that ran it,
@@ -18,7 +19,7 @@ services:
   postgres:
     # pgvector ships inside the Postgres image: the search module's hybrid
     # retrieval needs the extension available at migrate time.
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
     environment:
       POSTGRES_USER: margince_owner
       POSTGRES_PASSWORD: dev
@@ -34,7 +35,7 @@ services:
       retries: 15
 
   redis:
-    image: redis:7
+    image: redis:7@sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50
     ports:
       - "56379:6379"
     healthcheck:

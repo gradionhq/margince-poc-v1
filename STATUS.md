@@ -5,6 +5,50 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-09 PM — skeleton-baseline PR C: gate parity landed)
+
+**PR C — the §1b gate-parity batch (this session):** all seven scoped
+gates ported from the foundation skeleton — the backend/root ones wired
+into `make check`, the TS-drift gate into `make frontend-check`, and all
+of them enforced in CI; design decisions ratified in
+**decisions/0020-gate-parity.md**:
+
+- **contract-breaking-check** — pinned oasdiff (v1.22.0 via `go run`; also
+  in `make tools`) severity-gates `backend/api/crm.yaml` vs `origin/main`;
+  breaking fails, additive passes; `CONTRACT_STABILITY=pre-live` is the
+  deliberate-re-sync escape. CI checks out `fetch-depth: 0` and sets
+  `CONTRACT_BREAKING_REQUIRE_BASE=1` so a missing base ref is red, not a
+  silent skip.
+- **TS type drift** — `make frontend-check` (local + the frontend CI job)
+  now runs `pnpm gen:api` + `git diff --exit-code`. The gate immediately
+  proved itself: `frontend/src/api/schema.d.ts` was 400+ lines stale
+  behind crm.yaml — regenerated, committed, frontend lane green on it.
+- **test-lanes** — `scripts/check-test-lanes.sh`: no untagged test may
+  carry real-PG/Redis markers (`MARGINCE_TEST_*`, `pgxpool.New`, …);
+  current tree clean.
+- **zero-skip integration** — `make test-integration` fails on any
+  `--- SKIP` in the lane (the "fails loudly" claim is now enforced, not
+  convention).
+- **golangci expansion, new-code-only** — the worklist DECISION's
+  recommended arm: `backend/.golangci.strict.yml` (skeleton's ~25-linter
+  set + gofumpt/gci, integration+livesmoke tags) gated by
+  `new-from-merge-base: origin/main`; the baseline `.golangci.yml` is
+  untouched so the depguard DAG stays repo-wide. `make lint` runs both.
+- **go-file-length** — hard 500-LOC cap with a ratchet
+  (`scripts/go-file-length-waivers.txt`: shrink yes, grow no, ≤500 ⇒
+  remove the entry). The worklist's named offenders were already split by
+  the Strojny work; the single live waiver is `compose/report.go` (501).
+- **digest-pinned images** — compose + CI service containers pin
+  `tag@sha256:` (multi-arch index digests, so arm64 dev and amd64 CI share
+  one pin); `scripts/check-image-pins.sh` grew a fail-closed `image:` pass
+  covering workflows and `infra/docker-compose.dev.yml`.
+
+Worklist §1b is fully ticked except `check-doc-style` (blocked on the §0
+spec-reconciliation decision) and the parallel integration harness (adopt
+when lane time hurts). Still queued from §4: PR D frontend, PR E OSS
+packaging, the §1c/§1d DECISION items, and the login-500-on-unknown-
+workspace identity wart.
+
 ## ▶ RESTART HERE (2026-07-09 — skeleton-baseline PR A + PR B: gates hardened, dev experience landed)
 
 Working docs/worklists/skeleton-baseline-2026-07-09.md (poc-v1 → official

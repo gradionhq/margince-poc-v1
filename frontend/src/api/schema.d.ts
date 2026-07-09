@@ -894,6 +894,63 @@ export interface paths {
         patch: operations["updateAutomation"];
         trace?: never;
     };
+    "/automations/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry-run an automation's blast radius (🟢 read; no writes, no sends).
+         * @description Powers the designer's live dry-run (A72/ADR-0035 Am.1). Evaluates the recipe's trigger + filter and
+         *     returns how many records match **now** and an estimate of how many times it *would have* fired over a
+         *     trailing window — **without** performing any action. This is a **🟢 read**, executed under the caller's
+         *     Passport: it never mutates a record, never sends, and never stages an approval. Accepts either the stored
+         *     automation or, for a not-yet-created draft, an inline recipe in the body (so the editor can preview
+         *     before the first save). `x-mcp-tool` read tier.
+         */
+        post: operations["previewAutomation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/automations/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read-only run history for one automation — successes AND errored/blocked/skipped runs.
+         * @description The designer's run history (A72/ADR-0035 Am.1 — **promoted into V1**, previously fast-follow). Each
+         *     `AutomationRun` is reconstructed from `audit_log`/`automation_run` (data-model §12.5) and stamped with
+         *     the tier that fired and whether approval was needed. Runs of every outcome are first-class (mapping to
+         *     `automation_run.status`) — including `failed` (a provider/action error), `blocked` (a 🟡 step whose
+         *     approval expired or was rejected — **added to the status set by A72/ADR-0035 Am.1**), and `skipped`
+         *     (e.g. the Passport no longer permits the action) — never only `fired` successes. Read-only: runs are
+         *     produced by the engine, not created via the API. 🟡 actions still queue to `/approvals` at run time.
+         */
+        get: operations["listAutomationRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads": {
         parameters: {
             query?: never;
@@ -1289,11 +1346,15 @@ export interface paths {
         put?: never;
         /**
          * Website cold-start read-back — returns a staged proposal with evidence.
-         * @description Given a company URL, fetches + parses it (via the ADR-0006 connector) and returns a
-         *     structured read-back: ICP, buying center, value proposition, USP, buying intents.
-         *     EVERY returned field carries a non-empty `evidence_snippet` + `source_url` +
-         *     `confidence`, or it is ABSENT (the no-guess gate, features/07 §1). NOTHING is written
-         *     to real records — this is a 🟡 staging surface; the user accepts via /approvals.
+         * @description Reads back a structured company profile (ICP, buying center, value proposition, USP, buying
+         *     intents) from EXACTLY ONE input (B-E01.2b/.13): a company `url` (fetched+parsed via the ADR-0006
+         *     connector), pasted `text` (the manual fallback when a site is robots-disallowed/unreadable — a
+         *     paste-text form, never an error wall), or a `self_description` (the user's own dictated/typed ICP).
+         *     EVERY returned field carries a non-empty `evidence_snippet` + `confidence` + a `source_kind`
+         *     (`source_url` only when `source_kind=url`), or it is ABSENT (the no-guess gate, features/07 §1).
+         *     NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
+         *     A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
+         *     that is honest grounding, not fabrication, and it still stages 🟡.
          */
         post: operations["coldStartReadback"];
         delete?: never;
@@ -2148,6 +2209,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brief/items/{itemId}/snooze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A brief_item id belonging to one of the acting rep's runs. */
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
+         * @description Sets the item to `state=snoozed` with the given `snoozed_until`. While the instant has not
+         *     passed, the item is hidden from the home read AND the deal is suppressed from freshly
+         *     generated runs. Once `snoozed_until` passes, the item re-surfaces as actionable — distinct
+         *     from `dismissed` (which needs a new linked activity) and `acted` (which needs a material
+         *     change). Per-rep queue state, like act/dismiss.
+         */
+        post: operations["snoozeBriefItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2291,6 +2379,35 @@ export interface components {
             /** Format: date-time */
             archived_at?: string | null;
         };
+        /**
+         * @description Deterministic relationship-strength (features/07 §4) — a transparent function over captured
+         *     interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
+         *     interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
+         *     `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
+         */
+        RelationshipStrength: {
+            /** @description 0..100 composite. */
+            score: number;
+            /**
+             * @description Coarse band derived from score for display.
+             * @enum {string}
+             */
+            bucket: "dormant" | "weak" | "warm" | "strong";
+            /** @description The 0..1 sub-scores the composite was built from (the explanation). */
+            factors: {
+                recency: number;
+                frequency: number;
+                reciprocity: number;
+                direction: number;
+            };
+            /** @description The activities the score was computed from (the receipts behind the number). */
+            contributing_activity_ids?: string[];
+            /**
+             * Format: date-time
+             * @description When this value was last recomputed (fixed-clock reproducible).
+             */
+            computed_at?: string;
+        };
         /** @description A contact. Mirrors the `person` table. */
         Person: {
             /** Format: uuid */
@@ -2329,6 +2446,8 @@ export interface components {
              * @description Canonical origin pointer if promoted from a lead.
              */
             converted_from_lead_id?: string | null;
+            /** @description Deterministic relationship-strength (features/07 §4). Read-only derived view; NULL until capture has interactions. No mystery number — the factors + contributing activities are the explanation. */
+            readonly strength?: components["schemas"]["RelationshipStrength"];
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
@@ -2450,6 +2569,8 @@ export interface components {
              * @enum {string|null}
              */
             classification?: null | "prospect" | "customer" | "agency" | "reseller" | "tech_vendor" | "platform" | "partner" | "competitor" | "other";
+            /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
+            readonly strength?: components["schemas"]["RelationshipStrength"];
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
@@ -2830,7 +2951,7 @@ export interface components {
             /** Format: uuid */
             activity_id?: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal";
+            entity_type: "person" | "organization" | "deal" | "lead";
             /** Format: uuid */
             entity_id: string;
         };
@@ -2861,7 +2982,7 @@ export interface components {
             due_at?: string | null;
             /**
              * Format: date-time
-             * @description Task only.
+             * @description Task only. Reminder-fire time; the B-E16.6 scan reads tasks whose reminder is due, not-done, and un-archived.
              */
             remind_at?: string | null;
             /**
@@ -2917,7 +3038,10 @@ export interface components {
             occurred_at?: string;
             /** Format: date-time */
             due_at?: string | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Task only.
+             */
             remind_at?: string | null;
             /** Format: uuid */
             assignee_id?: string | null;
@@ -2930,7 +3054,7 @@ export interface components {
             source_id?: string | null;
             links?: {
                 /** @enum {string} */
-                entity_type: "person" | "organization" | "deal";
+                entity_type: "person" | "organization" | "deal" | "lead";
                 /** Format: uuid */
                 entity_id: string;
             }[];
@@ -2946,11 +3070,14 @@ export interface components {
             occurred_at?: string;
             /** Format: date-time */
             due_at?: string | null;
-            /** Format: date-time */
-            remind_at?: string | null;
             /** Format: uuid */
             assignee_id?: string | null;
-            /** @description Completing a task writes one audit row + task.completed event. */
+            /**
+             * Format: date-time
+             * @description Task only. Set/clear the reminder; PATCH target for B-E16.2/.3. The reminder scan (B-E16.6) fires on this.
+             */
+            remind_at?: string | null;
+            /** @description Completing a task writes one audit row + an `activity.updated` event carrying the `is_done` delta (events.md §5.5 — there is no separate `task.*` family). */
             is_done?: boolean;
         };
         ActivityListResponse: {
@@ -2990,6 +3117,8 @@ export interface components {
              * @description Lowercased; lead-internal dedupe key.
              */
             email?: string | null;
+            /** @description Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key. */
+            linkedin_url?: string | null;
             title?: string | null;
             /** @description FREE TEXT — NOT an organization FK. */
             company_name?: string | null;
@@ -3005,8 +3134,8 @@ export interface components {
              * @default 0
              */
             score: number;
-            /** @description Non-null when a human has set score as a Commercial Judgement override (formulas §3.1, A68/ADR-0053). A non-empty reason makes score sticky: the §3 recompute stops touching score and tracks the machine value in score_computed instead. Cleared → recompute resumes. */
-            score_override_reason?: string | null;
+            /** @description Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`. */
+            readonly score_override_reason?: string | null;
             /** @description Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value). */
             readonly score_computed?: number | null;
             /** Format: uuid */
@@ -3038,6 +3167,8 @@ export interface components {
             full_name?: string | null;
             /** Format: email */
             email?: string | null;
+            /** @description Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key for LinkedIn-captured leads. */
+            linkedin_url?: string | null;
             title?: string | null;
             company_name?: string | null;
             candidate_org_key?: string | null;
@@ -3068,10 +3199,10 @@ export interface components {
             candidate_org_key?: string | null;
             /** @enum {string} */
             status?: "new" | "working";
-            /** @description Human Commercial-Judgement score override (formulas §3.1, AC-S1). Setting it REQUIRES a non-empty score_override_reason in the SAME request — a score with no reason is rejected 422. Establishing an override makes the value sticky (recompute stops overwriting it). Omit to keep the current value. */
+            /** @description Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute. */
             score?: number | null;
-            /** @description The written reason accompanying a score override (mandatory whenever score is set, AC-S1). Two gestures only: a non-empty reason SETS/keeps the override; an explicit empty string CLEARS an in-force override (resumes the §3 recompute so score tracks score_computed again). Omit the field to leave the override untouched. null is not accepted — omit instead. */
-            score_override_reason?: string;
+            /** @description Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared. */
+            score_override_reason?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
         };
@@ -3610,7 +3741,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "login" | "assign" | "advance_stage" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "login" | "assign" | "advance_stage" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo";
             entity_type: string;
             /** Format: uuid */
             entity_id?: string | null;
@@ -3757,30 +3888,62 @@ export interface components {
             /** @description Distinct counterparties seen across the captured messages. */
             contacts: number;
         };
+        /**
+         * @description EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
+         *     manual paste-text fallback — a robots-disallowed / unreadable site degrades to "paste the text",
+         *     never an error wall), or `self_description` (the user's own dictated/typed description of their
+         *     ICP — B-E01.13 speech input). Provide one; supplying more than one is `422`.
+         */
         ColdStartRequest: {
             /**
              * Format: uri
              * @description Company website URL to read back.
              */
-            url: string;
-        };
-        /** @description One read-back field. EVERY field carries non-empty evidence + confidence, or it is omitted (no-guess gate). */
+            url?: string | null;
+            /** @description Pasted page/company text (the paste-text fallback when a URL is unfetchable). Treated as T2 untrusted; extraction cites text offsets, not a URL. */
+            text?: string | null;
+            /** @description The user's own words describing their business/ICP (typed or dictated). Grounded in the user's own statement — source_kind=self_description; still 🟡-staged, never auto-written. */
+            self_description?: string | null;
+        } & (unknown | unknown | unknown);
+        /**
+         * @description One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
+         *     omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
+         *     ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
+         */
         ColdStartField: {
             /** @enum {string} */
             field: "icp" | "buying_center" | "value_proposition" | "usp" | "buying_intents" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
             value: string;
-            /** @description Verbatim source text — non-empty or the field is absent. */
+            /** @description Verbatim source text (from the page, the pasted text, or the user's own words) — non-empty or the field is absent. */
             evidence_snippet: string;
-            /** Format: uri */
-            source_url: string;
+            /**
+             * @description Where evidence_snippet came from. For self_description the "evidence" is the user's own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.
+             * @enum {string}
+             */
+            source_kind: "url" | "text" | "self_description";
+            /**
+             * Format: uri
+             * @description Present only when source_kind=url; null for text/self_description.
+             */
+            source_url?: string | null;
+            /** @description Optional char offset of evidence_snippet within the pasted text (source_kind=text), for highlight-back; null for url/self_description. */
+            evidence_offset?: number | null;
             confidence: number;
         };
         /** @description A staged proposal. NOTHING is written to real records until accepted via /approvals. */
         ColdStartProposal: {
             /** Format: uuid */
             proposal_id: string;
-            /** Format: uri */
-            source_url: string;
+            /**
+             * @description The input source this proposal was read from.
+             * @enum {string}
+             */
+            source_kind: "url" | "text" | "self_description";
+            /**
+             * Format: uri
+             * @description The company URL when source_kind=url; null for text/self_description.
+             */
+            source_url?: string | null;
             /**
              * @description Always staged — accept via the approval inbox.
              * @enum {string}
@@ -3945,6 +4108,9 @@ export interface components {
         /**
          * @description First-class partner state as a 1:1 extension of an organization (an org IS a partner iff it
          *     has a `partner` row + classification='partner'). Company identity is never duplicated.
+         *     A68/ADR-0053 adds the relationship-in-flight layer: lifecycle stage, relationship health,
+         *     partner fit, next step, and served segments. Behavior is Fast-follow, but the V1 schema is
+         *     forward-compatible.
          */
         Partner: {
             /**
@@ -3968,6 +4134,25 @@ export interface components {
             gate_metrics?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * @default research
+             * @enum {string}
+             */
+            relationship_stage: "research" | "identified" | "contacted" | "in_conversation" | "fit_confirmed" | "agreement_pending" | "active" | "active_referring" | "dormant" | "no_fit";
+            /** @description Current partner-fit score; if partner_fit_override_reason is non-null this is the Commercial Judgement value. */
+            partner_fit_score?: number | null;
+            /** @description Retained machine-computed partner-fit value while a Commercial Judgement override is in force. */
+            readonly partner_fit_score_computed?: number | null;
+            /** @description Non-null ⇒ partner_fit_score is a human Commercial Judgement override and recompute is suppressed until cleared. */
+            readonly partner_fit_override_reason?: string | null;
+            /** @description Decimal-as-string 0..1 derived by formulas §16; basis for 30/60/90 partner dormancy flags. */
+            relationship_health?: string | null;
+            /** Format: date-time */
+            last_contact_at?: string | null;
+            next_step?: string | null;
+            /** Format: date */
+            next_step_due_at?: string | null;
+            served_segments?: string[] | null;
             version?: components["schemas"]["RowVersion"];
             /** Format: date-time */
             created_at: string;
@@ -3986,6 +4171,12 @@ export interface components {
             gate_metrics?: {
                 [key: string]: unknown;
             } | null;
+            /** @enum {string} */
+            relationship_stage?: "research" | "identified" | "contacted" | "in_conversation" | "fit_confirmed" | "agreement_pending" | "active" | "active_referring" | "dormant" | "no_fit";
+            next_step?: string | null;
+            /** Format: date */
+            next_step_due_at?: string | null;
+            served_segments?: string[] | null;
         };
         ConsentPurpose: {
             /** Format: uuid */
@@ -4221,6 +4412,71 @@ export interface components {
             } | null;
             /** @enum {string|null} */
             status?: "enabled" | "paused" | null;
+        };
+        /**
+         * @description Optional body for POST /automations/{id}/preview. Omit to preview the stored automation as-is; supply
+         *     an inline draft recipe (key + params) to preview a not-yet-created or edited automation from the
+         *     designer before saving (A72/ADR-0035 Am.1). Never causes a write or send — preview is a 🟢 read.
+         */
+        AutomationPreviewRequest: {
+            /** @description Catalog type for a draft preview (defaults to the stored instance's key). */
+            key?: string | null;
+            /** @description Draft parameters (trigger/filter/actions) to preview instead of the stored ones. */
+            params?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description Trailing window for the would-have-fired estimate (default 30). */
+            window_days?: number | null;
+        };
+        /** @description Read-only blast-radius result for the designer's dry-run. No side effects. */
+        AutomationPreview: {
+            /** @description Records matching the trigger+filter right now, bounded by the caller's Passport visibility. */
+            matches_now: number;
+            /** @description Estimated firings over the trailing window (null when not computable). */
+            would_have_fired?: number | null;
+            /** @description The trailing window used for would_have_fired. */
+            window_days: number;
+            /** @description Up to a few matching record ids for the "affects these" preview (visibility-bounded). */
+            sample?: string[];
+            /** @description Matches the caller cannot see (masked, not silently dropped) — honest count, never widens scope. */
+            excluded_by_permission?: number;
+        };
+        /**
+         * @description One firing of an automation, reconstructed from audit_log/automation_run (data-model §12.5). Runs of
+         *     EVERY outcome are first-class — including errored/blocked/skipped — so the designer's run history is
+         *     honest, not success-only (A72/ADR-0035 Am.1). Read-only: produced by the engine, never created via API.
+         */
+        AutomationRun: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            automation_id: string;
+            /**
+             * Format: date-time
+             * @description Maps to automation_run.ran_at.
+             */
+            occurred_at: string;
+            /**
+             * @description Maps 1:1 to automation_run.status (data-model §12.5); `blocked` added by A72/ADR-0035 Am.1.
+             * @enum {string}
+             */
+            outcome: "fired" | "failed" | "blocked" | "skipped" | "queued_for_approval";
+            /**
+             * @description The tier that fired for this run.
+             * @enum {string}
+             */
+            tier: "green" | "yellow";
+            approval_required?: boolean;
+            /** @description What matched (e.g. "no activity 14d on deal BÄR Pharma") — the "why did this fire?" line. */
+            trigger_evidence?: string | null;
+            /** @description Record the run acted on (type + id or label). */
+            target_ref?: string | null;
+            /** @description What happened (e.g. "created task", "queued to approval inbox"). */
+            action_result?: string | null;
+            /** @description For failed/blocked/skipped: why (e.g. "provider error", "approval expired", "Passport no longer permits send") — from automation_run.detail. */
+            reason?: string | null;
+            /** @description Link into the audit_log row for this run. */
+            audit_id?: string | null;
         };
         /**
          * @description A user's/team's voice DNA. `voice_profile_md` is machine-DERIVED (versioned by
@@ -4693,12 +4949,25 @@ export interface components {
              * @description The acting rep's queue state for this item.
              * @enum {string}
              */
-            state: "new" | "acted" | "dismissed";
+            state: "new" | "acted" | "dismissed" | "snoozed";
             /**
              * Format: date-time
-             * @description When the rep acted/dismissed; null while new.
+             * @description When the rep acted/dismissed/snoozed; null while new.
              */
             state_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When a snoozed item re-surfaces (A77/AC-home-6); set exactly while state=snoozed, null otherwise.
+             */
+            snoozed_until?: string | null;
+        };
+        /** @description Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes. */
+        BriefSnoozeRequest: {
+            /**
+             * Format: date-time
+             * @description When the item re-surfaces; must be in the future.
+             */
+            snoozed_until: string;
         };
         /** @description The §10.1 factor decomposition, each normalized 0..1 — the composite reconciles to it. */
         MorningBriefFeatureVector: {
@@ -5762,6 +6031,10 @@ export interface operations {
                 status?: "open" | "won" | "lost";
                 /** @description Deterministic stalled flag (no activity past the threshold). */
                 stalled?: boolean;
+                /** @description Filter to deals attributed to a specific partner org (deal.partner_org_id). */
+                partner_org_id?: string;
+                /** @description true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice. */
+                partner_sourced?: boolean;
             };
             header?: never;
             path?: never;
@@ -6696,6 +6969,7 @@ export interface operations {
                         /** Format: uuid */
                         entity_id: string;
                     }[];
+                    consent?: components["schemas"]["CaptureConsent"];
                 };
             };
         };
@@ -7084,6 +7358,76 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    previewAutomation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AutomationPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Blast-radius preview. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationPreview"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listAutomationRuns: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Filter by run outcome (matches automation_run.status, data-model §12.5). */
+                outcome?: "fired" | "failed" | "blocked" | "skipped" | "queued_for_approval";
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of run records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AutomationRun"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listLeads: {
@@ -9969,6 +10313,60 @@ export interface operations {
             };
             /** @description The item was already acted on or dismissed. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    snoozeBriefItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A brief_item id belonging to one of the acting rep's runs. */
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BriefSnoozeRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated brief item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningBriefItem"];
+                };
+            };
+            /** @description No such item in one of the acting rep's runs (another rep's item reads as not-found). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The item was already acted on or dismissed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `snoozed_until` is missing or not in the future. */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
