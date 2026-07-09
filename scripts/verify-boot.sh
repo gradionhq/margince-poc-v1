@@ -70,7 +70,10 @@ for name in "Alice Müller" "Bob Schmidt" "Carol Wagner"; do
 done
 
 echo "== verify-boot 3/3: frontend production build =="
-if ! (cd "$REPO_DIR/frontend" && pnpm install --frozen-lockfile && pnpm build); then
+# --ignore-scripts: no lifecycle scripts run at install; esbuild ships
+# prebuilt platform binaries as optional deps, so the build works without
+# its validating postinstall.
+if ! (cd "$REPO_DIR/frontend" && pnpm install --frozen-lockfile --ignore-scripts && pnpm build); then
   fail "the frontend production build failed — see output above"
 fi
 echo "  OK: frontend builds"
