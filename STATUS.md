@@ -5,6 +5,41 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-09 PM — skeleton-baseline PR D: frontend RBAC primitives + token-purity gates)
+
+**PR D — the §1d frontend batch (this session), the two non-DECISION items:**
+
+- **RBAC primitives** (skeleton concepts, adapted to our screens and the
+  /v1/me principal): ONE shared `useMe()` in `screens/common.tsx` — the App
+  auth gate, the settings identity card, and every role-aware surface now
+  read the same `["me"]` probe. `RoleBadge` + `FieldGuard`
+  (`design-system/rbac.tsx`) render localized role labels (five seeded keys,
+  raw fallback for workspace-defined roles) and "withheld, not absent"
+  masking — used on the settings passport rows for the never-re-disclosed
+  token. Nav gating landed where the server actually differentiates roles:
+  the canonical 9-item rail has no admin-only screen (AC-shell-1), so the
+  automations editor (config is admin/ops-owned, decisions/0006) hides its
+  Use/pause/edit/delete affordances behind `canConfigureAutomations` and
+  shows an honest read-only notice for manager/rep. Client-side gating is UX
+  honesty only — the server's `auth.Require` stays the authority; no new
+  endpoints. i18n en+de for all new copy; unit tests per touched screen
+  (rbac, settings — new suite, automations incl. rep-vs-admin affordances);
+  the `RoleBadge` prop is `roleKey` (Biome reads a JSX `role` prop as ARIA).
+- **Token-purity gates** — `frontend/scripts/check-{ds-purity,font-lock,
+  icon-glyph}.sh`, the first steps of `make frontend-check` (local + the
+  frontend CI job): colour literals only in `tokens.css`; only the three §2
+  families (+ generics and `var(--f-*)`); no emoji glyphs in rendered code
+  (comment content stripped — the house 🟢/🟡 tier notation is spec prose,
+  not UI; generated `schema.d.ts` excluded). Fail-closed like the PR C
+  gates, including an empty-scan guard; each verified red on a violation
+  fixture. They are the cheap grep arm ON TOP of the vitest conformance
+  suite, not a replacement. The skeleton's Tailwind-utility/px arms were
+  dropped, not ported — our DS is CSS-custom-property based.
+
+Worklist §1d: both non-DECISION items ticked; the DECISION items (routing,
+Storybook, Forge DS, second SPA) stay open. Still queued from §4: PR E OSS
+packaging, §1c ADRs, and the login-500-on-unknown-workspace identity wart.
+
 ## ▶ RESTART HERE (2026-07-09 PM — skeleton-baseline PR C: gate parity landed)
 
 **PR C — the §1b gate-parity batch (this session):** all seven scoped

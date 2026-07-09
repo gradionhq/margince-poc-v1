@@ -190,17 +190,34 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       vs our custom hash router. Ours works across ~19 screens; migration is
       churn without user-visible gain. Recommend: keep hash router for now,
       note as tech-debt candidate.
-- [ ] **RBAC primitives** — skeleton's `adminOnly` rail gating, `FieldGuard`
+- [x] **RBAC primitives** — skeleton's `adminOnly` rail gating, `FieldGuard`
       masking, `RoleBadge`. We have no client-side role gating. Port the
       *concepts* into our shell/nav (small, real value).
+      (Done PR D — adapted to our IA: the canonical 9-item rail has no
+      admin-only screen (AC-shell-1), so the nav-gating concept lands where
+      the server actually differentiates roles — the automations editor
+      (admin/ops-owned config per decisions/0006) hides its mutation
+      affordances for other roles behind `canConfigureAutomations` and says
+      why. One shared `useMe()` (screens/common) feeds the auth gate and
+      every role-aware surface; `RoleBadge` renders localized role labels in
+      settings; `FieldGuard` masks the never-re-disclosed passport token as
+      "withheld, not absent". Client-side is UX honesty only — the server's
+      auth.Require stays the authority.)
 - [ ] `DECISION (frontend)` **Storybook + component test lane** — skeleton
       has 10 stories + storybook-in-vitest browser project + `ui-shots`
       capture. We have none. Valuable for the design-system surface; adds a
       toolchain. Recommend adopt when the design system stabilizes.
-- [ ] **Design-token purity gates** — `ds-purity` (no raw hex/px),
+- [x] **Design-token purity gates** — `ds-purity` (no raw hex/px),
       `font-lock`, `icon-lint`. We already have token conformance *tests*;
       the skeleton's are cheap greps wired as gates. Port and adapt to our
       token names.
+      (Done PR D — `frontend/scripts/check-{ds-purity,font-lock,icon-glyph}.sh`,
+      first steps of `make frontend-check` so the frontend CI job runs them;
+      fail-closed incl. an empty-scan guard. Adapted: colour literals only in
+      tokens.css; the three §2 families + var(--f-*); emoji scan strips
+      comments (the house 🟢/🟡 tier notation is not rendered UI) and skips
+      the generated schema.d.ts. The skeleton's Tailwind-utility/px arms have
+      no equivalent in our CSS-custom-property DS — dropped, not ported.)
 - [ ] `DECISION (frontend)` **Forge design system** — skeleton vendors
       `@shared/{token,ui}` (Forge); we have a bespoke ~740-LOC design
       system. Which is the product's DS of record? Ties to the foundation's
