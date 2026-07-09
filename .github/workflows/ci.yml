@@ -250,6 +250,55 @@ jobs:
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
 
+  # The README quickstart, run literally: compose up → migrate → api →
+  # seed-dev → verify-boot. This is what keeps the compose file, the
+  # API-driven seed, and the boot proof honest — the integration job's
+  # GH service containers would stay green even if the compose stack or
+  # the seed script rotted.
+  live-boot:
+    name: live-boot (compose + seed + verify)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 11
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Boot the dev stack and migrate
+        run: make db-up && make migrate
+      - name: Start the api
+        working-directory: backend
+        env:
+          MARGINCE_ENV: dev
+        run: |
+          go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+            > "$RUNNER_TEMP/api.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:8080/readyz >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "api never became ready" >&2
+          cat "$RUNNER_TEMP/api.log" >&2
+          exit 1
+      - name: Seed the demo workspace
+        run: make seed-dev
+      - name: Verify boot
+        run: make verify-boot
+      - name: API log (on failure)
+        if: failure()
+        run: cat "$RUNNER_TEMP/api.log" || true
+
   # The frontend lane: Biome, Vitest, TypeScript, and the Vite production
   # build. The root Makefile promises CI runs both lanes; this is that lane.
   frontend:

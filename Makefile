@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval tools frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync check-image-pins hooks
+.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval tools seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync check-image-pins hooks
 
 check: craft-drift check-image-pins
 
@@ -14,8 +14,21 @@ check: craft-drift check-image-pins
 dev-tls:
 	./dev/dev.sh
 
-check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev clean tools:
+check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init seed-reset migrate dev clean tools:
 	$(MAKE) -C backend $@
+
+## seed-dev — create/refresh the demo workspace (demo-workspace,
+## admin@demo.test / demo-password-123) through the public API. Pure
+## client: the stack must be running (make dev). Idempotent; re-runs
+## log in instead of re-bootstrapping.
+seed-dev:
+	./scripts/seed-dev.sh
+
+## verify-boot — prove a running, seeded stack end to end: seeded-admin
+## login, seeded people visible over /v1, frontend production build.
+## Pure client (make dev + make seed-dev first); fails loudly, never skips.
+verify-boot:
+	./scripts/verify-boot.sh
 
 ## eval — run the golden-dataset gates verbosely (they also run, quietly,
 ## inside `make check`'s unit lane — that is the hard gate).

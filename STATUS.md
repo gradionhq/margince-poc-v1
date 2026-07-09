@@ -5,6 +5,62 @@
 > [AGENTS.md](AGENTS.md) for the binding rules. Update this file at the
 > end of every working session.
 
+## ▶ RESTART HERE (2026-07-09 — skeleton-baseline PR A + PR B: gates hardened, dev experience landed)
+
+Working docs/worklists/skeleton-baseline-2026-07-09.md (poc-v1 → official
+OSS baseline; §0 provenance there is the map):
+
+**PR A merged (#28, squash `a9d912e`) — the mechanical §1a batch:**
+`make craft-sync` to craft v3 (upstream's committed manifest is stale at
+its own HEAD, so the vendored copy was restamped locally — do NOT re-run
+`craft-sync` until the foundation restamps; see
+`feedback/2026-07-09-skeleton-craft-manifest-stale.md`), every workflow
+action SHA-pinned + the fail-closed `scripts/check-image-pins.sh` gate
+(root `make check` prerequisite AND a CI step — any new action must be
+SHA-pinned or the merge gate fails), `concurrency:` cancel-in-progress
+groups (main never cancelled), `.env.template` (this repo's real env
+surface only), `make tools` bootstrap (golangci-lint/go-arch-lint/
+govulncheck at their pins), `config/ai-routing.example.yaml` rewritten to
+our schema + a fitness test, and Go 1.26.5 for GO-2026-5856. Two upstream
+defects documented in `feedback/` (stale craft manifest; pins-script
+denylist + `*.yml`-only glob) — fixing them lives in the foundation repo,
+never by editing `cli/craft` here.
+
+**PR B — the §4.3 dev-experience batch (this session):**
+`infra/docker-compose.dev.yml` (pgvector/pg16 + redis:7, named volume,
+healthchecks; ports 55432/56379 and the margince_owner/db-init.sql role
+contract unchanged, so MARGINCE_TEST_* and CI keep working; MinIO
+commented-out pending the §1c blobstore ADR) with `make db-up/db-init/
+clean` rewired onto compose as the ONE path; the demo-workspace seed
+harness — `make seed-dev` drives the PUBLIC API (bootstrap is a
+cross-module tx, role policies are compiled-in Go, Argon2id passwords,
+and SQL would bypass the audit+outbox write shape), idempotent via
+natural-key 409s, bootstraps only when login fails so the 3/hour limiter
+is never burned on a re-run; `make seed-reset`
+(`scripts/seed-reset.sql`, dynamic over `workspace_id` tables, demo
+workspace only); `make verify-boot` (`scripts/verify-boot.sh`: seeded
+login → seeded people over /v1 → frontend production build; fails
+loudly); the README "boot / log in / verify" quickstart; and the
+`live-boot` CI job running that quickstart literally. Demo credentials
+(stable convention): workspace `demo-workspace`, `admin@demo.test` /
+`demo-password-123`. Verified locally end-to-end: fresh compose boot →
+migrate → seed → verify green → reset → verify fails loudly → re-seed →
+green.
+
+**Follow-ups spotted, not done here:** (1) `POST /v1/auth/login` against
+a nonexistent workspace answers 500 (`pg: no workspace bound to
+context`) instead of 401 — pre-existing identity-module wart, fix +
+test it separately; (2) decide whether `live-boot` becomes a required
+check (branch protection + `infra/branch-protection.json` together)
+after a few stable runs; (3) compose images ride the same floating tags
+as CI's service containers — digest-pinning both is PR C material.
+
+**Next in the worklist sequencing (§4):** PR C gate parity (oasdiff
+breaking gate, TS-type drift, test-lanes, zero-skip, golangci
+`new-from-rev`, file-length ratchet), PR D frontend, PR E OSS packaging,
+plus the §1c/§1d DECISION items (blobstore, keyvault, River, Storybook,
+Forge DS, second SPA).
+
 ## ▶ RESTART HERE (2026-07-08 PM — spec-drift reconciliation MERGED; feedback processed)
 
 **PR #23 merged** (squash `487d625`, all gates incl. Sonar green): the
