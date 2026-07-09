@@ -274,7 +274,11 @@ func mustRandomSecret() string {
 func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity, string, error) {
 	rawWsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return Identity{}, "", database.ErrNoWorkspace
+		// The resolver middleware binds no workspace when the slug doesn't
+		// exist — login stays public so bootstrap can work — and the answer
+		// must not disclose which failed: credentials against a tenant that
+		// isn't there read exactly like wrong credentials.
+		return Identity{}, "", ErrBadCredentials
 	}
 	wsID := ids.From[ids.WorkspaceKind](rawWsID)
 	token, tokenHash, err := mintSessionToken()
@@ -365,6 +369,11 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 // Logout revokes the session behind the cookie. Revoking an unknown or
 // already-revoked token is a no-op: logout is idempotent.
 func (s *Service) Logout(ctx context.Context, rawToken string) error {
+	if _, ok := principal.WorkspaceID(ctx); !ok {
+		// A workspace that doesn't resolve holds no sessions — nothing to
+		// revoke, same no-op as an unknown token.
+		return nil
+	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
 			`UPDATE session SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
