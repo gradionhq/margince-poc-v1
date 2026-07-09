@@ -36,6 +36,14 @@
   suite, not a replacement. The skeleton's Tailwind-utility/px arms were
   dropped, not ported — our DS is CSS-custom-property based.
 
+- **Drive-by: the AC e2e suite is machine-independent now** — the AC
+  criteria assert the German chrome but the Playwright config never pinned
+  a locale, so 19 specs failed on any non-German machine (reproduced
+  identically on origin/main; the suite had only ever run on a de-locale
+  host). Pinned `locale: "de-DE"`; AC-shell-1's rail read additionally
+  raced the auth splash (`evaluateAll` never waits) — anchored on
+  `toHaveCount(9)`. 37/37 green twice on an en-locale machine.
+
 Worklist §1d: both non-DECISION items ticked; the DECISION items (routing,
 Storybook, Forge DS, second SPA) stay open. Still queued from §4: PR E OSS
 packaging, §1c ADRs, and the login-500-on-unknown-workspace identity wart.
