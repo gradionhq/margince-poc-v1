@@ -1,12 +1,46 @@
-import type { UseQueryResult } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { api, workspaceSlug } from "../api/client";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
 import type { Provenance } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
 // Shared screen plumbing: honest loading / error / empty states (§3a screen-
-// state matrix) and the captured_by → provenance mapping every list reuses.
+// state matrix), the captured_by → provenance mapping every list reuses, and
+// the ONE /me query the auth gate and every role-aware surface share.
+
+// The session principal (GET /v1/me): identity + effective role keys. One
+// spelling, one ["me"] cache entry — the App auth gate, the settings identity
+// card, and role-aware affordances all read the same probe. Without a
+// workspace slug there is no tenant to ask, so the hook fails fast instead of
+// guaranteeing a 401 round-trip.
+export function useMe() {
+  return useQuery({
+    queryKey: ["me"],
+    retry: false,
+    queryFn: async () => {
+      if (!workspaceSlug()) {
+        throw new Error("no workspace");
+      }
+      const { data, error } = await api.GET("/me");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+}
+
+// Automation (and pipeline) config is admin/ops-owned in the seeded role
+// policies (decisions/0006) — manager and rep hold read-only grants. This
+// mirror gates AFFORDANCES only (UX honesty: no buttons that can only 403);
+// the server's auth.Require gate stays the authority on every mutation.
+export function canConfigureAutomations(
+  roles: readonly string[] | undefined,
+): boolean {
+  return (roles ?? []).some((role) => role === "admin" || role === "ops");
+}
 
 export function QueryGate<Data>({
   query,
