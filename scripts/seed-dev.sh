@@ -41,14 +41,16 @@ SESSION=""
 
 # The X-Workspace-Slug header resolves the tenant only under
 # MARGINCE_ENV=dev (make dev sets it); prod resolves by subdomain.
+# A transport failure (refused, timeout) prints status 000 and must not
+# trip set -e — the caller's status handling owns the error message.
 api() { # api <method> <path> [json-body] — prints the HTTP status, body lands in $workdir/body
   local method="$1" path="$2" data="${3:-}"
-  curl -sS -o "$workdir/body" -D "$workdir/headers" -w '%{http_code}' \
+  curl -sS --max-time 30 -o "$workdir/body" -D "$workdir/headers" -w '%{http_code}' \
     -X "$method" "$API_BASE/v1$path" \
     -H "X-Workspace-Slug: $WORKSPACE_SLUG" \
     -H 'Content-Type: application/json' \
     ${SESSION:+--cookie "crm_session=$SESSION"} \
-    ${data:+--data "$data"}
+    ${data:+--data "$data"} || true
 }
 
 # The session cookie is Secure, which curl's jar refuses to replay over
@@ -59,7 +61,7 @@ capture_session() {
 }
 
 echo "== seed-dev: API reachability =="
-curl -fsS "$API_BASE/readyz" >/dev/null 2>&1 \
+curl -fsS --max-time 10 "$API_BASE/readyz" >/dev/null 2>&1 \
   || fail "$API_BASE/readyz is not answering — start the stack first (make dev)"
 echo "  OK: $API_BASE is up"
 

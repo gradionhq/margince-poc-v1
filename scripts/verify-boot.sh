@@ -33,12 +33,18 @@ fail() {
 workdir="$(mktemp -d -t verify-boot.XXXXXX)"
 trap 'rm -rf "$workdir"' EXIT
 
+# A transport failure (refused, timeout) makes curl print status 000 and
+# exit non-zero; `|| true` keeps set -e from eating the fail() message,
+# and --max-time keeps a stalled API from hanging the proof.
 echo "== verify-boot 1/3: login as the seeded demo admin =="
-login_status="$(curl -sS -o "$workdir/login.json" -D "$workdir/headers" -w '%{http_code}' \
+login_status="$(curl -sS --max-time 15 -o "$workdir/login.json" -D "$workdir/headers" -w '%{http_code}' \
   -X POST "$API_BASE/v1/auth/login" \
   -H "X-Workspace-Slug: $WORKSPACE_SLUG" \
   -H 'Content-Type: application/json' \
-  --data "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')")"
+  --data "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{email:$e,password:$p}')" || true)"
+if [ -z "$login_status" ] || [ "$login_status" = "000" ]; then
+  fail "could not reach $API_BASE — is the stack up? (make dev)"
+fi
 if [ "$login_status" != "200" ]; then
   echo "  response body:" >&2
   cat "$workdir/login.json" >&2
@@ -51,10 +57,10 @@ session="$(sed -n 's/^[Ss]et-[Cc]ookie: crm_session=\([^;]*\).*/\1/p' "$workdir/
 echo "  OK: logged in as $ADMIN_EMAIL, session captured"
 
 echo "== verify-boot 2/3: seeded people are visible =="
-people_status="$(curl -sS -o "$workdir/people.json" -w '%{http_code}' \
+people_status="$(curl -sS --max-time 15 -o "$workdir/people.json" -w '%{http_code}' \
   "$API_BASE/v1/people?limit=100" \
   -H "X-Workspace-Slug: $WORKSPACE_SLUG" \
-  --cookie "crm_session=$session")"
+  --cookie "crm_session=$session" || true)"
 if [ "$people_status" != "200" ]; then
   echo "  response body:" >&2
   cat "$workdir/people.json" >&2
