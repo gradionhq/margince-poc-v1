@@ -9,10 +9,11 @@ import {
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
+import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessage, QueryGate, useMe } from "./common";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
 // /me (identity + effective roles), passports (mint + the metadata list,
@@ -41,16 +42,7 @@ export function SettingsScreen() {
 
 function IdentityCard() {
   const t = useT();
-  const query = useQuery({
-    queryKey: ["me"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/me");
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
+  const query = useMe();
   return (
     <section className="card" style={{ marginBottom: 14 }}>
       <SectionHeader title={t("settings.identity")} />
@@ -66,9 +58,7 @@ function IdentityCard() {
           >
             <span>{me.user.email}</span>
             {me.roles.map((role) => (
-              <Badge key={role} tone="accent">
-                {role}
-              </Badge>
+              <RoleBadge key={role} roleKey={role} />
             ))}
           </div>
         )}
@@ -260,6 +250,10 @@ function PassportCard() {
                   }}
                 >
                   <strong>{passport.label}</strong>
+                  {/* The credential exists but is withheld by design (shown
+                      once at mint) — masked reads as "withheld", not absent. */}
+                  <span className="t-label">{t("settings.token")}</span>
+                  <FieldGuard mode="masked" />
                   {passport.scopes.map((scope) => (
                     <Badge key={scope}>{scope}</Badge>
                   ))}

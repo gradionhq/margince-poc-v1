@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useState } from "react";
-import { api, workspaceSlug } from "./api/client";
 import { AskFab } from "./app/fab";
 import {
   CommandPalette,
@@ -15,6 +13,7 @@ import { AuthScreen } from "./screens/auth";
 import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
 import { ClientSurfaceScreen } from "./screens/client";
+import { useMe } from "./screens/common";
 import { DealScreen, DealsScreen } from "./screens/deals";
 import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
@@ -105,22 +104,7 @@ export function App() {
 function AuthedApp({
   route,
 }: Readonly<{ route: ReturnType<typeof useRoute> }>) {
-  const me = useQuery({
-    queryKey: ["me"],
-    retry: false,
-    queryFn: async () => {
-      if (!workspaceSlug()) {
-        // No workspace resolved yet — treat as unauthenticated without a
-        // guaranteed-401 round-trip.
-        throw new Error("no workspace");
-      }
-      const { data, error } = await api.GET("/me");
-      if (error) {
-        throw new Error("unauthenticated");
-      }
-      return data;
-    },
-  });
+  const me = useMe();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commands = useBuiltinCommands();

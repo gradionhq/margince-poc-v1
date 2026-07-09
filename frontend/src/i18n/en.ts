@@ -248,6 +248,12 @@ export const en = {
   "ai.paletteHint": "Ask from anywhere with",
 
   "settings.identity": "You",
+  "role.admin": "Admin",
+  "role.manager": "Manager",
+  "role.rep": "Rep",
+  "role.readOnly": "Read-only",
+  "role.ops": "Ops",
+  "rbac.masked": "Masked value",
   "settings.workspace": "Workspace connection",
   "settings.workspaceSub":
     "local dev only — production resolves the workspace from the subdomain",
@@ -259,6 +265,7 @@ export const en = {
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
   "settings.tokenOnce": "Copy it now — you'll only see this token once.",
+  "settings.token": "token",
   "settings.autonomy": "Autonomy tiers",
   "settings.autonomySub": "what runs instantly vs. what waits in the inbox",
   "settings.tierRead": "Read, summarize, draft — runs instantly, fully logged.",
@@ -548,6 +555,8 @@ export const en = {
     "I agree that my name and email are stored to arrange and follow up on this meeting.",
 
   "auto.sub": "a closed catalog — pick a type, set its parameters, enable it",
+  "auto.readOnly":
+    "Read-only view — automation settings are managed by the admin and ops roles.",
   "auto.catalog": "Starter library",
   "auto.catalogSub": "the closed set of automation types",
   "auto.instances": "Configured automations",

@@ -252,6 +252,12 @@ export const de = {
   "ai.paletteHint": "Frag von überall mit",
 
   "settings.identity": "Du",
+  "role.admin": "Admin",
+  "role.manager": "Manager",
+  "role.rep": "Vertrieb",
+  "role.readOnly": "Nur Lesen",
+  "role.ops": "Ops",
+  "rbac.masked": "Verborgener Wert",
   "settings.workspace": "Workspace-Verbindung",
   "settings.workspaceSub":
     "nur lokale Entwicklung — produktiv kommt der Workspace aus der Subdomain",
@@ -263,6 +269,7 @@ export const de = {
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
+  "settings.token": "Token",
   "settings.autonomy": "Autonomie-Stufen",
   "settings.autonomySub": "was sofort läuft und was im Eingang wartet",
   "settings.tierRead":
@@ -561,6 +568,8 @@ export const de = {
 
   "auto.sub":
     "ein geschlossener Katalog — Typ wählen, Parameter setzen, aktivieren",
+  "auto.readOnly":
+    "Nur-Lese-Ansicht — Automatisierungen verwalten die Rollen Admin und Ops.",
   "auto.catalog": "Starter-Bibliothek",
   "auto.catalogSub": "die geschlossene Menge an Automatisierungstypen",
   "auto.instances": "Eingerichtete Automatisierungen",

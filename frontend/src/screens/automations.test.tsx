@@ -9,7 +9,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { AutomationRow, AutomationsScreen, paramFields } from "./automations";
@@ -21,9 +21,16 @@ import { AutomationRow, AutomationsScreen, paramFields } from "./automations";
 // (PATCH + If-Match), and authorship-blind rendering (the row is a pure
 // function of the Automation wire schema).
 
+beforeEach(() => {
+  // the screen sits behind the auth gate in the app; the useMe probe needs a
+  // resolved workspace before it will ask /v1/me
+  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.localStorage.clear();
   window.location.hash = "";
 });
 
@@ -88,11 +95,18 @@ type Recorded = {
   ifMatch: string | null;
 };
 
-function automationsBackend(automations: Automation[], calls: Recorded[]) {
+function automationsBackend(
+  automations: Automation[],
+  calls: Recorded[],
+  roles: string[] = ["admin"],
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({ user: {}, roles, teams: [] });
+    }
     if (url.includes("/automations/catalog")) {
       return jsonResponse({ data: catalog });
     }
@@ -247,16 +261,66 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     const fields = instance({});
     const first = render(
       <ul>
-        <AutomationRow automation={{ ...fields }} entry={catalog[0]} />
+        <AutomationRow
+          automation={{ ...fields }}
+          entry={catalog[0]}
+          canConfigure
+        />
       </ul>,
     );
     const firstHtml = first.container.innerHTML;
     cleanup();
     const second = render(
       <ul>
-        <AutomationRow automation={{ ...fields }} entry={catalog[0]} />
+        <AutomationRow
+          automation={{ ...fields }}
+          entry={catalog[0]}
+          canConfigure
+        />
       </ul>,
     );
     expect(second.container.innerHTML).toBe(firstHtml);
+  });
+
+  it("a role without the automation config grant gets the honest read-only editor", async () => {
+    // manager/rep hold read-only automation grants (decisions/0006): the
+    // screen still shows catalog + instances, but no affordance that could
+    // only 403 — and it says WHY instead of silently thinning out.
+    const automations = [instance({})];
+    vi.stubGlobal("fetch", automationsBackend(automations, [], ["rep"]));
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(
+        "Read-only view — automation settings are managed by the admin and ops roles.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("the config affordances stay for admin", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal("fetch", automationsBackend(automations, []));
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText(
+        "Read-only view — automation settings are managed by the admin and ops roles.",
+      ),
+    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: "Use template" }).length,
+      ).toBeGreaterThan(0),
+    );
+    expect(screen.getByRole("button", { name: "Enable" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 });

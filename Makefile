@@ -35,11 +35,17 @@ verify-boot:
 eval:
 	cd backend && go test ./internal/compose -run 'TestColdStartGolden' -v
 
-## frontend-check — the frontend merge lane. The gen:api + diff pair is the
+## frontend-check — the frontend merge lane. The three token-purity gates
+## (ported from the foundation skeleton) run first: cheap fail-closed greps
+## on top of the vitest conformance suite, so the discipline holds even if
+## the test tree regresses. The gen:api + diff pair is the
 ## TS type-drift gate: src/api/schema.d.ts is generated from crm.yaml, and a
 ## contract change that skips regeneration would silently strand the frontend
 ## types — regenerate and commit them together.
 frontend-check:
+	frontend/scripts/check-ds-purity.sh
+	frontend/scripts/check-font-lock.sh
+	frontend/scripts/check-icon-glyph.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts || \
 			{ echo "frontend types drifted from backend/api/crm.yaml — commit the regenerated src/api/schema.d.ts (printed above)"; exit 1; }; } && \
