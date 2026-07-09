@@ -13,7 +13,7 @@ plan. Companion decision items are flagged `DECISION`.
 The skeleton is **not** an ancestor of this repo, and this repo was not built
 from it. Both descend from the *older frozen* `margince-poc`:
 
-```
+```text
 margince-poc (frozen 2026-07-02)
   ├─ harvested → margince-foundation/skeleton   (pruned scaffold + new gate/governance tooling)
   └─ (independent) margince-poc-v1 (this repo)  (full rebuild on the ADR-0054 layout, spec-first)

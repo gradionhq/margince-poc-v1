@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# check-image-pins.sh — fail if any .github/workflows/*.yml uses: line has a floating tag.
-# Allows:  @sha256:<hex>        (digest-only)
-#          @<40-char-hex>       (commit SHA, e.g. actions/checkout@11bd71...)
-# Rejects: @vN, @vN.M, @vN.M.P (semver without digest)
-#          @main, @master, @latest, @HEAD (branch/symbolic refs)
+# check-image-pins.sh — fail unless every .github/workflows/*.yml|*.yaml
+# `uses:` line is pinned to an immutable ref (supply-chain: a symbolic ref
+# lets a compromised action ride into CI unreviewed).
+# Allows:  @<40-char-hex>       (git commit SHA, e.g. actions/checkout@11bd71...)
+#          @<64-char-hex>       (SHA-256 object id)
+#          @sha256:<hex>        (image digest)
+#          ./path               (local composite action — pinned by this repo)
+# Rejects: everything else — tags (@v4, @v1.2.3-beta), branches (@main,
+#          @develop), and an unpinned `uses:` with no @ at all. An allowlist,
+#          not a denylist: a ref shape we didn't anticipate fails closed.
 set -euo pipefail
 
 fail=0
@@ -16,13 +21,16 @@ fi
 
 while IFS= read -r line; do
   # Extract the part after `uses:` to check the pin
-  pin=$(echo "$line" | sed 's/.*uses:[[:space:]]*//' | cut -d'#' -f1 | tr -d ' ')
-  # Reject floating tags: @vN, @vN.M, @vN.M.P, @main, @master, @latest, @HEAD
-  if echo "$pin" | grep -qE '@(v[0-9]+(\.[0-9]+)*|main|master|latest|HEAD)$'; then
-    echo "FLOATING TAG: $line" >&2
+  pin=$(echo "$line" | sed 's/.*uses:[[:space:]]*//' | cut -d'#' -f1 | tr -d ' "'"'")
+  case "$pin" in
+    ./*) continue ;; # local composite action: versioned with the repo itself
+  esac
+  ref="${pin##*@}"
+  if [ "$ref" = "$pin" ] || ! echo "$ref" | grep -qE '^([0-9a-f]{40}|[0-9a-f]{64}|sha256:[0-9a-f]{64})$'; then
+    echo "UNPINNED REF: $line" >&2
     fail=1
   fi
-done < <(grep -rn 'uses:' "$workflow_dir"/*.yml 2>/dev/null || true)
+done < <(grep -rn 'uses:' "$workflow_dir"/*.yml "$workflow_dir"/*.yaml 2>/dev/null || true)
 
 if [ "$fail" -eq 0 ]; then
   echo "image pins OK"

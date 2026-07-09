@@ -90,5 +90,6 @@ migrate <up|down> --dsn <owner-dsn> [--steps n]
 Model credentials (BYOK cloud tiers) are configured in
 `ai-routing.yaml`, not through binary flags. The annotated reference is
 [`config/ai-routing.example.yaml`](../../config/ai-routing.example.yaml)
-(kept parseable by a fitness test in `modules/ai`);
+(kept parseable by the fitness test in
+`backend/internal/modules/ai/exampleconfig_test.go`);
 `backend/ai-routing.yaml` is the terse dev default the repo ships.
