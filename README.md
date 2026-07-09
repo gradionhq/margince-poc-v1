@@ -57,22 +57,45 @@ Everything below this line is for people (and agents) working on the code.
 
 ## Quick start
 
+**Boot it** (Docker Compose stack — Postgres 16 + Redis 7 — plus
+migrations and the api on :8080):
+
 ```
-make db-up && make migrate && make dev
+make dev
 ```
 
-Toolchain: Go ≥ 1.26, Docker (Postgres 16 + Redis 7 test containers),
-and `golangci-lint`. `make -C backend help` lists every target;
-`make -C backend hooks` installs the pre-commit hook (gofmt + the
-license-header gate). A step-by-step walkthrough and the full flag/env
-reference live in [docs/](docs/) (tutorials, how-to, reference,
-explanation — see below).
+**Log in.** In a second terminal, seed the demo workspace and open
+http://localhost:8080 — the embedded web UI (people, the deal board,
+the timeline):
 
-Then open http://localhost:8080 — the embedded web UI (bootstrap a
-workspace, people, the deal board, the timeline). It is a hash-routed,
-dependency-free SPA served from the binary (`backend/web/`), and a plain
-client of the same `/v1` contract as everything else — no backdoors
-(ADR-0013).
+```
+make seed-dev
+```
+
+Workspace `demo-workspace`, sign in as `admin@demo.test` /
+`demo-password-123` (dev-only credentials). The seed goes through the
+public API — same audit trail, same events as real traffic — and is
+idempotent; `make seed-reset` wipes the demo workspace for a clean
+re-seed.
+
+**Verify** the whole thing end to end (seeded-admin login over `/v1`,
+seeded people visible, frontend production build — fails loudly on the
+first broken step):
+
+```
+make verify-boot
+```
+
+Toolchain: Go ≥ 1.26, Docker (Compose), `jq`, `golangci-lint`, and
+node+pnpm for the frontend lane. `make -C backend help` lists every
+target; `make -C backend hooks` installs the pre-commit hook (gofmt +
+the license-header gate). A step-by-step walkthrough and the full
+flag/env reference live in [docs/](docs/) (tutorials, how-to,
+reference, explanation — see below).
+
+The embedded web UI is a hash-routed, dependency-free SPA served from
+the binary (`backend/web/`), and a plain client of the same `/v1`
+contract as everything else — no backdoors (ADR-0013).
 
 Connect an agent (Surface A1): mint a passport (`POST /v1/passports`,
 session-authed), then

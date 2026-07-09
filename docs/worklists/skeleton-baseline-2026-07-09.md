@@ -56,11 +56,16 @@ Consequences:
       none; `docs/reference/configuration.md` is the flag table to mirror.
       (Done PR A — this repo's actual env surface only; blobstore/keyvault
       vars wait on their ADRs, §1c.)
-- [ ] **`infra/docker-compose.dev.yml`** — we have *no* compose file;
+- [x] **`infra/docker-compose.dev.yml`** — we have *no* compose file;
       `make db-up` hand-runs containers. Port the skeleton's stack
       (Postgres `pgvector/pgvector:pg16`, `redis:7-alpine`, named volumes).
       MinIO: see 1c (blobstore decision) — include it commented-out or gate
       it on that decision.
+      (Done PR B — this repo's port/role contract kept (55432/56379,
+      margince_owner + scripts/db-init.sql); `make db-up`/`db-init`/`clean`
+      rewired onto compose as the ONE path, legacy `fable-*` containers
+      auto-removed; project name is repo-specific so stale poc-era volumes
+      can't shadow initdb; MinIO commented-out pending the §1c ADR.)
 - [x] **SHA-pin all GitHub Actions** in `.github/workflows/ci.yml` (today
       only the sonar job is SHA-pinned) and add the skeleton's
       `check-image-pins.sh` as a gate so it stays pinned. (Done PR A —
@@ -118,12 +123,24 @@ Skeleton gates we lack entirely (each is a small script; wire into
 
 ### 1c. Backend platform — adopt behind decisions
 
-- [ ] **Seed harness + boot verification** — port `backend/seed/dev.sql`
+- [x] **Seed harness + boot verification** — port `backend/seed/dev.sql`
       (+`reset.sql`) shape and `scripts/verify-boot.sh` (login as seeded
       admin → assert seeded people → FE build). We have programmatic test
       fixtures but no `make seed-dev`, no curl-level boot proof, and our
       demo-workspace bootstrap is manual. This also fixes the documented
       local-run friction (bootstrap rate-limit, MARGINCE_ENV=dev).
+      (Done PR B — deliberately NOT the skeleton's SQL-fixture shape: the
+      seed (`scripts/seed-dev.sh`, `make seed-dev`) drives the public API,
+      because bootstrap is a cross-module transaction, role policies are
+      compiled-in Go documents, passwords are salted Argon2id, and raw SQL
+      would bypass the audit+outbox write shape. Idempotent via the
+      natural-key 409s; only bootstraps when login fails, so re-runs never
+      touch the 3/hour limiter. `scripts/seed-reset.sql` (`make seed-reset`)
+      wipes the demo workspace dynamically over all `workspace_id` tables.
+      `scripts/verify-boot.sh` (`make verify-boot`) proves login + seeded
+      people + FE build against `/v1` (cookie `crm_session`,
+      X-Workspace-Slug). Demo credentials stay the established convention:
+      `demo-workspace` / `admin@demo.test` / `demo-password-123`.)
 - [ ] `DECISION (ADR)` **blobstore** — skeleton has `platform/blobstore`
       (MinIO + memory) and MinIO in compose; we have none, and STATUS lists
       "transcript/blob-storage substrate" as an open arc. Adopting the
@@ -179,10 +196,14 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
 
 ### 1e. CI / repo hygiene
 
-- [ ] **Live-boot CI job** (skeleton `skeleton-ci.yml` G0 shape): real
+- [x] **Live-boot CI job** (skeleton `skeleton-ci.yml` G0 shape): real
       docker-compose up → migrate → seed → verify-boot → build. Our CI uses
       GH `services:`; a compose-based boot job additionally proves the
       compose file + seed + boot script stay honest. Add once 1a/1c land.
+      (Done PR B — ci.yml `live-boot` job runs the README quickstart
+      literally. Not yet a required check: adding it to branch protection is
+      a live-settings + `infra/branch-protection.json` change, decide after
+      a few runs prove it stable.)
 - [ ] **Branch-protection deltas** — ours is stricter overall; skeleton has
       nothing we lack here. No action beyond keeping
       `infra/branch-protection.json` mirroring live.
@@ -224,9 +245,10 @@ Before pushing this repo to the official public org:
       skeleton's OSS framing (welcome, A39 disclosure asymmetry,
       `Assisted`/`Generated` AI-disclosure levels) on top of our
       gate/DCO content.
-- [ ] **README** — ours is internal-build-flavored; add the skeleton-style
+- [x] **README** — ours is internal-build-flavored; add the skeleton-style
       "boot it / log in / verify" quickstart (depends on 1a compose +
-      1c seed).
+      1c seed). (Done PR B — the quickstart; the broader
+      internal-flavor scrub stays with PR E.)
 - [ ] **decisions/ + feedback/ audit** — decisions/ is committed history;
       review for private references before public push. `feedback/` is
       git-ignored (fine).

@@ -1,0 +1,62 @@
+# The dev/test infrastructure stack. `make db-up` brings it up (and applies
+# scripts/db-init.sql on top for the non-owner app role); `make clean` tears
+# it down including data. Ports and credentials are a contract shared with
+# the backend Makefile's MARGINCE_TEST_* defaults, dev/dev.sh, and CI's
+# service containers — change them everywhere or nowhere.
+#
+# Images track the same floating tags CI's service containers use
+# (.github/workflows/ci.yml). The check-image-pins gate covers workflow
+# `uses:` refs; digest-pinning these images rides the PR C gate-parity work.
+#
+# The project name is repo-specific: a generic name (margince-dev) collides
+# with stale volumes from the frozen poc-era stack on machines that ran it,
+# and Postgres skips initdb on a non-empty volume — the owner role would
+# silently never be created.
+name: margince-poc-v1
+
+services:
+  postgres:
+    # pgvector ships inside the Postgres image: the search module's hybrid
+    # retrieval needs the extension available at migrate time.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: margince_owner
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: margince
+    ports:
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U margince_owner -d margince"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  # MinIO (transcript/attachment blob storage) stays out until the blobstore
+  # ADR lands (docs/worklists/skeleton-baseline-2026-07-09.md §1c) — there is
+  # no platform seam to consume it yet. Uncomment together with that ADR.
+  # minio:
+  #   image: minio/minio:latest
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   command: server /data --console-address ":59001"
+  #   ports:
+  #     - "59000:9000"
+  #     - "59001:9001"
+  #   volumes:
+  #     - minio-data:/data
+
+volumes:
+  pgdata: {}

@@ -17,7 +17,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-integration lint arch-lint vet gen drift db-up db-init migrate dev clean vuln tools hooks
+.PHONY: help check build test test-integration lint arch-lint vet gen drift db-up db-init seed-reset migrate dev clean vuln tools hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -94,16 +94,21 @@ tools: ## Install every gate binary at its pinned version (fresh-machine bootstr
 hooks: ## Install the repo pre-commit hook (gofmt + license-header gate)
 	install -m 0755 ../scripts/pre-commit "$$(git rev-parse --git-path hooks)/pre-commit"
 
-db-up: ## Start PG16 + Redis 7 containers and create the app role
-	docker start fable-pg16 2>/dev/null || \
-	  docker run -d --name fable-pg16 -e POSTGRES_USER=margince_owner -e POSTGRES_PASSWORD=dev \
-	    -e POSTGRES_DB=$(DB_NAME) -p $(PG_PORT):5432 pgvector/pgvector:pg16
-	docker start fable-redis 2>/dev/null || \
-	  docker run -d --name fable-redis -p $(REDIS_PORT):6379 redis:7
-	@until docker exec fable-pg16 pg_isready -U margince_owner -q; do sleep 0.5; done
+# The ONE path to dev infrastructure: the compose stack. Pre-compose
+# sessions hand-ran `fable-pg16`/`fable-redis` containers on the same host
+# ports; db-up removes those legacy names so the stack can bind (their data
+# is throwaway — migrate + seed-dev rebuild it).
+COMPOSE ?= docker compose -f ../infra/docker-compose.dev.yml
+
+db-up: ## Start the dev stack (infra/docker-compose.dev.yml) and create the app role
+	@docker rm -f fable-pg16 fable-redis 2>/dev/null || true
+	$(COMPOSE) up -d --wait
 	$(MAKE) db-init
 db-init: ## (Re)apply scripts/db-init.sql to the running Postgres
-	docker exec -i fable-pg16 psql -U margince_owner -d $(DB_NAME) < ../scripts/db-init.sql
+	$(COMPOSE) exec -T postgres psql -U margince_owner -d $(DB_NAME) -v ON_ERROR_STOP=1 < ../scripts/db-init.sql
+
+seed-reset: ## Wipe the demo workspace (scripts/seed-reset.sql); make seed-dev rebuilds it
+	$(COMPOSE) exec -T postgres psql -U margince_owner -d $(DB_NAME) -v ON_ERROR_STOP=1 < ../scripts/seed-reset.sql
 
 migrate: ## Apply core + custom migrations (owner DSN)
 	$(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
@@ -111,5 +116,6 @@ migrate: ## Apply core + custom migrations (owner DSN)
 dev: db-up migrate ## db-up + migrate + api on :8080
 	$(GO) run ./cmd/api --dsn "$(APP_DSN)"
 
-clean: ## Remove the dev Postgres/Redis containers
-	docker rm -f fable-pg16 fable-redis 2>/dev/null || true
+clean: ## Tear down the dev stack, containers and data volumes
+	$(COMPOSE) down --volumes --remove-orphans
+	@docker rm -f fable-pg16 fable-redis 2>/dev/null || true
