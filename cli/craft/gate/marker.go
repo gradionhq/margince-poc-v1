@@ -119,7 +119,7 @@ func leadingIndent(lines []string, idx int) string {
 // Collect scans the tree for CRAFT-FIX and CRAFT-DISPUTE markers and returns them
 // with their file, line, recovered id, and (for disputes) the contesting reason.
 // It skips .git, node_modules, .swarm-worktrees, and non-source files so it
-// never trips on the markers documented in prose (e.g. docs/quality/craftsmanship.md,
+// never trips on the markers documented in prose (e.g. specs/quality/craftsmanship.md,
 // AGENTS.md) nor on a sibling swarm worktree's in-progress markers when one is
 // (against convention) nested inside the trunk. Any relative-path prefix in skip
 // is also ignored — the residue gate passes the craft tool's own dir, whose

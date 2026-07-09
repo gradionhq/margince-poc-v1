@@ -1,6 +1,6 @@
 // Command craft is the code-craftsmanship gate CLI: it reviews a PR against the
 // rubric (review), and — in later subcommands — annotates findings into source
-// markers, runs the residue gate, and evaluates the golden set. See docs/quality/craftsmanship.md.
+// markers, runs the residue gate, and evaluates the golden set. See specs/quality/craftsmanship.md.
 package main
 
 import (
@@ -361,8 +361,8 @@ func cmdStatic(args []string) int {
 		if err := report.WriteJSON(os.Stdout); err != nil {
 			return fail("encode: %v", err)
 		}
-	} else {
-		report.WriteText(os.Stdout)
+	} else if err := report.WriteText(os.Stdout); err != nil {
+		return fail("render: %v", err)
 	}
 	if report.Verdict == "BLOCK" {
 		return 1

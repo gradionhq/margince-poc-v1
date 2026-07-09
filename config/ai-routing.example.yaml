@@ -1,0 +1,73 @@
+# ai-routing.example.yaml — documented example of the per-deployment
+# tier→model binding (ai-operational-spec §1.4). Copy, adapt, then point the
+# binaries at it: `api --ai-routing <path>` / `worker --ai-routing <path>`
+# (env fallback MARGINCE_AI_ROUTING). Unset, the AI lanes simply do not
+# start; core CRUD and auth work normally.
+#
+# backend/ai-routing.yaml is the terse dev default this repo ships; this file
+# is the annotated reference. The parser (modules/ai/routing.go) rejects
+# unknown keys and unknown tier names — a typo fails at STARTUP, never on the
+# first model call.
+#
+# This file is the ONLY place vendor names appear. Code routes each task over
+# a capability-tier ladder fixed in modules/ai/tasks.go (§1.2) — e.g.
+# summarize tries cheap_cloud then premium; capture_classify tries
+# local_small then cheap_cloud. Swapping a model is an edit HERE, never a
+# deploy. An unbound tier is legal: the router degrades honestly (a ladder
+# with no bound rung refuses the task rather than silently rerouting).
+#
+# profile — the §4 location ladder. The privacy choice is WHERE the model
+# runs, not a redaction setting:
+#   eu_hosted      — partner-operated EU inference (default posture).
+#   cloud_frontier — customer-supplied BYOK cloud API, full capability.
+#   sovereign      — zero egress BY CONSTRUCTION: any cloud provider on any
+#                    tier (or the embeddings lane) is a startup error.
+profile: eu_hosted
+
+# tiers — capability tiers (§1.1): local_small (L-S), cheap_cloud (C-C),
+# premium (P-F), local_large (L-L). Bind each to one provider:
+#   provider: fake | anthropic | ollama | vllm
+#   model:    provider-native model id (ollama/vllm default to a Gemma-class
+#             model when omitted — ADR-0012/A23: the unbound local path lands
+#             on a non-Chinese model; Mistral is the EU-origin alternative an
+#             operator picks explicitly)
+#   base_url: endpoint override; empty means the provider default
+#             (api.anthropic.com / localhost:11434 / localhost:8000)
+#   api_key:  BYOK credential — REQUIRED for anthropic (ADR-0020: we provide
+#             no inference). The value is read literally (no env expansion);
+#             `make dev-tls` injects ANTHROPIC_API_KEY from .env.local into a
+#             scratch copy for dev, so no key ever lands in a committed file.
+tiers:
+  local_small:
+    provider: ollama
+    model: gemma3
+    # base_url: http://localhost:11434
+
+  cheap_cloud:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    # api_key: <customer BYOK key>
+
+  premium:
+    provider: anthropic
+    model: claude-opus-4-8
+    # api_key: <customer BYOK key>
+
+  # local_large is typically bound on sovereign deployments only, e.g. a
+  # vLLM server fronting a large open-weights model:
+  # local_large:
+  #   provider: vllm
+  #   model: google/gemma-3-12b-it
+  #   base_url: http://localhost:8000
+
+# embeddings — the embedding lane, bound separately from the chat tiers
+# (retrieval must keep working when the chat budget is exhausted). Required.
+embeddings:
+  provider: ollama
+  model: bge-m3
+
+# A fully-offline dev/test config needs no infrastructure at all:
+#   profile: eu_hosted
+#   tiers: { local_small: { provider: fake } }
+#   embeddings: { provider: fake }
+# (`--ai-fake` on api/worker is the same thing without a file.)

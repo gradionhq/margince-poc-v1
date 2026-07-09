@@ -3,9 +3,9 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync hooks
+.PHONY: check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev dev-tls clean eval tools frontend-check frontend-dev frontend-e2e craft-static craft-residue craft-drift craft-sync check-image-pins hooks
 
-check: craft-drift
+check: craft-drift check-image-pins
 
 ## dev-tls — the full local stack in a real browser: an HTTPS front door on
 ## :8080 fronts the api (:8081) and the Vite dev server (:5173), so the SPA
@@ -14,7 +14,7 @@ check: craft-drift
 dev-tls:
 	./dev/dev.sh
 
-check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev clean:
+check build test test-integration bench-perf lint arch-lint vet gen drift db-up db-init migrate dev clean tools:
 	$(MAKE) -C backend $@
 
 ## eval — run the golden-dataset gates verbosely (they also run, quietly,
@@ -48,17 +48,25 @@ craft-residue:
 
 ## craft-drift — verify cli/craft matches the foundation's hash manifest.
 ## The gate is foundation-owned (spec architecture/15 §4): it is developed in
-## ../margince/skeleton/cli/craft and vendored here verbatim, so every build
-## repo provably runs the same tool the verdicts' gate_version names. A local
-## edit fails this target — fix the gate upstream, then `make craft-sync`.
+## ../margince-foundation/skeleton/cli/craft and vendored here verbatim, so
+## every build repo provably runs the same tool the verdicts' gate_version
+## names. A local edit fails this target — fix the gate upstream, then
+## `make craft-sync`.
 craft-drift:
 	@shasum -a 256 -c cli/craft/craft-manifest.sha256 --quiet && echo "craft-drift: cli/craft matches the foundation manifest"
 
 ## craft-sync — pull the foundation's current gate (source + manifest) over
 ## the vendored copy. Review the diff like any dependency bump.
 craft-sync:
-	rsync -a --delete ../margince/skeleton/cli/craft/ cli/craft/
+	rsync -a --delete ../margince-foundation/skeleton/cli/craft/ cli/craft/
 	@$(MAKE) craft-drift
+
+## check-image-pins — every `uses:` in .github/workflows/ is pinned to a
+## full commit SHA or digest (supply-chain: a floating vN/main tag lets a
+## compromised action ride into CI unreviewed). Lives at the root because
+## the workflows do; also a CI step, so a pin can't regress.
+check-image-pins:
+	@./scripts/check-image-pins.sh
 
 ## hooks — install the repo's git hooks (the pre-push craft-static gate).
 ## Run once after cloning.

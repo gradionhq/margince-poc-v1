@@ -55,42 +55,48 @@ type fileContext struct {
 // compiler.
 func Run(paths []string, cfg Config) (Report, error) {
 	cfg = cfg.withDefaults()
-	var findings []Finding
-	seen := map[string]bool{}
-
-	walk := func(path string) error {
-		src, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		fc, ok := newFileContext(path, src, cfg.DomainMarker)
-		if !ok {
-			return nil // unparseable or generated — skip
-		}
-		for _, chk := range checks {
-			for _, f := range chk.run(fc, cfg) {
-				if fc.waived(f.Check, f.Line) {
-					continue
-				}
-				findings = append(findings, f)
-			}
-		}
-		findings = append(findings, fc.waiverHygiene()...)
-		return nil
+	files, err := lintableFiles(paths)
+	if err != nil {
+		return Report{}, err
 	}
-
-	for _, root := range paths {
-		info, err := os.Stat(root)
+	var findings []Finding
+	for _, path := range files {
+		fs, err := lintFile(path, cfg)
 		if err != nil {
 			return Report{}, err
 		}
+		findings = append(findings, fs...)
+	}
+	sort.Slice(findings, func(i, j int) bool {
+		if findings[i].File != findings[j].File {
+			return findings[i].File < findings[j].File
+		}
+		if findings[i].Line != findings[j].Line {
+			return findings[i].Line < findings[j].Line
+		}
+		return findings[i].Severity > findings[j].Severity
+	})
+	return Report{Tool: "craft static", Verdict: verdict(findings, cfg.Strict), Findings: findings}, nil
+}
+
+// lintableFiles expands the given files/directories into the deduped list of
+// lintable Go files, in encounter order.
+func lintableFiles(paths []string) ([]string, error) {
+	var files []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if isLintable(p) && !seen[p] {
+			seen[p] = true
+			files = append(files, p)
+		}
+	}
+	for _, root := range paths {
+		info, err := os.Stat(root)
+		if err != nil {
+			return nil, err
+		}
 		if !info.IsDir() {
-			if isLintable(root) && !seen[root] {
-				seen[root] = true
-				if err := walk(root); err != nil {
-					return Report{}, err
-				}
-			}
+			add(root)
 			continue
 		}
 		err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -103,28 +109,36 @@ func Run(paths []string, cfg Config) (Report, error) {
 				}
 				return nil
 			}
-			if isLintable(p) && !seen[p] {
-				seen[p] = true
-				return walk(p)
-			}
+			add(p)
 			return nil
 		})
 		if err != nil {
-			return Report{}, err
+			return nil, err
 		}
 	}
+	return files, nil
+}
 
-	sort.Slice(findings, func(i, j int) bool {
-		if findings[i].File != findings[j].File {
-			return findings[i].File < findings[j].File
+// lintFile runs every check over one file, dropping waived findings.
+func lintFile(path string, cfg Config) ([]Finding, error) {
+	src, err := os.ReadFile(path) //nolint:gosec // a linter reads the files it is pointed at
+	if err != nil {
+		return nil, err
+	}
+	fc, ok := newFileContext(path, src, cfg.DomainMarker)
+	if !ok {
+		return nil, nil // unparseable or generated — skip
+	}
+	var out []Finding
+	for _, chk := range checks {
+		for _, f := range chk.run(fc, cfg) {
+			if fc.waived(f.Check, f.Line) {
+				continue
+			}
+			out = append(out, f)
 		}
-		if findings[i].Line != findings[j].Line {
-			return findings[i].Line < findings[j].Line
-		}
-		return findings[i].Severity > findings[j].Severity
-	})
-
-	return Report{Tool: "craft static", Verdict: verdict(findings, cfg.Strict), Findings: findings}, nil
+	}
+	return append(out, fc.waiverHygiene()...), nil
 }
 
 func verdict(findings []Finding, strict bool) string {

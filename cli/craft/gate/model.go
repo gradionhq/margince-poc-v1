@@ -1,6 +1,6 @@
 // Package gate is the craftsmanship review agent: it assembles a PR's context,
 // runs a fresh-session review against the rubric over an inference seam, and
-// returns the canonical verdict. See docs/quality/craftsmanship.md and foundation
+// returns the canonical verdict. See specs/quality/craftsmanship.md and foundation
 // architecture/16 (the review agent) + 17 (the learning flywheel).
 package gate
 

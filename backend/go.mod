@@ -4,9 +4,9 @@ module github.com/gradionhq/margince/backend
 // `ON DELETE SET NULL (column_list)` semantics and current-toolchain
 // tooling. Contributors/operators need the 1.26 toolchain; this is a PoC
 // choice, revisit if broader portability becomes a goal.
-go 1.26.4
+go 1.26.5
 
-toolchain go1.26.4
+toolchain go1.26.5
 
 require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8

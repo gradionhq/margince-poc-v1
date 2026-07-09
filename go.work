@@ -8,7 +8,7 @@
 // stdlib-only, run pre-push via .githooks/pre-push. dev/ is the local-dev
 // HTTPS front door (stdlib-only, never shipped) that gives the SPA a single
 // Secure-cookie origin — see dev/dev.sh and `make dev-tls`.
-go 1.26.4
+go 1.26.5
 
 use (
 	./backend
