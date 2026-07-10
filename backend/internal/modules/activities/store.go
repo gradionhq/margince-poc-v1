@@ -12,6 +12,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -21,10 +22,22 @@ import (
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
 	pool *pgxpool.Pool
+	// blob backs the attachment endpoints; nil in a role that stores no
+	// objects, in which case the attachment handlers answer 501 rather than
+	// nil-deref (WithBlobstore is how a role opts in).
+	blob blobstore.Store
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// WithBlobstore returns a store that backs the attachment endpoints with the
+// given object store. It returns a copy so the base store stays unchanged.
+func (s *Store) WithBlobstore(blob blobstore.Store) *Store {
+	clone := *s
+	clone.blob = blob
+	return &clone
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {

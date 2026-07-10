@@ -35,6 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -89,6 +90,11 @@ type Server struct {
 	// ready on Postgres alone.
 	busReady func(context.Context) error
 
+	// blob is the object store, injected by WithBlobstore. When configured
+	// it feeds a /readyz probe and backs the attachment handlers; nil means
+	// a role that stores no objects.
+	blob blobstore.Store
+
 	// log is the process logger, shared with the optional engines an
 	// option wires (e.g. the brief L2 ranker's degradation warnings).
 	log *slog.Logger
@@ -105,6 +111,36 @@ type Option func(*Server, *pgxpool.Pool)
 // not ready while the bus is unreachable.
 func WithBusReady(check func(context.Context) error) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.busReady = check }
+}
+
+// WithBlobstore wires the object store: it feeds the /readyz probe and
+// backs the attachment handlers. Without it the attachment endpoints stay
+// their generated 501 stubs, so a role that stores no objects declares
+// that by omission rather than nil-derefing at request time.
+func WithBlobstore(store blobstore.Store) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.blob = store
+		s.activitiesHandlers = s.WithBlobstore(store)
+		// Erasure must reach the attachment bytes, not only the rows, so the
+		// DSR erase path gets a blob-aware eraser (decisions/0022, Art. 17).
+		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
+	}
+}
+
+// readinessChecks assembles the /readyz dependency probes for this role.
+// Postgres is always probed; the bus and the object store are probed only
+// when this role wired them, so a split deployment answers ready on exactly
+// what it depends on. A wedged dependency must fail readiness — a probe is
+// never dropped to keep the pod in rotation.
+func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserver.ReadyCheck {
+	checks := []httpserver.ReadyCheck{{Name: "postgres", Check: pgPing}}
+	if s.busReady != nil {
+		checks = append(checks, httpserver.ReadyCheck{Name: "redis", Check: s.busReady})
+	}
+	if s.blob != nil {
+		checks = append(checks, httpserver.ReadyCheck{Name: "blobstore", Check: s.blob.Health})
+	}
+	return checks
 }
 
 // WithPublicBaseURL sets the canonical scheme+host the buyer-facing
@@ -290,11 +326,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// access goes back through /v1 — it holds no privileged path).
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
-	readiness := []httpserver.ReadyCheck{{Name: "postgres", Check: pool.Ping}}
-	if srv.busReady != nil {
-		readiness = append(readiness, httpserver.ReadyCheck{Name: "redis", Check: srv.busReady})
-	}
-	mux.HandleFunc("/readyz", httpserver.Readyz(readiness...))
+	mux.HandleFunc("/readyz", httpserver.Readyz(srv.readinessChecks(pool.Ping)...))
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal))

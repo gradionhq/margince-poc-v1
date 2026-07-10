@@ -4268,12 +4268,104 @@ paths:
   # `Problem`.
   # =========================================================================
 
+  /attachments:
+    get:
+      tags: [Attachments]
+      operationId: listAttachments
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: List the attachments hung off one entity (cursor-paginated metadata).
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: entity_type
+          in: query
+          required: true
+          schema: { type: string, enum: [person, organization, deal, activity, lead] }
+        - name: entity_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of attachment metadata for the entity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Attachments]
+      operationId: uploadAttachment
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Upload a file and attach it to an entity.
+      description: |
+        Multipart upload. The bytes are written to object storage; the row records the
+        metadata + object key. `captured_by` is server-stamped from the authenticated
+        principal, never the request. The parent entity must be visible to the caller
+        (a hidden or cross-tenant entity answers 404, never leaks existence).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [entity_type, entity_id, file]
+              properties:
+                entity_type: { type: string, enum: [person, organization, deal, activity, lead] }
+                entity_id: { type: string, format: uuid }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: The stored attachment metadata.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Attachment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /attachments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Attachments]
+      operationId: downloadAttachment
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Download an attachment's file bytes.
+      responses:
+        '200':
+          description: The file bytes; Content-Disposition names the file.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Attachments]
+      operationId: deleteAttachment
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Archive an attachment (soft delete).
+      description: |
+        Soft-deletes the attachment: the row is archived and it disappears from
+        listings and downloads. The object bytes are retained and purged by the
+        Art. 17 erasure / retention path, matching how every archived record's
+        data persists until erasure. Already-archived or invisible → 404.
+      responses:
+        '204': { description: Archived. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # DEFERRED — stubs only (data-model.md §12). Intentionally NOT specified:
   #   /sequences, /sequences/{id}/steps, /enrollments   (outbound cadences; sends gated)
   #   /calls, /telephony/*                               (telephony / click-to-call)
   #   /embeddings, /context-graph/*                      (pgvector retrieval store)
   #   /workflow-runs                                     (workflow registry run records)
-  #   /attachments                                       (S3/MinIO refs — schema exists; endpoints fast-follow)
   #   /users, /teams, /roles                             (admin identity mgmt — schema below; CRUD fast-follow)
   # =========================================================================
 
@@ -5150,6 +5242,33 @@ components:
       required: [data, page]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    Attachment:
+      type: object
+      description: |
+        A file hung off an entity. Mirrors the `attachment` table: the row is the
+        system of record and the tenant anchor; the bytes live in object storage,
+        addressed by an internal object key that is never exposed on the wire.
+      required: [id, workspace_id, entity_type, entity_id, filename, source, captured_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [person, organization, deal, activity, lead] }
+        entity_id: { type: string, format: uuid }
+        filename: { type: string }
+        content_type: { type: [string, 'null'] }
+        byte_size: { type: [integer, 'null'], format: int64 }
+        checksum: { type: [string, 'null'], description: 'sha256 of the bytes, for integrity/dedupe.' }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
+        created_at: { type: string, format: date-time }
+
+    AttachmentListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Attachment' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
     EmailDraft:

@@ -152,6 +152,17 @@ jobs:
         run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f ../scripts/db-init.sql
       - name: Apply migrations
         run: go run ./cmd/migrate up --dsn "postgres://margince_owner:dev@localhost:55432/margince"
+      # MinIO backs the blobstore integration lane. It cannot be a GH service
+      # (the minio image needs a `server /data` command, which services can't
+      # set), so it runs here; the digest matches the compose stack's pin
+      # (decisions/0022). The store creates its bucket and tolerates a
+      # still-starting backend, so no explicit wait is needed.
+      - name: Start MinIO (blobstore)
+        run: |
+          docker run -d --name minio -p 59000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data
       - name: Integration lane
         run: make test-integration
 
@@ -236,6 +247,15 @@ jobs:
       - name: Create the non-owner app role
         if: ${{ env.SONAR_TOKEN != '' }}
         run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f scripts/db-init.sql
+      # Same MinIO the integration job runs — the coverage run drives the
+      # blobstore integration lane too (decisions/0022).
+      - name: Start MinIO (blobstore)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: |
+          docker run -d --name minio -p 59000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data
       - name: Go coverage (unit + integration lane)
         if: ${{ env.SONAR_TOKEN != '' }}
         working-directory: backend
@@ -243,6 +263,10 @@ jobs:
           MARGINCE_TEST_DSN: postgres://margince_owner:dev@localhost:55432/margince
           MARGINCE_TEST_APP_DSN: postgres://margince_app:margince_app_dev@localhost:55432/margince
           MARGINCE_TEST_REDIS: localhost:56379
+          MARGINCE_TEST_BLOBSTORE_ENDPOINT: localhost:59000
+          MARGINCE_TEST_BLOBSTORE_ACCESS_KEY: minioadmin
+          MARGINCE_TEST_BLOBSTORE_SECRET_KEY: minioadmin
+          MARGINCE_TEST_BLOBSTORE_BUCKET: margince-test
           # The HTTP e2e suites resolve the workspace from the
           # X-Workspace-Slug header, which only the dev trust switch
           # honors — same export make test-integration sets.

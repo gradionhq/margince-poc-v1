@@ -49,6 +49,14 @@ Merged so far:
   `/v1/auth/logout`, `/oauth/token`, `/oauth/register`) now answer their
   protocol's client error instead of a 500 when the workspace slug
   resolves to nothing, without disclosing whether the workspace exists.
+- **Blobstore seam** — `platform/blobstore` (S3/MinIO + in-memory fake),
+  the object-bytes substrate behind the `attachment.storage_key` the
+  schema already committed to. Ships with its first production consumer:
+  the minimal `/attachments` surface (upload/download/list/soft-delete,
+  owned by `activities`, authority inherited from the parent entity) and
+  the Art. 17 erase-path object purge, so erasure reaches the bytes not
+  only the rows. MinIO is in the dev compose stack and both CI integration
+  jobs; a `/readyz` probe covers it (decisions/0022).
 
 ## Pick up here
 
@@ -59,10 +67,11 @@ Open work, roughly in priority order:
   repo's actual architecture. Until it lands, the spec-path references in
   CLAUDE.md / AGENTS.md / README (`../margince/specs/`) are left as-is;
   they repoint together once the canonical public spec home is decided.
-- **ADR track** (parallel, each needs a decision record): blobstore
-  seam, connector keyvault, the River job queue, retiring or keeping the
-  second (embedded) SPA, the design-system of record, and the optional
-  advisory LLM craft-review CI job.
+- **ADR track** (parallel, each needs a decision record): connector
+  keyvault (decisions/0023 drafted; pair with the EP05 §B capture-connection
+  reshape), retiring or keeping the second (embedded) SPA, the
+  design-system of record, and the optional advisory LLM craft-review CI
+  job. (River shipped in #35; the blobstore seam in this batch.)
 - **Frontend DECISION items** from worklist §1d: router migration and a
   Storybook/component-test lane — adopt when the design system
   stabilizes, not before.

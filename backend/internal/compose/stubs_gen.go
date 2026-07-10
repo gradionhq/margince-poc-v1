@@ -68,6 +68,22 @@ func (stubs) RejectApproval(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "RejectApproval")
 }
 
+func (stubs) ListAttachments(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAttachmentsParams) {
+	httperr.NotImplemented(w, r, "ListAttachments")
+}
+
+func (stubs) UploadAttachment(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "UploadAttachment")
+}
+
+func (stubs) DeleteAttachment(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteAttachment")
+}
+
+func (stubs) DownloadAttachment(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DownloadAttachment")
+}
+
 func (stubs) ListAuditLog(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAuditLogParams) {
 	httperr.NotImplemented(w, r, "ListAuditLog")
 }

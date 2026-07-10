@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -38,9 +39,22 @@ const erasedName = "Erased Subject"
 // retention engine's 'erase' action ride.
 type Eraser struct {
 	pool *pgxpool.Pool
+	// blob purges the subject's attachment objects (Art. 17 reaches the
+	// bytes, not only the row). nil in a deployment with no object store —
+	// where no upload path could have stored an object either.
+	blob blobstore.Store
 }
 
 func NewEraser(pool *pgxpool.Pool) *Eraser { return &Eraser{pool: pool} }
+
+// WithBlobstore returns an eraser that also purges attachment objects.
+// Compose passes the object store so erasure reaches the bytes behind the
+// attachment rows it deletes.
+func (e *Eraser) WithBlobstore(blob blobstore.Store) *Eraser {
+	clone := *e
+	clone.blob = blob
+	return &clone
+}
 
 // ErasePerson removes the subject's PII in ONE transaction: person row
 // anonymized, email/phone child rows deleted, raw capture purged,
@@ -89,6 +103,13 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// Purge the subject's attachment bytes and rows together, inside the
+		// transaction (objects first). A failure here — including a
+		// misconfigured store — rolls the whole erasure back, so it stays
+		// retryable and never commits a half-erasure.
+		if err := e.eraseAttachments(ctx, tx, subjectAttachmentsWhere, subject); err != nil {
+			return err
+		}
 		rawPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
 		if err != nil {
 			return err
@@ -107,6 +128,53 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			"action": "erase", "reason": reason,
 		})
 	})
+}
+
+// subjectAttachmentsWhere selects the attachments Art. 17 erasure removes for
+// a person: those hung off the person and those on the person's subject-only
+// activities. $1 is the person id throughout.
+const subjectAttachmentsWhere = `(entity_type = 'person' AND entity_id = $1)
+	   OR (entity_type = 'activity' AND entity_id IN (` + subjectOnlyActivities + `))`
+
+// eraseAttachments purges the matched attachments' objects and deletes their
+// rows within the caller's transaction, objects FIRST: the keys live in the
+// rows, so purging before the DELETE means any failure (a store error, or no
+// store configured while objects exist) rolls the transaction back with the
+// keys intact — a retry re-purges idempotently, and no bytes are ever
+// orphaned with their only key gone. Erasure is rare and not latency-bound,
+// so the brief object-store I/O held under the transaction is an acceptable
+// trade for that durability guarantee.
+func (e *Eraser) eraseAttachments(ctx context.Context, tx pgx.Tx, where string, args ...any) error {
+	rows, err := tx.Query(ctx, `SELECT storage_key FROM attachment WHERE `+where, args...)
+	if err != nil {
+		return err
+	}
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(keys) > 0 {
+		if e.blob == nil {
+			return fmt.Errorf("privacy: %d attachment object(s) to purge but no object store is configured", len(keys))
+		}
+		for _, key := range keys {
+			if err := e.blob.Delete(ctx, key); err != nil {
+				return fmt.Errorf("privacy: purging attachment object: %w", err)
+			}
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM attachment WHERE `+where, args...); err != nil {
+		return err
+	}
+	return nil
 }
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
@@ -180,28 +248,15 @@ const subjectOnlyActivities = `
 // redactSubjectTimeline erases the subject's free text from the activity
 // timeline: subject/body of every subject-only activity are wiped (the
 // GENERATED search_tsv refreshes from the now-empty text, so the erased
-// name is no longer full-text searchable), and every attachment hung off
-// the subject or one of those activities is deleted. Mirrors the
-// retention engine's activity/erase redaction — the on-demand Art. 17
-// path must reach the timeline the nightly evaluator already reaches.
+// name is no longer full-text searchable). The subject's attachments are
+// purged separately by eraseAttachments (objects first); this handles only
+// the timeline text and its field-level provenance.
 func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (int64, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE activity SET subject = $2, body = NULL,
 		  archived_at = coalesce(archived_at, now())
 		WHERE id IN (`+subjectOnlyActivities+`)`, personID, erasedName)
 	if err != nil {
-		return 0, err
-	}
-	// Files live in object storage; the DB row is the only reference the
-	// system holds, so deleting it detaches the file. No upload path
-	// stores objects in the PoC — when one lands, the storage object must
-	// be purged here too (the erasure/SAR PII-reach fitness test keeps this
-	// row honest).
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM attachment
-		WHERE (entity_type = 'person' AND entity_id = $1)
-		   OR (entity_type = 'activity' AND entity_id IN (`+subjectOnlyActivities+`))`,
-		personID); err != nil {
 		return 0, err
 	}
 	// The redacted rows' field-level provenance goes with the fields it

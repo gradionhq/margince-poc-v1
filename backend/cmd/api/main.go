@@ -34,6 +34,7 @@ import (
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -111,6 +112,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 	}
 
+	blobOpts, err := blobstoreOptions(ctx, stdout)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, blobOpts...)
+
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
 	}
@@ -162,6 +169,21 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	case <-ctx.Done():
 		return stopAll(stopHTTP())
 	}
+}
+
+// blobstoreOptions wires the attachment endpoints (and their /readyz probe +
+// erase-path object purge) only when an object store is configured; without
+// one the endpoints answer 501 rather than nil-deref at request time.
+func blobstoreOptions(ctx context.Context, stdout io.Writer) ([]compose.Option, error) {
+	blob, configured, err := blobstore.FromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("api: blobstore: %w", err)
+	}
+	if !configured {
+		return nil, nil
+	}
+	_, _ = fmt.Fprintln(stdout, "api attachments enabled (blobstore configured)")
+	return []compose.Option{compose.WithBlobstore(blob)}, nil
 }
 
 // startInlineRelay boots the in-process outbox relay. The bus is not

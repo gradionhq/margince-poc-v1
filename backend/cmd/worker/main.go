@@ -37,6 +37,7 @@ import (
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -143,7 +144,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger) })
 	}
 
-	retention := privacy.NewRetentionService(pool, logger)
+	blob, blobConfigured, err := blobstore.FromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("worker: blobstore: %w", err)
+	}
+	if blobConfigured {
+		_, _ = fmt.Fprintln(stdout, "worker retention erasing attachment objects (blobstore configured)")
+	}
+	retention := privacy.NewRetentionService(pool, blob, logger)
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
 	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
 
