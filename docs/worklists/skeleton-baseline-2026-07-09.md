@@ -55,11 +55,19 @@ per-item annotations below are historical context.
   not history). Consequence: the internal commit-message narration never
   reaches the public repo — the §3 history concern is moot — and branch
   protection is applied fresh to the new repo.
-- **Branch-protection mirror** — **DELETE `infra/branch-protection.json`.**
-  GitHub enforces protection from its own live settings; the hand-mirror
-  was a rule-2 anti-pattern that already drifted (CodeRabbit). Also:
-  CodeRabbit renamed its required check `CodeRabbit` → `CodeRabbit /
-  Review`; it was removed from the live required list to unblock merges.
+- **Branch-protection mirror** — **KEEP `infra/branch-protection.json`,
+  fix the drift.** (Initial call was to delete it; reversed once review
+  surfaced that the file is the data source for the foundation-vendored,
+  hash-pinned fitness test `cli/craft/wiring/wiring_test.go`, which
+  asserts the load-bearing invariants — craftsmanship + deterministic-
+  gates stay required, `enforce_admins` stays true. Deleting it breaks
+  that test, and it can't be fixed locally without breaking `craft-drift`
+  — a foundation-side change. Those pinned invariants can't silently
+  drift; the drift that DID bite was CodeRabbit, which the test does not
+  pin.) Fix applied: `CodeRabbit` removed from the file's `contexts` to
+  match live (it renamed its check `CodeRabbit` → `CodeRabbit / Review`
+  and a required-but-renamed external tool hard-locked the repo once), so
+  the mirror is honest again.
 - **Platform seams (§1c)** — **ADOPT ALL THREE like the skeleton, one
   platform push, now:** blobstore (uncomment MinIO in compose + memory
   fake), keyvault (pair with the EP05 capture-connection reshape), and
@@ -281,15 +289,18 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       a few runs prove it stable.)
 - [x] **Branch-protection deltas** — ours is stricter overall; skeleton has
       nothing we lack here. (Resolved 2026-07-10 — see §0b: the committed
-      mirror `infra/branch-protection.json` is DELETED; GitHub's live
-      settings are the sole source of truth, so there is no file to keep
-      in sync. The `live-boot`-as-required-check question above becomes a
-      pure live-settings decision.)
-- [ ] `DECISION` **LLM craft review job** — skeleton CI runs `craft review`
+      mirror `infra/branch-protection.json` is KEPT (it backs the vendored
+      `cli/craft/wiring` fitness test) but corrected — `CodeRabbit` removed
+      to match live. Re-apply it with `gh api -X PUT … --input` to restore
+      settings, e.g. when standing up the OSS repo.)
+- [ ] **LLM craft review job** — skeleton CI runs `craft review`
       (Anthropic-judged, advisory, inline PR comments) + the
       CRAFT-FIX/CRAFT-DISPUTE marker loop. We run deterministic
-      `craft static` (blocking) + Claude review agents outside CI. Adopting
-      the advisory CI judge is optional polish; needs an API key secret.
+      `craft static` (blocking) + Claude review agents outside CI.
+      (DECISION RESOLVED 2026-07-10 — see §0b: ADOPT, advisory-only
+      (never a required/blocking check), gated on wiring an Anthropic
+      API-key CI secret; complements `craft static`. Only the
+      implementation remains — hence still an open checkbox.)
 
 ## 2. Keep from this repo (skeleton lacks it — do NOT regress)
 
