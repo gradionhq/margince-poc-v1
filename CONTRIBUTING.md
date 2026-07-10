@@ -1,16 +1,35 @@
 # Contributing to Margince
 
-Margince is built contract-first, largely by agents, under human
-accountability. These rules keep the repository trustworthy at the three
-horizons a reviewer judges it on — 90 seconds, 10 minutes, and adoption.
+Margince is source-available (BUSL-1.1) and AI-native: most of this code
+is authored by agents under human accountability. Contributions are
+welcome — held to the same craftsmanship bar as our own AI-authored code.
 
-## Accountability
+## Human accountability
 
-Whoever opens a pull request is **accountable** for every line in it and must be
-able to **explain every line** — whether it was hand-written or AI-assisted. "The
-model wrote it" is not an answer to a review question. Be honest in the PR's *AI
-involvement* section about what was generated versus authored by hand; agent
-assistance is expected and welcome, unexplained code is not.
+**You are accountable for every line you submit, and must be able to
+explain every line.** AI assistance is welcome and expected;
+unexplainable, slop-flooded contributions are not. If you cannot explain
+why a line is there, what it does, and why it is correct, it is not
+ready. "The model wrote it" is not an answer to a review question.
+
+This is the project's one non-negotiable. It is why we ask for the
+disclosures below — not to discourage AI use, but to keep a human
+answerable for the result.
+
+## AI disclosure
+
+Disclose AI involvement proportionately in the PR description:
+
+- **Assisted** — you wrote/directed it with AI help (autocomplete,
+  review, refactor). The default.
+- **Generated** — AI produced substantial portions you then reviewed
+  and own.
+
+There is a deliberate **internal/external asymmetry**: Margince's own
+build agents author by design and do not disclose per-PR (it is the
+stated practice, A39); external contributors disclose so a human
+reviewer knows what they are accountable for. Either way, the same
+gates apply (below).
 
 ## Developer Certificate of Origin (DCO)
 
@@ -21,31 +40,56 @@ Origin](https://developercertificate.org/):
 git commit -s
 ```
 
-This appends a `Signed-off-by: Your Name <you@example.com>` trailer certifying
-you have the right to submit the change under the project's license. The `dco`
-CI job rejects any pull-request commit that is missing the trailer.
+This appends a `Signed-off-by: Your Name <you@example.com>` trailer
+certifying you have the right to submit the change under the project's
+license. The DCO check is required — a pull-request commit without the
+trailer blocks the merge. Amend with `git commit --amend -s` if you
+forget.
 
 ## The gates
 
-`make check` is the merge gate — build, vet, lint, arch-lint, unit + fitness
-tests, and generated-drift. `make test-integration` adds the real-Postgres RLS
-and GDPR-erasure lanes. Both must be green before review.
+Every change — code, docs, and config alike — lands through the same
+loop your PR will run:
 
-The **craftsmanship gate** (`make craft-static`, ADR-0045) runs in CI after the
-deterministic gates and is a required, no-override check: new or touched backend
-code must be free of `BLOCKER` findings (swallowed errors, test sleeps). The
-gate is foundation-owned and hash-pinned — fix it upstream in the skeleton, never
-in this checkout (see [CLAUDE.md](CLAUDE.md) → *Craftsmanship*).
+1. **`make check`** is the merge gate: build, vet, lint (baseline +
+   new-code strict), arch-lint, unit + fitness tests, generated-code
+   drift, contract breaking-change, test-lane hygiene, image pins, and
+   the file-length ratchet. Add `make frontend-check` when `frontend/`
+   changed; `make test-integration` runs the real-Postgres RLS and
+   GDPR-erasure lanes (needs `make db-up`).
+2. The **craftsmanship gate** (`craft static`) runs diff-scoped on
+   every push once hooks are installed (`make hooks`): new or touched
+   backend code must be free of `BLOCKER` findings (swallowed errors,
+   sleeps in tests). A *genuine* false positive is waived in-source
+   with a reason: `//craft:ignore <check> <reason>`. The gate tool
+   (`cli/craft/`) is vendored and hash-pinned — never edit it here.
+3. **CI must be all green before merge**: the same deterministic gates
+   plus DCO, automated review, and static analysis. Address findings
+   rather than dismissing them; squash-merge is the house style.
 
-Write it right the first time: match the surrounding file, comments say *why*
-not *what*, never swallow an error, and tests prove behaviour or they are noise.
-The full anti-tell catalog lives in the spec's `architecture/15`.
+Write it right the first time: match the surrounding file, comments say
+*why* not *what*, never swallow an error, and tests prove behaviour or
+they are noise.
 
 ## Where things go
 
-- Implementation decisions → `decisions/`.
-- Spec or ticket defects → a local note in `feedback/` (git-ignored scratch).
-- Start every session at [STATUS.md](STATUS.md); update it when you finish.
+- Implementation decisions — anything the specification left open that
+  the code had to decide — get a numbered record in `decisions/`.
+- Session state and pickup points live in [STATUS.md](STATUS.md);
+  start there, and read [AGENTS.md](AGENTS.md) for the binding
+  engineering rules.
+- Defects and proposals go to GitHub issues. Security vulnerabilities
+  go through [SECURITY.md](SECURITY.md) (private reporting), never a
+  public issue.
 
-The specification is the source of truth: when this code and the spec disagree,
-the spec wins (principle P3).
+Margince is built contract-first: `backend/api/crm.yaml` is the
+authoritative surface, and when this code and the specification
+disagree, the specification wins.
+
+## Before you open a PR
+
+- Keep the PR scoped, and let it tell a story: what, why, and how it
+  was verified.
+- Run the pre-submit self-check in [AGENTS.md](AGENTS.md) →
+  *Craftsmanship*.
+- `make check` is green locally and every commit is signed off.
