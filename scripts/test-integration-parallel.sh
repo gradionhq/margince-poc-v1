@@ -33,6 +33,16 @@ cd "$ROOT"
 source "$ROOT/scripts/lib-testdb.sh"
 parse_test_dsn
 
+# Optional coverage: when COVER_OUT is set (the sonarcloud CI job sets it), each
+# package emits binary coverage into its own dir and we merge them into a single
+# Go text profile at the end (go tool covdata — built-in, no external merge tool).
+# This keeps the coverage run parallel instead of the old serial `-p 1 ./...`.
+COVER_OUT="${COVER_OUT:-}"
+if [ -n "$COVER_OUT" ]; then
+  case "$COVER_OUT" in /*) ;; *) COVER_OUT="$ROOT/$COVER_OUT";; esac
+  COVERDIR="$(mktemp -d)"; export COVERDIR
+fi
+
 # Build the migrated template once, fresh, before fanning out. Every package
 # clones from it (CREATE DATABASE ... TEMPLATE) instead of re-migrating.
 echo "test-integration-parallel: building migrated template ${TEMPLATE_NAME}…"
@@ -60,7 +70,7 @@ done > "$WORK"
 NPKGS=$(wc -l < "$WORK" | tr -d ' ')
 echo "test-integration-parallel: $NPKGS packages, up to $JOBS concurrent (template db=$TEMPLATE_DB)"
 
-OUTDIR="$(mktemp -d)"; trap 'rm -f "$WORK"; rm -rf "$OUTDIR"' EXIT
+OUTDIR="$(mktemp -d)"; trap 'rm -f "$WORK"; rm -rf "$OUTDIR" "${COVERDIR:-}"' EXIT
 
 # One job = clone an empty db + own a private MinIO bucket, run that package
 # against them, drop the clone.
@@ -70,6 +80,14 @@ run_one() {
   local db="margince_it_p${idx}_$$"
   local log="$outdir/$idx.log"
   local bucket; bucket="$(bucket_for "$idx")"
+  # Coverage args (empty unless COVERDIR is set). -coverpkg=./... attributes
+  # cross-package exercise; binary output goes to a per-package dir, merged later.
+  local cover_pre=() cover_post=()
+  if [ -n "${COVERDIR:-}" ]; then
+    mkdir -p "$COVERDIR/$idx"
+    cover_pre=(-cover -coverpkg=./... -covermode=atomic)
+    cover_post=(-args -test.gocoverdir="$COVERDIR/$idx")
+  fi
   {
     echo "=== integration $d $rel (db=$db bucket=$bucket) ==="
     make_clone "$db"
@@ -79,7 +97,8 @@ run_one() {
            MARGINCE_TEST_DSN="$(owner_clone_dsn "$db")" \
            MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
            MARGINCE_TEST_BLOBSTORE_BUCKET="$bucket" \
-        go test -p 1 -tags=integration -v -count=1 -timeout=300s "$rel" ) || st=$?
+        go test -p 1 -tags=integration -v -count=1 -timeout=300s \
+          "${cover_pre[@]+"${cover_pre[@]}"}" "$rel" "${cover_post[@]+"${cover_post[@]}"}" ) || st=$?
     drop_clone "$db"
     echo "EXIT $st"
   } > "$log" 2>&1
@@ -109,5 +128,15 @@ if [ "$fail" -ne 0 ]; then
   echo "FAIL: integration tests failed (parallel, $NPKGS packages) — see package logs above"
   exit 1
 fi
+
+# Merge per-package coverage into the single text profile SonarCloud reads.
+if [ -n "$COVER_OUT" ]; then
+  dirs="$(find "$COVERDIR" -mindepth 1 -maxdepth 1 -type d | paste -sd, -)"
+  if [ -n "$dirs" ]; then
+    ( cd backend && go tool covdata textfmt -i="$dirs" -o="$COVER_OUT" )
+    echo "coverage: merged $(printf '%s' "$dirs" | tr ',' '\n' | grep -c .) package profiles → $COVER_OUT"
+  fi
+fi
+
 # Keep the exact success sentinel the gates grep for; the count is informational.
 echo "OK: integration passed with 0 skips ($NPKGS packages, parallel)"

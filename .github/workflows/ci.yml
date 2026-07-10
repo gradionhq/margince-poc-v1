@@ -340,9 +340,16 @@ jobs:
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
             minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
             server /data
-      - name: Go coverage (unit + integration lane)
+      # Go coverage over the parallel integration lane (not a serial
+      # `-p 1 ./...`): the runner gives each package its own clone db and emits
+      # per-package binary coverage, then merges to one text profile with
+      # go tool covdata. -coverpkg=./... (set inside the runner) attributes
+      # cross-package exercise — the compose e2e suites cover the briefs
+      # transport, module helpers, etc.; without it a package proven only by
+      # another package's suite reads as a false 0%. COVER_OUT is the profile
+      # SonarCloud reads (sonar.go.coverage.reportPaths=backend/coverage.out).
+      - name: Go coverage (parallel integration lane)
         if: ${{ env.SONAR_TOKEN != '' }}
-        working-directory: backend
         env:
           MARGINCE_TEST_DSN: postgres://margince_owner:dev@localhost:55432/margince
           MARGINCE_TEST_APP_DSN: postgres://margince_app:margince_app_dev@localhost:55432/margince
@@ -351,15 +358,8 @@ jobs:
           MARGINCE_TEST_BLOBSTORE_ACCESS_KEY: minioadmin
           MARGINCE_TEST_BLOBSTORE_SECRET_KEY: minioadmin
           MARGINCE_TEST_BLOBSTORE_BUCKET: margince-test
-          # The HTTP e2e suites resolve the workspace from the
-          # X-Workspace-Slug header, which only the dev trust switch
-          # honors — same export make test-integration sets.
-          MARGINCE_ENV: dev
-        # -coverpkg=./... attributes cross-package exercise — the compose
-        # e2e suites cover the briefs transport, module helpers, etc.;
-        # without it a package proven only by another package's suite
-        # reads as a false 0%.
-        run: go test -tags integration -p 1 ./... -coverpkg=./... -coverprofile=coverage.out -covermode=atomic
+          COVER_OUT: backend/coverage.out
+        run: bash scripts/test-integration-parallel.sh
       - name: Frontend unit coverage
         if: ${{ env.SONAR_TOKEN != '' }}
         working-directory: frontend
