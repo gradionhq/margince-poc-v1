@@ -126,17 +126,18 @@ jobs:
         run: |
           make tools
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
-      # The whole merge gate in one pass: craft-drift, check-craft-doc, image
-      # pins, contract-breaking, test-lanes, file-length, RLS store-path,
-      # jurisdiction isolation, then the backend gate (build, vet, lint,
-      # arch-lint, unit + fitness tests, contract drift). Each prints its own
-      # OK/FAIL line, so a failure is still identifiable in the log.
-      - name: Merge gate (make check)
+      # The backend half of the merge gate in one pass: craft-drift,
+      # check-craft-doc, image pins, contract-breaking, test-lanes, file-length,
+      # RLS store-path, jurisdiction isolation, then the backend gate (build,
+      # vet, lint, arch-lint, unit + fitness tests, contract drift). The frontend
+      # half (`make check-fe`) is the separate `frontend` job — no toolchain
+      # duplication. `make check` = check-backend + check-fe locally.
+      - name: Backend merge gate (make check-backend)
         working-directory: .
         env:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
-        run: make check
+        run: make check-backend
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic
   # gates are green — a red build must never be judged on style.

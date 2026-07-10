@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install check check-q check-go check-fe build test test-v test-cover test-integration bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-tls clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e fe-dev fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction uat_env uat_env_stop hooks
+.PHONY: help install check check-backend check-q check-go check-fe build test test-v test-cover test-integration bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-tls clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e fe-dev fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction uat_env uat_env_stop hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -26,9 +26,17 @@ help:
 install: fe-install tools hooks
 	@echo "install: worktree ready (frontend deps + gate tools + hooks)"
 
-## check — the merge gate: the root deterministic script gates plus the backend
-## gate (build, vet, lint, arch-lint, unit + fitness tests, contract drift).
-check: craft-drift check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction check-fe
+## check-backend — the backend half of the gate: the root deterministic script
+## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
+## tests, contract drift). No frontend toolchain needed — this is what the CI
+## deterministic-gates job runs.
+check-backend: craft-drift check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction
+	$(MAKE) -C backend check
+
+## check — the full merge gate: backend + frontend (matches the skeleton's
+## `check = check-backend check-fe`). check-fe fails if the frontend deps are
+## missing, so run `make install` first.
+check: check-backend check-fe
 
 ## check-q — quiet `make check`: the full log lands in .tmp/check.log and only an
 ## excerpt prints on failure (keeps a green run's output to one line).
@@ -63,20 +71,15 @@ infra-down:
 dev-tls:
 	./dev/dev.sh
 
-check build test test-v test-cover test-integration bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev clean tools tools-go infra-logs infra-reset:
+build test test-v test-cover test-integration bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev clean tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
-## check-fe — the frontend gate, part of `make check`. Skips cleanly when the
-## frontend toolchain is absent (no frontend/node_modules), so `make check`
-## covers backend AND frontend where node/pnpm exist, and no-ops on a
-## backend-only box or in the Go-only CI gate job (where the separate frontend
-## CI job runs it instead). Run `make fe-install` to include it locally.
+## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
+## if the frontend deps are missing rather than skipping — a set-up worktree has
+## run `make install`, which installs them. The CI frontend job runs this too.
 check-fe:
-	@if [ -d frontend/node_modules ]; then \
-		$(MAKE) frontend-check; \
-	else \
-		echo "check-fe: frontend/node_modules absent — skipping the frontend gate (run 'make fe-install' to include it)"; \
-	fi
+	@[ -d frontend/node_modules ] || { echo "check-fe: frontend/node_modules missing — run 'make install' (or 'make fe-install') first" >&2; exit 1; }
+	$(MAKE) frontend-check
 ## fe-dev — Vite dev server (alias for frontend-dev).
 fe-dev: frontend-dev
 ## fitness-jurisdiction — no country strings in core (alias for no-jurisdiction).
