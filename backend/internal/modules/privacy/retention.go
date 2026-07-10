@@ -208,12 +208,17 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			_, err = tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1`, id)
 		case "activity/erase":
 			// Transcript free-text is the special-category risk; the
-			// record of the meeting stays, its content goes.
+			// record of the meeting stays, its content goes — including any
+			// attached recording/transcript file (objects first, so the
+			// purge shares the person-erase durability guarantee).
 			_, err = tx.Exec(ctx,
 				`UPDATE activity SET body = NULL, subject = 'Erased', archived_at = coalesce(archived_at, now()) WHERE id = $1`, id)
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
+			}
+			if err == nil {
+				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
 			}
 		case "deal/archive":
 			_, err = tx.Exec(ctx, `UPDATE deal SET archived_at = now() WHERE id = $1`, id)

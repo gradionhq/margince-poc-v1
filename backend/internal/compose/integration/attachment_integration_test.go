@@ -132,6 +132,40 @@ func TestErasurePurgesAttachmentObjects(t *testing.T) {
 	}
 }
 
+func TestErasureWithoutStoreRollsBackRatherThanHalfErasing(t *testing.T) {
+	e := Setup(t)
+	blob := blobstore.NewMemory()
+	store := e.Activities.WithBlobstore(blob)
+	ctx := e.Admin()
+	person := e.SeedPerson(t, "Config Mismatch", &e.Rep1)
+	att, err := store.UploadAttachment(ctx, activities.AttachmentInput{
+		EntityType: "person", EntityID: person, Filename: "f.pdf", Body: []byte("bytes"),
+	})
+	if err != nil {
+		t.Fatalf("UploadAttachment: %v", err)
+	}
+
+	// An eraser wired WITHOUT a blobstore — the asymmetric config where the
+	// api stored objects but the worker running erasure has no store. Erasing
+	// a subject whose attachments have objects must FAIL and roll back, never
+	// commit a half-erasure that strands the bytes with their keys deleted.
+	eraser := privacy.NewEraser(e.Pool)
+	if err := eraser.ErasePerson(ctx, person, "misconfig"); err == nil {
+		t.Fatal("ErasePerson succeeded with objects present but no store configured — half-erasure risk")
+	}
+
+	// Rolled back: the attachment row survives (still openable) and the person
+	// was not anonymized.
+	if _, rc, derr := store.OpenAttachment(ctx, ids.UUID(att.Id)); derr != nil {
+		t.Errorf("attachment row was deleted despite the erasure rolling back: %v", derr)
+	} else {
+		_ = rc.Close()
+	}
+	if erased := e.WsCount(t, `SELECT count(*) FROM person WHERE id = $1 AND full_name = 'Erased Subject'`, person); erased != 0 {
+		t.Error("person was anonymized despite the object purge failing — the erasure did not roll back")
+	}
+}
+
 func TestArchiveAttachmentHidesItButKeepsTheObject(t *testing.T) {
 	e := Setup(t)
 	store, blob := attachmentStore(e)

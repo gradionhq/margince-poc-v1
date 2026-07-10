@@ -71,6 +71,21 @@ func ensureAttachmentParentVisible(ctx context.Context, tx pgx.Tx, entityType st
 	return auth.EnsureVisible(ctx, tx, entityType, id)
 }
 
+// requireParentOrHide checks the parent object grant AFTER the attachment row
+// was found (so it exists in this workspace). A caller lacking the grant must
+// not learn the attachment exists, so object denial reads as not-found — the
+// same 404 a row-scope miss returns (existence-hiding). Upload checks the
+// grant before any lookup, so it keeps its plain 403.
+func requireParentOrHide(ctx context.Context, entityType string, action principal.Action) error {
+	if err := auth.Require(ctx, entityType, action); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return apperrors.ErrNotFound
+		}
+		return err
+	}
+	return nil
+}
+
 // UploadAttachment stores an object and records its metadata row. Authority
 // inherits from the parent entity: the caller must hold Update on the parent
 // object type and be able to see the parent row — both are checked BEFORE any
@@ -155,7 +170,7 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 		case err != nil:
 			return err
 		}
-		if err := auth.Require(ctx, entityType, principal.ActionRead); err != nil {
+		if err := requireParentOrHide(ctx, entityType, principal.ActionRead); err != nil {
 			return err
 		}
 		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
@@ -195,7 +210,7 @@ func (s *Store) ArchiveAttachment(ctx context.Context, id ids.UUID) error {
 		case err != nil:
 			return err
 		}
-		if err := auth.Require(ctx, entityType, principal.ActionUpdate); err != nil {
+		if err := requireParentOrHide(ctx, entityType, principal.ActionUpdate); err != nil {
 			return err
 		}
 		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
