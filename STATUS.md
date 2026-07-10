@@ -57,6 +57,20 @@ Merged so far:
   the Art. 17 erase-path object purge, so erasure reaches the bytes not
   only the rows. MinIO is in the dev compose stack and both CI integration
   jobs; a `/readyz` probe covers it (decisions/0022).
+- **Keyvault seam** — `platform/keyvault` (AES-256-GCM local provider +
+  in-memory fake), secret-material storage behind an opaque,
+  workspace-scoped `credential_ref`. Ships with its first real secret
+  migrated: `connector_connection.auth` (bytea) moves off the tenant row
+  onto the vault, leaving only a ref on the row (the `auth` column is
+  dropped in a later additive migration after backfill). Isolation is
+  cryptographic — the ref carries its workspace and the GCM AAD binds it,
+  so a stolen ref is inert across the tenant edge; the `vault_secret`
+  ciphertext table is operational infra (no `workspace_id`, no RLS), like
+  River's tables. `WithKeyvault` feeds a `/readyz` probe; the worker
+  backfills legacy rows at boot (idempotent). Env-only root key
+  (`MARGINCE_KEYVAULT_ROOT_KEY`, base64 32-byte). The connector port is
+  unchanged — capture resolves the ref and still hands the connector its
+  `Auth` (decisions/0023).
 
 ## Pick up here
 
@@ -67,11 +81,16 @@ Open work, roughly in priority order:
   repo's actual architecture. Until it lands, the spec-path references in
   CLAUDE.md / AGENTS.md / README (`../margince/specs/`) are left as-is;
   they repoint together once the canonical public spec home is decided.
-- **ADR track** (parallel, each needs a decision record): connector
-  keyvault (decisions/0023 drafted; pair with the EP05 §B capture-connection
-  reshape), retiring or keeping the second (embedded) SPA, the
-  design-system of record, and the optional advisory LLM craft-review CI
-  job. (River shipped in #35; the blobstore seam in this batch.)
+- **EP05 §B capture-connection reshape** — now unblocked by the keyvault
+  seam: multiple per-user connections, the connection-management contract
+  surface + UI, and connector credential *rotation* (the ref/AAD scheme
+  already carries a key version so rotation is not foreclosed). Its own PR
+  arc. The `oauth` signing keypairs (`workspace_signing_key`) fold onto the
+  same vault next, as a distinct migration (decisions/0023).
+- **ADR track** (parallel, each needs a decision record): retiring or
+  keeping the second (embedded) SPA, the design-system of record, and the
+  optional advisory LLM craft-review CI job. (River shipped in #35, the
+  blobstore seam in the prior batch, the keyvault seam in this one.)
 - **Frontend DECISION items** from worklist §1d: router migration and a
   Storybook/component-test lane — adopt when the design system
   stabilizes, not before.
