@@ -283,11 +283,16 @@ res, err := migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
 if err != nil {
     return fmt.Errorf("migrate: river up: %w", err)
 }
-fmt.Fprintf(stdout, "river: applied %d migration(s)\n", len(res.Versions))
+_, _ = fmt.Fprintf(stdout, "river: applied %d migration(s)\n", len(res.Versions))
 ```
 
-Mirror it under the `down` subcommand with `DirectionDown` (bounded by the
-same `--steps` semantics the SQL down path uses, or River's default of one).
+**`down` is deliberately NOT mirrored.** Folding River into the shared
+`--steps` counter would let a routine `migrate down --steps 1` — meant to
+undo the last custom/core migration — silently drop a River migration and
+break the job infrastructure. River rollback is a separate, explicit,
+rarely-needed operation; the `down` subcommand keeps reverting only the SQL
+namespaces (custom then core). This matches the ADR and the shipped
+`cmd/migrate`.
 
 - [ ] **Step 2: Update the tenant-table fitness allowlist**
 

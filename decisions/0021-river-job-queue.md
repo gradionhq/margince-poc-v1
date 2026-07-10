@@ -145,9 +145,13 @@ added to their operational-infra allowlist alongside `schema_migrations_*`.
 - **Correctness win:** the worker role becomes safe to scale horizontally —
   River's leader election guarantees each periodic job runs once
   cluster-wide. This closes the double-run bug that exists today.
-- **Durability win:** shutdown drains in-flight jobs; a failed pass retries
-  with backoff and is inspectable in `river_job` rather than lost to a log
-  line. This is strictly better than the ticker, not merely equivalent.
+- **Durability win:** shutdown attempts to drain in-flight jobs within
+  `cmd/worker`'s 30-second `Stop` deadline; a job still running when the
+  deadline expires is not force-finished but stays durable in `river_job`
+  (its persisted state), and River re-runs it on the next boot under its
+  retry policy — nothing is lost to a log line the way an abandoned ticker
+  pass was. A failed pass likewise retries with backoff and is inspectable.
+  This is strictly better than the ticker, not merely equivalent.
 - **New dependency:** `github.com/riverqueue/river` (+ `riverpgxv5`,
   `rivermigrate`) enters `go.mod`. It is pgx-v5-native and Go-1.26-clean.
   Image-pin and SonarCloud posture unaffected (pure Go, Postgres-backed).
