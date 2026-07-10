@@ -39,6 +39,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/web"
 )
@@ -95,6 +96,11 @@ type Server struct {
 	// a role that stores no objects.
 	blob blobstore.Store
 
+	// vault is the secret store, injected by WithKeyvault. When configured
+	// it feeds a /readyz probe and backs the capture connector-credential
+	// path; nil means a role that resolves no stored connector credentials.
+	vault keyvault.Vault
+
 	// log is the process logger, shared with the optional engines an
 	// option wires (e.g. the brief L2 ranker's degradation warnings).
 	log *slog.Logger
@@ -127,11 +133,21 @@ func WithBlobstore(store blobstore.Store) Option {
 	}
 }
 
+// WithKeyvault wires the secret store: it feeds the /readyz probe and backs
+// the capture connector-credential path (Authenticate seals the credential
+// bundle, Sync resolves it). Without it a role that persists or resolves
+// connector credentials declares that gap at wiring time rather than
+// nil-derefing at Authenticate — a capture-capable role must pass this or
+// fail to boot (enforced in cmd, decisions/0023).
+func WithKeyvault(vault keyvault.Vault) Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.vault = vault }
+}
+
 // readinessChecks assembles the /readyz dependency probes for this role.
-// Postgres is always probed; the bus and the object store are probed only
-// when this role wired them, so a split deployment answers ready on exactly
-// what it depends on. A wedged dependency must fail readiness — a probe is
-// never dropped to keep the pod in rotation.
+// Postgres is always probed; the bus, the object store, and the secret vault
+// are probed only when this role wired them, so a split deployment answers
+// ready on exactly what it depends on. A wedged dependency must fail
+// readiness — a probe is never dropped to keep the pod in rotation.
 func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserver.ReadyCheck {
 	checks := []httpserver.ReadyCheck{{Name: "postgres", Check: pgPing}}
 	if s.busReady != nil {
@@ -139,6 +155,9 @@ func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserve
 	}
 	if s.blob != nil {
 		checks = append(checks, httpserver.ReadyCheck{Name: "blobstore", Check: s.blob.Health})
+	}
+	if s.vault != nil {
+		checks = append(checks, httpserver.ReadyCheck{Name: "keyvault", Check: s.vault.Health})
 	}
 	return checks
 }

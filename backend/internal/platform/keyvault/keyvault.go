@@ -87,6 +87,12 @@ const refDelimiter = "."
 // be forged even before the workspace and crypto binding reject it.
 const refTokenBytes = 16
 
+// currentKeyVersion is the root-key version every provider stamps into new
+// refs today. It is 1 because there is one key; the version travels in the
+// ref so a later rotation can add a keyring and pick the key by version
+// without changing the ref format or the stored ciphertext (decisions/0023).
+const currentKeyVersion = 1
+
 // mintRef builds a fresh ref for ws at keyVersion. The random token is drawn
 // from crypto/rand; a failure there means the process cannot mint secret
 // handles and is surfaced, never masked with a predictable value.

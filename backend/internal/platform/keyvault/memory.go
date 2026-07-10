@@ -18,8 +18,8 @@ import (
 // provider's contract: the ref carries its workspace, and a ref presented
 // under the wrong workspace answers ErrNotFound before any lookup.
 //
-// The memory fake at version 1 mints refs at key version 1 — it has no root
-// key and does no encryption, but stamps the same version the local provider
+// The memory fake mints refs at the current key version — it has no root key
+// and does no encryption, but stamps the same version the local provider
 // does so a ref round-trips through either provider's parse.
 type memoryVault struct {
 	mu      sync.RWMutex
@@ -37,7 +37,7 @@ func (m *memoryVault) Put(_ context.Context, ws ids.WorkspaceID, secret []byte) 
 	if ws.IsZero() {
 		return "", fmt.Errorf("keyvault: cannot store a secret for a zero workspace id")
 	}
-	ref, err := mintRef(ws, memoryKeyVersion)
+	ref, err := mintRef(ws, currentKeyVersion)
 	if err != nil {
 		return "", err
 	}
@@ -80,8 +80,3 @@ func (m *memoryVault) Delete(_ context.Context, ws ids.WorkspaceID, ref Ref) err
 
 // Health always succeeds: the in-memory vault has no backend to reach.
 func (m *memoryVault) Health(_ context.Context) error { return nil }
-
-// memoryKeyVersion is the key version the fake stamps into its refs. It is 1
-// to match the local provider's first root-key version so a ref is
-// well-formed regardless of which provider minted it.
-const memoryKeyVersion = 1
