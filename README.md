@@ -44,8 +44,10 @@ work breakdown) lives in a separate spec repo at `../margince/specs/`.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
-Progress and the pickup point live in **[STATUS.md](STATUS.md)**;
-the binding engineering rules in [AGENTS.md](AGENTS.md). User and
+Contributing: start with [CONTRIBUTING.md](CONTRIBUTING.md) (how the
+gates, DCO sign-off, and AI-disclosure work). Progress and the pickup
+point live in **[STATUS.md](STATUS.md)**; the binding engineering rules
+in [AGENTS.md](AGENTS.md). User and
 operator documentation lives under [docs/](docs/):
 [getting started](docs/tutorials/getting-started.md) ·
 [how-to guides](docs/how-to/) (MCP server, passports, migrations) ·
