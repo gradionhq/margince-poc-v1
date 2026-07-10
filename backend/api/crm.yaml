@@ -4294,6 +4294,7 @@ paths:
               schema: { $ref: '#/components/schemas/AttachmentListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
     post:
       tags: [Attachments]
       operationId: uploadAttachment
@@ -4350,9 +4351,14 @@ paths:
       operationId: deleteAttachment
       security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
       x-agent-access: human-only
-      summary: Delete an attachment — its row and its stored object.
+      summary: Archive an attachment (soft delete).
+      description: |
+        Soft-deletes the attachment: the row is archived and it disappears from
+        listings and downloads. The object bytes are retained and purged by the
+        Art. 17 erasure / retention path, matching how every archived record's
+        data persists until erasure. Already-archived or invisible → 404.
       responses:
-        '204': { description: Deleted (idempotent object removal). }
+        '204': { description: Archived. }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # DEFERRED — stubs only (data-model.md §12). Intentionally NOT specified:

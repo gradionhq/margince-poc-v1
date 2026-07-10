@@ -82,7 +82,7 @@ func (s *s3Store) ensureBucket(ctx context.Context, region string) error {
 				return nil
 			}
 			// A concurrent creator winning the race is success, not failure.
-			if existsErr, _ := s.client.BucketExists(ctx, s.bucket); existsErr {
+			if exists, existsErr := s.client.BucketExists(ctx, s.bucket); existsErr == nil && exists {
 				return nil
 			}
 			lastErr = fmt.Errorf("blobstore: create bucket %q: %w", s.bucket, mkErr)

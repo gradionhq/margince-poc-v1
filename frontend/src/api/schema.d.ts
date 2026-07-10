@@ -2274,7 +2274,13 @@ export interface paths {
         get: operations["downloadAttachment"];
         put?: never;
         post?: never;
-        /** Delete an attachment — its row and its stored object. */
+        /**
+         * Archive an attachment (soft delete).
+         * @description Soft-deletes the attachment: the row is archived and it disappears from
+         *     listings and downloads. The object bytes are retained and purged by the
+         *     Art. 17 erasure / retention path, matching how every archived record's
+         *     data persists until erasure. Already-archived or invisible → 404.
+         */
         delete: operations["deleteAttachment"];
         options?: never;
         head?: never;
@@ -10485,6 +10491,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     uploadAttachment: {
@@ -10559,7 +10566,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Deleted (idempotent object removal). */
+            /** @description Archived. */
             204: {
                 headers: {
                     [name: string]: unknown;

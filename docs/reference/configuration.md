@@ -61,8 +61,10 @@ finish their ack before the process exits.
 
 Env-only, shared by both roles; secrets never appear on the command line
 (argv is world-readable). Leave `MARGINCE_BLOBSTORE_ENDPOINT` unset and the
-`/attachments` endpoints answer 501 and erasure has no objects to purge; set
-it to enable them (decisions/0022). The bucket is created on first connect,
+`/attachments` endpoints answer 501; set it to enable them (decisions/0022).
+If attachment rows already exist (uploaded while a store was configured) but
+the erasing process has none, Art. 17 erasure **fails and rolls back** rather
+than stranding the bytes — it stays retryable until a store is configured. The bucket is created on first connect,
 and the store tolerates a still-starting backend with a bounded retry.
 
 | Env | Default | Meaning |

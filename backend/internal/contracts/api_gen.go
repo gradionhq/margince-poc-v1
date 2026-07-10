@@ -11667,7 +11667,7 @@ type ServerInterface interface {
 	// Upload a file and attach it to an entity.
 	// (POST /attachments)
 	UploadAttachment(w http.ResponseWriter, r *http.Request)
-	// Delete an attachment — its row and its stored object.
+	// Archive an attachment (soft delete).
 	// (DELETE /attachments/{id})
 	DeleteAttachment(w http.ResponseWriter, r *http.Request, id Id)
 	// Download an attachment's file bytes.
@@ -12165,7 +12165,7 @@ func (_ Unimplemented) UploadAttachment(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Delete an attachment — its row and its stored object.
+// Archive an attachment (soft delete).
 // (DELETE /attachments/{id})
 func (_ Unimplemented) DeleteAttachment(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
