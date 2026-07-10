@@ -37,7 +37,8 @@ Operational endpoints (served next to `/v1`):
   restart-loop the process).
 - `/readyz` — readiness: every dependency probe (Postgres; Redis too
   when the relay is inline; the object store when a blobstore is
-  configured) must pass within 2s, else 503 naming the unready dependency.
+  configured; the secret vault when a keyvault is configured) must pass
+  within 2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
 
@@ -75,6 +76,26 @@ and the store tolerates a still-starting backend with a bounded retry.
 | `MARGINCE_BLOBSTORE_BUCKET` | — | bucket name (created on first connect) |
 | `MARGINCE_BLOBSTORE_REGION` | `us-east-1` | region |
 | `MARGINCE_BLOBSTORE_USE_SSL` | `false` | `true` for TLS to the store |
+
+## Secret vault (api, worker) — connector credentials
+
+Env-only, shared by both roles; the root key never appears on the command
+line (argv is world-readable) or in any log or error. A connector credential
+is sealed with AES-256-GCM under this key and stored as ciphertext in the
+operational `vault_secret` table; the `connector_connection` row carries only
+an opaque, workspace-scoped `credential_ref`, never the credential bytes
+(decisions/0023). Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is
+absent: the transient one-shot IMAP pull (which persists no credential) still
+works, and the persisting paths (Connect seals, Sync resolves) refuse loudly
+rather than store a credential in the clear. Set it and the api gains the
+`/readyz` keyvault probe and the vault-backed path, and the worker migrates
+any legacy `auth`-bytea rows onto the vault at boot (idempotent). A key that
+is SET but not exactly 32 bytes (base64-decoded) is a boot error — never a
+silent fallback.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `MARGINCE_KEYVAULT_ROOT_KEY` | — | base64 (std) of 32 bytes; set to enable the vault. Generate: `openssl rand -base64 32` |
 
 ## cmd/mcp — the agent tool surface
 

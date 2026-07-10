@@ -22,6 +22,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -118,7 +119,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	e := setupSearch(t)
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
-	registry := newTestCaptureRegistry(e)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: personID}
 	registry.Register(fake)
 
@@ -188,7 +189,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 
 func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 	e := setupSearch(t)
-	registry := newTestCaptureRegistry(e)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&mailFake{scopes: []principal.Scope{principal.ScopeRead, principal.ScopeSend}})
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
@@ -210,7 +211,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	// A person owned by team2 — invisible to the team1 granting human.
 	foreignPerson := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Foreign Target', $3, 'manual', 'human:x')`, e.Rep3)
 
-	registry := newTestCaptureRegistry(e)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: foreignPerson}
 	registry.Register(fake)
 
@@ -278,6 +279,6 @@ func (fakeAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.Se
 	return principal.SeatFull, nil
 }
 
-func newTestCaptureRegistry(e *searchEnv) *capture.Registry {
-	return capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), fakeAuthority{})
+func newTestCaptureRegistry(e *searchEnv, vault keyvault.Vault) *capture.Registry {
+	return capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), fakeAuthority{}, vault)
 }
