@@ -10,6 +10,14 @@ APP_DSN   ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(DB_
 export MARGINCE_TEST_DSN     ?= $(OWNER_DSN)
 export MARGINCE_TEST_APP_DSN ?= $(APP_DSN)
 export MARGINCE_TEST_REDIS   ?= localhost:$(REDIS_PORT)
+# Blobstore (MinIO) — the integration lane fails loudly without it, never
+# skips, so the endpoint/creds/bucket are part of the compose + CI contract
+# (decisions/0022). The bucket is created by the store at first connect.
+MINIO_PORT   ?= 59000
+export MARGINCE_TEST_BLOBSTORE_ENDPOINT   ?= localhost:$(MINIO_PORT)
+export MARGINCE_TEST_BLOBSTORE_ACCESS_KEY ?= minioadmin
+export MARGINCE_TEST_BLOBSTORE_SECRET_KEY ?= minioadmin
+export MARGINCE_TEST_BLOBSTORE_BUCKET     ?= margince-test
 # Dev-only trust switches (the X-Workspace-Slug header, AGENTS.md): make
 # is the dev/test entry point, so dev is the right default HERE — a
 # production deployment sets its own environment and never runs make.

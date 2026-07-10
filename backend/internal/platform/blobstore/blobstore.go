@@ -41,6 +41,10 @@ type Store interface {
 	// Stat returns the object's metadata without its bytes; ErrNotFound if
 	// absent.
 	Stat(ctx context.Context, key string) (Object, error)
+
+	// Health reports whether the backing store is reachable, feeding the
+	// /readyz probe. A nil error means ready.
+	Health(ctx context.Context) error
 }
 
 // Object is the stored bytes' metadata.

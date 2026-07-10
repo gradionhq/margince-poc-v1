@@ -24,6 +24,7 @@ vendors:
   yaml:   { in: gopkg.in/** }
   emersion: { in: github.com/emersion/** }
   river:  { in: github.com/riverqueue/** }
+  minio:  { in: github.com/minio/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -59,7 +60,7 @@ deps:
     canUse: [chi, oapi]
   platform:
     mayDependOn: [platform, contracts, migrations]
-    canUse: [pgx, chi, oapi, redis, river]
+    canUse: [pgx, chi, oapi, redis, river, minio]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:

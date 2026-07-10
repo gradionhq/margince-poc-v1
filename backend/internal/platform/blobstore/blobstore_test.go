@@ -108,6 +108,14 @@ func TestMemoryStoreGetReturnsAnIndependentCopy(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreHealthIsAlwaysHealthy(t *testing.T) {
+	// The in-memory store has no backend to reach, so the readiness probe
+	// it feeds is always healthy — dev without MinIO is still "ready".
+	if err := blobstore.NewMemory().Health(t.Context()); err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+}
+
 func TestWorkspaceKeyIsolatesWorkspaces(t *testing.T) {
 	a := ids.New[ids.WorkspaceKind]()
 	b := ids.New[ids.WorkspaceKind]()
