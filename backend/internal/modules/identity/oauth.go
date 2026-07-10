@@ -96,6 +96,11 @@ func (h Handlers) oauthRegister(w http.ResponseWriter, r *http.Request) {
 			clientID, req.ClientName, req.RedirectURIs)
 		return err
 	})
+	if errors.Is(err, database.ErrNoWorkspace) {
+		// Registration is per tenant; the request's host resolved to none.
+		oauthError(w, http.StatusBadRequest, "invalid_request", "no workspace resolved for this request")
+		return
+	}
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

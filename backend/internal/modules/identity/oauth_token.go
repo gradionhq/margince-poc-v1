@@ -48,7 +48,9 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 
 	userID, workspaceID, scopes, err := h.redeemAuthCode(r, code, verifier)
 	switch {
-	case errors.Is(err, errCodeSpent):
+	// A code cannot exist in a workspace that doesn't resolve, and the
+	// answer must not distinguish that from a spent code.
+	case errors.Is(err, errCodeSpent), errors.Is(err, database.ErrNoWorkspace):
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "code is unknown, expired, or already used")
 		return
 	case errors.Is(err, errGrantMismatch):
