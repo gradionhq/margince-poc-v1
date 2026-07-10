@@ -2236,6 +2236,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the attachments hung off one entity (cursor-paginated metadata). */
+        get: operations["listAttachments"];
+        put?: never;
+        /**
+         * Upload a file and attach it to an entity.
+         * @description Multipart upload. The bytes are written to object storage; the row records the
+         *     metadata + object key. `captured_by` is server-stamped from the authenticated
+         *     principal, never the request. The parent entity must be visible to the caller
+         *     (a hidden or cross-tenant entity answers 404, never leaks existence).
+         */
+        post: operations["uploadAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Download an attachment's file bytes. */
+        get: operations["downloadAttachment"];
+        put?: never;
+        post?: never;
+        /** Delete an attachment — its row and its stored object. */
+        delete: operations["deleteAttachment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3082,6 +3127,36 @@ export interface components {
         };
         ActivityListResponse: {
             data: components["schemas"]["Activity"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description A file hung off an entity. Mirrors the `attachment` table: the row is the
+         *     system of record and the tenant anchor; the bytes live in object storage,
+         *     addressed by an internal object key that is never exposed on the wire.
+         */
+        Attachment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** @enum {string} */
+            entity_type: "person" | "organization" | "deal" | "activity" | "lead";
+            /** Format: uuid */
+            entity_id: string;
+            filename: string;
+            content_type?: string | null;
+            /** Format: int64 */
+            byte_size?: number | null;
+            /** @description sha256 of the bytes, for integrity/dedupe. */
+            checksum?: string | null;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        AttachmentListResponse: {
+            data: components["schemas"]["Attachment"][];
             page: components["schemas"]["PageInfo"];
         };
         /** @description A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡). */
@@ -10374,6 +10449,124 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listAttachments: {
+        parameters: {
+            query: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                entity_type: "person" | "organization" | "deal" | "activity" | "lead";
+                entity_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of attachment metadata for the entity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    uploadAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** @enum {string} */
+                    entity_type: "person" | "organization" | "deal" | "activity" | "lead";
+                    /** Format: uuid */
+                    entity_id: string;
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The stored attachment metadata. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attachment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    downloadAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file bytes; Content-Disposition names the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted (idempotent object removal). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
 }
