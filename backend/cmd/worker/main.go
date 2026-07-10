@@ -35,7 +35,6 @@ import (
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
-	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -148,13 +147,29 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
 	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
 
-	corrector := compose.NewCloseDateCorrector(pool, logger)
-	_, _ = fmt.Fprintf(stdout, "worker sweeping close-date hygiene every %s\n", cfg.closeDateInterval)
-	background.Go(func() { deals.RunCloseDateSweep(ctx, corrector, cfg.closeDateInterval, logger) })
-
-	reconciler := compose.NewFollowUpReconciler(pool, logger)
-	_, _ = fmt.Fprintf(stdout, "worker reconciling overnight follow-ups every %s\n", cfg.reconcileInterval)
-	background.Go(func() { deals.RunFollowUpReconcile(ctx, reconciler, cfg.reconcileInterval, logger) })
+	// The close-date and reconcile passes run as River periodic jobs
+	// (decisions/0021): River gives leader election (one run cluster-wide,
+	// so worker replicas never double-sweep), retries, and graceful drain —
+	// what the bare tickers lacked. The domain logic (Sweep/Reconcile) is
+	// unchanged; only the scheduler is River now.
+	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval)
+	if err != nil {
+		return err
+	}
+	if err := runner.Start(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		// Stop drains in-flight jobs; the run context is already cancelled
+		// at this point, so give the drain its own bounded window.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if err := runner.Stop(stopCtx); err != nil {
+			logger.Warn("stopping job runner", "err", err)
+		}
+	}()
+	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s)\n",
+		cfg.closeDateInterval, cfg.reconcileInterval)
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")

@@ -250,21 +250,3 @@ func followUpBody(cand followUpCandidate) string {
 	return fmt.Sprintf("Follow up on the %s from %s. No next step is on the timeline yet.",
 		ref, cand.occurredAt.Format(time.DateOnly))
 }
-
-// RunFollowUpReconcile ticks the reconciler on the worker's schedule,
-// the same loop shape as the retention evaluator and the close-date
-// corrector.
-func RunFollowUpReconcile(ctx context.Context, r *FollowUpReconciler, interval time.Duration, log *slog.Logger) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := r.Reconcile(ctx); err != nil {
-			log.Error("follow-up reconcile: pass failed", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
