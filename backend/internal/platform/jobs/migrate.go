@@ -58,17 +58,3 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) (applied int, err error) {
 	}
 	return len(res.Versions), nil
 }
-
-// MigrateDown reverts up to max River migrations, newest first (River's
-// default is one step, matching the SQL runner's down semantics).
-func MigrateDown(ctx context.Context, pool *pgxpool.Pool, max int) (reverted int, err error) {
-	migrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
-	if err != nil {
-		return 0, fmt.Errorf("jobs: river migrator: %w", err)
-	}
-	res, err := migrator.Migrate(ctx, rivermigrate.DirectionDown, &rivermigrate.MigrateOpts{MaxSteps: max})
-	if err != nil {
-		return 0, fmt.Errorf("jobs: river migrate down: %w", err)
-	}
-	return len(res.Versions), nil
-}
