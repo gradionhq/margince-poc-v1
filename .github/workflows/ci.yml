@@ -175,7 +175,11 @@ jobs:
 
   integration:
     name: integration (RLS + erasure + HTTP e2e)
-    needs: [changes]
+    # Fail fast: the ~3-minute real-Postgres lane only starts once the ~2-minute
+    # deterministic gate is green — a broken build never reaches it. A failed
+    # (or skipped) deterministic-gates auto-skips this job; both are backend-gated
+    # so they skip together on non-backend PRs.
+    needs: [changes, deterministic-gates]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     services:
@@ -203,10 +207,14 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # The margince_app role must exist cluster-wide before the lane migrates:
+      # migration 0015 GRANTs to it, and the parallel lane's clones inherit those
+      # grants. The lane itself is self-contained — it builds the migrated
+      # margince_test template and clones per package — so no separate "apply
+      # migrations to the shared DB" step is needed (the shared margince DB is
+      # never touched by the parallel lane).
       - name: Create the non-owner app role
         run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f ../scripts/db-init.sql
-      - name: Apply migrations
-        run: go run ./cmd/migrate up --dsn "postgres://margince_owner:dev@localhost:55432/margince"
       # MinIO backs the blobstore integration lane. It cannot be a GH service
       # (the minio image needs a `server /data` command, which services can't
       # set), so it runs here; the digest matches the compose stack's pin
@@ -251,7 +259,21 @@ jobs:
   # borrow coverage from are themselves conditionally skipped by the filter).
   sonarcloud:
     name: sonarcloud (scan reads sonar-project.properties)
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Runs LAST and only when the cheap gates have cleared: this is the most
+    # expensive job (it re-runs the full integration + FE suites with coverage),
+    # so gating it on the fast gates means a broken build or a lint failure aborts
+    # it before it burns ~5 minutes of runner time. The condition admits
+    # success OR skipped (not failure) for each gate, because the gates are
+    # area-scoped: a frontend-only PR legitimately skips deterministic-gates yet
+    # SonarCloud must still post its required "SonarCloud Code Analysis" check.
+    # When a gate actually FAILS the job is skipped — the PR is already red, so
+    # not posting the scan blocks nothing that wasn't already blocked.
+    needs: [deterministic-gates, frontend]
+    if: >-
+      !cancelled()
+      && (needs.deterministic-gates.result == 'success' || needs.deterministic-gates.result == 'skipped')
+      && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -441,7 +463,10 @@ jobs:
   # named acceptance criterion fails the merge instead of shipping.
   uat:
     name: uat (AC screens + axe WCAG 2.2 AA + 390px, mocked)
-    needs: [changes]
+    # Fail fast: the Playwright UAT lane only starts once the cheaper frontend
+    # gate (biome + vitest + tsc + build) is green; both are frontend-gated, so
+    # they skip together on non-frontend PRs.
+    needs: [changes, frontend]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
