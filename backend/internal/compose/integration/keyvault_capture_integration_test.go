@@ -169,6 +169,20 @@ func TestLocalVaultIsolationAndWrongKeyOnRealPostgres(t *testing.T) {
 	if bytes.Contains([]byte(err.Error()), []byte("tenant-a-credential")) {
 		t.Fatalf("decrypt error leaks the plaintext: %v", err)
 	}
+
+	// Delete removes it and is idempotent; Health sees the vault_secret table.
+	if err := vault.Delete(ctx, wsA, ref); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := vault.Get(ctx, wsA, ref); !errors.Is(err, keyvault.ErrNotFound) {
+		t.Fatalf("Get after Delete: got %v, want ErrNotFound", err)
+	}
+	if err := vault.Delete(ctx, wsA, ref); err != nil {
+		t.Fatalf("second Delete must be a no-op: %v", err)
+	}
+	if err := vault.Health(ctx); err != nil {
+		t.Fatalf("Health against the migrated schema must pass: %v", err)
+	}
 }
 
 func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
