@@ -352,13 +352,15 @@ git commit -s -m "feat(migrate): apply River schema; exempt its tables from tena
 package compose
 
 func TestCloseDateSweepArgsKind(t *testing.T) {
-    if got := CloseDateSweepArgs{}.Kind(); got != "close_date_sweep" {
+    // Parenthesize the composite literal: `T{}.Method()` inside an `if`
+    // init clause is a Go parse ambiguity (the `{` reads as the block).
+    if got := (CloseDateSweepArgs{}).Kind(); got != "close_date_sweep" {
         t.Fatalf("Kind() = %q, want close_date_sweep", got)
     }
 }
 
 func TestFollowUpReconcileArgsKind(t *testing.T) {
-    if got := FollowUpReconcileArgs{}.Kind(); got != "follow_up_reconcile" {
+    if got := (FollowUpReconcileArgs{}).Kind(); got != "follow_up_reconcile" {
         t.Fatalf("Kind() = %q, want follow_up_reconcile", got)
     }
 }
@@ -588,7 +590,14 @@ func TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep(t *testing.T) {
     if err := runner.Start(ctx); err != nil {
         t.Fatalf("Start: %v", err)
     }
-    defer func() { _ = runner.Stop(ctx) }()
+    defer func() {
+        // Bound the drain and report any stop error — never swallow it.
+        stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        defer cancel()
+        if err := runner.Stop(stopCtx); err != nil {
+            t.Errorf("Stop: %v", err)
+        }
+    }()
 
     // RunOnStart enqueues both periodic jobs at boot; wait for the
     // close_date_sweep completion, bounded by a deadline — never a sleep.
@@ -630,15 +639,19 @@ correction the direct `Sweep` test asserts.
 
 - [ ] **Step 5: Add the uniqueness + drain assertions**
 
-Two more cases in the same file:
+Uniqueness and drain are proven WITHOUT racy, insert-based integration
+tests (and without exposing a speculative `Insert` seam on `Runner` — YAGNI,
+T3): 
 
-- `TestRiverSweepUniquenessDoesNotStack`: enqueue `CloseDateSweepArgs{}`
-  twice via `client.Insert` while one is running; assert exactly one
-  execution completes (the unique-by-state guard), matching the ticker's
-  one-pass-at-a-time.
-- `TestRiverRunnerDrainsInFlightOnStop`: enqueue a job, `Start`, then
-  `Stop`; assert the job reaches `completed` (drain), proving shutdown loses
-  no in-flight work — the strict improvement over the ticker.
+- **Uniqueness** is a property of the `InsertOpts` the periodic jobs carry,
+  so it is proven deterministically by the `compose` unit test
+  `TestUniquenessWindowExcludesCompleted` (Task 3): the active-states set
+  suppresses a duplicate while a pass is in flight yet excludes `completed`
+  so the next scheduled run is never blocked. This is faster and non-flaky
+  compared with racing two live inserts.
+- **Drain** is River's own tested guarantee, exercised by the
+  `platform/jobs` chassis test (Task 1: `Start` then `Stop` returns cleanly)
+  and wired through `cmd/worker`'s bounded-deadline `Stop` on shutdown.
 
 - [ ] **Step 6: Full integration lane + commit**
 
