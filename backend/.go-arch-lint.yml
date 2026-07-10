@@ -23,6 +23,7 @@ vendors:
   xcrypto: { in: golang.org/x/crypto/** }
   yaml:   { in: gopkg.in/** }
   emersion: { in: github.com/emersion/** }
+  river:  { in: github.com/riverqueue/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -58,7 +59,7 @@ deps:
     canUse: [chi, oapi]
   platform:
     mayDependOn: [platform, contracts, migrations]
-    canUse: [pgx, chi, oapi, redis]
+    canUse: [pgx, chi, oapi, redis, river]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:
@@ -102,7 +103,7 @@ deps:
     canUse: [pgx, oapi]
   compose:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, contracts, platform, web, migrations]
-    canUse: [pgx, chi, oapi]
+    canUse: [pgx, chi, oapi, river]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]

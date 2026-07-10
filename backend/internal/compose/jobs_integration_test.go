@@ -48,7 +48,7 @@ func applyRiverSchema(t *testing.T) {
 
 // awaitKindCompleted blocks until a job of the given kind reports completion,
 // or the context deadline fires. No polling, no sleep.
-func awaitKindCompleted(t *testing.T, ctx context.Context, sub <-chan *river.Event, kind string) {
+func awaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Event, kind string) {
 	t.Helper()
 	for {
 		select {
@@ -95,7 +95,7 @@ func TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep(t *testing.T) {
 	// Sweep produces.
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(t, waitCtx, sub, CloseDateSweepArgs{}.Kind())
+	awaitKindCompleted(waitCtx, t, sub, CloseDateSweepArgs{}.Kind())
 
 	swept := e.readSwept(t, id)
 	if swept.expectedClose == nil || swept.expectedClose.Before(today()) {
