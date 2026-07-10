@@ -22,3 +22,12 @@ coverage.out
 
 # Local secrets — never commit
 .env.local
+
+# Storybook static build + fe-uat capture artifacts
+frontend/storybook-static/
+.tmp/
+
+# Factory boundary backstop: a dispatched worker that mistakenly writes
+# factory artifacts (plans/reports/UAT guides) into the worktree can never
+# stage them (target-minimum-setup §1).
+workspace/

@@ -25,7 +25,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-integration lint arch-lint vet gen drift db-up db-init seed-reset migrate dev clean vuln tools hooks
+.PHONY: help check build test test-v test-cover test-integration lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -59,7 +59,7 @@ test-integration: ## Integration lane: real Postgres, fails loudly without it (n
 		echo "FAIL: the integration lane must not skip — provision the dependency, never skip:"; \
 		grep -- '--- SKIP' "$$log"; rm -f "$$log"; exit 1; \
 	fi; \
-	rm -f "$$log"; echo "test-integration: green with zero skips"
+	rm -f "$$log"; echo "OK: integration passed with 0 skips"
 
 # The integration lane above runs the same harness on the SMB tier as a
 # standing canary; this target is the tier the PERF-7 SLO binds at.
@@ -154,6 +154,40 @@ dev: db-up migrate ## db-up + migrate + api on :8080 (attachments on the compose
 	MARGINCE_BLOBSTORE_BUCKET=margince-dev \
 	$(GO) run ./cmd/api --dsn "$(APP_DSN)"
 
+infra-down: ## Stop the dev stack but KEEP the data volumes (clean also drops them)
+	$(COMPOSE) down --remove-orphans
+
 clean: ## Tear down the dev stack, containers and data volumes
 	$(COMPOSE) down --volumes --remove-orphans
 	@docker rm -f fable-pg16 fable-redis 2>/dev/null || true
+
+migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner DSN)
+
+migrate-down: ## Roll back the last migration(s): make migrate-down [STEPS=n]
+	$(GO) run ./cmd/migrate down --dsn "$(OWNER_DSN)" --steps $(or $(STEPS),1)
+
+run: ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
+	$(GO) run ./cmd/api --dsn "$(APP_DSN)"
+
+psql: ## Open a psql shell on the dev database (owner role)
+	$(COMPOSE) exec postgres psql -U margince_owner -d $(DB_NAME)
+
+tidy: ## Sync module deps (go mod tidy)
+	$(GO) mod tidy
+
+test-v: ## go test -v across the module
+	$(GO) test -v ./...
+
+test-cover: ## Go unit tests with coverage summary
+	$(GO) test -cover ./...
+
+db-wait: ## Block until Postgres answers pg_isready
+	@until $(COMPOSE) exec -T postgres pg_isready -U margince_owner -d $(DB_NAME) >/dev/null 2>&1; do sleep 1; done; echo "postgres ready"
+
+infra-logs: ## Tail the dev stack logs
+	$(COMPOSE) logs -f
+
+infra-reset: ## Stop + wipe volumes, then bring the stack back up (clean + db-up)
+	$(MAKE) clean && $(MAKE) db-up
+
+tools-go: tools ## Alias for tools — install the Go gate binaries
