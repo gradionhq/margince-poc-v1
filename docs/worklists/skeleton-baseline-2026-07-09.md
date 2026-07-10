@@ -266,26 +266,41 @@ theme toggle, command palette, signup flow, IMAP capture.
 
 Before pushing this repo to the official public org:
 
-- [ ] **Scrub internal narrative** — `STATUS.md` (77 KB of session logs,
+- [x] **Scrub internal narrative** — `STATUS.md` (77 KB of session logs,
       internal names/emails, spend-limit notes), `scratchpad/` references,
       review-loop narration. Either truncate STATUS to a public-safe status
       or move history out of the tree. The foundation just did the same
       scrub on the skeleton (commit `837484a` "scrub private decision IDs
       and hosting claim from public-facing text") — mirror that standard.
+      (Done PR E — STATUS truncated 86 KB → ~4 KB, current-state + pickup
+      only; git history stays the durable record. README's review-loop
+      section restated its rules as standalone invariants — no dates, no
+      pass-1/pass-2 narration — keeping the anchor CLAUDE.md/AGENTS.md
+      link. No `scratchpad/` references were in tracked files.)
 - [ ] **Fix machine-specific paths** — `CLAUDE.md`/`AGENTS.md` point the
       spec at `/Users/lars/develop/margince/specs`; repoint at the
       foundation spec tree (or its public home) once §0 is decided.
-- [ ] **CONTRIBUTING.md** — rewrite for external contributors: adopt the
+      (Flagged, NOT repointed — blocked on §0. Same `../margince/specs/`
+      relative path also appears in README; all three repoint together
+      when the canonical public spec home is decided.)
+- [x] **CONTRIBUTING.md** — rewrite for external contributors: adopt the
       skeleton's OSS framing (welcome, A39 disclosure asymmetry,
       `Assisted`/`Generated` AI-disclosure levels) on top of our
-      gate/DCO content.
+      gate/DCO content. (Done PR E — mirrors the skeleton's framing and
+      the foundation's own scrub standard: no private ADR numbers in
+      public-facing text, gates described by what they do.)
 - [x] **README** — ours is internal-build-flavored; add the skeleton-style
       "boot it / log in / verify" quickstart (depends on 1a compose +
-      1c seed). (Done PR B — the quickstart; the broader
-      internal-flavor scrub stays with PR E.)
-- [ ] **decisions/ + feedback/ audit** — decisions/ is committed history;
+      1c seed). (Done PR B — the quickstart; PR E finished the broader
+      internal-flavor scrub — the review-loop session narration.)
+- [x] **decisions/ + feedback/ audit** — decisions/ is committed history;
       review for private references before public push. `feedback/` is
-      git-ignored (fine).
+      git-ignored (fine). (Audited PR E — findings reported in the PR
+      body; no edits to `decisions/` this pass. `decisions/0019` names a
+      reviewer + carries the review PR title; `0017` names an untracked
+      local review file; several records cite the sibling spec path.
+      None are secrets; whether to soften named-reviewer references is a
+      founder call, filed alongside §0 and the git-history decision.)
 - [ ] **git history** `DECISION (founder)` — the history contains internal
       session narration in commit messages. Publish full history vs
       squash-import into the public repo.

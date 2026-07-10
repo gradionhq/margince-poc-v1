@@ -44,8 +44,10 @@ work breakdown) lives in a separate spec repo at `../margince/specs/`.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
-Progress and the pickup point live in **[STATUS.md](STATUS.md)**;
-the binding engineering rules in [AGENTS.md](AGENTS.md). User and
+Contributing: start with [CONTRIBUTING.md](CONTRIBUTING.md) (how the
+gates, DCO sign-off, and AI-disclosure work). Progress and the pickup
+point live in **[STATUS.md](STATUS.md)**; the binding engineering rules
+in [AGENTS.md](AGENTS.md). User and
 operator documentation lives under [docs/](docs/):
 [getting started](docs/tutorials/getting-started.md) ·
 [how-to guides](docs/how-to/) (MCP server, passports, migrations) ·
@@ -293,17 +295,15 @@ routed, not lost:
 
 ## Engineering rules learned from the review loop
 
-Two external red-team passes ran against this code (2026-07-03 and
-2026-07-04; fully addressed and retired to git history). The rules below
-exist because each was violated once here; they are binding for all
-future work in this repo (mirrored in [AGENTS.md](AGENTS.md)):
+The rules below are binding for all future work in this repo (mirrored
+in [AGENTS.md](AGENTS.md)). Each states an invariant this codebase holds
+because getting it wrong once was expensive:
 
-1. **Fix the invariant, not the call site.** Every pass-2 Medium was a
-   pass-1 fix applied to the case under the reviewer's finger while an
-   adjacent copy stayed broken (open vs. closed deals; person/org but not
-   lead; direct read but not idempotent replay). Before closing a finding,
-   grep for every mutation/read site of the same column, constraint, or
-   record and fix them as one change.
+1. **Fix the invariant, not the call site.** A fix applied only to the
+   case in front of you leaves the sibling copies broken (open vs. closed
+   deals; person/org but not lead; a direct read but not its idempotent
+   replay). Before closing a finding, grep for every mutation/read site
+   of the same column, constraint, or record and fix them as one change.
 2. **Prefer fitness functions over point fixes.** A hand-maintained list
    (RLS table enrolment, a lint allow-list) rots silently; a test that
    derives the obligation from the system itself (every `workspace_id`
@@ -319,12 +319,12 @@ future work in this repo (mirrored in [AGENTS.md](AGENTS.md)):
    later, to someone who never saw the review. The history lives in git,
    not in the source. (Same for test names:
    name the invariant pinned, not the review that demanded it.)
-5. **Don't rationalize a known gap — close it or gate it.** Pass 1's
-   dedupe crash-window was answered with a comment arguing it was safe;
-   pass 2 showed the argument wrong (the fallback layer prevents double
-   effects, not dropped ones). If a design carries a window, either
-   restructure so it cannot happen (run-then-mark) or add the failing
-   test that documents it honestly.
+5. **Don't rationalize a known gap — close it or gate it.** A comment
+   arguing that a race is safe is not a defense, and the argument is
+   usually wrong (a dedupe fallback prevents double effects, not dropped
+   ones). If a design carries a window, either restructure so it cannot
+   happen (run-then-mark) or add the failing test that documents it
+   honestly.
 
 ## License
 
