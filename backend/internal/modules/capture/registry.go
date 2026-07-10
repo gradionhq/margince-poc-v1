@@ -35,10 +35,12 @@ type Registry struct {
 	sink       *Sink
 	authority  authz.Resolver
 	// vault seals and resolves a connection's credential bundle. The row
-	// carries an opaque credential_ref, never the credential bytes; the
-	// vault is the custodian. May be nil for a role that only runs the
-	// transient one-shot pull (RunTransient), which never persists a
-	// credential — Connect/SyncOnce refuse loudly when it is nil.
+	// carries an opaque credential_ref, never the credential bytes; the vault
+	// is the custodian. May be nil for a role that only runs the transient
+	// one-shot pull (RunTransient), which never persists a credential: Connect
+	// then refuses loudly (it must seal), and SyncOnce refuses only for a row
+	// whose credential lives in the vault — a not-yet-backfilled legacy row
+	// still resolves from its auth column with no vault.
 	vault keyvault.Vault
 }
 
@@ -121,8 +123,9 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	}
 	// Put-then-commit (like blobstore): seal the credential in the vault
 	// first, then commit the row that names it. A rolled-back row leaves an
-	// orphan secret (swept later), never a row promising a credential that is
-	// not there. The row stores the opaque ref; the bytes never touch it.
+	// orphan secret (encrypted and unreferenced — benign), never a row
+	// promising a credential that is not there. The row stores the opaque ref;
+	// the bytes never touch it.
 	ref, err := r.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(auth))
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
@@ -252,8 +255,10 @@ func (r *Registry) resolveCredential(ctx context.Context, credentialRef *string,
 // bytes, records the credential_ref, and clears auth. It is idempotent — a row
 // that already carries a ref is skipped — so a re-run or a crash-retry is
 // safe, which is what lets it run on every boot. It walks every live workspace
-// under that workspace's own GUC, since connector_connection is RLS-scoped,
-// and returns the number of rows migrated.
+// under that workspace's own GUC, since connector_connection is RLS-scoped.
+// One workspace's failure must not starve the rest of the fleet (the same
+// invariant retention and the close-date sweep hold): the walk continues past
+// a failing workspace and returns the count migrated plus the joined errors.
 func (r *Registry) BackfillCredentials(ctx context.Context) (int, error) {
 	if r.vault == nil {
 		return 0, errors.New("capture: cannot backfill connector credentials without a keyvault")
@@ -267,17 +272,20 @@ func (r *Registry) BackfillCredentials(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	total := 0
+	var errs error
 	for _, wsID := range workspaces {
+		// The backfill's UPDATE runs under the workspace GUC only (a raw
+		// relocation, not an audited domain write), so no actor/correlation
+		// context is set — nothing here reads it.
 		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:keyvault-backfill"})
-		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 		migrated, err := r.backfillWorkspace(wsCtx, ids.From[ids.WorkspaceKind](wsID))
 		if err != nil {
-			return total, fmt.Errorf("capture: backfilling workspace %s: %w", wsID, err)
+			errs = errors.Join(errs, fmt.Errorf("capture: backfilling workspace %s: %w", wsID, err))
+			continue
 		}
 		total += migrated
 	}
-	return total, nil
+	return total, errs
 }
 
 // backfillWorkspace migrates one workspace's legacy rows. Each secret is

@@ -66,12 +66,12 @@ type Vault interface {
 }
 
 // Ref is the opaque handle to one stored secret. It is safe to persist in a
-// domain row and safe to log — it is NOT the secret. Its wire form encodes,
-// in this order, a fixed scheme tag, the root-key version (so a future key
-// rotation is not foreclosed — a later provider holds a keyring and picks the
-// key by this version), the owning workspace (so a ref presented under the
-// wrong workspace is rejected structurally, before any storage read or
-// decryption), and an unguessable random token that names the secret.
+// domain row and safe to log — it is NOT the secret. Its wire form encodes, in
+// this order, a fixed scheme tag, the root-key version (carried so a later
+// rotation can select the key by version — it cannot be retrofitted onto refs
+// already minted), the owning workspace (so a ref presented under the wrong
+// workspace is rejected structurally, before any storage read or decryption),
+// and an unguessable random token that names the secret.
 type Ref string
 
 // refScheme tags every ref this package mints; a ref lacking it is not ours.
@@ -93,12 +93,10 @@ const refTokenBytes = 16
 // without changing the ref format or the stored ciphertext (decisions/0023).
 const currentKeyVersion = 1
 
-// mintRef builds a fresh ref for ws at the current key version. The random
-// token is drawn from crypto/rand; a failure there means the process cannot
-// mint secret handles and is surfaced, never masked with a predictable value.
-// The version is stamped from currentKeyVersion rather than passed in: a
-// future rotation opens up by having Get select the key from the version the
-// ref already carries, not by threading a version through this call today.
+// mintRef builds a fresh ref for ws, stamping the current key version. The
+// random token is drawn from crypto/rand; a failure there means the process
+// cannot mint secret handles and is surfaced, never masked with a predictable
+// value.
 func mintRef(ws ids.WorkspaceID) (Ref, error) {
 	tok := make([]byte, refTokenBytes)
 	if _, err := rand.Read(tok); err != nil {

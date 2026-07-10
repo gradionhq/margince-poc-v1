@@ -157,7 +157,9 @@ func (v *localVault) Put(ctx context.Context, ws ids.WorkspaceID, secret []byte)
 	}
 	// The ref's random token makes a PK collision astronomically unlikely; an
 	// INSERT (not upsert) is correct because a re-Put mints a fresh ref and
-	// the old ciphertext is orphaned (swept later), never overwritten.
+	// the old ciphertext is left orphaned rather than overwritten — encrypted,
+	// unreferenced, and benign (there is no vault_secret sweeper today; if one
+	// is ever added it reclaims these, but nothing depends on that).
 	if _, err := v.pool.Exec(ctx,
 		`INSERT INTO vault_secret (ref, ciphertext, key_version) VALUES ($1, $2, $3)`,
 		string(ref), sealed, currentKeyVersion); err != nil {
@@ -167,19 +169,14 @@ func (v *localVault) Put(ctx context.Context, ws ids.WorkspaceID, secret []byte)
 }
 
 func (v *localVault) Get(ctx context.Context, ws ids.WorkspaceID, ref Ref) ([]byte, error) {
-	p, err := ref.parse()
-	if err != nil || p.workspace != ws {
-		// Malformed, or a ref for another workspace: absent to this caller.
+	if !ref.scopedTo(ws) {
+		// Malformed, or a ref for another workspace: absent to this caller. A
+		// ref naming any other key version is likewise absent — its string
+		// (version included) simply matches no stored row.
 		return nil, ErrNotFound
 	}
-	if p.keyVersion != currentKeyVersion {
-		// A ref sealed under a key version this build does not hold: an
-		// operational condition (a partial rotation rollback / corruption),
-		// not tenant absence — surface it, naming only the version number.
-		return nil, fmt.Errorf("keyvault: ref names key version %d, which this vault does not hold", p.keyVersion)
-	}
 	var sealed []byte
-	err = v.pool.QueryRow(ctx, `SELECT ciphertext FROM vault_secret WHERE ref = $1`, string(ref)).Scan(&sealed)
+	err := v.pool.QueryRow(ctx, `SELECT ciphertext FROM vault_secret WHERE ref = $1`, string(ref)).Scan(&sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
