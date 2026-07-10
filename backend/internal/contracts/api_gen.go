@@ -249,6 +249,33 @@ func (e ApprovalStatus) Valid() bool {
 	}
 }
 
+// Defines values for AttachmentEntityType.
+const (
+	AttachmentEntityTypeActivity     AttachmentEntityType = "activity"
+	AttachmentEntityTypeDeal         AttachmentEntityType = "deal"
+	AttachmentEntityTypeLead         AttachmentEntityType = "lead"
+	AttachmentEntityTypeOrganization AttachmentEntityType = "organization"
+	AttachmentEntityTypePerson       AttachmentEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentEntityType enum.
+func (e AttachmentEntityType) Valid() bool {
+	switch e {
+	case AttachmentEntityTypeActivity:
+		return true
+	case AttachmentEntityTypeDeal:
+		return true
+	case AttachmentEntityTypeLead:
+		return true
+	case AttachmentEntityTypeOrganization:
+		return true
+	case AttachmentEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditLogEntryAction.
 const (
 	ActivityRelink  AuditLogEntryAction = "activity_relink"
@@ -2946,6 +2973,60 @@ func (e ListApprovalsParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListAttachmentsParamsEntityType.
+const (
+	ListAttachmentsParamsEntityTypeActivity     ListAttachmentsParamsEntityType = "activity"
+	ListAttachmentsParamsEntityTypeDeal         ListAttachmentsParamsEntityType = "deal"
+	ListAttachmentsParamsEntityTypeLead         ListAttachmentsParamsEntityType = "lead"
+	ListAttachmentsParamsEntityTypeOrganization ListAttachmentsParamsEntityType = "organization"
+	ListAttachmentsParamsEntityTypePerson       ListAttachmentsParamsEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the ListAttachmentsParamsEntityType enum.
+func (e ListAttachmentsParamsEntityType) Valid() bool {
+	switch e {
+	case ListAttachmentsParamsEntityTypeActivity:
+		return true
+	case ListAttachmentsParamsEntityTypeDeal:
+		return true
+	case ListAttachmentsParamsEntityTypeLead:
+		return true
+	case ListAttachmentsParamsEntityTypeOrganization:
+		return true
+	case ListAttachmentsParamsEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UploadAttachmentMultipartBodyEntityType.
+const (
+	UploadAttachmentMultipartBodyEntityTypeActivity     UploadAttachmentMultipartBodyEntityType = "activity"
+	UploadAttachmentMultipartBodyEntityTypeDeal         UploadAttachmentMultipartBodyEntityType = "deal"
+	UploadAttachmentMultipartBodyEntityTypeLead         UploadAttachmentMultipartBodyEntityType = "lead"
+	UploadAttachmentMultipartBodyEntityTypeOrganization UploadAttachmentMultipartBodyEntityType = "organization"
+	UploadAttachmentMultipartBodyEntityTypePerson       UploadAttachmentMultipartBodyEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the UploadAttachmentMultipartBodyEntityType enum.
+func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
+	switch e {
+	case UploadAttachmentMultipartBodyEntityTypeActivity:
+		return true
+	case UploadAttachmentMultipartBodyEntityTypeDeal:
+		return true
+	case UploadAttachmentMultipartBodyEntityTypeLead:
+		return true
+	case UploadAttachmentMultipartBodyEntityTypeOrganization:
+		return true
+	case UploadAttachmentMultipartBodyEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
 	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
@@ -3590,6 +3671,36 @@ type ApprovalListResponse struct {
 type ApproveRequest struct {
 	// EditedPayload Optional edits — the edited payload is re-admitted, then it executes (edit-then-send).
 	EditedPayload *map[string]interface{} `json:"edited_payload,omitempty"`
+}
+
+// Attachment A file hung off an entity. Mirrors the `attachment` table: the row is the
+// system of record and the tenant anchor; the bytes live in object storage,
+// addressed by an internal object key that is never exposed on the wire.
+type Attachment struct {
+	ByteSize *int64 `json:"byte_size,omitempty"`
+
+	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
+	CapturedBy *string `json:"captured_by,omitempty"`
+
+	// Checksum sha256 of the bytes, for integrity/dedupe.
+	Checksum    *string              `json:"checksum,omitempty"`
+	ContentType *string              `json:"content_type,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	EntityId    openapi_types.UUID   `json:"entity_id"`
+	EntityType  AttachmentEntityType `json:"entity_type"`
+	Filename    string               `json:"filename"`
+	Id          openapi_types.UUID   `json:"id"`
+	Source      string               `json:"source"`
+	WorkspaceId openapi_types.UUID   `json:"workspace_id"`
+}
+
+// AttachmentEntityType defines model for Attachment.EntityType.
+type AttachmentEntityType string
+
+// AttachmentListResponse defines model for AttachmentListResponse.
+type AttachmentListResponse struct {
+	Data []Attachment `json:"data"`
+	Page PageInfo     `json:"page"`
 }
 
 // AuditLogEntry An append-only audit row. Mirrors the `audit_log` table.
@@ -6212,6 +6323,35 @@ type RejectApprovalJSONBody struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// ListAttachmentsParams defines parameters for ListAttachments.
+type ListAttachmentsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit      *Limit                          `form:"limit,omitempty" json:"limit,omitempty"`
+	EntityType ListAttachmentsParamsEntityType `form:"entity_type" json:"entity_type"`
+	EntityId   openapi_types.UUID              `form:"entity_id" json:"entity_id"`
+}
+
+// ListAttachmentsParamsEntityType defines parameters for ListAttachments.
+type ListAttachmentsParamsEntityType string
+
+// UploadAttachmentMultipartBody defines parameters for UploadAttachment.
+type UploadAttachmentMultipartBody struct {
+	EntityId   openapi_types.UUID                      `json:"entity_id"`
+	EntityType UploadAttachmentMultipartBodyEntityType `json:"entity_type"`
+	File       openapi_types.File                      `json:"file"`
+}
+
+// UploadAttachmentMultipartBodyEntityType defines parameters for UploadAttachment.
+type UploadAttachmentMultipartBodyEntityType string
+
 // ListAuditLogParams defines parameters for ListAuditLog.
 type ListAuditLogParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -7372,6 +7512,9 @@ type ApproveApprovalJSONRequestBody = ApproveRequest
 
 // RejectApprovalJSONRequestBody defines body for RejectApproval for application/json ContentType.
 type RejectApprovalJSONRequestBody RejectApprovalJSONBody
+
+// UploadAttachmentMultipartRequestBody defines body for UploadAttachment for multipart/form-data ContentType.
+type UploadAttachmentMultipartRequestBody UploadAttachmentMultipartBody
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
@@ -11518,6 +11661,18 @@ type ServerInterface interface {
 	// Reject a staged action (discards it; nothing commits).
 	// (POST /approvals/{id}/reject)
 	RejectApproval(w http.ResponseWriter, r *http.Request, id Id)
+	// List the attachments hung off one entity (cursor-paginated metadata).
+	// (GET /attachments)
+	ListAttachments(w http.ResponseWriter, r *http.Request, params ListAttachmentsParams)
+	// Upload a file and attach it to an entity.
+	// (POST /attachments)
+	UploadAttachment(w http.ResponseWriter, r *http.Request)
+	// Delete an attachment — its row and its stored object.
+	// (DELETE /attachments/{id})
+	DeleteAttachment(w http.ResponseWriter, r *http.Request, id Id)
+	// Download an attachment's file bytes.
+	// (GET /attachments/{id})
+	DownloadAttachment(w http.ResponseWriter, r *http.Request, id Id)
 	// Read the human+agent-attributable audit log (Settings governance view).
 	// (GET /audit-log)
 	ListAuditLog(w http.ResponseWriter, r *http.Request, params ListAuditLogParams)
@@ -11995,6 +12150,30 @@ func (_ Unimplemented) ApproveApproval(w http.ResponseWriter, r *http.Request, i
 // Reject a staged action (discards it; nothing commits).
 // (POST /approvals/{id}/reject)
 func (_ Unimplemented) RejectApproval(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the attachments hung off one entity (cursor-paginated metadata).
+// (GET /attachments)
+func (_ Unimplemented) ListAttachments(w http.ResponseWriter, r *http.Request, params ListAttachmentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Upload a file and attach it to an entity.
+// (POST /attachments)
+func (_ Unimplemented) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an attachment — its row and its stored object.
+// (DELETE /attachments/{id})
+func (_ Unimplemented) DeleteAttachment(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Download an attachment's file bytes.
+// (GET /attachments/{id})
+func (_ Unimplemented) DownloadAttachment(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13512,6 +13691,168 @@ func (siw *ServerInterfaceWrapper) RejectApproval(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RejectApproval(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListAttachments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAttachmentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "entity_type", r.URL.Query(), &params.EntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "entity_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "entity_id", r.URL.Query(), &params.EntityId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAttachments(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadAttachment operation middleware
+func (siw *ServerInterfaceWrapper) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadAttachment(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAttachment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAttachment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DownloadAttachment operation middleware
+func (siw *ServerInterfaceWrapper) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadAttachment(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20364,6 +20705,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/approvals/{id}/reject", wrapper.RejectApproval)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/attachments", wrapper.ListAttachments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/attachments", wrapper.UploadAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/attachments/{id}", wrapper.DeleteAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/attachments/{id}", wrapper.DownloadAttachment)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/audit-log", wrapper.ListAuditLog)

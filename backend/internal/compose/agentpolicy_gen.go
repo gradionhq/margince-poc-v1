@@ -18,6 +18,7 @@ type agentPolicy struct {
 // router registers it (BaseURL /v1 included).
 var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/activities/{id}":                       {Op: "archiveActivity", Access: "tool", Tool: "archive_record", RecordType: "activity", Tier: "yellow"},
+	"DELETE /v1/attachments/{id}":                      {Op: "deleteAttachment", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/automations/{id}":                      {Op: "deleteAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/deals/{id}":                            {Op: "archiveDeal", Access: "tool", Tool: "archive_record", RecordType: "deal", Tier: "yellow"},
 	"DELETE /v1/leads/{id}":                            {Op: "disqualifyLead", Access: "tool", Tool: "disqualify_lead", RecordType: "lead", Tier: "yellow"},
@@ -57,6 +58,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/activities/{id}/send-email":              {Op: "sendEmail", Access: "tool", Tool: "send_email", RecordType: "activity", Tier: "yellow"},
 	"POST /v1/approvals/{id}/approve":                  {Op: "approveApproval", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/approvals/{id}/reject":                   {Op: "rejectApproval", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/attachments":                             {Op: "uploadAttachment", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/login":                              {Op: "login", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/logout":                             {Op: "logout", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/automations":                             {Op: "createAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

@@ -118,7 +118,10 @@ func WithBusReady(check func(context.Context) error) Option {
 // their generated 501 stubs, so a role that stores no objects declares
 // that by omission rather than nil-derefing at request time.
 func WithBlobstore(store blobstore.Store) Option {
-	return func(s *Server, _ *pgxpool.Pool) { s.blob = store }
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.blob = store
+		s.activitiesHandlers = s.WithBlobstore(store)
+	}
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.

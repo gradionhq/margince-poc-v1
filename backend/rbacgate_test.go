@@ -69,6 +69,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/agents/runner:ClaimDueJobs":            "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:FinishJob":               "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/approvals:WithEffect":                  "composition-root wiring (registers the confirm effect); no data access",
+	"internal/modules/activities:WithBlobstore":              "composition-root wiring (injects the object store the attachment handlers use); no data access",
 	"internal/modules/approvals:Stage":                       "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",
 	"internal/modules/approvals:HasPendingFor":               "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
 	"internal/modules/approvals:HasPendingKind":              "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
