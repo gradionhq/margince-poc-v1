@@ -40,6 +40,55 @@ Consequences:
   with a spec that describes a different codebase is the single biggest
   readiness risk.
 
+## 0b. Decisions ratified — 2026-07-10 founder walkthrough
+
+The DECISION items scattered through §1/§3/§4 below were resolved in a
+one-on-one walkthrough. This block is the authoritative record; the
+per-item annotations below are historical context.
+
+- **§0 baseline** — poc-v1 **will** become the official OSS baseline
+  "soon", gated on the founder's own sign-off that the source is ready.
+  Not yet ratified; no hard blocker list. The spec-tree reconciliation
+  risk stands (owned spec-side).
+- **Git history (§3)** — **DECIDED: do not carry git history.** The
+  official repo starts as a single fresh **initial commit** (tree import,
+  not history). Consequence: the internal commit-message narration never
+  reaches the public repo — the §3 history concern is moot — and branch
+  protection is applied fresh to the new repo.
+- **Branch-protection mirror** — **KEEP `infra/branch-protection.json`,
+  fix the drift.** (Initial call was to delete it; reversed once review
+  surfaced that the file is the data source for the foundation-vendored,
+  hash-pinned fitness test `cli/craft/wiring/wiring_test.go`, which
+  asserts the load-bearing invariants — craftsmanship + deterministic-
+  gates stay required, `enforce_admins` stays true. Deleting it breaks
+  that test, and it can't be fixed locally without breaking `craft-drift`
+  — a foundation-side change. Those pinned invariants can't silently
+  drift; the drift that DID bite was CodeRabbit, which the test does not
+  pin.) Fix applied: `CodeRabbit` removed from the file's `contexts` to
+  match live (it renamed its check `CodeRabbit` → `CodeRabbit / Review`
+  and a required-but-renamed external tool hard-locked the repo once), so
+  the mirror is honest again.
+- **Platform seams (§1c)** — **ADOPT ALL THREE like the skeleton, one
+  platform push, now:** blobstore (uncomment MinIO in compose + memory
+  fake), keyvault (pair with the EP05 capture-connection reshape), and
+  **River** — scoped to REPLACE the `cmd/worker` reconcile/close-date
+  loops and host future discrete jobs; the transactional **outbox stays**
+  (event write-shape is core). River chosen over custom loops for the
+  long term (retries/backoff/scheduling/uniqueness/dead-letter/
+  observability, Postgres-native). Each seam needs an ADR.
+- **Frontend (§1d)** — (D1) **retire the embedded vanilla SPA**
+  (`backend/web`); make the Vite/React app the single frontend, embed its
+  build output. (D2) **keep the bespoke design system** (not Forge). (D3)
+  **keep the hash router** (skip react-router v7 — churn, tech-debt note).
+  (D4) **adopt Storybook + component-test lane now.** Reframe: on the
+  frontend this repo is AHEAD of the skeleton (19 screens vs 1-page
+  scaffold), so take only its infra (Storybook), keep this repo's
+  DS/router/screens.
+- **LLM craft-review CI (§1e)** — **ADOPT, advisory-only** (never a
+  required/blocking check — the CodeRabbit-lockout lesson), gated on an
+  Anthropic API-key CI secret; accepts per-PR token cost. Complements the
+  deterministic blocking `craft static`.
+
 ## 1. Adopt from the skeleton (this repo lacks it)
 
 ### 1a. Quick wins — no design decisions
@@ -238,14 +287,20 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       literally. Not yet a required check: adding it to branch protection is
       a live-settings + `infra/branch-protection.json` change, decide after
       a few runs prove it stable.)
-- [ ] **Branch-protection deltas** — ours is stricter overall; skeleton has
-      nothing we lack here. No action beyond keeping
-      `infra/branch-protection.json` mirroring live.
-- [ ] `DECISION` **LLM craft review job** — skeleton CI runs `craft review`
+- [x] **Branch-protection deltas** — ours is stricter overall; skeleton has
+      nothing we lack here. (Resolved 2026-07-10 — see §0b: the committed
+      mirror `infra/branch-protection.json` is KEPT (it backs the vendored
+      `cli/craft/wiring` fitness test) but corrected — `CodeRabbit` removed
+      to match live. Re-apply it with `gh api -X PUT … --input` to restore
+      settings, e.g. when standing up the OSS repo.)
+- [ ] **LLM craft review job** — skeleton CI runs `craft review`
       (Anthropic-judged, advisory, inline PR comments) + the
       CRAFT-FIX/CRAFT-DISPUTE marker loop. We run deterministic
-      `craft static` (blocking) + Claude review agents outside CI. Adopting
-      the advisory CI judge is optional polish; needs an API key secret.
+      `craft static` (blocking) + Claude review agents outside CI.
+      (DECISION RESOLVED 2026-07-10 — see §0b: ADOPT, advisory-only
+      (never a required/blocking check), gated on wiring an Anthropic
+      API-key CI secret; complements `craft static`. Only the
+      implementation remains — hence still an open checkbox.)
 
 ## 2. Keep from this repo (skeleton lacks it — do NOT regress)
 
