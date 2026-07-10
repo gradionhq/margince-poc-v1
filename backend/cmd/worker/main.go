@@ -147,29 +147,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
 	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
 
-	// The close-date and reconcile passes run as River periodic jobs
-	// (decisions/0021): River gives leader election (one run cluster-wide,
-	// so worker replicas never double-sweep), retries, and graceful drain —
-	// what the bare tickers lacked. The domain logic (Sweep/Reconcile) is
-	// unchanged; only the scheduler is River now.
-	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval)
+	stopJobs, err := startJobRunner(ctx, pool, logger, cfg, stdout)
 	if err != nil {
 		return err
 	}
-	if err := runner.Start(ctx); err != nil {
-		return err
-	}
-	defer func() {
-		// Stop drains in-flight jobs; the run context is already cancelled
-		// at this point, so give the drain its own bounded window.
-		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		if err := runner.Stop(stopCtx); err != nil {
-			logger.Warn("stopping job runner", "err", err)
-		}
-	}()
-	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval)
+	defer stopJobs()
 
 	workflows := compose.NewWorkflowEngine(pool)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
@@ -181,6 +163,33 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	events.NewRelay(pool, rdb, logger).Run(ctx)
 	background.Wait()
 	return nil
+}
+
+// startJobRunner boots the River periodic jobs (decisions/0021): River
+// gives leader election (one run cluster-wide, so worker replicas never
+// double-sweep the close-date and reconcile passes), retries, and graceful
+// drain — what the bare tickers lacked. The domain logic (Sweep/Reconcile)
+// is unchanged; only the scheduler is River now. The returned stop function
+// drains in-flight jobs on shutdown.
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, stdout io.Writer) (func(), error) {
+	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval)
+	if err != nil {
+		return nil, err
+	}
+	if err := runner.Start(ctx); err != nil {
+		return nil, err
+	}
+	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s)\n",
+		cfg.closeDateInterval, cfg.reconcileInterval)
+	return func() {
+		// The run context is already cancelled at shutdown, so give the
+		// drain its own bounded window.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if err := runner.Stop(stopCtx); err != nil {
+			logger.Warn("stopping job runner", "err", err)
+		}
+	}, nil
 }
 
 // selectModelPath resolves the model path: a routing config for real
