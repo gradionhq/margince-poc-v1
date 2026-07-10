@@ -118,9 +118,12 @@ func WithBusReady(check func(context.Context) error) Option {
 // their generated 501 stubs, so a role that stores no objects declares
 // that by omission rather than nil-derefing at request time.
 func WithBlobstore(store blobstore.Store) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
+	return func(s *Server, pool *pgxpool.Pool) {
 		s.blob = store
 		s.activitiesHandlers = s.WithBlobstore(store)
+		// Erasure must reach the attachment bytes, not only the rows, so the
+		// DSR erase path gets a blob-aware eraser (decisions/0022, Art. 17).
+		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
 	}
 }
 

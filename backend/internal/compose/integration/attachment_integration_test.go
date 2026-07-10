@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -98,6 +99,36 @@ func TestAttachmentUploadDeniedForInvisibleParent(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("a denied upload still wrote %d attachment row(s)", len(list))
+	}
+}
+
+func TestErasurePurgesAttachmentObjects(t *testing.T) {
+	e := Setup(t)
+	blob := blobstore.NewMemory()
+	store := e.Activities.WithBlobstore(blob)
+	ctx := e.Admin()
+	person := e.SeedPerson(t, "To Be Erased", &e.Rep1)
+
+	att, err := store.UploadAttachment(ctx, activities.AttachmentInput{
+		EntityType: "person", EntityID: person, Filename: "secret.pdf", Body: []byte("pii bytes"),
+	})
+	if err != nil {
+		t.Fatalf("UploadAttachment: %v", err)
+	}
+	// The object is addressable by the same key the store derives from the id.
+	key := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](e.WS), "attachment", att.Id.String())
+	if _, _, gerr := blob.Get(ctx, key); gerr != nil {
+		t.Fatalf("precondition: uploaded object should exist: %v", gerr)
+	}
+
+	eraser := privacy.NewEraser(e.Pool).WithBlobstore(blob)
+	if err := eraser.ErasePerson(ctx, person, "test-erasure"); err != nil {
+		t.Fatalf("ErasePerson: %v", err)
+	}
+
+	// Art. 17: the subject's attachment bytes must be gone, not only the row.
+	if _, _, gerr := blob.Get(ctx, key); !errors.Is(gerr, blobstore.ErrNotFound) {
+		t.Fatalf("erased attachment object still present: err = %v, want ErrNotFound", gerr)
 	}
 }
 

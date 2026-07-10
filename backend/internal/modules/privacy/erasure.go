@@ -16,6 +16,7 @@ package privacy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -38,9 +40,22 @@ const erasedName = "Erased Subject"
 // retention engine's 'erase' action ride.
 type Eraser struct {
 	pool *pgxpool.Pool
+	// blob purges the subject's attachment objects (Art. 17 reaches the
+	// bytes, not only the row). nil in a deployment with no object store —
+	// where no upload path could have stored an object either.
+	blob blobstore.Store
 }
 
 func NewEraser(pool *pgxpool.Pool) *Eraser { return &Eraser{pool: pool} }
+
+// WithBlobstore returns an eraser that also purges attachment objects.
+// Compose passes the object store so erasure reaches the bytes behind the
+// attachment rows it deletes.
+func (e *Eraser) WithBlobstore(blob blobstore.Store) *Eraser {
+	clone := *e
+	clone.blob = blob
+	return &clone
+}
 
 // ErasePerson removes the subject's PII in ONE transaction: person row
 // anonymized, email/phone child rows deleted, raw capture purged,
@@ -58,7 +73,8 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		return err
 	}
 	subject := ids.From[ids.PersonKind](personID)
-	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	var attachmentKeys []string
+	if err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "person", subject.UUID); err != nil {
 			return err
 		}
@@ -85,10 +101,11 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := anonymizeSubjectRows(ctx, tx, subject, emails); err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject)
+		activitiesRedacted, keys, err := redactSubjectTimeline(ctx, tx, subject)
 		if err != nil {
 			return err
 		}
+		attachmentKeys = keys
 		rawPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
 		if err != nil {
 			return err
@@ -106,7 +123,41 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		return storekit.Emit(ctx, tx, auditID, "retention.applied", "person", subject.UUID, map[string]any{
 			"action": "erase", "reason": reason,
 		})
-	})
+	}); err != nil {
+		return err
+	}
+
+	// The records are erased and committed; now purge the attachment bytes.
+	// Object deletion cannot join the DB transaction, so it runs after the
+	// commit against the keys the DELETE returned — delete-row-then-delete-
+	// object (the safe direction: a crash here leaves an orphan object, never
+	// a live row pointing at deleted bytes). blobstore.Delete is idempotent,
+	// so re-running the erasure re-purges harmlessly.
+	return e.purgeAttachmentObjects(ctx, attachmentKeys)
+}
+
+// purgeAttachmentObjects deletes the erased subject's attachment objects.
+// A store must be configured if any object exists (the same store the upload
+// path required); its absence with keys present is a misconfiguration the
+// erasure surfaces rather than silently leaving bytes behind.
+func (e *Eraser) purgeAttachmentObjects(ctx context.Context, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if e.blob == nil {
+		return fmt.Errorf("privacy: %d attachment object(s) to purge but no object store is configured", len(keys))
+	}
+	var errs []error
+	for _, key := range keys {
+		if err := e.blob.Delete(ctx, key); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("privacy: records erased but %d attachment object(s) failed to purge: %w",
+			len(errs), errors.Join(errs...))
+	}
+	return nil
 }
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
@@ -183,26 +234,41 @@ const subjectOnlyActivities = `
 // name is no longer full-text searchable), and every attachment hung off
 // the subject or one of those activities is deleted. Mirrors the
 // retention engine's activity/erase redaction — the on-demand Art. 17
-// path must reach the timeline the nightly evaluator already reaches.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (int64, error) {
+// path must reach the timeline the nightly evaluator already reaches. It
+// returns the deleted attachments' object keys so the caller can purge the
+// bytes after the transaction commits.
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (int64, []string, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE activity SET subject = $2, body = NULL,
 		  archived_at = coalesce(archived_at, now())
 		WHERE id IN (`+subjectOnlyActivities+`)`, personID, erasedName)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	// Files live in object storage; the DB row is the only reference the
-	// system holds, so deleting it detaches the file. No upload path
-	// stores objects in the PoC — when one lands, the storage object must
-	// be purged here too (the erasure/SAR PII-reach fitness test keeps this
-	// row honest).
-	if _, err := tx.Exec(ctx, `
+	// Delete the attachment rows and hand back their object keys: the DB row
+	// is the only reference the system holds, so the caller must purge the
+	// object after commit (delete-row-then-delete-object). RETURNING keeps
+	// the keys the row alone would otherwise take with it.
+	rows, err := tx.Query(ctx, `
 		DELETE FROM attachment
 		WHERE (entity_type = 'person' AND entity_id = $1)
-		   OR (entity_type = 'activity' AND entity_id IN (`+subjectOnlyActivities+`))`,
-		personID); err != nil {
-		return 0, err
+		   OR (entity_type = 'activity' AND entity_id IN (`+subjectOnlyActivities+`))
+		RETURNING storage_key`,
+		personID)
+	if err != nil {
+		return 0, nil, err
+	}
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return 0, nil, err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, nil, err
 	}
 	// The redacted rows' field-level provenance goes with the fields it
 	// annotated — origin metadata must not outlive the erased text.
@@ -210,9 +276,9 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 		DELETE FROM field_provenance
 		WHERE object_type = 'activity' AND object_id IN (`+subjectOnlyActivities+`)`,
 		personID); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return tag.RowsAffected(), nil
+	return tag.RowsAffected(), keys, nil
 }
 
 // purgeDerivedTraces removes what the system DERIVED from the subject
