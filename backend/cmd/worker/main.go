@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -155,6 +156,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
 	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
 
+	if err := backfillConnectorCredentials(ctx, pool, stdout, logger); err != nil {
+		return err
+	}
+
 	stopJobs, err := startJobRunner(ctx, pool, logger, cfg, stdout)
 	if err != nil {
 		return err
@@ -170,6 +175,32 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// the next boot — shutdown loses no events.
 	events.NewRelay(pool, rdb, logger).Run(ctx)
 	background.Wait()
+	return nil
+}
+
+// backfillConnectorCredentials migrates any legacy connector_connection rows
+// whose credential still lives in the auth bytea column onto the keyvault
+// (decisions/0023). It runs once at boot when a vault is configured and is
+// idempotent — a row already carrying a credential_ref is skipped — so
+// re-running every boot is safe and a no-op once every row is migrated.
+// Without a vault it is skipped: the legacy auth column still resolves
+// credentials until one is provisioned. A malformed root key fails the boot
+// (keyvault.FromEnv); a mid-backfill failure is logged and non-fatal — capture
+// keeps resolving from the auth column and the next boot retries.
+func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdout io.Writer, logger *slog.Logger) error {
+	vault, configured, err := keyvault.FromEnv(pool)
+	if err != nil {
+		return fmt.Errorf("worker: keyvault: %w", err)
+	}
+	if !configured {
+		return nil
+	}
+	migrated, err := compose.NewCaptureRegistry(pool, vault).BackfillCredentials(ctx)
+	if err != nil {
+		logger.Error("connector-credential backfill did not complete; capture continues from the legacy column and the next boot retries", "err", err)
+		return nil
+	}
+	_, _ = fmt.Fprintf(stdout, "worker keyvault configured; migrated %d legacy connector credential(s) onto the vault\n", migrated)
 	return nil
 }
 

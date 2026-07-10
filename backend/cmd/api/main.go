@@ -38,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
 func main() {
@@ -118,6 +119,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	opts = append(opts, blobOpts...)
 
+	kvOpts, err := keyvaultOptions(pool, stdout)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, kvOpts...)
+
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
 	}
@@ -184,6 +191,25 @@ func blobstoreOptions(ctx context.Context, stdout io.Writer) ([]compose.Option, 
 	}
 	_, _ = fmt.Fprintln(stdout, "api attachments enabled (blobstore configured)")
 	return []compose.Option{compose.WithBlobstore(blob)}, nil
+}
+
+// keyvaultOptions wires the secret vault — its /readyz probe and the
+// vault-backed connector-credential path — only when a root key is
+// configured. Without one the vault stays absent: the transient one-shot IMAP
+// pull (which persists no credential) still works, and the persisting paths
+// (Connect/Sync) refuse loudly rather than nil-deref if ever invoked. A key
+// that is set but malformed is a boot error (keyvault.FromEnv), never a silent
+// fallback to something weaker.
+func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer) ([]compose.Option, error) {
+	vault, configured, err := keyvault.FromEnv(pool)
+	if err != nil {
+		return nil, fmt.Errorf("api: keyvault: %w", err)
+	}
+	if !configured {
+		return nil, nil
+	}
+	_, _ = fmt.Fprintln(stdout, "api connector-credential vault enabled (keyvault configured)")
+	return []compose.Option{compose.WithKeyvault(vault)}, nil
 }
 
 // startInlineRelay boots the in-process outbox relay. The bus is not
