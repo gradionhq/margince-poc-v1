@@ -38,10 +38,6 @@ type Store interface {
 	// with no object is not an error, so a crash-retry is safe.
 	Delete(ctx context.Context, key string) error
 
-	// Stat returns the object's metadata without its bytes; ErrNotFound if
-	// absent.
-	Stat(ctx context.Context, key string) (Object, error)
-
 	// Health reports whether the backing store is reachable, feeding the
 	// /readyz probe. A nil error means ready.
 	Health(ctx context.Context) error

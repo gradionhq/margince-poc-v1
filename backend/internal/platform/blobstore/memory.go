@@ -63,16 +63,6 @@ func (m *memoryStore) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-func (m *memoryStore) Stat(_ context.Context, key string) (Object, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	obj, ok := m.objects[key]
-	if !ok {
-		return Object{}, ErrNotFound
-	}
-	return objectMeta(key, obj), nil
-}
-
 // Health always succeeds: the in-memory store has no backend to reach.
 func (m *memoryStore) Health(_ context.Context) error { return nil }
 

@@ -139,14 +139,6 @@ func (s *s3Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (s *s3Store) Stat(ctx context.Context, key string) (Object, error) {
-	info, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
-	if err != nil {
-		return Object{}, mapErr(key, err)
-	}
-	return objectInfoTo(key, info), nil
-}
-
 func (s *s3Store) Health(ctx context.Context) error {
 	exists, err := s.client.BucketExists(ctx, s.bucket)
 	if err != nil {

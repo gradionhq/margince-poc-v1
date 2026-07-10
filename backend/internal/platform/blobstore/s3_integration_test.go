@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -37,6 +38,41 @@ func newS3Store(t *testing.T) blobstore.Store {
 		t.Fatalf("blobstore.New: %v", err)
 	}
 	return store
+}
+
+func TestNewFailsWhenStoreUnreachable(t *testing.T) {
+	// A store that never comes up must fail the boot, not hang: the connect
+	// retry is bounded by the context deadline.
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	_, err := blobstore.New(ctx, blobstore.Config{
+		Endpoint: "127.0.0.1:1", AccessKey: "x", SecretKey: "y", Bucket: "b",
+	})
+	if err == nil {
+		t.Fatal("New against an unreachable endpoint should fail within the deadline")
+	}
+}
+
+func TestFromEnvConfiguredConnects(t *testing.T) {
+	endpoint := os.Getenv("MARGINCE_TEST_BLOBSTORE_ENDPOINT")
+	if endpoint == "" {
+		t.Fatal("MARGINCE_TEST_BLOBSTORE_ENDPOINT not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	t.Setenv("MARGINCE_BLOBSTORE_ENDPOINT", endpoint)
+	t.Setenv("MARGINCE_BLOBSTORE_ACCESS_KEY", os.Getenv("MARGINCE_TEST_BLOBSTORE_ACCESS_KEY"))
+	t.Setenv("MARGINCE_BLOBSTORE_SECRET_KEY", os.Getenv("MARGINCE_TEST_BLOBSTORE_SECRET_KEY"))
+	t.Setenv("MARGINCE_BLOBSTORE_BUCKET", os.Getenv("MARGINCE_TEST_BLOBSTORE_BUCKET"))
+
+	store, configured, err := blobstore.FromEnv(t.Context())
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if !configured {
+		t.Fatal("FromEnv reported not-configured with the endpoint set")
+	}
+	if err := store.Health(t.Context()); err != nil {
+		t.Fatalf("Health of the env-built store: %v", err)
+	}
 }
 
 func TestS3StoreRoundTrip(t *testing.T) {
