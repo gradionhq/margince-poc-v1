@@ -432,20 +432,3 @@ func dateString(t *time.Time) *string {
 	s := t.Format(time.DateOnly)
 	return &s
 }
-
-// RunCloseDateSweep ticks the corrector on the worker's schedule, the
-// same loop shape as the retention evaluator.
-func RunCloseDateSweep(ctx context.Context, c *CloseDateCorrector, interval time.Duration, log *slog.Logger) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := c.Sweep(ctx); err != nil {
-			log.Error("close-date sweep: pass failed", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}

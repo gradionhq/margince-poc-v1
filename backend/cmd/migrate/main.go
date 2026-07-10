@@ -18,7 +18,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -70,11 +72,27 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(stdout, "applied %d migration(s); schema is at head\n", applied)
+		// River owns its schema through its own migrator, applied as the
+		// fourth namespace after core+custom (ADR-0017 order). Its migrator
+		// wants a pool, not the single conn the SQL runner uses; open one on
+		// the same owner DSN. See decisions/0021-river-job-queue.md.
+		riverPool, err := database.NewPool(ctx, *dsn)
+		if err != nil {
+			return fmt.Errorf("migrate: opening river pool: %w", err)
+		}
+		defer riverPool.Close()
+		riverApplied, err := jobs.Migrate(ctx, riverPool)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(stdout, "applied %d core+custom + %d river migration(s); schema is at head\n", applied, riverApplied)
 		return nil
 	case "down":
-		// Down is namespace-scoped and deliberate: custom first (it sits
-		// on top of core), and only --steps at a time.
+		// Down reverts the SQL namespaces only — custom first (it sits on top
+		// of core), --steps at a time. River's schema is infrastructure with
+		// its own migrator; rolling it back is a separate deliberate step, not
+		// folded into this counter (a plain `down` must never surprise the
+		// operator by dropping a River migration).
 		reverted, err := dbmigrate.Down(ctx, conn, custom, *steps)
 		if err != nil {
 			return err
