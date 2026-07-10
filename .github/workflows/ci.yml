@@ -35,18 +35,24 @@ defaults:
     working-directory: backend
 
 jobs:
-  # Classify the diff so a change runs only the checks it can affect: a
-  # docs-only PR skips every code gate, and a change touching neither backend/
-  # nor frontend/ nor infra/ skips the expensive live-boot + UAT jobs. Draft
-  # PRs run nothing until marked ready (the swarm pushes many WIP commits).
-  #   code = any changed file that is NOT purely docs (** minus *.md/docs/LICENSE)
-  #   e2e  = a change under backend/, frontend/, or infra/
+  # Classify the diff so a change runs only the checks it can affect — a
+  # frontend-only PR skips the Go build/gate + the ~5-min integration lane, a
+  # backend-only PR skips the frontend + UAT lanes, and a docs-only PR skips
+  # everything. Draft PRs run nothing until marked ready (the swarm pushes many
+  # WIP commits). A required job skipped this way counts as passing.
+  #   backend  = Go/DB + the gate inputs (backend, infra, go.work, Makefile,
+  #              scripts, workflows, AGENTS.md) — gates the Go build/gate,
+  #              craft, integration, vuln
+  #   frontend = frontend/ + backend/api (the contract drives FE types) —
+  #              gates the frontend lane + UAT
+  #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -54,11 +60,19 @@ jobs:
         id: filter
         with:
           filters: |
-            code:
-              - '**'
-              - '!**/*.md'
-              - '!docs/**'
-              - '!LICENSE'
+            backend:
+              - 'backend/**'
+              - 'infra/**'
+              - 'go.work'
+              - 'go.work.sum'
+              - 'Makefile'
+              - 'scripts/**'
+              - '.github/workflows/**'
+              - 'AGENTS.md'
+              - 'sonar-project.properties'
+            frontend:
+              - 'frontend/**'
+              - 'backend/api/**'
             e2e:
               - 'backend/**'
               - 'frontend/**'
@@ -90,7 +104,7 @@ jobs:
   deterministic-gates:
     name: deterministic-gates
     needs: [changes]
-    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -129,7 +143,7 @@ jobs:
   craftsmanship:
     name: craftsmanship
     needs: [deterministic-gates, changes]
-    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -161,7 +175,7 @@ jobs:
   integration:
     name: integration (RLS + erasure + HTTP e2e)
     needs: [changes]
-    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -209,7 +223,7 @@ jobs:
   vuln:
     name: govulncheck
     needs: [changes]
-    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -275,7 +289,7 @@ jobs:
   frontend:
     name: frontend (biome + vitest + tsc + build)
     needs: [changes]
-    if: needs.changes.outputs.code == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
+    if: needs.changes.outputs.frontend == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -307,7 +321,7 @@ jobs:
   uat:
     name: uat (AC screens + axe WCAG 2.2 AA + 390px, mocked)
     needs: [changes]
-    if: needs.changes.outputs.e2e == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
+    if: needs.changes.outputs.frontend == 'true' && (github.event_name == 'push' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     defaults:
       run:
