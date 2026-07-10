@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -38,8 +39,11 @@ type RetentionService struct {
 	log    *slog.Logger
 }
 
-func NewRetentionService(pool *pgxpool.Pool, log *slog.Logger) *RetentionService {
-	return &RetentionService{pool: pool, eraser: NewEraser(pool), log: log}
+// NewRetentionService wires the nightly evaluator. blob lets its erase
+// action purge attachment objects (Art. 17 reaches the bytes); pass nil in
+// a deployment with no object store, where no attachment object can exist.
+func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Logger) *RetentionService {
+	return &RetentionService{pool: pool, eraser: NewEraser(pool).WithBlobstore(blob), log: log}
 }
 
 // commercialCorrespondenceFloor is the WHERE fragment that shields commercial

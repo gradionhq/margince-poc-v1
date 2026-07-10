@@ -147,7 +147,11 @@ seed-reset: ## Wipe the demo workspace (scripts/seed-reset.sql); make seed-dev r
 migrate: ## Apply core + custom migrations (owner DSN)
 	$(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
 
-dev: db-up migrate ## db-up + migrate + api on :8080
+dev: db-up migrate ## db-up + migrate + api on :8080 (attachments on the compose MinIO)
+	MARGINCE_BLOBSTORE_ENDPOINT=localhost:$(MINIO_PORT) \
+	MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
+	MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
+	MARGINCE_BLOBSTORE_BUCKET=margince-dev \
 	$(GO) run ./cmd/api --dsn "$(APP_DSN)"
 
 clean: ## Tear down the dev stack, containers and data volumes

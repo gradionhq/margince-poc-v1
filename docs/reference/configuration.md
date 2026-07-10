@@ -36,8 +36,8 @@ Operational endpoints (served next to `/v1`):
 - `/healthz` — liveness: a dumb 200 (a database outage must not
   restart-loop the process).
 - `/readyz` — readiness: every dependency probe (Postgres; Redis too
-  when the relay is inline) must pass within 2s, else 503 naming the
-  unready dependency.
+  when the relay is inline; the object store when a blobstore is
+  configured) must pass within 2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
 
@@ -56,6 +56,23 @@ Without a declared model (`--ai-routing`/`--ai-fake`) the runner and the
 embedding lane simply do not start; the relay, retention, and workflow
 lanes always run. Shutdown is graceful: in-flight subscriber handlers
 finish their ack before the process exits.
+
+## Object storage (api, worker) — attachments
+
+Env-only, shared by both roles; secrets never appear on the command line
+(argv is world-readable). Leave `MARGINCE_BLOBSTORE_ENDPOINT` unset and the
+`/attachments` endpoints answer 501 and erasure has no objects to purge; set
+it to enable them (decisions/0022). The bucket is created on first connect,
+and the store tolerates a still-starting backend with a bounded retry.
+
+| Env | Default | Meaning |
+|---|---|---|
+| `MARGINCE_BLOBSTORE_ENDPOINT` | — | S3/MinIO `host:port`; set to enable attachments |
+| `MARGINCE_BLOBSTORE_ACCESS_KEY` | — | access key |
+| `MARGINCE_BLOBSTORE_SECRET_KEY` | — | secret key |
+| `MARGINCE_BLOBSTORE_BUCKET` | — | bucket name (created on first connect) |
+| `MARGINCE_BLOBSTORE_REGION` | `us-east-1` | region |
+| `MARGINCE_BLOBSTORE_USE_SSL` | `false` | `true` for TLS to the store |
 
 ## cmd/mcp — the agent tool surface
 

@@ -54,7 +54,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	svc := privacy.NewRetentionService(e.Pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.Evaluate(context.Background()); err != nil {
 		t.Fatal(err)
 	}

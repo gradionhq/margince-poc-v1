@@ -111,7 +111,7 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	seedRetentionPolicies(t, e)
 	staleLead, heldLead, staleDeal, transcript := seedOverAgeRecords(t, e)
 
-	svc := privacy.NewRetentionService(e.Pool, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.Evaluate(context.Background()); err != nil {
 		t.Fatal(err)
 	}

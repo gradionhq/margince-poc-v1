@@ -34,6 +34,7 @@ import (
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -109,6 +110,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	var opts []compose.Option
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
+	}
+
+	// The attachment endpoints (and their /readyz probe + erase-path object
+	// purge) are wired only when an object store is configured; without one
+	// they answer 501 rather than nil-deref at request time.
+	blob, blobConfigured, err := blobstore.FromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("api: blobstore: %w", err)
+	}
+	if blobConfigured {
+		opts = append(opts, compose.WithBlobstore(blob))
+		_, _ = fmt.Fprintln(stdout, "api attachments enabled (blobstore configured)")
 	}
 
 	stopRelay := func() {
