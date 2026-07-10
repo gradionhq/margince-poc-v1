@@ -28,7 +28,7 @@ install: fe-install tools hooks
 
 ## check — the merge gate: the root deterministic script gates plus the backend
 ## gate (build, vet, lint, arch-lint, unit + fitness tests, contract drift).
-check: craft-drift check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction
+check: craft-drift check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction check-fe
 
 ## check-q — quiet `make check`: the full log lands in .tmp/check.log and only an
 ## excerpt prints on failure (keeps a green run's output to one line).
@@ -66,8 +66,17 @@ dev-tls:
 check build test test-v test-cover test-integration bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev clean tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
-## check-fe — the frontend gate (alias for frontend-check).
-check-fe: frontend-check
+## check-fe — the frontend gate, part of `make check`. Skips cleanly when the
+## frontend toolchain is absent (no frontend/node_modules), so `make check`
+## covers backend AND frontend where node/pnpm exist, and no-ops on a
+## backend-only box or in the Go-only CI gate job (where the separate frontend
+## CI job runs it instead). Run `make fe-install` to include it locally.
+check-fe:
+	@if [ -d frontend/node_modules ]; then \
+		$(MAKE) frontend-check; \
+	else \
+		echo "check-fe: frontend/node_modules absent — skipping the frontend gate (run 'make fe-install' to include it)"; \
+	fi
 ## fe-dev — Vite dev server (alias for frontend-dev).
 fe-dev: frontend-dev
 ## fitness-jurisdiction — no country strings in core (alias for no-jurisdiction).
