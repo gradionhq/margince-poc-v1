@@ -147,7 +147,7 @@ func (v *localVault) Put(ctx context.Context, ws ids.WorkspaceID, secret []byte)
 	if ws.IsZero() {
 		return "", errors.New("keyvault: cannot store a secret for a zero workspace id")
 	}
-	ref, err := mintRef(ws, currentKeyVersion)
+	ref, err := mintRef(ws)
 	if err != nil {
 		return "", err
 	}
@@ -194,8 +194,7 @@ func (v *localVault) Get(ctx context.Context, ws ids.WorkspaceID, ref Ref) ([]by
 }
 
 func (v *localVault) Delete(ctx context.Context, ws ids.WorkspaceID, ref Ref) error {
-	p, err := ref.parse()
-	if err != nil || p.workspace != ws {
+	if !ref.scopedTo(ws) {
 		// A ref from another workspace (or malformed) addresses nothing here;
 		// deleting it is a no-op, so a crash-retry is safe.
 		return nil

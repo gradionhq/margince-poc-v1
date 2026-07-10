@@ -37,7 +37,7 @@ func (m *memoryVault) Put(_ context.Context, ws ids.WorkspaceID, secret []byte) 
 	if ws.IsZero() {
 		return "", fmt.Errorf("keyvault: cannot store a secret for a zero workspace id")
 	}
-	ref, err := mintRef(ws, currentKeyVersion)
+	ref, err := mintRef(ws)
 	if err != nil {
 		return "", err
 	}

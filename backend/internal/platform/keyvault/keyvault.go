@@ -93,16 +93,19 @@ const refTokenBytes = 16
 // without changing the ref format or the stored ciphertext (decisions/0023).
 const currentKeyVersion = 1
 
-// mintRef builds a fresh ref for ws at keyVersion. The random token is drawn
-// from crypto/rand; a failure there means the process cannot mint secret
-// handles and is surfaced, never masked with a predictable value.
-func mintRef(ws ids.WorkspaceID, keyVersion int) (Ref, error) {
+// mintRef builds a fresh ref for ws at the current key version. The random
+// token is drawn from crypto/rand; a failure there means the process cannot
+// mint secret handles and is surfaced, never masked with a predictable value.
+// The version is stamped from currentKeyVersion rather than passed in: a
+// future rotation opens up by having Get select the key from the version the
+// ref already carries, not by threading a version through this call today.
+func mintRef(ws ids.WorkspaceID) (Ref, error) {
 	tok := make([]byte, refTokenBytes)
 	if _, err := rand.Read(tok); err != nil {
 		return "", fmt.Errorf("keyvault: minting a ref token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(tok)
-	parts := []string{refScheme, strconv.Itoa(keyVersion), ws.String(), token}
+	parts := []string{refScheme, strconv.Itoa(currentKeyVersion), ws.String(), token}
 	return Ref(strings.Join(parts, refDelimiter)), nil
 }
 

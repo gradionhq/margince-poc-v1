@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -33,14 +34,25 @@ type Registry struct {
 	pool       *pgxpool.Pool
 	sink       *Sink
 	authority  authz.Resolver
+	// vault seals and resolves a connection's credential bundle. The row
+	// carries an opaque credential_ref, never the credential bytes; the
+	// vault is the custodian. May be nil for a role that only runs the
+	// transient one-shot pull (RunTransient), which never persists a
+	// credential — Connect/SyncOnce refuse loudly when it is nil.
+	vault keyvault.Vault
 }
 
-func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver) *Registry {
+// NewRegistry builds the connector registry over the pool, the capture Sink,
+// the live-authority resolver, and the keyvault that seals/resolves each
+// connection's credential. vault may be nil for a role that only runs the
+// transient one-shot pull (which persists no credential).
+func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
 	return &Registry{
 		connectors: map[string]connector.Connector{},
 		pool:       pool,
 		sink:       sink,
 		authority:  authority,
+		vault:      vault,
 	}
 }
 
@@ -100,15 +112,30 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	for _, s := range c.Descriptor().Scopes {
 		scopes = append(scopes, string(s))
 	}
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return ids.Nil, errors.New("capture: connector grant outside workspace context")
+	}
+	if r.vault == nil {
+		return ids.Nil, errors.New("capture: no keyvault configured — a connector credential cannot be sealed")
+	}
+	// Put-then-commit (like blobstore): seal the credential in the vault
+	// first, then commit the row that names it. A rolled-back row leaves an
+	// orphan secret (swept later), never a row promising a credential that is
+	// not there. The row stores the opaque ref; the bytes never touch it.
+	ref, err := r.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(auth))
+	if err != nil {
+		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
+	}
 	var id ids.UUID
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			INSERT INTO connector_connection (workspace_id, connector, granted_by, scopes, auth)
+			INSERT INTO connector_connection (workspace_id, connector, granted_by, scopes, credential_ref)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
 			ON CONFLICT (workspace_id, connector, granted_by)
-			DO UPDATE SET auth = EXCLUDED.auth, status = 'active', last_error = NULL
+			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'active', last_error = NULL
 			RETURNING id`,
-			name, actor.UserID, scopes, []byte(auth)).Scan(&id)
+			name, actor.UserID, scopes, string(ref)).Scan(&id)
 	})
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
@@ -151,16 +178,17 @@ func (r *Registry) RunTransient(ctx context.Context, c connector.Connector, auth
 // sync succeeded end to end.
 func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	var (
-		name      string
-		grantedBy ids.UserID
-		authBytes []byte
-		cursor    []byte
+		name          string
+		grantedBy     ids.UserID
+		credentialRef *string
+		authBytes     []byte
+		cursor        []byte
 	)
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT connector, granted_by, auth, cursor FROM connector_connection
+			SELECT connector, granted_by, credential_ref, auth, cursor FROM connector_connection
 			WHERE id = $1 AND status = 'active'`, connectionID).
-			Scan(&name, &grantedBy, &authBytes, &cursor)
+			Scan(&name, &grantedBy, &credentialRef, &authBytes, &cursor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("capture: connection %s: %w", connectionID, apperrors.ErrNotFound)
@@ -172,12 +200,16 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	if err != nil {
 		return err
 	}
+	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
+	if err != nil {
+		return err
+	}
 
 	runCtx, err := r.connectorContext(ctx, name, grantedBy)
 	if err != nil {
 		return err
 	}
-	next, syncErr := c.Sync(runCtx, connector.Auth(authBytes), connector.Cursor(cursor), r.sink)
+	next, syncErr := c.Sync(runCtx, auth, connector.Cursor(cursor), r.sink)
 	if syncErr != nil {
 		if markErr := r.markError(ctx, connectionID, syncErr); markErr != nil {
 			return errors.Join(syncErr, markErr)
@@ -190,6 +222,121 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 			WHERE id = $1`, connectionID, []byte(next))
 		return err
 	})
+}
+
+// resolveCredential turns a stored connection's credential into the opaque
+// Auth the connector expects. It PREFERS the vault ref; the legacy auth bytea
+// column is read only for a row not yet backfilled onto the vault (during the
+// additive transition, before that column is dropped).
+func (r *Registry) resolveCredential(ctx context.Context, credentialRef *string, authBytes []byte) (connector.Auth, error) {
+	if credentialRef != nil && *credentialRef != "" {
+		if r.vault == nil {
+			return nil, errors.New("capture: connection carries a credential ref but no keyvault is configured to resolve it")
+		}
+		ws, ok := principal.WorkspaceID(ctx)
+		if !ok {
+			return nil, errors.New("capture: credential resolution outside workspace context")
+		}
+		secret, err := r.vault.Get(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*credentialRef))
+		if err != nil {
+			return nil, fmt.Errorf("capture: resolving connector credential: %w", err)
+		}
+		return connector.Auth(secret), nil
+	}
+	// A row not yet backfilled: the credential still lives in the column.
+	return connector.Auth(authBytes), nil
+}
+
+// BackfillCredentials migrates every legacy connector_connection row whose
+// credential still lives in the auth bytea column onto the vault: it seals the
+// bytes, records the credential_ref, and clears auth. It is idempotent — a row
+// that already carries a ref is skipped — so a re-run or a crash-retry is
+// safe, which is what lets it run on every boot. It walks every live workspace
+// under that workspace's own GUC, since connector_connection is RLS-scoped,
+// and returns the number of rows migrated.
+func (r *Registry) BackfillCredentials(ctx context.Context) (int, error) {
+	if r.vault == nil {
+		return 0, errors.New("capture: cannot backfill connector credentials without a keyvault")
+	}
+	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
+	if err != nil {
+		return 0, fmt.Errorf("capture: listing workspaces for credential backfill: %w", err)
+	}
+	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, wsID := range workspaces {
+		wsCtx := principal.WithWorkspaceID(ctx, wsID)
+		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:keyvault-backfill"})
+		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
+		migrated, err := r.backfillWorkspace(wsCtx, ids.From[ids.WorkspaceKind](wsID))
+		if err != nil {
+			return total, fmt.Errorf("capture: backfilling workspace %s: %w", wsID, err)
+		}
+		total += migrated
+	}
+	return total, nil
+}
+
+// backfillWorkspace migrates one workspace's legacy rows. Each secret is
+// sealed OUTSIDE the update tx (put-then-commit); the update then claims the
+// row only if it still has no ref, so a concurrent backfill (two worker pods
+// at boot) cannot double-migrate — the loser's sealed secret is a harmless
+// orphan, never a corrupted row.
+func (r *Registry) backfillWorkspace(ctx context.Context, ws ids.WorkspaceID) (int, error) {
+	type legacyRow struct {
+		id   ids.UUID
+		auth []byte
+	}
+	var pending []legacyRow
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, auth FROM connector_connection
+			WHERE credential_ref IS NULL AND auth IS NOT NULL`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var l legacyRow
+			if err := rows.Scan(&l.id, &l.auth); err != nil {
+				return err
+			}
+			pending = append(pending, l)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	migrated := 0
+	for _, l := range pending {
+		ref, err := r.vault.Put(ctx, ws, l.auth)
+		if err != nil {
+			return migrated, err
+		}
+		var claimed bool
+		err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+			ct, err := tx.Exec(ctx, `
+				UPDATE connector_connection SET credential_ref = $2, auth = NULL
+				WHERE id = $1 AND credential_ref IS NULL`, l.id, string(ref))
+			if err != nil {
+				return err
+			}
+			claimed = ct.RowsAffected() == 1
+			return nil
+		})
+		if err != nil {
+			return migrated, err
+		}
+		if claimed {
+			migrated++
+		}
+	}
+	return migrated, nil
 }
 
 // connectorContext builds the acting principal: connector identity,

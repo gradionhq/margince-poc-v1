@@ -33,7 +33,7 @@ func TestSealOpen_roundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAEAD: %v", err)
 	}
-	ref, err := mintRef(ids.New[ids.WorkspaceKind](), currentKeyVersion)
+	ref, err := mintRef(ids.New[ids.WorkspaceKind]())
 	if err != nil {
 		t.Fatalf("mintRef: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestOpen_wrongKeyFailsWithoutLeakingPlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAEAD wrong: %v", err)
 	}
-	ref, err := mintRef(ids.New[ids.WorkspaceKind](), currentKeyVersion)
+	ref, err := mintRef(ids.New[ids.WorkspaceKind]())
 	if err != nil {
 		t.Fatalf("mintRef: %v", err)
 	}
@@ -93,11 +93,11 @@ func TestOpen_differentRefAADFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAEAD: %v", err)
 	}
-	refA, err := mintRef(ids.New[ids.WorkspaceKind](), currentKeyVersion)
+	refA, err := mintRef(ids.New[ids.WorkspaceKind]())
 	if err != nil {
 		t.Fatalf("mintRef A: %v", err)
 	}
-	refB, err := mintRef(ids.New[ids.WorkspaceKind](), currentKeyVersion)
+	refB, err := mintRef(ids.New[ids.WorkspaceKind]())
 	if err != nil {
 		t.Fatalf("mintRef B: %v", err)
 	}

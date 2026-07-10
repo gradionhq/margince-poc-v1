@@ -29,7 +29,7 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 	e := setupSearch(t)
 	personID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Inbox Sender', 'manual', 'human:x')`)
 
-	registry := newTestCaptureRegistry(e)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: personID}
 	registry.Register(fake)
 

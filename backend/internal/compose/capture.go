@@ -19,14 +19,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// NewCaptureRegistry builds the connector registry; process roles
-// register their compiled-in connectors on it and drive SyncOnce.
-func NewCaptureRegistry(pool *pgxpool.Pool) *capture.Registry {
+// NewCaptureRegistry builds the connector registry; process roles register
+// their compiled-in connectors on it and drive SyncOnce. The vault seals and
+// resolves each connection's credential (nil is valid for a role that only
+// runs the transient one-shot pull, which persists no credential).
+func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault) *capture.Registry {
 	sink := capture.NewSink(pool).WithStager(mergeStager{svc: approvals.NewService(pool)})
-	return capture.NewRegistry(pool, sink, identity.NewService(pool))
+	return capture.NewRegistry(pool, sink, identity.NewService(pool), vault)
 }
 
 // mergeStager adapts the approvals engine to capture's dedupe seam.

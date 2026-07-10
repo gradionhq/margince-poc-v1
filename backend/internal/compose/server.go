@@ -140,7 +140,12 @@ func WithBlobstore(store blobstore.Store) Option {
 // nil-derefing at Authenticate — a capture-capable role must pass this or
 // fail to boot (enforced in cmd, decisions/0023).
 func WithKeyvault(vault keyvault.Vault) Option {
-	return func(s *Server, _ *pgxpool.Pool) { s.vault = vault }
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.vault = vault
+		// Rebuild the capture registry with the vault so the connector-
+		// credential paths (Connect seals, Sync resolves) have their custodian.
+		s.imapConnectHandlers = imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}
+	}
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.
@@ -294,8 +299,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
 		// The one-shot IMAP pull shares the capture registry (Sink + the
 		// live-authority principal swap); credentials arrive per request and
-		// are never persisted, so no standing connection is registered.
-		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool)},
+		// are never persisted (RunTransient), so the default registry needs no
+		// vault — WithKeyvault rebuilds it with one for the persisting paths.
+		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool, nil)},
 		// First-class filtered export (B-E15.13): the writer reuses the ONE
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source
