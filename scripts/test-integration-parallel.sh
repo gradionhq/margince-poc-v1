@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Parallel integration-test runner.
+#
+# The serial lane runs every integration package with `go test -p 1` against ONE
+# shared database, because parallel packages racing on the same DB collide on the
+# schema each test rebuilds. That serialization is the only reason for -p 1 — the
+# suites are I/O-bound (mostly idle on Postgres round-trips and TLS handshakes in
+# the HTTP e2e), so the CPU sits unused while one package runs.
+#
+# This runner removes the shared-state constraint instead of the serialization.
+# Each package gets private throwaway state, so concurrent packages share nothing:
+#   Postgres — its own empty clone db (the Go harness migrates it once, then
+#              TRUNCATEs between tests — see internal/platform/testdb).
+#   MinIO    — a private bucket (MARGINCE_TEST_BLOBSTORE_BUCKET=<base>-p<idx>),
+#              auto-created by the blobstore store.
+#   Redis    — the one shared instance, passed through: only the events package
+#              uses Redis (its own logical db 15), so nothing contends.
+# Within a package nothing changes — still -p 1, the same sequential model that is
+# green today — so no test file needs editing.
+#
+# Same teeth as the serial lane: zero-skip guard (a SKIP fails the run) and any
+# package failure fails the whole run. MARGINCE_ENV=dev is exported so the HTTP
+# e2e suites' X-Workspace-Slug trust switch is honored (same as the serial lane).
+#
+# Env:
+#   INTEGRATION_JOBS   max concurrent packages (default: min(nproc, 8))
+#   MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN   owner + app DSNs (Makefile defaults)
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+# shellcheck source=scripts/lib-testdb.sh
+source "$ROOT/scripts/lib-testdb.sh"
+parse_test_dsn
+
+# Build the migrated template once, fresh, before fanning out. Every package
+# clones from it (CREATE DATABASE ... TEMPLATE) instead of re-migrating.
+echo "test-integration-parallel: building migrated template ${TEMPLATE_NAME}…"
+build_template
+
+# Every integration test in this repo lives in the backend module.
+GO_DIRS=(backend)
+
+ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
+JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
+
+# Build the work list: "module_dir|relative_pkg" for every package that carries a
+# //go:build integration file.
+WORK="$(mktemp)"
+for d in "${GO_DIRS[@]}"; do
+  [ -d "$d" ] || continue
+  matches="$(grep -rl "go:build integration" --include="*.go" "$d" 2>/dev/null || true)"
+  [ -n "$matches" ] || continue
+  printf '%s\n' "$matches" | xargs -n1 dirname | sort -u | while IFS= read -r pkgdir; do
+    rel="./${pkgdir#"$d"/}"; [ "$pkgdir" = "$d" ] && rel="."
+    echo "$d|$rel"
+  done
+done > "$WORK"
+
+NPKGS=$(wc -l < "$WORK" | tr -d ' ')
+echo "test-integration-parallel: $NPKGS packages, up to $JOBS concurrent (template db=$TEMPLATE_DB)"
+
+OUTDIR="$(mktemp -d)"; trap 'rm -f "$WORK"; rm -rf "$OUTDIR"' EXIT
+
+# One job = clone an empty db + own a private MinIO bucket, run that package
+# against them, drop the clone.
+run_one() {
+  local line="$1" idx="$2" outdir="$3"
+  local d="${line%%|*}" rel="${line#*|}"
+  local db="margince_it_p${idx}_$$"
+  local log="$outdir/$idx.log"
+  local bucket; bucket="$(bucket_for "$idx")"
+  {
+    echo "=== integration $d $rel (db=$db bucket=$bucket) ==="
+    make_clone "$db"
+    local st=0
+    ( cd "$d" \
+        && MARGINCE_ENV=dev \
+           MARGINCE_TEST_DSN="$(owner_clone_dsn "$db")" \
+           MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
+           MARGINCE_TEST_BLOBSTORE_BUCKET="$bucket" \
+        go test -p 1 -tags=integration -v -count=1 -timeout=300s "$rel" ) || st=$?
+    drop_clone "$db"
+    echo "EXIT $st"
+  } > "$log" 2>&1
+}
+export -f run_one owner_clone_dsn app_clone_dsn make_clone drop_clone pg_admin bucket_for
+
+# Fan out with a bounded worker pool. nl numbers the lines → stable per-job db
+# names + logs.
+nl -ba -w1 -s'|' "$WORK" \
+  | xargs -P "$JOBS" -I{} bash -c 'line="{}"; idx="${line%%|*}"; rest="${line#*|}"; run_one "$rest" "$idx" "'"$OUTDIR"'"'
+
+# Aggregate: print every log in package (idx) order, then enforce the teeth.
+fail=0
+for base in $(cd "$OUTDIR" && ls -1 -- *.log | sort -n); do
+  log="$OUTDIR/$base"
+  cat "$log"
+  grep -q "^EXIT 0$" "$log" || fail=1
+done
+
+if grep -rq -- '--- SKIP' "$OUTDIR"; then
+  echo "FAIL: integration tests must not skip — provision the env/service, do not skip:"
+  grep -rh -- '--- SKIP' "$OUTDIR"
+  fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "FAIL: integration tests failed (parallel, $NPKGS packages) — see package logs above"
+  exit 1
+fi
+# Keep the exact success sentinel the gates grep for; the count is informational.
+echo "OK: integration passed with 0 skips ($NPKGS packages, parallel)"

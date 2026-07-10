@@ -25,7 +25,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -50,7 +50,16 @@ test: ## Unit tests (the root fitness tests run uncached)
 # verbose mode, and the zero-skip teeth below grep for them. A skip in this
 # lane means a security gate (RLS, erasure) silently didn't run — that must
 # read as red, never as green.
-test-integration: ## Integration lane: real Postgres, fails loudly without it (never skips)
+test-integration: ## Integration lane: real Postgres, fails loudly without it (never skips). Parallel — each package on its own throwaway clone db.
+	@bash ../scripts/test-integration-parallel.sh
+
+test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
+	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
+
+test-it: ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
+	@bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
+
+test-integration-serial: ## Escape hatch: the old sequential lane, all packages on the shared dev DB (debugging a parallel-isolation issue).
 	@log=$$(mktemp); st=$$(mktemp); \
 	{ $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
 	code=$$(cat "$$st"); rm -f "$$st"; \

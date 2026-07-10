@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install check check-backend check-q check-go check-fe build test test-v test-cover test-integration bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-tls clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e fe-dev fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction uat_env uat_env_stop hooks
+.PHONY: help install check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-tls clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e fe-dev fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction uat_env uat_env_stop hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -71,7 +71,7 @@ infra-down:
 dev-tls:
 	./dev/dev.sh
 
-build test test-v test-cover test-integration bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev clean tools tools-go infra-logs infra-reset:
+build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev clean tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly

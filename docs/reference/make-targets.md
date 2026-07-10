@@ -39,7 +39,10 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture, enum sync, `audit_log` enum coherence, contract `$ref` resolution) run uncached |
-| `test-integration` | Real-Postgres lane (`-tags integration`): RLS gates, governed-agent loop, HTTP end-to-end. Fails loudly without a database — never skips |
+| `test-integration` | Real-Postgres lane (`-tags integration`): RLS gates, governed-agent loop, HTTP end-to-end. **Parallel** — each package runs on its own throwaway clone db (`CREATE DATABASE … TEMPLATE margince_test`) + private MinIO bucket, so packages share nothing; within a package still `-p 1`. Fails loudly without a database — never skips. Tune concurrency with `INTEGRATION_JOBS=N` |
+| `test-db-up` | (Re)build the migrated `margince_test` template the parallel lane clones from |
+| `test-it` | Run ONE integration package on a throwaway clone: `make test-it DIR=backend/internal/modules/people [RUN=TestName]` |
+| `test-integration-serial` | Escape hatch: the old sequential lane on the shared dev DB (for debugging a parallel-isolation issue) |
 | `lint` | `golangci-lint run` (depguard, gosec, misspell, revive, gofmt) |
 | `arch-lint` | go-arch-lint over `.go-arch-lint.yml` — a hard gate on the import DAG |
 | `gen` | Regenerate everything derived from `api/crm.yaml` (contract types, 501 stubs, agent-policy table) |

@@ -76,4 +76,22 @@ numbers appear here when releases start.
   backend/frontend/infra skips the live-boot + UAT jobs, and draft PRs run
   nothing until marked ready. `craft-residue` still fires on any file.
 
+### Changed
+
+- **Integration lane runs in parallel** (skeleton parity) — `make
+  test-integration` now gives each `//go:build integration` package its own
+  throwaway database (`CREATE DATABASE … TEMPLATE margince_test`, a fast file
+  copy) plus a private MinIO bucket, so packages share nothing and run
+  concurrently instead of serialized under one shared DB. Within a package it is
+  still `-p 1`, so no test file changed. Locally the full lane drops ~45%
+  (≈113s → ≈62s); the floor is now the single heaviest package. Same zero-skip
+  teeth. New helpers: `test-db-up` (build the template), `test-it DIR=…` (one
+  package on a clone), `test-integration-serial` (the old lane, for debugging).
+- **Integration schema reset is migrate-once, not per-test** — the shared
+  cross-module harness migrates the database a single time per test process
+  (`internal/platform/testdb.EnsureSchema`) and resets between tests with a fast
+  `TRUNCATE` (`testdb.Truncate`) instead of dropping and re-running every
+  migration, which dominated the heaviest package (~180 tests × a full
+  re-migrate). Safe because no migration seeds reference data a test depends on.
+
 [Unreleased]: https://github.com/gradionhq/margince
