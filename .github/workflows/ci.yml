@@ -234,6 +234,126 @@ jobs:
           cache-dependency-path: backend/go.sum
       - run: make vuln
 
+  # CI-based SonarCloud scan. Unlike Automatic Analysis, the scanner reads the
+  # committed sonar-project.properties (exclusions + rule tuning + coverage
+  # report paths), so that file is the single source of truth for analysis
+  # scope — which is why we run the scan in CI rather than let the app analyze
+  # blind. The scan step is guarded on the SONAR_TOKEN secret: with no token it
+  # is a clean no-op (green). Once the secret is present (it is, added
+  # 2026-07-06) the scan runs and posts the required "SonarCloud Code Analysis"
+  # check. Disable Automatic Analysis in SonarCloud → project → Administration →
+  # Analysis Method so the two do not compete (the CI scan is the source of
+  # truth). This job is deliberately NOT gated by the `changes` path filter: the
+  # "SonarCloud Code Analysis" context is a required check, so it must post on
+  # every ready PR — a path-skipped job never reports and would block doc-only
+  # PRs forever. It re-runs the integration + FE suites WITH coverage because it
+  # must be self-contained (the integration/frontend jobs it would otherwise
+  # borrow coverage from are themselves conditionally skipped by the filter).
+  sonarcloud:
+    name: sonarcloud (scan reads sonar-project.properties)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: https://sonarcloud.io
+    # The Go coverage handed to the scan runs the FULL test story — unit AND
+    # the integration lane — so code proven by real-Postgres suites (stores,
+    # cross-module orchestration like compose/briefs) reports its true
+    # coverage instead of a false 0%. Hence the same PG/Redis services the
+    # integration job uses.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_USER: margince_owner
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: margince
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U margince_owner"
+          --health-interval 2s --health-timeout 5s --health-retries 15
+      redis:
+        image: redis:7@sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 5s --health-retries 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Full history so SonarCloud can attribute blame / compute new code.
+          fetch-depth: 0
+      # The quality gate requires coverage on new code, so the scan must be
+      # handed real coverage reports — both lanes run their unit tests here
+      # with coverage enabled (paths declared in sonar-project.properties).
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          version: 11
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Create the non-owner app role
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f scripts/db-init.sql
+      # Same MinIO the integration job runs — the coverage run drives the
+      # blobstore integration lane too (decisions/0022).
+      - name: Start MinIO (blobstore)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        run: |
+          docker run -d --name minio -p 59000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data
+      - name: Go coverage (unit + integration lane)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        working-directory: backend
+        env:
+          MARGINCE_TEST_DSN: postgres://margince_owner:dev@localhost:55432/margince
+          MARGINCE_TEST_APP_DSN: postgres://margince_app:margince_app_dev@localhost:55432/margince
+          MARGINCE_TEST_REDIS: localhost:56379
+          MARGINCE_TEST_BLOBSTORE_ENDPOINT: localhost:59000
+          MARGINCE_TEST_BLOBSTORE_ACCESS_KEY: minioadmin
+          MARGINCE_TEST_BLOBSTORE_SECRET_KEY: minioadmin
+          MARGINCE_TEST_BLOBSTORE_BUCKET: margince-test
+          # The HTTP e2e suites resolve the workspace from the
+          # X-Workspace-Slug header, which only the dev trust switch
+          # honors — same export make test-integration sets.
+          MARGINCE_ENV: dev
+        # -coverpkg=./... attributes cross-package exercise — the compose
+        # e2e suites cover the briefs transport, module helpers, etc.;
+        # without it a package proven only by another package's suite
+        # reads as a false 0%.
+        run: go test -tags integration -p 1 ./... -coverpkg=./... -coverprofile=coverage.out -covermode=atomic
+      - name: Frontend unit coverage
+        if: ${{ env.SONAR_TOKEN != '' }}
+        working-directory: frontend
+        # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at
+        # install; esbuild ships prebuilt platform binaries as optional deps,
+        # so vitest works without its validating postinstall.
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov
+      - name: SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5.3.2
+      - name: No token yet — scan skipped
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
+
   # The README quickstart, run literally: compose up → migrate → api →
   # seed-dev → verify-boot. This is what keeps the compose file, the
   # API-driven seed, and the boot proof honest — the integration job's
