@@ -158,8 +158,8 @@ func TestErasureWithoutStoreRollsBackRatherThanHalfErasing(t *testing.T) {
 	// was not anonymized.
 	if _, rc, derr := store.OpenAttachment(ctx, ids.UUID(att.Id)); derr != nil {
 		t.Errorf("attachment row was deleted despite the erasure rolling back: %v", derr)
-	} else {
-		_ = rc.Close()
+	} else if cerr := rc.Close(); cerr != nil {
+		t.Errorf("Close: %v", cerr)
 	}
 	if erased := e.WsCount(t, `SELECT count(*) FROM person WHERE id = $1 AND full_name = 'Erased Subject'`, person); erased != 0 {
 		t.Error("person was anonymized despite the object purge failing — the erasure did not roll back")

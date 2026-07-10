@@ -90,8 +90,13 @@ func TestMemoryStoreGetReturnsAnIndependentCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	got, _ := io.ReadAll(r)
-	_ = r.Close()
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if cerr := r.Close(); cerr != nil {
+		t.Errorf("Close: %v", cerr)
+	}
 	// Mutating the returned slice must not corrupt the stored object.
 	for i := range got {
 		got[i] = 'X'
@@ -101,8 +106,13 @@ func TestMemoryStoreGetReturnsAnIndependentCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Get: %v", err)
 	}
-	got2, _ := io.ReadAll(r2)
-	_ = r2.Close()
+	got2, err := io.ReadAll(r2)
+	if err != nil {
+		t.Fatalf("second ReadAll: %v", err)
+	}
+	if cerr := r2.Close(); cerr != nil {
+		t.Errorf("Close: %v", cerr)
+	}
 	if string(got2) != "original" {
 		t.Errorf("stored object was mutated through a returned reader: got %q", got2)
 	}

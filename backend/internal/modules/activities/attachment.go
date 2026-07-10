@@ -317,9 +317,11 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	return att, nil
 }
 
-func nullIfEmpty(s string) any {
+// nullIfEmpty maps an absent content-type to a SQL NULL rather than an empty
+// string, so the column reflects "unknown" honestly.
+func nullIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}
-	return s
+	return &s
 }
