@@ -127,6 +127,8 @@ up)
     echo "  stop     make uat_env_stop UAT_SLUG=${slug}"
   else
     echo "FAIL: uat_env '$slug' FE did not become ready in time — see ${log}" >&2
+    # Don't leave the api (and vite) orphaned when the FE readiness poll fails.
+    kill "$be_pid" "$fe_pid" 2>/dev/null || true
     exit 1
   fi
   ;;
