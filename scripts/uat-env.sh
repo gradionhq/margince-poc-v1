@@ -59,8 +59,9 @@ log="${rundir}/uat.log"
 state="${rundir}/env"
 
 wait_ready() { # url timeout_s — any HTTP response (even 401) means the port is serving.
-  for _ in $(seq 1 "$2"); do
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$1" 2>/dev/null || true)
+  local url="$1" timeout="$2"
+  for _ in $(seq 1 "$timeout"); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || true)
     [[ -n "$code" && "$code" != "000" ]] && return 0
     sleep 1
   done

@@ -36,14 +36,14 @@ parse_test_dsn() {
   O_PREFIX="${owner%%/"${o_body#*/}"}"       # scheme://user:pass@host:port
   local o_tail="${o_body#*/}"                 # db?query  (or db)
   local o_db="${o_tail%%\?*}"
-  O_QUERY=""; [ "$o_tail" != "$o_db" ] && O_QUERY="${o_tail#*\?}"
+  O_QUERY=""; [[ "$o_tail" != "$o_db" ]] && O_QUERY="${o_tail#*\?}"
   TEMPLATE_DB="$o_db"
 
   # App: same peel; the app credentials/host are preserved, only the db swaps.
   local a_body="${app#*://}"
   A_PREFIX="${app%%/"${a_body#*/}"}"
   local a_tail="${a_body#*/}"
-  A_QUERY=""; local a_db="${a_tail%%\?*}"; [ "$a_tail" != "$a_db" ] && A_QUERY="${a_tail#*\?}"
+  A_QUERY=""; local a_db="${a_tail%%\?*}"; [[ "$a_tail" != "$a_db" ]] && A_QUERY="${a_tail#*\?}"
 
   # psql admin target: the owner role against the maintenance `postgres` db, so
   # CREATE/DROP DATABASE never runs inside the database being dropped.
@@ -51,7 +51,7 @@ parse_test_dsn() {
   local userpass="${hostcreds%@*}" hostport="${hostcreds#*@}"
   PGADMIN_USER="${userpass%%:*}"; PGADMIN_PASS="${userpass#*:}"
   PGADMIN_HOST="${hostport%%:*}"; PGADMIN_PORT="${hostport#*:}"
-  [ "$PGADMIN_PORT" = "$hostport" ] && PGADMIN_PORT=5432
+  [[ "$PGADMIN_PORT" = "$hostport" ]] && PGADMIN_PORT=5432
 
   export O_PREFIX O_QUERY A_PREFIX A_QUERY TEMPLATE_DB \
          PGADMIN_USER PGADMIN_PASS PGADMIN_HOST PGADMIN_PORT
@@ -63,8 +63,8 @@ pg_admin() { PGPASSWORD="$PGADMIN_PASS" psql -h "$PGADMIN_HOST" -p "$PGADMIN_POR
 # xargs -P worker subshells (fresh bash processes) see it — make_clone reads it.
 export TEMPLATE_NAME="${TEMPLATE_NAME:-margince_test}"
 
-owner_clone_dsn() { echo "${O_PREFIX}/$1${O_QUERY:+?$O_QUERY}"; }
-app_clone_dsn()   { echo "${A_PREFIX}/$1${A_QUERY:+?$A_QUERY}"; }
+owner_clone_dsn() { local db="$1"; echo "${O_PREFIX}/${db}${O_QUERY:+?$O_QUERY}"; }
+app_clone_dsn()   { local db="$1"; echo "${A_PREFIX}/${db}${A_QUERY:+?$A_QUERY}"; }
 
 # build_template — (re)create margince_test and migrate it to head with the same
 # embedded migration set the app uses (cmd/migrate → migrations.Core/Custom).
@@ -82,19 +82,20 @@ build_template() {
 ensure_template() {
   local exists
   exists="$(pg_admin -tAc "SELECT 1 FROM pg_database WHERE datname = '${TEMPLATE_NAME}'" 2>/dev/null || true)"
-  [ "$exists" = "1" ] || build_template
+  [[ "$exists" = "1" ]] || build_template
 }
 
 # make_clone db — drop any stale clone, then copy the migrated template (a fast
 # file copy; no re-migration). CREATE ... TEMPLATE needs no session connected to
 # the template, which holds: nothing connects to margince_test after build.
 make_clone() {
+  local db="$1"
   pg_admin -v ON_ERROR_STOP=1 \
-    -c "DROP DATABASE IF EXISTS $1" \
-    -c "CREATE DATABASE $1 TEMPLATE ${TEMPLATE_NAME}" >/dev/null
+    -c "DROP DATABASE IF EXISTS ${db}" \
+    -c "CREATE DATABASE ${db} TEMPLATE ${TEMPLATE_NAME}" >/dev/null
 }
 
-drop_clone() { pg_admin -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1 || true; }
+drop_clone() { local db="$1"; pg_admin -c "DROP DATABASE IF EXISTS ${db}" >/dev/null 2>&1 || true; }
 
 # bucket_for SLOT [BASE] — DNS-compliant private MinIO bucket per slot (the store
 # auto-creates it). Hyphen, never underscore.

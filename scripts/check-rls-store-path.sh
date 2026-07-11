@@ -33,7 +33,7 @@ violations="$(echo "$files" | xargs awk '
   { prev = $0 }
 ')"
 
-if [ -n "$violations" ]; then
+if [[ -n "$violations" ]]; then
   echo "FAIL — module statements addressing the superuser pool directly (RLS bypassed):"
   echo "$violations"
   echo

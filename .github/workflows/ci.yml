@@ -484,8 +484,10 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install deps and the Playwright Chromium browser
         working-directory: frontend
+        # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at
+        # install; esbuild ships prebuilt platform binaries as optional deps.
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --ignore-scripts
           pnpm exec playwright install --with-deps chromium
       - name: Screen-acceptance UAT (build → preview → AC + axe)
         run: make frontend-e2e

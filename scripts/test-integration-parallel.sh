@@ -38,7 +38,7 @@ parse_test_dsn
 # Go text profile at the end (go tool covdata — built-in, no external merge tool).
 # This keeps the coverage run parallel instead of the old serial `-p 1 ./...`.
 COVER_OUT="${COVER_OUT:-}"
-if [ -n "$COVER_OUT" ]; then
+if [[ -n "$COVER_OUT" ]]; then
   case "$COVER_OUT" in /*) ;; *) COVER_OUT="$ROOT/$COVER_OUT";; esac
   COVERDIR="$(mktemp -d)"; export COVERDIR
 fi
@@ -58,11 +58,11 @@ JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
 # //go:build integration file.
 WORK="$(mktemp)"
 for d in "${GO_DIRS[@]}"; do
-  [ -d "$d" ] || continue
+  [[ -d "$d" ]] || continue
   matches="$(grep -rl "go:build integration" --include="*.go" "$d" 2>/dev/null || true)"
-  [ -n "$matches" ] || continue
+  [[ -n "$matches" ]] || continue
   printf '%s\n' "$matches" | xargs -n1 dirname | sort -u | while IFS= read -r pkgdir; do
-    rel="./${pkgdir#"$d"/}"; [ "$pkgdir" = "$d" ] && rel="."
+    rel="./${pkgdir#"$d"/}"; [[ "$pkgdir" = "$d" ]] && rel="."
     echo "$d|$rel"
   done
 done > "$WORK"
@@ -83,7 +83,7 @@ run_one() {
   # Coverage args (empty unless COVERDIR is set). -coverpkg=./... attributes
   # cross-package exercise; binary output goes to a per-package dir, merged later.
   local cover_pre=() cover_post=()
-  if [ -n "${COVERDIR:-}" ]; then
+  if [[ -n "${COVERDIR:-}" ]]; then
     mkdir -p "$COVERDIR/$idx"
     cover_pre=(-cover -coverpkg=./... -covermode=atomic)
     cover_post=(-args -test.gocoverdir="$COVERDIR/$idx")
@@ -124,17 +124,27 @@ if grep -rq -- '--- SKIP' "$OUTDIR"; then
   fail=1
 fi
 
-if [ "$fail" -ne 0 ]; then
+if [[ "$fail" -ne 0 ]]; then
   echo "FAIL: integration tests failed (parallel, $NPKGS packages) — see package logs above"
   exit 1
 fi
 
 # Merge per-package coverage into the single text profile SonarCloud reads.
-if [ -n "$COVER_OUT" ]; then
+if [[ -n "$COVER_OUT" ]]; then
+  # Unit coverage: the parallel lane above ran only the integration-tagged
+  # packages, but the ~20 unit-only packages need their own pass — otherwise
+  # SonarCloud sees them at a false ~0% new-code coverage and the gate fails on
+  # well-unit-tested code. This restores what the old serial
+  # `go test -tags integration ./...` covered (it compiled + ran unit tests
+  # across every package). Untagged tests never open a real DB (the test-lanes
+  # gate enforces it), so this pass needs no clone/service.
+  mkdir -p "$COVERDIR/unit"
+  ( cd backend && go test ./... -cover -coverpkg=./... -covermode=atomic \
+      -args -test.gocoverdir="$COVERDIR/unit" )
   dirs="$(find "$COVERDIR" -mindepth 1 -maxdepth 1 -type d | paste -sd, -)"
-  if [ -n "$dirs" ]; then
+  if [[ -n "$dirs" ]]; then
     ( cd backend && go tool covdata textfmt -i="$dirs" -o="$COVER_OUT" )
-    echo "coverage: merged $(printf '%s' "$dirs" | tr ',' '\n' | grep -c .) package profiles → $COVER_OUT"
+    echo "coverage: merged $(printf '%s' "$dirs" | tr ',' '\n' | grep -c .) profiles (integration + unit) → $COVER_OUT"
   fi
 fi
 

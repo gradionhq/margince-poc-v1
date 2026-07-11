@@ -21,13 +21,26 @@ cd "$(dirname "$0")/.."
 
 scan="backend/internal"
 seam='/modules/de/|/ports/jurisdiction/'
-generated='_gen\.go$|\.gen\.go$'
+# Anchored to the path segment of a `file:line:content` grep row (…_gen.go:NN),
+# not `$` — which would match the END of the content, so generated files never
+# got excluded (the whole point of this filter).
+generated='(_gen|\.gen)\.go:[0-9]'
 
-# Drop `file:line:content` rows whose content is a pure comment line (//, /*,
-# or a * continuation), leaving only lines that are actual code.
-code_only() {
-  awk '{ c=$0; sub(/^[^:]*:[^:]*:/,"",c); t=c; sub(/^[[:space:]]+/,"",t);
-         if (t !~ /^(\/\/|\/\*|\*)/) print }'
+# Strip comments from `file:line:content` rows: drop whole-line comments (//,
+# /*, * continuation) AND remove a trailing ` // …` line-comment from a code
+# line, then the caller re-matches. This makes the gate read CODE only — a
+# statute named in a comment (the header's promise) never fails the build, while
+# the same token in a literal/identifier still does. The space before // avoids
+# eating a `scheme://…` inside a string.
+strip_comments() {
+  awk '{
+    if (match($0, /^[^:]+:[0-9]+:/)) { prefix=substr($0,1,RLENGTH); c=substr($0,RLENGTH+1) }
+    else { prefix=""; c=$0 }
+    t=c; sub(/^[[:space:]]+/,"",t)
+    if (t ~ /^(\/\/|\/\*|\*)/) next
+    sub(/[[:space:]]+\/\/.*$/,"",c)
+    print prefix c
+  }'
 }
 
 # Named regulatory identifiers. Case-SENSITIVE with word boundaries: these are
@@ -35,7 +48,8 @@ code_only() {
 # on incidental substrings (e.g. DATEV inside "UpdateVoice").
 named='\b(XRechnung|ZUGFeRD|DATEV|GoBD|eIDAS|Impressum)\b'
 hits="$(grep -rnE "$named" "$scan" --include='*.go' 2>/dev/null \
-  | grep -vE "$seam" | grep -vE "$generated" | grep -v '_test.go' | code_only || true)"
+  | grep -vE "$seam" | grep -vE "$generated" | grep -v '_test.go' \
+  | strip_comments | grep -E "$named" || true)"
 
 # Conservative ISO-3166: a quoted UPPER-case alpha-2 only when it shares a line
 # with a country-ish keyword, so incidental two-letter strings (HTTP verbs,
@@ -43,12 +57,13 @@ hits="$(grep -rnE "$named" "$scan" --include='*.go' 2>/dev/null \
 kw='[Cc]ountry|[Jj]urisdiction|[Ii][Ss][Oo][_-]?3166'
 iso="($kw).*\"[A-Z]{2}\"|\"[A-Z]{2}\".*($kw)"
 iso_hits="$(grep -rnE "$iso" "$scan" --include='*.go' 2>/dev/null \
-  | grep -vE "$seam" | grep -vE "$generated" | grep -v '_test.go' | code_only || true)"
+  | grep -vE "$seam" | grep -vE "$generated" | grep -v '_test.go' \
+  | strip_comments | grep -E "$iso" || true)"
 
-if [ -n "$hits" ] || [ -n "$iso_hits" ]; then
+if [[ -n "$hits" ]] || [[ -n "$iso_hits" ]]; then
   echo "FAIL: jurisdiction-specific strings in core (move to internal/modules/de):"
-  [ -n "$hits" ] && echo "$hits"
-  [ -n "$iso_hits" ] && echo "$iso_hits"
+  [[ -n "$hits" ]] && echo "$hits"
+  [[ -n "$iso_hits" ]] && echo "$iso_hits"
   exit 1
 fi
 
