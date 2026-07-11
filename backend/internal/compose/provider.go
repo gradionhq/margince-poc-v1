@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -35,7 +36,9 @@ type Provider struct {
 
 func NewProvider(pool *pgxpool.Pool) *Provider {
 	return &Provider{
-		people:     people.NewProvider(pool),
+		// The fieldcatalog seam mirrors the HTTP wiring (server.go): the
+		// MCP surface's record verbs carry cf_* values too.
+		people:     people.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		deals:      deals.NewProvider(pool),
 		activities: activities.NewProvider(pool),
 		reports:    newReportEngine(pool),

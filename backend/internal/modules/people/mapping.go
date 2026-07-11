@@ -51,6 +51,9 @@ func personCreateInput(req crmcontracts.CreatePersonRequest) (CreatePersonInput,
 		Title:     req.Title,
 		Source:    req.Source,
 		OwnerID:   idArg[ids.UserKind](req.OwnerId),
+		// The body's extra top-level keys (custom-field values); the
+		// store decides which land (active catalog columns only).
+		CustomFields: req.AdditionalProperties,
 	}
 	if req.Social != nil {
 		in.Social = *req.Social
@@ -91,12 +94,13 @@ func personCreateInput(req crmcontracts.CreatePersonRequest) (CreatePersonInput,
 
 func personUpdateInput(req crmcontracts.UpdatePersonRequest, ifVersion *int64) UpdatePersonInput {
 	in := UpdatePersonInput{
-		FullName:  req.FullName,
-		FirstName: req.FirstName,
-		LastName:  req.LastName,
-		Title:     req.Title,
-		OwnerID:   idArg[ids.UserKind](req.OwnerId),
-		IfVersion: ifVersion,
+		FullName:     req.FullName,
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Title:        req.Title,
+		OwnerID:      idArg[ids.UserKind](req.OwnerId),
+		IfVersion:    ifVersion,
+		CustomFields: req.AdditionalProperties,
 	}
 	if req.Social != nil {
 		in.Social = *req.Social
@@ -110,12 +114,13 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 		return CreateOrganizationInput{}, &RequiredFieldError{Field: "display_name"}
 	}
 	in := CreateOrganizationInput{
-		DisplayName: req.DisplayName,
-		LegalName:   req.LegalName,
-		Industry:    req.Industry,
-		Source:      req.Source,
-		OwnerID:     idArg[ids.UserKind](req.OwnerId),
-		ParentOrgID: idArg[ids.OrganizationKind](req.ParentOrgId),
+		DisplayName:  req.DisplayName,
+		LegalName:    req.LegalName,
+		Industry:     req.Industry,
+		Source:       req.Source,
+		OwnerID:      idArg[ids.UserKind](req.OwnerId),
+		ParentOrgID:  idArg[ids.OrganizationKind](req.ParentOrgId),
+		CustomFields: req.AdditionalProperties,
 	}
 	in.Address = req.Address
 	if req.SizeBand != nil {
@@ -135,12 +140,13 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 
 func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersion *int64) UpdateOrganizationInput {
 	in := UpdateOrganizationInput{
-		DisplayName: req.DisplayName,
-		LegalName:   req.LegalName,
-		Industry:    req.Industry,
-		OwnerID:     idArg[ids.UserKind](req.OwnerId),
-		ParentOrgID: idArg[ids.OrganizationKind](req.ParentOrgId),
-		IfVersion:   ifVersion,
+		DisplayName:  req.DisplayName,
+		LegalName:    req.LegalName,
+		Industry:     req.Industry,
+		OwnerID:      idArg[ids.UserKind](req.OwnerId),
+		ParentOrgID:  idArg[ids.OrganizationKind](req.ParentOrgId),
+		IfVersion:    ifVersion,
+		CustomFields: req.AdditionalProperties,
 	}
 	in.Address = req.Address
 	if req.SizeBand != nil {

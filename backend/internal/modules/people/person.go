@@ -60,6 +60,10 @@ type CreatePersonInput struct {
 	Emails    []PersonEmailInput
 	Phones    []PersonPhoneInput
 	Source    string
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (customfields.go).
+	CustomFields map[string]any
 }
 
 // CreatePerson inserts the person + child rows + audit + event atomically.
@@ -75,6 +79,10 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 
 	var out crmcontracts.Person
 	err = s.tx(ctx, func(tx pgx.Tx) error {
@@ -85,14 +93,18 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		wsID := workspaceID(ctx)
 		id := ids.New[ids.PersonKind]()
 		addr := addressColumns(in.Address)
+		cfCols, cfHolders, cfArgs := customInsertFragments(active, in.CustomFields, 16)
+		args := []any{
+			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID,
+			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
+			in.Source, by,
+		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
 			                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-			                     source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID,
-			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
-			in.Source, by)
+			                     source, captured_by`+cfCols+`)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15`+cfHolders+`)`,
+			append(args, cfArgs...)...)
 		if err != nil {
 			return fmt.Errorf("insert person: %w", err)
 		}
@@ -115,7 +127,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return fmt.Errorf("emit person.created: %w", err)
 		}
 
-		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read created person: %w", err)
 		}
 		return nil
@@ -129,12 +141,16 @@ func (s *Store) GetPerson(ctx context.Context, id ids.PersonID, archived storeki
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.Person{}, err
 	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	var out crmcontracts.Person
-	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+	err = s.tx(ctx, func(tx pgx.Tx) (err error) {
 		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
-		out, err = readPerson(ctx, tx, id, archived)
+		out, err = readPerson(ctx, tx, id, archived, active)
 		return err
 	})
 	return out, err
@@ -150,6 +166,10 @@ type ListPeopleInput struct {
 
 func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontracts.Person, storekit.Page, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
@@ -187,7 +207,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+personColumns+` FROM person WHERE `+strings.Join(where, " AND ")+
+			`SELECT `+personColumns+storekit.SelectSuffix(active)+` FROM person WHERE `+strings.Join(where, " AND ")+
 				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
@@ -196,7 +216,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		defer rows.Close()
 
 		for rows.Next() {
-			p, err := scanPerson(rows)
+			p, err := scanPerson(rows, active)
 			if err != nil {
 				return err
 			}
@@ -229,23 +249,32 @@ type UpdatePersonInput struct {
 	Address   *crmcontracts.Address
 	IfVersion *int64
 	Source    string
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (customfields.go).
+	CustomFields map[string]any
 }
 
 func (s *Store) UpdatePerson(ctx context.Context, id ids.PersonID, in UpdatePersonInput) (crmcontracts.Person, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return crmcontracts.Person{}, err
 	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	var out crmcontracts.Person
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
-		current, err := readPerson(ctx, tx, id, storekit.LiveOnly)
+		current, err := readPerson(ctx, tx, id, storekit.LiveOnly, active)
 		if err != nil {
 			return fmt.Errorf("read person before update: %w", err)
 		}
 
 		p := buildPersonPatch(current, in)
+		setCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 		if in.Social != nil {
 			// The relation replacement rides the person row's version
 			// bump (updated_at below), so If-Match still guards it and
@@ -277,7 +306,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.PersonID, in UpdatePers
 		if err := storekit.Emit(ctx, tx, auditID, "person.updated", "person", id.UUID, after); err != nil {
 			return fmt.Errorf("emit person.updated: %w", err)
 		}
-		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read updated person: %w", err)
 		}
 		return nil
@@ -323,12 +352,16 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return crmcontracts.Person{}, err
 	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	var out crmcontracts.Person
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
-		if _, err := readPerson(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if _, err := readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return err
 		}
 
@@ -361,7 +394,7 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 		if err := storekit.Emit(ctx, tx, auditID, "person.archived", "person", id.UUID, nil); err != nil {
 			return err
 		}
-		out, err = readPerson(ctx, tx, id, storekit.IncludeArchived)
+		out, err = readPerson(ctx, tx, id, storekit.IncludeArchived, active)
 		return err
 	})
 	return out, err

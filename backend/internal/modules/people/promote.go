@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // PromoteTrigger is the genuine-engagement vocabulary (features/01
@@ -93,6 +94,10 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 	if err != nil {
 		return crmcontracts.Person{}, false, err
 	}
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, false, err
+	}
 
 	var person crmcontracts.Person
 	merged := false
@@ -118,7 +123,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return fmt.Errorf("carry lead consent: %w", err)
 		}
 
-		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged)
+		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged, active)
 		return err
 	})
 	return person, merged, err
@@ -178,7 +183,7 @@ func carryLeadConsent(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personI
 // recording trigger + evidence + the resulting person), and the paired
 // lead.promoted + person.* events — all inside the caller's transaction,
 // still under the lead row lock taken by PromoteLead.
-func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool) (crmcontracts.Person, error) {
+func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, active []fieldcatalog.Column) (crmcontracts.Person, error) {
 	now := time.Now().UTC()
 	tag, err := tx.Exec(ctx,
 		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
@@ -214,7 +219,7 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 		return crmcontracts.Person{}, fmt.Errorf("audit lead promote: %w", err)
 	}
 
-	person, err := readPerson(ctx, tx, personID, storekit.LiveOnly)
+	person, err := readPerson(ctx, tx, personID, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("read promoted person: %w", err)
 	}
@@ -336,7 +341,8 @@ func (s *Store) mergeLeadIntoPerson(ctx context.Context, tx pgx.Tx, lead crmcont
 	if err != nil {
 		return fmt.Errorf("lock merge-target person: %w", err)
 	}
-	current, err := readPerson(ctx, tx, personID, storekit.LiveOnly)
+	// A fill-only decision read, never the wire — core columns suffice.
+	current, err := readPerson(ctx, tx, personID, storekit.LiveOnly, nil)
 	if err != nil {
 		return fmt.Errorf("read merge-target person: %w", err)
 	}

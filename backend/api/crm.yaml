@@ -5252,6 +5252,12 @@ components:
       x-extension-note: |
         additionalProperties:true admits client custom fields (data-model §9 — custom fields
         are real columns added by migration, surfaced additively through this same contract).
+        Because these extra keys carry no per-key schema, writes are drop-on-mismatch: a key
+        that names no ACTIVE custom column (unknown or retired), or whose value shape does
+        not match the column's declared type, is silently excluded from the write — the
+        request still succeeds. A picklist value outside the declared options is the one
+        typed refusal (422, the column's CHECK constraint). Reads surface only ACTIVE
+        columns; a retired field's stored values are preserved but leave the payload.
 
     CreatePersonRequest:
       type: object

@@ -295,8 +295,12 @@ func workspaceSeed(dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
 // is injected HERE, never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
 	return Server{
-		authHandlers:   authH,
-		peopleHandlers: people.NewHandlers(pool),
+		authHandlers: authH,
+		// The fieldcatalog seam: customfields' catalog read makes the
+		// workspace's active cf_* columns ride person/organization
+		// payloads (values only — the schema-change engine stays behind
+		// WithSchemaPool; ActiveColumns needs none of it).
+		peopleHandlers: people.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		dealsHandlers:  dealsH,
 		activitiesHandlers: activities.NewHandlers(pool).
 			WithConsent(consent.NewGate(consent.NewStore(pool))).

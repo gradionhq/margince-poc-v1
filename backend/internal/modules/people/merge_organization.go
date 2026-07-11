@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // MergeOrganization merges organization source→target and returns the
@@ -33,9 +34,13 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 	if sourceID == targetID {
 		return crmcontracts.Organization{}, &MergeSelfError{}
 	}
+	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
 
 	var out crmcontracts.Organization
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The pair lock keeps BOTH endpoints held to commit: without it a
 		// concurrent merge(target→elsewhere) archives the survivor
 		// mid-merge and the relinked children point at a dead record.
@@ -55,7 +60,7 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 		if err != nil {
 			return err
 		}
-		out, err = finalizeOrgMerge(ctx, tx, sourceID, targetID, filled)
+		out, err = finalizeOrgMerge(ctx, tx, sourceID, targetID, filled, active)
 		return err
 	})
 	return out, err
@@ -106,7 +111,7 @@ func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.O
 // finalizeOrgMerge retires the merged-away org and records the merge on the
 // write shape — audit row plus organization.merged event in the one
 // transaction — then returns the reloaded survivor.
-func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.OrganizationID, filled map[string]any) (crmcontracts.Organization, error) {
+func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.OrganizationID, filled map[string]any, active []fieldcatalog.Column) (crmcontracts.Organization, error) {
 	if err := archiveMergedAway(ctx, tx, "organization", sourceID.UUID, targetID.UUID); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("retire merged-away organization: %w", err)
 	}
@@ -122,7 +127,7 @@ func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Org
 	}); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("emit organization.merged: %w", err)
 	}
-	out, err := readOrganization(ctx, tx, targetID, storekit.LiveOnly)
+	out, err := readOrganization(ctx, tx, targetID, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("read surviving organization: %w", err)
 	}
@@ -189,7 +194,9 @@ func absorbOrgReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.
 // returns itself; an archived one returns its redirect pointer (nil when
 // it was plain-archived, not merged).
 func readOrgMergeState(ctx context.Context, tx pgx.Tx, id ids.OrganizationID) (crmcontracts.Organization, *ids.UUID, error) {
-	o, err := readOrganization(ctx, tx, id, storekit.IncludeArchived)
+	// A merge-state read feeds the resolution decision, never the wire —
+	// core columns suffice.
+	o, err := readOrganization(ctx, tx, id, storekit.IncludeArchived, nil)
 	if err != nil {
 		return crmcontracts.Organization{}, nil, err
 	}
