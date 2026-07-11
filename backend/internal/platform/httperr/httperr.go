@@ -79,6 +79,20 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
+	// The list vocabularies' typed refusals (data-model §13.5): a sort
+	// spec or filter leaf outside the resource's closed vocabulary carries
+	// its own field and machine code — one wire mapping, like the cursor's.
+	var badSort *storekit.SortError
+	if errors.As(err, &badSort) {
+		Write(w, r, Validation("sort", badSort.Code, badSort.Message))
+		return
+	}
+	var badPredicate *storekit.PredicateError
+	if errors.As(err, &badPredicate) {
+		Write(w, r, Validation(badPredicate.Field, badPredicate.Code, badPredicate.Message))
+		return
+	}
+
 	// A value object refused to parse: client input in the wrong format,
 	// carrying its own field and machine code — the parse-don't-validate
 	// seam's single wire mapping.

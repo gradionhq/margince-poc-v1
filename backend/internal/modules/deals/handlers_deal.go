@@ -17,6 +17,8 @@ func (h Handlers) ListDeals(w http.ResponseWriter, r *http.Request, params crmco
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		Sort:            params.Sort,
+		CustomFilters:   httperr.CustomFieldFilters(r),
 	}
 	in.PipelineID = idArg[ids.PipelineKind](params.PipelineId)
 	in.StageID = idArg[ids.StageKind](params.StageId)

@@ -136,6 +136,20 @@ type ListOrganizationsInput struct {
 	OwnerID         *ids.UserID
 	Classification  *string
 	IncludeArchived bool
+	// Sort is the contract's sort spec, validated against the core
+	// vocabulary below plus the workspace's active cf_ columns.
+	Sort *string
+	// CustomFilters carries the request's cf_* query parameters —
+	// equality matches against active custom columns (storekit listquery).
+	CustomFilters map[string]string
+}
+
+// organizationListFields is the organization list's core sortable
+// vocabulary (data-model §13); active cf_ columns join it per request.
+var organizationListFields = map[string]string{
+	"created_at":   storekit.KindTimestamp,
+	"updated_at":   storekit.KindTimestamp,
+	"display_name": fieldcatalog.TypeText,
 }
 
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
@@ -143,6 +157,10 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		return nil, storekit.Page{}, err
 	}
 	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(organizationListFields, active))
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -172,31 +190,44 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 	if in.Query != nil && *in.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*in.Query), "display_name"))
 	}
+	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	where = append(where, cfClauses...)
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
+		clause, err := sorted.KeysetClause(*in.Cursor, arg)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, clause)
 	}
 
 	var orgs []crmcontracts.Organization
 	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+orgColumns+storekit.SelectSuffix(active)+` FROM organization WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+			`SELECT `+orgColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
+				` FROM organization WHERE `+strings.Join(where, " AND ")+
+				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
+		var cursorKeys []*string
 		for rows.Next() {
-			o, err := scanOrganization(rows, active)
+			var key *string
+			extra := []any{}
+			if sorted != nil {
+				extra = append(extra, &key)
+			}
+			o, err := scanOrganization(rows, active, extra...)
 			if err != nil {
 				return err
 			}
 			orgs = append(orgs, o)
+			cursorKeys = append(cursorKeys, key)
 		}
 		if err := rows.Err(); err != nil {
 			return err
@@ -204,7 +235,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		if len(orgs) > limit {
 			orgs = orgs[:limit]
 			last := orgs[len(orgs)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return attachOrgDomains(ctx, tx, orgs)
 	})
@@ -396,7 +427,10 @@ func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, arc
 	return orgs[0], nil
 }
 
-func scanOrganization(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Organization, error) {
+// scanOrganization scans core + active custom columns; extra receives
+// any trailing expressions the caller's SELECT appended (the sorted
+// list's cursor key).
+func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Organization, error) {
 	var o crmcontracts.Organization
 	var id, wsID ids.UUID
 	var ownerID, parentID, mergedInto *ids.UUID
@@ -412,7 +446,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.O
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt,
 	}
 	cf := storekit.ScanDests(active)
-	if err := row.Scan(append(dests, cf...)...); err != nil {
+	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return o, err
 	}
 	if values := storekit.ExtractValues(active, cf); len(values) > 0 {

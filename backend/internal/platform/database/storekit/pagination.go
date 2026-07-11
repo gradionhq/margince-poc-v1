@@ -20,13 +20,25 @@ type Page struct {
 
 // Cursor is the opaque keyset token: the last row's (created_at, id)
 // under the default -created_at,id sort. Keyset, never offset (CAP-PAGE).
+// A non-default sort (listquery.go) extends the tuple with the sort
+// field, its direction, and the last row's key in Postgres text form
+// (nil = the row sits in the NULL tail), so a token can only continue
+// the ordering it was minted under.
 type Cursor struct {
 	CreatedAt time.Time `json:"t"`
 	ID        ids.UUID  `json:"id"`
+	SortField string    `json:"s,omitempty"`
+	SortDesc  bool      `json:"d,omitempty"`
+	SortKey   *string   `json:"v,omitempty"`
 }
 
 func EncodeCursor(createdAt time.Time, id ids.UUID) string {
-	raw, _ := json.Marshal(Cursor{CreatedAt: createdAt, ID: id})
+	return encodeCursor(Cursor{CreatedAt: createdAt, ID: id})
+}
+
+func encodeCursor(c Cursor) string {
+	//craft:ignore swallowed-errors Cursor is plain data (time, uuid, string fields) — json.Marshal cannot fail on it, and a token mint has no error channel to a caller mid-page
+	raw, _ := json.Marshal(c)
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // DuplicateEmailError carries the existing person for the 409 dedupe
@@ -162,6 +163,20 @@ type ListPeopleInput struct {
 	Query           *string
 	OwnerID         *ids.UserID
 	IncludeArchived bool
+	// Sort is the contract's sort spec, validated against the core
+	// vocabulary below plus the workspace's active cf_ columns.
+	Sort *string
+	// CustomFilters carries the request's cf_* query parameters —
+	// equality matches against active custom columns (storekit listquery).
+	CustomFilters map[string]string
+}
+
+// personListFields is the person list's core sortable vocabulary
+// (data-model §13); active cf_ columns join it per request.
+var personListFields = map[string]string{
+	"created_at": storekit.KindTimestamp,
+	"updated_at": storekit.KindTimestamp,
+	"full_name":  fieldcatalog.TypeText,
 }
 
 func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontracts.Person, storekit.Page, error) {
@@ -169,6 +184,10 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		return nil, storekit.Page{}, err
 	}
 	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(personListFields, active))
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -195,32 +214,45 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 	if in.Query != nil && *in.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*in.Query), "full_name"))
 	}
+	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	where = append(where, cfClauses...)
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
+		clause, err := sorted.KeysetClause(*in.Cursor, arg)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, clause)
 	}
 
 	var people []crmcontracts.Person
 	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+personColumns+storekit.SelectSuffix(active)+` FROM person WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+			`SELECT `+personColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
+				` FROM person WHERE `+strings.Join(where, " AND ")+
+				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 
+		var cursorKeys []*string
 		for rows.Next() {
-			p, err := scanPerson(rows, active)
+			var key *string
+			extra := []any{}
+			if sorted != nil {
+				extra = append(extra, &key)
+			}
+			p, err := scanPerson(rows, active, extra...)
 			if err != nil {
 				return err
 			}
 			people = append(people, p)
+			cursorKeys = append(cursorKeys, key)
 		}
 		if err := rows.Err(); err != nil {
 			return err
@@ -229,7 +261,7 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		if len(people) > limit {
 			people = people[:limit]
 			last := people[len(people)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return attachPersonChildren(ctx, tx, people)
 	})

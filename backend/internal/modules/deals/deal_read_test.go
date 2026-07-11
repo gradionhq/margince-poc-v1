@@ -55,10 +55,7 @@ func TestAppendDealFiltersPartnerAttribution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var args []any
 			arg := func(v any) int { args = append(args, v); return len(args) }
-			got, err := appendDealFilters(nil, tc.in, arg)
-			if err != nil {
-				t.Fatalf("appendDealFilters: %v", err)
-			}
+			got := appendDealFilters(nil, tc.in, arg)
 			if !slices.Equal(got, tc.wantClauses) {
 				t.Fatalf("clauses = %q, want %q", got, tc.wantClauses)
 			}
@@ -75,16 +72,20 @@ func TestAppendDealFiltersPartnerAttribution(t *testing.T) {
 }
 
 // partner filters must not disturb the keyset cursor's placeholder
-// numbering — the cursor binds AFTER the filter args it follows.
+// numbering — the cursor clause (built from the validated sort, the
+// composition ListDeals runs) binds AFTER the filter args it follows.
 func TestAppendDealFiltersPartnerBeforeCursorKeepsPlaceholderOrder(t *testing.T) {
 	partnerOrg := ids.New[ids.OrganizationKind]()
 	cursor := storekit.EncodeCursor(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), ids.NewV7())
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	got, err := appendDealFilters(nil, ListDealsInput{PartnerOrgID: &partnerOrg, Cursor: &cursor}, arg)
+	got := appendDealFilters(nil, ListDealsInput{PartnerOrgID: &partnerOrg}, arg)
+	var defaultSort *storekit.ListSort
+	clause, err := defaultSort.KeysetClause(cursor, arg)
 	if err != nil {
-		t.Fatalf("appendDealFilters: %v", err)
+		t.Fatalf("KeysetClause: %v", err)
 	}
+	got = append(got, clause)
 	want := []string{"archived_at IS NULL", "partner_org_id = $1", "(created_at, id) < ($2, $3)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("clauses = %q, want %q", got, want)

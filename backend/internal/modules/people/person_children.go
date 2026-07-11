@@ -184,7 +184,10 @@ func readPerson(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storek
 	return people[0], nil
 }
 
-func scanPerson(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Person, error) {
+// scanPerson scans core + active custom columns; extra receives any
+// trailing expressions the caller's SELECT appended (the sorted list's
+// cursor key).
+func scanPerson(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Person, error) {
 	var p crmcontracts.Person
 	var id, wsID ids.UUID
 	var ownerID, mergedInto, fromLead *ids.UUID
@@ -198,7 +201,7 @@ func scanPerson(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Person,
 		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt,
 	}
 	cf := storekit.ScanDests(active)
-	if err := row.Scan(append(dests, cf...)...); err != nil {
+	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return p, err
 	}
 	if values := storekit.ExtractValues(active, cf); len(values) > 0 {
