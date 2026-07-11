@@ -76,6 +76,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/deals:SeedDefaultsTx":                  "workspace-provisioning seed invoked by identity's Bootstrap under the system principal (the compose-injected edge)",
 	"internal/modules/deals:StageSemantic":                   "vocabulary lookup (stage → open/won/lost) consumed by gated flows; reads config, not records",
 	"internal/modules/search:UpsertEmbedding":                "written by the outbox consumer under the system principal; reads happen through the gated search paths",
+	"internal/modules/customfields:ActiveColumns":            "called from inside a record store's own gated Get/List/Create/Update, whose object-level RBAC already ran; the column names/types it answers are workspace-visible schema (the same shape custom_field:read already exposes), not row data a second gate would need to narrow",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a
