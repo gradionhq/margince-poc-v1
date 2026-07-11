@@ -21,7 +21,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -50,19 +50,22 @@ var (
 
 // defaults are the seeded system-role policies (decisions/0006 records
 // the choices: reps work team-scoped without delete; managers are
-// team-scoped with delete; pipeline, automation AND custom-field config
-// are admin/ops-owned — each reshapes what the system does (or stores)
-// on everyone's records, so they follow the pipeline-config posture:
-// everyone reads the catalog, only admin/ops change it. computed_field
-// is read-only for every role, admin/ops included — RD-AC-7: no runtime
-// formula-authoring surface exists, so there is no write to grant).
+// team-scoped with delete; pipeline, automation, custom-field config AND
+// quota targets are admin/ops-owned — each reshapes what the system does
+// (or stores) on everyone's records, so they follow the pipeline-config
+// posture: everyone reads the catalog, only admin/ops change it (quota's
+// createQuota/updateQuota/archiveQuota carry the matching x-agent-access:
+// human-only gate in the contract — a target is never agent-set).
+// computed_field is read-only for every role, admin/ops included —
+// RD-AC-7: no runtime formula-authoring surface exists, so there is no
+// write to grant).
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -75,7 +78,10 @@ var defaults = map[string]Document{
 		// warm-room signals follow the record posture: reps create and
 		// work them, delete stays manager/admin. A saved view is the rep's
 		// own per-user view state (owner-scoped in the store) — full
-		// self-service, including deleting one's own view.
+		// self-service, including deleting one's own view. A quota is
+		// read-only even for its own owner: the target itself is
+		// admin/ops-set config, not the rep's working material — only the
+		// attainment READ is the rep's to consult.
 		Objects: objects(
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
@@ -94,6 +100,7 @@ var defaults = map[string]Document{
 			grant{Create: true, Read: true, Update: true},
 			crud,
 			readOnly,
+			readOnly,
 			readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
@@ -101,18 +108,18 @@ var defaults = map[string]Document{
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField grant) map[string]grant {
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
@@ -120,7 +127,7 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 		"automation": automation, "voice_profile": voiceProfile,
 		"product": product, "offer": offer, "signal": signal,
 		"saved_view": savedView, "custom_field": customField,
-		"computed_field": computedField,
+		"computed_field": computedField, "quota": quota,
 	}
 }
 

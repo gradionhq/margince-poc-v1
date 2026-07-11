@@ -488,6 +488,30 @@ func (stubs) OneClickUnsubscribe(w nethttp.ResponseWriter, r *nethttp.Request, t
 	httperr.NotImplemented(w, r, "OneClickUnsubscribe")
 }
 
+func (stubs) ListQuotas(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListQuotasParams) {
+	httperr.NotImplemented(w, r, "ListQuotas")
+}
+
+func (stubs) CreateQuota(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateQuotaParams) {
+	httperr.NotImplemented(w, r, "CreateQuota")
+}
+
+func (stubs) ArchiveQuota(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveQuota")
+}
+
+func (stubs) GetQuota(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetQuota")
+}
+
+func (stubs) UpdateQuota(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateQuotaParams) {
+	httperr.NotImplemented(w, r, "UpdateQuota")
+}
+
+func (stubs) GetQuotaAttainment(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetQuotaAttainment")
+}
+
 func (stubs) ListRecordGrants(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRecordGrantsParams) {
 	httperr.NotImplemented(w, r, "ListRecordGrants")
 }

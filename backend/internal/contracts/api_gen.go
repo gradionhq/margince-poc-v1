@@ -2121,6 +2121,27 @@ func (e PromoteLeadRequestTrigger) Valid() bool {
 	}
 }
 
+// Defines values for QuotaAttainmentBand.
+const (
+	Accent QuotaAttainmentBand = "accent"
+	Behind QuotaAttainmentBand = "behind"
+	Met    QuotaAttainmentBand = "met"
+)
+
+// Valid indicates whether the value is a known member of the QuotaAttainmentBand enum.
+func (e QuotaAttainmentBand) Valid() bool {
+	switch e {
+	case Accent:
+		return true
+	case Behind:
+		return true
+	case Met:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecordConsentRequestNewState.
 const (
 	RecordConsentRequestNewStateGranted   RecordConsentRequestNewState = "granted"
@@ -4641,6 +4662,21 @@ type CreateProductRequest struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// CreateQuotaRequest Exactly one of owner_id/team_id must be non-null — supplying both or neither is a 422
+// validation_error carrying a distinct, machine-branchable details.errors[].code
+// (owner_xor_team_required), not the generic per-field validation code (see
+// createQuota's 422 examples). Not expressed as an OpenAPI 3.1 oneOf here — a prose
+// note plus a 422 on mismatch, matching how CreateCustomFieldRequest documents its
+// conditional currency/options requirement (CF-T01).
+type CreateQuotaRequest struct {
+	Currency    string              `json:"currency"`
+	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	PeriodEnd   openapi_types.Date  `json:"period_end"`
+	PeriodStart openapi_types.Date  `json:"period_start"`
+	TargetMinor int64               `json:"target_minor"`
+	TeamId      *openapi_types.UUID `json:"team_id,omitempty"`
+}
+
 // CreateRecordGrantRequest defines model for CreateRecordGrantRequest.
 type CreateRecordGrantRequest struct {
 	Access      CreateRecordGrantRequestAccess      `json:"access"`
@@ -5891,6 +5927,96 @@ type PromoteLeadResponse struct {
 	Person Person `json:"person"`
 }
 
+// Quota A per-owner or per-team revenue target for one period (RD-DDL-2). Exactly one of
+// owner_id/team_id is non-null (CHECK constraint) — never both, never neither;
+// createQuota/updateQuota document and enforce this (422 owner_xor_team_required).
+// target_minor is always human-set: no AI-guessed quota, no default, no
+// server-computed fallback (RD-PARAM-3). Deliberately carries no
+// source/captured_by/created_by provenance columns — unlike custom_field's
+// created_by (CF-T01), RD-DDL-2's column list has none. Attainment is a separate
+// read (getQuotaAttainment, RD-WIRE-3) — this schema never carries attainment
+// fields itself.
+type Quota struct {
+	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
+	CreatedAt  time.Time          `json:"created_at"`
+	Currency   string             `json:"currency"`
+	Id         openapi_types.UUID `json:"id"`
+
+	// OwnerId Exactly one of owner_id/team_id is non-null (RD-DDL-2 CHECK).
+	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	PeriodEnd   openapi_types.Date  `json:"period_end"`
+	PeriodStart openapi_types.Date  `json:"period_start"`
+
+	// TargetMinor Human-set revenue target, integer minor units (RD-PARAM-3) — never an AI-guessed or server-computed field.
+	TargetMinor int64 `json:"target_minor"`
+
+	// TeamId Exactly one of owner_id/team_id is non-null (RD-DDL-2 CHECK).
+	TeamId    *openapi_types.UUID `json:"team_id,omitempty"`
+	UpdatedAt time.Time           `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version     *RowVersion        `json:"version,omitempty"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// QuotaAttainment RD-WIRE-3 / RD-FORM-2 — server-computed attainment for one quota, decomposed for
+// "explain this number": attainment = Σ(closed-won base_value_minor in the quota's
+// period) ÷ target_minor, base-currency converted, in integer minor units. Never
+// client-summed — contributing_deals always sums to closed_won_minor. Rides as a
+// sub-resource of the quota (mirrors /organizations/{id}/hierarchy-rollup's
+// "computed read with decomposition" shape) rather than an inline field on Quota or
+// a GET ?include= expansion — chosen once, applied consistently; the plain Quota
+// response (list or single-get) never carries attainment fields. A failed or absent
+// computation is an honest error (getQuotaAttainment's 422 responses), never a
+// cached or invented figure (RD-AC-4).
+type QuotaAttainment struct {
+	// AsOfDate The date this attainment was computed.
+	AsOfDate openapi_types.Date `json:"as_of_date"`
+
+	// AttainmentPct closed_won_minor ÷ target_minor × 100 (RD-FORM-2). Uncapped raw value — e.g. 113 for the worked example — display capping (the ring visual stops at a full circle) is a RD-PARAM-4 UI concern, not this field's.
+	AttainmentPct float32 `json:"attainment_pct"`
+
+	// Band Server-computed display band (RD-PARAM-4): met >= 100%, accent 60-99%, behind < 60%. The client never recomputes this from raw attainment_pct.
+	Band QuotaAttainmentBand `json:"band"`
+
+	// ClosedWonMinor Σ base_value_minor over closed-won deals in the quota's period (RD-FORM-2).
+	ClosedWonMinor int64 `json:"closed_won_minor"`
+
+	// ContributingDeals Per-deal decomposition for "Explain This Number"; sums to closed_won_minor.
+	ContributingDeals []QuotaAttainmentDeal `json:"contributing_deals"`
+	Currency          string                `json:"currency"`
+
+	// GapMinor Signed gap to target — closed_won_minor minus target_minor (RD-FORM-2's worked example: +33.872,00 EUR once closed-won exceeds target); positive once attainment exceeds 100%, negative while short of target.
+	GapMinor int64 `json:"gap_minor"`
+
+	// PacePct attainment_pct measured against percent-of-period-elapsed (RD-PARAM-4 pace indicator).
+	PacePct float32            `json:"pace_pct"`
+	QuotaId openapi_types.UUID `json:"quota_id"`
+
+	// TargetMinor The flagged human-set target this attainment is measured against (echoes Quota.target_minor).
+	TargetMinor int64 `json:"target_minor"`
+}
+
+// QuotaAttainmentBand Server-computed display band (RD-PARAM-4): met >= 100%, accent 60-99%, behind < 60%. The client never recomputes this from raw attainment_pct.
+type QuotaAttainmentBand string
+
+// QuotaAttainmentDeal One row of RD-FORM-2's per-deal breakdown — a closed-won deal counted toward this quota's attainment.
+type QuotaAttainmentDeal struct {
+	// BaseValueMinor This deal's counted amount toward closed_won_minor (base currency, minor units).
+	BaseValueMinor int64              `json:"base_value_minor"`
+	DealId         openapi_types.UUID `json:"deal_id"`
+}
+
+// QuotaListResponse defines model for QuotaListResponse.
+type QuotaListResponse struct {
+	Data []Quota  `json:"data"`
+	Page PageInfo `json:"page"`
+}
+
 // RecordConsentRequest defines model for RecordConsentRequest.
 type RecordConsentRequest struct {
 	// DoubleOptInToken Required to make a grant effective when the purpose has requires_double_opt_in=true.
@@ -6543,6 +6669,16 @@ type UpdateProductRequest struct {
 	Unit                 *string                `json:"unit,omitempty"`
 	UnitPriceMinor       *int64                 `json:"unit_price_minor,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// UpdateQuotaRequest Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied — patching the row into a both-set or neither-set state is refused with the same 422 owner_xor_team_required shape as createQuota, not silently accepted.
+type UpdateQuotaRequest struct {
+	Currency    *string             `json:"currency,omitempty"`
+	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	PeriodEnd   *openapi_types.Date `json:"period_end,omitempty"`
+	PeriodStart *openapi_types.Date `json:"period_start,omitempty"`
+	TargetMinor *int64              `json:"target_minor,omitempty"`
+	TeamId      *openapi_types.UUID `json:"team_id,omitempty"`
 }
 
 // UpdateRelationshipRequest defines model for UpdateRelationshipRequest.
@@ -8010,6 +8146,68 @@ type OneClickUnsubscribeParams struct {
 	Purpose *string `form:"purpose,omitempty" json:"purpose,omitempty"`
 }
 
+// ListQuotasParams defines parameters for ListQuotas.
+type ListQuotasParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// IncludeArchived Include soft-deleted (archived) rows. Default false.
+	IncludeArchived *IncludeArchived    `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+	OwnerId         *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
+	TeamId          *openapi_types.UUID `form:"team_id,omitempty" json:"team_id,omitempty"`
+}
+
+// CreateQuotaParams defines parameters for CreateQuota.
+type CreateQuotaParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateQuotaParams defines parameters for UpdateQuota.
+type UpdateQuotaParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // ListRecordGrantsParams defines parameters for ListRecordGrants.
 type ListRecordGrantsParams struct {
 	RecordType  *ListRecordGrantsParamsRecordType  `form:"record_type,omitempty" json:"record_type,omitempty"`
@@ -8480,6 +8678,12 @@ type BookPublicMeetingJSONRequestBody BookPublicMeetingJSONBody
 
 // UpdatePreferencesJSONRequestBody defines body for UpdatePreferences for application/json ContentType.
 type UpdatePreferencesJSONRequestBody UpdatePreferencesJSONBody
+
+// CreateQuotaJSONRequestBody defines body for CreateQuota for application/json ContentType.
+type CreateQuotaJSONRequestBody = CreateQuotaRequest
+
+// UpdateQuotaJSONRequestBody defines body for UpdateQuota for application/json ContentType.
+type UpdateQuotaJSONRequestBody = UpdateQuotaRequest
 
 // CreateRecordGrantJSONRequestBody defines body for CreateRecordGrant for application/json ContentType.
 type CreateRecordGrantJSONRequestBody = CreateRecordGrantRequest
@@ -12830,6 +13034,24 @@ type ServerInterface interface {
 	// RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
 	// (POST /public/preferences/{token}/unsubscribe)
 	OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams)
+	// List quotas (cursor-paginated).
+	// (GET /quotas)
+	ListQuotas(w http.ResponseWriter, r *http.Request, params ListQuotasParams)
+	// Create a quota (owner XOR team revenue target for one period).
+	// (POST /quotas)
+	CreateQuota(w http.ResponseWriter, r *http.Request, params CreateQuotaParams)
+	// Archive (soft-delete) a quota.
+	// (DELETE /quotas/{id})
+	ArchiveQuota(w http.ResponseWriter, r *http.Request, id Id)
+	// Get a quota by id.
+	// (GET /quotas/{id})
+	GetQuota(w http.ResponseWriter, r *http.Request, id Id)
+	// Update a quota (partial).
+	// (PATCH /quotas/{id})
+	UpdateQuota(w http.ResponseWriter, r *http.Request, id Id, params UpdateQuotaParams)
+	// Server-computed attainment for this quota (RD-WIRE-3), decomposed per closed-won deal.
+	// (GET /quotas/{id}/attainment)
+	GetQuotaAttainment(w http.ResponseWriter, r *http.Request, id Id)
 	// List manual per-record grants, filtered by record or by subject (A52/ADR-0039).
 	// (GET /record-grants)
 	ListRecordGrants(w http.ResponseWriter, r *http.Request, params ListRecordGrantsParams)
@@ -13658,6 +13880,42 @@ func (_ Unimplemented) UpdatePreferences(w http.ResponseWriter, r *http.Request,
 // RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
 // (POST /public/preferences/{token}/unsubscribe)
 func (_ Unimplemented) OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List quotas (cursor-paginated).
+// (GET /quotas)
+func (_ Unimplemented) ListQuotas(w http.ResponseWriter, r *http.Request, params ListQuotasParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a quota (owner XOR team revenue target for one period).
+// (POST /quotas)
+func (_ Unimplemented) CreateQuota(w http.ResponseWriter, r *http.Request, params CreateQuotaParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive (soft-delete) a quota.
+// (DELETE /quotas/{id})
+func (_ Unimplemented) ArchiveQuota(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a quota by id.
+// (GET /quotas/{id})
+func (_ Unimplemented) GetQuota(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a quota (partial).
+// (PATCH /quotas/{id})
+func (_ Unimplemented) UpdateQuota(w http.ResponseWriter, r *http.Request, id Id, params UpdateQuotaParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Server-computed attainment for this quota (RD-WIRE-3), decomposed per closed-won deal.
+// (GET /quotas/{id}/attainment)
+func (_ Unimplemented) GetQuotaAttainment(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -20101,6 +20359,334 @@ func (siw *ServerInterfaceWrapper) OneClickUnsubscribe(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListQuotas operation middleware
+func (siw *ServerInterfaceWrapper) ListQuotas(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListQuotasParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner_id", r.URL.Query(), &params.OwnerId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "team_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "team_id", r.URL.Query(), &params.TeamId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "team_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListQuotas(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateQuota operation middleware
+func (siw *ServerInterfaceWrapper) CreateQuota(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateQuotaParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateQuota(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveQuota operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveQuota(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveQuota(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetQuota operation middleware
+func (siw *ServerInterfaceWrapper) GetQuota(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetQuota(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateQuota operation middleware
+func (siw *ServerInterfaceWrapper) UpdateQuota(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateQuotaParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateQuota(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetQuotaAttainment operation middleware
+func (siw *ServerInterfaceWrapper) GetQuotaAttainment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetQuotaAttainment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRecordGrants operation middleware
 func (siw *ServerInterfaceWrapper) ListRecordGrants(w http.ResponseWriter, r *http.Request) {
 
@@ -22562,6 +23148,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/preferences/{token}/unsubscribe", wrapper.OneClickUnsubscribe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/quotas", wrapper.ListQuotas)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/quotas", wrapper.CreateQuota)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/quotas/{id}", wrapper.ArchiveQuota)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/quotas/{id}", wrapper.GetQuota)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/quotas/{id}", wrapper.UpdateQuota)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/quotas/{id}/attainment", wrapper.GetQuotaAttainment)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/record-grants", wrapper.ListRecordGrants)

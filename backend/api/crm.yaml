@@ -132,6 +132,8 @@ tags:
     description: The 🟡 confirm-first approval inbox (approve/reject staged agent actions).
   - name: Identity
     description: Current user / principal, plus Agent Seat Passport issuance (the local/A1 path).
+  - name: Quotas
+    description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
 
 # =============================================================================
 paths:
@@ -4645,6 +4647,241 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  # ------------------------------ /quotas -------------------------------------
+  /quotas:
+    get:
+      tags: [Quotas]
+      operationId: listQuotas
+      summary: List quotas (cursor-paginated).
+      x-mcp-tool: { verb: search_records, record_type: quota, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: team_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of quotas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuotaListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Quotas]
+      operationId: createQuota
+      summary: Create a quota (owner XOR team revenue target for one period).
+      description: |
+        RD-WIRE-2. Exactly one of owner_id/team_id must be non-null (RD-DDL-2 CHECK) —
+        supplying both or neither is refused with a 422 validation_error carrying a distinct
+        details.errors[].code (owner_xor_team_required), not the generic per-field
+        validation code, so a caller can branch on this specific violation. target_minor is
+        always human-set (RD-PARAM-3) — no default, no AI-guessed or server-computed
+        fallback. Quota targets follow the pipeline/stage-config posture (createPipeline,
+        updateStage): human session only (x-agent-access: human-only), never an MCP tool
+        tier — an agent never sets or changes a sales target.
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateQuotaRequest' }
+            examples:
+              ownerQuota:
+                value:
+                  owner_id: 018f3a1b-0000-7000-8000-000000000001
+                  period_start: '2026-01-01'
+                  period_end: '2026-03-31'
+                  target_minor: 28000000
+                  currency: EUR
+              teamQuota:
+                value:
+                  team_id: 018f3a1b-0000-7000-8000-000000000030
+                  period_start: '2026-01-01'
+                  period_end: '2026-03-31'
+                  target_minor: 100000000
+                  currency: EUR
+      responses:
+        '201':
+          description: Created quota.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quota' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Validation failed, including the owner-XOR-team contract.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                bothSet:
+                  summary: Both owner_id and team_id supplied
+                  value:
+                    type: 'https://errors.gradion.com/validation_error'
+                    title: Validation failed
+                    status: 422
+                    code: validation_error
+                    detail: Exactly one of owner_id/team_id must be set, not both.
+                    details:
+                      errors:
+                        - { field: owner_id, code: owner_xor_team_required, message: 'Supply exactly one of owner_id or team_id, not both.' }
+                neitherSet:
+                  summary: Neither owner_id nor team_id supplied
+                  value:
+                    type: 'https://errors.gradion.com/validation_error'
+                    title: Validation failed
+                    status: 422
+                    code: validation_error
+                    detail: Exactly one of owner_id/team_id must be set.
+                    details:
+                      errors:
+                        - { field: owner_id, code: owner_xor_team_required, message: 'Supply exactly one of owner_id or team_id.' }
+
+  /quotas/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Quotas]
+      operationId: getQuota
+      summary: Get a quota by id.
+      x-mcp-tool: { verb: read_record, record_type: quota, tier: green }
+      responses:
+        '200':
+          description: The quota.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quota' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Quotas]
+      operationId: updateQuota
+      summary: Update a quota (partial).
+      description: |
+        Merge-PATCH (API-CONV-1); If-Match required for concurrency-safe writes (API-CC-2).
+        Re-validates the owner-XOR-team contract after the merge — patching into a both-set
+        or neither-set state returns the same 422 owner_xor_team_required shape as
+        createQuota. Human session only, like createQuota/archiveQuota (see createQuota's
+        description) — an agent never sets or changes a sales target.
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateQuotaRequest' }
+      responses:
+        '200':
+          description: Updated quota.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quota' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: Validation failed, including the owner-XOR-team contract.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                bothSet:
+                  value:
+                    type: 'https://errors.gradion.com/validation_error'
+                    title: Validation failed
+                    status: 422
+                    code: validation_error
+                    detail: Exactly one of owner_id/team_id must be set, not both.
+                    details:
+                      errors:
+                        - { field: owner_id, code: owner_xor_team_required, message: 'Supply exactly one of owner_id or team_id, not both.' }
+    delete:
+      tags: [Quotas]
+      operationId: archiveQuota
+      summary: Archive (soft-delete) a quota.
+      description: |
+        Archive semantics (API-CONV-2): sets archived_at, drops from default lists, stays
+        fetchable by id, and returns 200 + the full archived entity — never 204. This
+        deliberately does not follow /automations/{id}'s deleteAutomation 204-on-archive
+        shape, which predates/diverges from the standard convention every other archive
+        operation in this contract (archivePerson, archiveOrganization, archiveDeal,
+        archivePipeline) correctly follows. Human session only, like createQuota/updateQuota.
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: Archived quota (now carries a non-null archived_at).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quota' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /quotas/{id}/attainment:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Quotas]
+      operationId: getQuotaAttainment
+      summary: Server-computed attainment for this quota (RD-WIRE-3), decomposed per closed-won deal.
+      x-mcp-tool: { verb: read_record, record_type: quota, tier: green }
+      description: |
+        RD-FORM-2: attainment = Σ(closed-won base_value_minor in the quota's period) ÷
+        target_minor, base-currency converted. Never client-summed — contributing_deals
+        always sums to closed_won_minor. A zero or otherwise unusable target refuses the
+        computation honestly (422 attainment_target_zero, RD-AC-4/AC-quota-6) rather than
+        dividing by zero; a failed clean-core query (e.g. a missing FX rate, mirroring
+        getOrganizationHierarchyRollup's fx_rate_unavailable) is an honest error, never a
+        stale or invented figure. The actual recompute-or-error logic is a handler concern,
+        out of this contract-only ticket's scope.
+      responses:
+        '200':
+          description: This quota's server-computed attainment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuotaAttainment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: Attainment cannot be honestly computed — target is zero, or the clean-core query failed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                targetZero:
+                  summary: The quota's target_minor is zero
+                  value:
+                    type: 'https://errors.gradion.com/attainment_target_zero'
+                    title: Attainment target is zero
+                    status: 422
+                    code: attainment_target_zero
+                    detail: This quota's target_minor is zero; attainment is refused rather than computed against a zero denominator.
+                computationFailed:
+                  summary: The clean-core closed-won query failed
+                  value:
+                    type: 'https://errors.gradion.com/attainment_computation_failed'
+                    title: Attainment computation failed
+                    status: 422
+                    code: attainment_computation_failed
+                    detail: The clean-core closed-won query failed; showing a stale or guessed figure is never acceptable — retry.
+
   # =========================================================================
   # =========================================================================
   # NET-NEW V1 RESOURCES (data-model.md §12.5) — first-class, but specified by
@@ -4658,7 +4895,7 @@ paths:
   #   /drafting-assets    (E07/E08; approval flips `approved` — admin/🟡)
   #   /agent-connections  (E10; revoke via POST /agent-connections/{id}/revoke; events read-only)
   #   /saved-views        (E15; V1 enforces shared_scope=private)
-  #   /quotas             (E09; owner XOR team)
+  #   /quotas             (E09; now SPECIFIED above, RD-T06 — owner XOR team, attainment via /quotas/{id}/attainment)
   #   /webhook-subscriptions (E10/S-E10.6, A51; HTTPS-only target_url, event_types ⊆ the published
   #                       events.md §2 catalog, signing_secret_ref; state active|paused. create/update
   #                       is 🟡 — registers outbound egress; x-mcp-tool create_record tier yellow.
@@ -7545,3 +7782,145 @@ components:
         timing: { type: number, minimum: 0, maximum: 1, description: bucketed days-until-expected-close urgency. }
         momentum: { type: number, minimum: 0, maximum: 1, description: 1.0 with an evidenced overnight change, else the 0.4 floor. }
         warmth: { type: number, minimum: 0, maximum: 1, description: strongest visible stakeholder's §4 strength / 100; floor 0 without contributing interactions. }
+
+    # ---- Quota + attainment (RD-T06, RD-WIRE-2/3, RD-DDL-2, RD-FORM-2) ----
+    Quota:
+      type: object
+      description: |
+        A per-owner or per-team revenue target for one period (RD-DDL-2). Exactly one of
+        owner_id/team_id is non-null (CHECK constraint) — never both, never neither;
+        createQuota/updateQuota document and enforce this (422 owner_xor_team_required).
+        target_minor is always human-set: no AI-guessed quota, no default, no
+        server-computed fallback (RD-PARAM-3). Deliberately carries no
+        source/captured_by/created_by provenance columns — unlike custom_field's
+        created_by (CF-T01), RD-DDL-2's column list has none. Attainment is a separate
+        read (getQuotaAttainment, RD-WIRE-3) — this schema never carries attainment
+        fields itself.
+      required: [id, workspace_id, period_start, period_end, target_minor, currency, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        owner_id:
+          type: [string, 'null']
+          format: uuid
+          description: Exactly one of owner_id/team_id is non-null (RD-DDL-2 CHECK).
+        team_id:
+          type: [string, 'null']
+          format: uuid
+          description: Exactly one of owner_id/team_id is non-null (RD-DDL-2 CHECK).
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+        target_minor:
+          type: integer
+          format: int64
+          description: >-
+            Human-set revenue target, integer minor units (RD-PARAM-3) — never an AI-guessed
+            or server-computed field.
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    QuotaListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Quota' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    CreateQuotaRequest:
+      type: object
+      description: |
+        Exactly one of owner_id/team_id must be non-null — supplying both or neither is a 422
+        validation_error carrying a distinct, machine-branchable details.errors[].code
+        (owner_xor_team_required), not the generic per-field validation code (see
+        createQuota's 422 examples). Not expressed as an OpenAPI 3.1 oneOf here — a prose
+        note plus a 422 on mismatch, matching how CreateCustomFieldRequest documents its
+        conditional currency/options requirement (CF-T01).
+      required: [period_start, period_end, target_minor, currency]
+      properties:
+        owner_id: { type: [string, 'null'], format: uuid }
+        team_id: { type: [string, 'null'], format: uuid }
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+        target_minor: { type: integer, format: int64 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+
+    UpdateQuotaRequest:
+      type: object
+      description: >-
+        Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied —
+        patching the row into a both-set or neither-set state is refused with the same 422
+        owner_xor_team_required shape as createQuota, not silently accepted.
+      properties:
+        owner_id: { type: [string, 'null'], format: uuid }
+        team_id: { type: [string, 'null'], format: uuid }
+        period_start: { type: string, format: date }
+        period_end: { type: string, format: date }
+        target_minor: { type: integer, format: int64 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+
+    QuotaAttainment:
+      type: object
+      description: |
+        RD-WIRE-3 / RD-FORM-2 — server-computed attainment for one quota, decomposed for
+        "explain this number": attainment = Σ(closed-won base_value_minor in the quota's
+        period) ÷ target_minor, base-currency converted, in integer minor units. Never
+        client-summed — contributing_deals always sums to closed_won_minor. Rides as a
+        sub-resource of the quota (mirrors /organizations/{id}/hierarchy-rollup's
+        "computed read with decomposition" shape) rather than an inline field on Quota or
+        a GET ?include= expansion — chosen once, applied consistently; the plain Quota
+        response (list or single-get) never carries attainment fields. A failed or absent
+        computation is an honest error (getQuotaAttainment's 422 responses), never a
+        cached or invented figure (RD-AC-4).
+      required: [quota_id, closed_won_minor, target_minor, currency, attainment_pct, gap_minor, pace_pct, band, as_of_date, contributing_deals]
+      properties:
+        quota_id: { type: string, format: uuid }
+        closed_won_minor:
+          type: integer
+          format: int64
+          description: Σ base_value_minor over closed-won deals in the quota's period (RD-FORM-2).
+        target_minor:
+          type: integer
+          format: int64
+          description: The flagged human-set target this attainment is measured against (echoes Quota.target_minor).
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        attainment_pct:
+          type: number
+          description: >-
+            closed_won_minor ÷ target_minor × 100 (RD-FORM-2). Uncapped raw value — e.g. 113
+            for the worked example — display capping (the ring visual stops at a full circle)
+            is a RD-PARAM-4 UI concern, not this field's.
+        gap_minor:
+          type: integer
+          format: int64
+          description: >-
+            Signed gap to target — closed_won_minor minus target_minor (RD-FORM-2's worked
+            example: +33.872,00 EUR once closed-won exceeds target); positive once attainment
+            exceeds 100%, negative while short of target.
+        pace_pct:
+          type: number
+          description: attainment_pct measured against percent-of-period-elapsed (RD-PARAM-4 pace indicator).
+        band:
+          type: string
+          enum: [met, accent, behind]
+          description: >-
+            Server-computed display band (RD-PARAM-4): met >= 100%, accent 60-99%, behind
+            < 60%. The client never recomputes this from raw attainment_pct.
+        as_of_date: { type: string, format: date, description: The date this attainment was computed. }
+        contributing_deals:
+          type: array
+          description: Per-deal decomposition for "Explain This Number"; sums to closed_won_minor.
+          items: { $ref: '#/components/schemas/QuotaAttainmentDeal' }
+
+    QuotaAttainmentDeal:
+      type: object
+      description: One row of RD-FORM-2's per-deal breakdown — a closed-won deal counted toward this quota's attainment.
+      required: [deal_id, base_value_minor]
+      properties:
+        deal_id: { type: string, format: uuid }
+        base_value_minor:
+          type: integer
+          format: int64
+          description: This deal's counted amount toward closed_won_minor (base currency, minor units).
