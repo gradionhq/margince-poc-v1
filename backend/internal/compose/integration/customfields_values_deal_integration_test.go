@@ -133,7 +133,7 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 
 	wsB, ctxB := seedSecondWorkspace(t, OwnerConn(t))
 	ctxB = withPerms(ctxB, wsB, dealCFVPerms)
-	pipelineB, stageB := seedDealFixtureIn(t, f.store, ctxB)
+	pipelineB, stageB := seedDealFixtureIn(ctxB, t, f.store)
 	inB, err := f.store.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "Tenant B Deal", PipelineID: pipelineB, StageID: stageB, Source: "ui",
 		CustomFields: map[string]any{col: "enterprise"},
@@ -178,7 +178,7 @@ func withPerms(ctx context.Context, ws ids.UUID, perms principal.Permissions) co
 
 // seedDealFixtureIn provisions the default pipeline in the context's
 // workspace and returns its pipeline id plus the first open stage.
-func seedDealFixtureIn(t *testing.T, store *deals.Store, ctx context.Context) (ids.PipelineID, ids.StageID) {
+func seedDealFixtureIn(ctx context.Context, t *testing.T, store *deals.Store) (ids.PipelineID, ids.StageID) {
 	t.Helper()
 	if err := store.SeedDefaults(ctx); err != nil {
 		t.Fatal(err)

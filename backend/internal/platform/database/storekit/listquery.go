@@ -86,6 +86,8 @@ type ListSort struct {
 // vocabulary. nil/empty (and the documented default spelling) mean the
 // default sort; anything the vocabulary does not name — or a multi-field
 // spec the keyset cursor cannot continue — is a typed refusal.
+//
+//nolint:nilnil // the nil *ListSort IS the default sort by design: every ListSort method answers its default shape on a nil receiver, so callers thread one value unconditionally
 func ParseListSort(spec *string, vocab map[string]string) (*ListSort, error) {
 	if spec == nil {
 		return nil, nil
@@ -95,14 +97,18 @@ func ParseListSort(spec *string, vocab map[string]string) (*ListSort, error) {
 		return nil, nil
 	}
 	if strings.Contains(raw, ",") {
-		return nil, &SortError{Code: CodeSortUnsupported,
-			Message: "sort takes one field (the created_at,id tie-breaker is always appended); only the default \"-created_at,id\" spelling names two"}
+		return nil, &SortError{
+			Code:    CodeSortUnsupported,
+			Message: "sort takes one field (the created_at,id tie-breaker is always appended); only the default \"-created_at,id\" spelling names two",
+		}
 	}
 	name := strings.TrimPrefix(raw, "-")
 	kind, ok := vocab[name]
 	if !ok || name == "" {
-		return nil, &SortError{Code: CodeSortFieldNotAllowed,
-			Message: fmt.Sprintf("field %q is not sortable on this resource", name)}
+		return nil, &SortError{
+			Code:    CodeSortFieldNotAllowed,
+			Message: fmt.Sprintf("field %q is not sortable on this resource", name),
+		}
 	}
 	return &ListSort{name: name, kind: kind, desc: strings.HasPrefix(raw, "-")}, nil
 }
@@ -144,7 +150,7 @@ func (s *ListSort) EncodePageCursor(sortKey *string, createdAt time.Time, id ids
 	if s == nil {
 		return EncodeCursor(createdAt, id)
 	}
-	return encodeCursor(Cursor{CreatedAt: createdAt, ID: id, SortField: s.name, SortDesc: s.desc, SortKey: sortKey})
+	return mintCursorToken(Cursor{CreatedAt: createdAt, ID: id, SortField: s.name, SortDesc: s.desc, SortKey: sortKey})
 }
 
 // KeysetClause renders the WHERE fragment that continues the page after
@@ -207,8 +213,10 @@ func CustomFilterClauses(active []fieldcatalog.Column, filters map[string]string
 	for _, name := range names {
 		c, ok := byName[name]
 		if !ok {
-			return nil, &PredicateError{Field: name, Code: CodeFilterFieldNotAllowed,
-				Message: fmt.Sprintf("field %q is not filterable on this resource", name)}
+			return nil, &PredicateError{
+				Field: name, Code: CodeFilterFieldNotAllowed,
+				Message: fmt.Sprintf("field %q is not filterable on this resource", name),
+			}
 		}
 		value := filters[name]
 		if err := checkListFilterValue(c, value); err != nil {
@@ -225,8 +233,10 @@ func CustomFilterClauses(active []fieldcatalog.Column, filters map[string]string
 // execution error.
 func checkListFilterValue(c fieldcatalog.Column, value string) error {
 	invalid := func(want string) error {
-		return &PredicateError{Field: c.Name, Code: CodeFilterValueInvalid,
-			Message: fmt.Sprintf("filtering the %s field %q takes %s", c.Type, c.Name, want)}
+		return &PredicateError{
+			Field: c.Name, Code: CodeFilterValueInvalid,
+			Message: fmt.Sprintf("filtering the %s field %q takes %s", c.Type, c.Name, want),
+		}
 	}
 	switch c.Type {
 	case fieldcatalog.TypeNumber:

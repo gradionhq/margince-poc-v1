@@ -33,10 +33,10 @@ type Cursor struct {
 }
 
 func EncodeCursor(createdAt time.Time, id ids.UUID) string {
-	return encodeCursor(Cursor{CreatedAt: createdAt, ID: id})
+	return mintCursorToken(Cursor{CreatedAt: createdAt, ID: id})
 }
 
-func encodeCursor(c Cursor) string {
+func mintCursorToken(c Cursor) string {
 	//craft:ignore swallowed-errors Cursor is plain data (time, uuid, string fields) — json.Marshal cannot fail on it, and a token mint has no error channel to a caller mid-page
 	raw, _ := json.Marshal(c)
 	return base64.RawURLEncoding.EncodeToString(raw)

@@ -28,7 +28,7 @@ func (s *Store) GetDeal(ctx context.Context, id ids.DealID, archived storekit.Ar
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	active, err := s.activeColumns(ctx, "deal")
+	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
@@ -64,6 +64,10 @@ type ListDealsInput struct {
 	CustomFilters map[string]string
 }
 
+// dealNameColumn is the deal's display-name column — the quick-find
+// expression and the sortable vocabulary name it in one spelling.
+const dealNameColumn = "name"
+
 // dealListFields is the deal list's core sortable vocabulary
 // (data-model §13, mirroring poc-1's deal set); active cf_ columns join
 // it per request.
@@ -71,7 +75,7 @@ var dealListFields = map[string]string{
 	"created_at":          storekit.KindTimestamp,
 	"updated_at":          storekit.KindTimestamp,
 	"last_activity_at":    storekit.KindTimestamp,
-	"name":                fieldcatalog.TypeText,
+	dealNameColumn:        fieldcatalog.TypeText,
 	"amount_minor":        fieldcatalog.TypeCurrency,
 	"expected_close_date": fieldcatalog.TypeDate,
 }
@@ -80,7 +84,7 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	active, err := s.activeColumns(ctx, "deal")
+	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -179,7 +183,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.QuickFindClause(arg(*in.Query), "name"))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), dealNameColumn))
 	}
 	if in.PipelineID != nil {
 		where = append(where, storekit.SQLf("pipeline_id = $%d", arg(*in.PipelineID)))
@@ -251,10 +255,12 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var closeDateProvisional bool
 	var version int64
 
-	dests := []any{&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
+	dests := []any{
+		&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
 		&orgID, &ownerID, &partnerID, &status, &d.LostReason,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
-		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt}
+		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,
+	}
 	cf := storekit.ScanDests(active)
 	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return d, err

@@ -59,7 +59,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			return crmcontracts.Deal{}, err
 		}
 	}
-	active, err := s.activeColumns(ctx, "deal")
+	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
@@ -187,7 +187,7 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInpu
 	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	active, err := s.activeColumns(ctx, "deal")
+	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
@@ -424,7 +424,7 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	active, err := s.activeColumns(ctx, "deal")
+	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}

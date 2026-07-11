@@ -38,16 +38,17 @@ func (s *Store) WithFieldCatalog(catalog fieldcatalog.Reader) *Store {
 	return s
 }
 
-// activeColumns answers the workspace's active custom columns for one
-// object. It runs its own catalog transaction, so callers fetch BEFORE
-// opening their write/read transaction (never inside it — a nested pool
-// acquire under load is a deadlock shape). A store without a wired
-// catalog answers empty: core columns only.
-func (s *Store) activeColumns(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
+// activeColumns answers the workspace's active custom columns for the
+// deal object (this store's one record type). It runs its own catalog
+// transaction, so callers fetch BEFORE opening their write/read
+// transaction (never inside it — a nested pool acquire under load is a
+// deadlock shape). A store without a wired catalog answers empty: core
+// columns only.
+func (s *Store) activeColumns(ctx context.Context) ([]fieldcatalog.Column, error) {
 	if s.catalog == nil {
 		return nil, nil
 	}
-	return s.catalog.ActiveColumns(ctx, object)
+	return s.catalog.ActiveColumns(ctx, "deal")
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
