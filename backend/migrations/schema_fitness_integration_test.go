@@ -166,6 +166,85 @@ func TestFK_tenantLocalReferencesAreComposite(t *testing.T) {
 	}
 }
 
+// TestSchema_amountMinorBaseIsDatabaseGenerated is the fitness function for
+// the formula-field boundary invariant (RD-AC-6, 0065): deal.amount_minor_base
+// must be a database GENERATED column, never an application-computed or
+// hand-maintained one — the DATABASE is the source of truth, so a future
+// migration that quietly re-added it as a plain writable bigint (letting a
+// write path set it directly) fails here rather than surviving unnoticed.
+// The generation expression itself is checked structurally (both formula
+// inputs are named), not restated verbatim, so the test stays robust to a
+// harmless whitespace/parenthesization change in a later migration.
+func TestSchema_amountMinorBaseIsDatabaseGenerated(t *testing.T) {
+	ownerDSN, _ := dsns(t)
+	owner := connect(t, ownerDSN)
+	resetSchema(t, owner)
+	migrateAll(t, owner)
+	ctx := context.Background()
+
+	var isGenerated, generationExpr string
+	if err := owner.QueryRow(ctx, `
+		SELECT is_generated, generation_expression
+		FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'deal' AND column_name = 'amount_minor_base'`,
+	).Scan(&isGenerated, &generationExpr); err != nil {
+		t.Fatalf("querying deal.amount_minor_base from information_schema: %v", err)
+	}
+	if isGenerated != "ALWAYS" {
+		t.Errorf("deal.amount_minor_base has information_schema.columns.is_generated=%q, want ALWAYS", isGenerated)
+	}
+	for _, want := range []string{"amount_minor", "fx_rate_to_base"} {
+		if !strings.Contains(generationExpr, want) {
+			t.Errorf("deal.amount_minor_base's generation expression %q does not reference %q", generationExpr, want)
+		}
+	}
+
+	// pg_attribute is a second, independent catalog: attgenerated = 's' is
+	// Postgres's STORED-generated marker (the only kind it currently
+	// supports), cross-checking the information_schema view above.
+	var attgenerated string
+	if err := owner.QueryRow(ctx, `
+		SELECT attgenerated FROM pg_attribute
+		WHERE attrelid = 'deal'::regclass AND attname = 'amount_minor_base' AND NOT attisdropped`,
+	).Scan(&attgenerated); err != nil {
+		t.Fatalf("querying pg_attribute for deal.amount_minor_base: %v", err)
+	}
+	if attgenerated != "s" {
+		t.Errorf("deal.amount_minor_base has pg_attribute.attgenerated=%q, want \"s\" (STORED)", attgenerated)
+	}
+}
+
+// TestSchema_organizationOpenPipelineRollupIsSecurityInvoker closes the
+// RD-AC-N-1 half of the same boundary proof: the cross-record roll-up MUST
+// run as security_invoker (inheriting the caller's own RLS), never as the
+// view owner's elevated privilege — a view created without the option, or
+// with it later stripped by a careless CREATE OR REPLACE, would silently
+// leak every workspace's pipeline total to every other workspace.
+func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
+	ownerDSN, _ := dsns(t)
+	owner := connect(t, ownerDSN)
+	resetSchema(t, owner)
+	migrateAll(t, owner)
+	ctx := context.Background()
+
+	var reloptions []string
+	if err := owner.QueryRow(ctx, `
+		SELECT COALESCE(reloptions, '{}') FROM pg_class
+		WHERE relname = 'organization_open_pipeline_rollup' AND relnamespace = 'public'::regnamespace`,
+	).Scan(&reloptions); err != nil {
+		t.Fatalf("querying pg_class.reloptions for organization_open_pipeline_rollup: %v", err)
+	}
+	found := false
+	for _, opt := range reloptions {
+		if opt == "security_invoker=true" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("organization_open_pipeline_rollup view reloptions %v do not include security_invoker=true", reloptions)
+	}
+}
+
 // rowScopedFKDecisions is the classification: one entry per FK column
 // naming a row-scoped business record. Values are prose for the reader;
 // the map's completeness is the invariant.

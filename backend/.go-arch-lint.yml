@@ -112,6 +112,12 @@ deps:
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]
+  # The root fitness tests walk the authoritative contract document
+  # (api/crm.yaml) directly — the RD-AC-7 negative-scope gate reads the
+  # 3.1 source of truth, not the generated Go, so a contract-only change
+  # cannot slip past it.
+  root:
+    canUse: [yaml]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, contracts, platform, migrations]
     canUse: [pgx, redis]
