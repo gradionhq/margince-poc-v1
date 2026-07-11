@@ -1546,12 +1546,19 @@ export interface paths {
         /**
          * Per-field change history for one record, projected from audit_log before/after diffs.
          * @description One entry per field change, newest first, for the given `entity_type` + `entity_id`.
-         *     A read-only projection over the append-only audit spine — no second history store, so
-         *     an erasure scrub and a field mask hide history and live value in the same motion.
-         *     Agent-authored changes additionally carry `passport_id`/`evidence`. A visible record
-         *     with no matching changes answers `200 {data: []}` — an empty history is honest, not a gap.
-         *     A record outside the caller's row scope answers 404 (existence-hiding), like every
-         *     single-record read.
+         *     A read-only projection over the append-only audit spine — no second history store.
+         *     Only audit verbs whose before/after are honest field images project (create, update,
+         *     archive, restore, advance_stage); evidence-shaped rows (merge, promote, exports,
+         *     tombstones) never fabricate field entries. The projection stops at the erasure
+         *     boundary: after an Art. 17 erase or a retention anonymize, the scrub's tombstone row
+         *     and everything older are withheld — the spine keeps its rows, the read refuses them —
+         *     and a field mask hides history and live value in the same motion. Agent-authored
+         *     changes additionally carry `passport_id`/`evidence`. `limit` counts entries, but one
+         *     mutation's entries are never split across pages, so a page may exceed `limit` by the
+         *     width of its final row. A visible record with no matching changes answers
+         *     `200 {data: []}` — an empty history is honest, not a gap. A record outside the
+         *     caller's row scope answers 404 (existence-hiding), like every single-record read; an
+         *     unbounded caller asking about an id that never existed reads the same honest empty page.
          */
         get: operations["getFieldHistory"];
         put?: never;
@@ -8926,6 +8933,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listConsentPurposes: {
