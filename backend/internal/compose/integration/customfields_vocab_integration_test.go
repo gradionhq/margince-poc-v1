@@ -13,6 +13,7 @@ package integration
 // 422 codes while the core vocabulary keeps working.
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -197,25 +198,17 @@ func TestCustomFieldVocab_RetiredAndUnknownRefused(t *testing.T) {
 	}
 }
 
-// TestCustomFieldVocab_CoreVocabulary: each list's core sortable
-// vocabulary is exactly its data-model §13.5 DM-VOCAB table — every
-// spec-listed field sorts in both directions (full_name ordering proves
-// the ORDER BY), the documented default spelling stays accepted, and a
-// real column the tables do not list — or a multi-field spec — is
-// refused.
-func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
-	f := setupCFV(t)
-	// The deal list shares f's Env (Setup rebuilds the schema, so one
-	// per test) — its store rides the same pool and field catalog.
-	dealStore := deals.NewStore(f.e.Pool).WithFieldCatalog(f.svc)
-	dealCtx := f.e.As(f.e.Rep1, nil, dealCFVPerms)
+// vocabResource pairs one list's data-model §13.5 DM-VOCAB spec-fields
+// table with the store call that sorts it.
+type vocabResource struct {
+	specFields []string
+	list       func(sort string) error
+}
 
-	// The DM-VOCAB-1..3 sort tables, verbatim from the spec, each paired
-	// with its store's list call.
-	resources := map[string]struct {
-		specFields []string
-		list       func(sort string) error
-	}{
+// coreVocabResources builds the DM-VOCAB-1..3 sort tables, verbatim from
+// the spec, each paired with its store's list call.
+func coreVocabResources(dealCtx context.Context, f cfvFixture, dealStore *deals.Store) map[string]vocabResource {
+	return map[string]vocabResource{
 		"people (DM-VOCAB-1)": {
 			specFields: []string{"created_at", "updated_at", "full_name", "owner_id"},
 			list: func(sort string) error {
@@ -238,6 +231,12 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 			},
 		},
 	}
+}
+
+// assertSpecFieldsSortable proves every spec-listed field on every
+// resource sorts in both directions.
+func assertSpecFieldsSortable(t *testing.T, resources map[string]vocabResource) {
+	t.Helper()
 	for resource, r := range resources {
 		for _, field := range r.specFields {
 			for _, spec := range []string{field, "-" + field} {
@@ -247,7 +246,13 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 			}
 		}
 	}
+}
 
+// assertFullNameAndDefaultSort proves full_name ordering (evidence the
+// ORDER BY really runs) and that the documented default spelling stays
+// accepted and newest-first.
+func assertFullNameAndDefaultSort(t *testing.T, f cfvFixture) {
+	t.Helper()
 	zoe, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{FullName: "Zoe Last", Source: "ui"})
 	if err != nil {
 		t.Fatalf("CreatePerson: %v", err)
@@ -274,6 +279,24 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 	if len(rows) != 2 || rows[0].Id != ada.Id {
 		t.Fatalf("default sort must stay -created_at,id (newest first), got %v", rows)
 	}
+}
+
+// TestCustomFieldVocab_CoreVocabulary: each list's core sortable
+// vocabulary is exactly its data-model §13.5 DM-VOCAB table — every
+// spec-listed field sorts in both directions (full_name ordering proves
+// the ORDER BY), the documented default spelling stays accepted, and a
+// real column the tables do not list — or a multi-field spec — is
+// refused.
+func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
+	f := setupCFV(t)
+	// The deal list shares f's Env (Setup rebuilds the schema, so one
+	// per test) — its store rides the same pool and field catalog.
+	dealStore := deals.NewStore(f.e.Pool).WithFieldCatalog(f.svc)
+	dealCtx := f.e.As(f.e.Rep1, nil, dealCFVPerms)
+
+	resources := coreVocabResources(dealCtx, f, dealStore)
+	assertSpecFieldsSortable(t, resources)
+	assertFullNameAndDefaultSort(t, f)
 
 	// A real column DM-VOCAB-3 does not list stays outside the vocabulary:
 	// deal name sorted in poc-1, and the spec table dropped it.
@@ -284,7 +307,7 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 	}
 
 	multi := "-created_at,full_name"
-	_, _, err = f.store.ListPeople(f.ctx, people.ListPeopleInput{Sort: &multi})
+	_, _, err := f.store.ListPeople(f.ctx, people.ListPeopleInput{Sort: &multi})
 	if !errors.As(err, &sortErr) || sortErr.Code != storekit.CodeSortUnsupported {
 		t.Fatalf("multi-field sort err = %v, want SortError %s", err, storekit.CodeSortUnsupported)
 	}

@@ -88,6 +88,100 @@ func assertOrganizationWireRoundTrip(t *testing.T, e *env, col string) {
 	assertWireCF(t, got, col, "emea")
 }
 
+// assertDealWireRoundTrip mirrors assertPersonWireRoundTrip's full
+// create/get/update/list shape for the deal object — the third and last
+// core object the fieldcatalog seam rides.
+func assertDealWireRoundTrip(t *testing.T, e *env, col string) {
+	t.Helper()
+	stages := discoverSeededPipeline(t, e)
+	created, id := createWithCF(t, e, "/v1/deals", anyMap{
+		"name": "Acme Renewal", "pipeline_id": stages.pipelineID, "stage_id": stages.open,
+		"source": "ui", col: "enterprise",
+	})
+	assertWireCF(t, created, col, "enterprise")
+
+	var got anyMap
+	if status := e.call(t, "GET", "/v1/deals/"+id, nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("get deal status = %d", status)
+	}
+	assertWireCF(t, got, col, "enterprise")
+
+	var updated anyMap
+	if status := e.call(t, "PATCH", "/v1/deals/"+id, anyMap{col: "mid-market"}, nil, &updated); status != http.StatusOK {
+		t.Fatalf("update deal status = %d (%v)", status, updated)
+	}
+	assertWireCF(t, updated, col, "mid-market")
+
+	var list struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/deals", nil, nil, &list); status != http.StatusOK {
+		t.Fatalf("list deals status = %d", status)
+	}
+	if len(list.Data) != 1 {
+		t.Fatalf("list deals returned %d rows, want 1", len(list.Data))
+	}
+	assertWireCF(t, list.Data[0], col, "mid-market")
+}
+
+// sixTypeWireFields creates one active field of every closed type on the
+// person object and returns each type's physical column name, keyed by
+// type — the wire-level twin of TestCustomFieldValues_AllSixTypesRoundTrip.
+func sixTypeWireFields(t *testing.T, e *env) map[string]string {
+	t.Helper()
+	specs := map[string]anyMap{
+		"text":     {"object": "person", "label": "Note", "type": "text", "source": "ui"},
+		"number":   {"object": "person", "label": "Score", "type": "number", "source": "ui"},
+		"date":     {"object": "person", "label": "Renewal", "type": "date", "source": "ui"},
+		"currency": {"object": "person", "label": "Budget", "type": "currency", "currency": "EUR", "source": "ui"},
+		"picklist": {"object": "person", "label": "Route", "type": "picklist", "options": []string{"direct", "partner"}, "source": "ui"},
+		"boolean":  {"object": "person", "label": "Strategic", "type": "boolean", "source": "ui"},
+	}
+	cols := make(map[string]string, len(specs))
+	for kind, body := range specs {
+		status, field, problem := createCustomField(t, e, body)
+		if status != http.StatusCreated {
+			t.Fatalf("create %s field status = %d: %+v", kind, status, problem)
+		}
+		cols[kind] = field.ColumnName
+	}
+	return cols
+}
+
+// assertSixTypesWireRoundTrip proves every closed field type carries its
+// documented wire read shape (json-decoded string/float64/bool) through
+// a real create-then-get over the compose stack — the store-level
+// suite's AllSixTypesRoundTrip already proves the value semantics; this
+// proves the same shapes survive the HTTP marshal/unmarshal round trip.
+func assertSixTypesWireRoundTrip(t *testing.T, e *env) {
+	t.Helper()
+	cols := sixTypeWireFields(t, e)
+	want := anyMap{
+		cols["text"]:     "prefers morning calls",
+		cols["number"]:   42.5,
+		cols["date"]:     "2026-07-11",
+		cols["currency"]: float64(129900),
+		cols["picklist"]: "partner",
+		cols["boolean"]:  true,
+	}
+	body := anyMap{"full_name": "Grace Hopper", "source": "ui"}
+	for col, v := range want {
+		body[col] = v
+	}
+	created, id := createWithCF(t, e, "/v1/people", body)
+	for col, v := range want {
+		assertWireCF(t, created, col, v)
+	}
+
+	var got anyMap
+	if status := e.call(t, "GET", "/v1/people/"+id, nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("get person status = %d", status)
+	}
+	for col, v := range want {
+		assertWireCF(t, got, col, v)
+	}
+}
+
 func assertPicklistCheckViolation422(t *testing.T, e *env, col string) {
 	t.Helper()
 	var problem customFieldProblem
@@ -118,6 +212,12 @@ func TestCustomFieldValuesHTTP(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create organization field status = %d: %+v", status, problem)
 	}
+	status, segment, problem := createCustomField(t, e, anyMap{
+		"object": "deal", "label": "Segment", "type": "text", "source": "ui",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create deal field status = %d: %+v", status, problem)
+	}
 
 	t.Run("person create/get/update/list carry the key top-level", func(t *testing.T) {
 		assertPersonWireRoundTrip(t, e, tier.ColumnName)
@@ -125,7 +225,13 @@ func TestCustomFieldValuesHTTP(t *testing.T) {
 	t.Run("organization round trip carries the key top-level", func(t *testing.T) {
 		assertOrganizationWireRoundTrip(t, e, region.ColumnName)
 	})
+	t.Run("deal create/get/update/list carry the key top-level", func(t *testing.T) {
+		assertDealWireRoundTrip(t, e, segment.ColumnName)
+	})
 	t.Run("picklist CHECK violation answers 422", func(t *testing.T) {
 		assertPicklistCheckViolation422(t, e, tier.ColumnName)
+	})
+	t.Run("all six types round-trip their wire shape", func(t *testing.T) {
+		assertSixTypesWireRoundTrip(t, e)
 	})
 }

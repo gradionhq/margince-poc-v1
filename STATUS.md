@@ -104,6 +104,16 @@ Merged so far:
   downgrade (decisions/0024). Values-on-records parity — reading and
   writing the new fields through the record surface — is the follow-on
   arc, arc 2a-ii.
+- **Custom-field VALUES ride person/organization/deal payloads**
+  (create/update/read/list, top-level `cf_` keys via the contract's
+  x-extension mechanism), the fieldcatalog seam
+  (`shared/ports/fieldcatalog` provided by customfields, injected by
+  compose), and the first real list-sort implementation — DM-VOCAB-
+  aligned single-field sort + typed `cf_` equality filters on an
+  extended keyset cursor (sort-fingerprinted, crafted-token-hardened);
+  active columns join the vocabulary, retired leave it. Arc 2a-ii
+  completes CF-T05's core parity (collections/saved-views cf-awareness
+  flagged as follow-up).
 
 ## Pick up here
 

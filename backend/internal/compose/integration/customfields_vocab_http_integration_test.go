@@ -42,6 +42,47 @@ func listPeopleNames(t *testing.T, e *env, query string) []string {
 	return names
 }
 
+// walkCFSortedPagesOverWire walks /v1/people one row per page under a
+// cf_-sorted query, following next_cursor until has_more goes false, and
+// returns the full_name column in the order visited — the wire-level
+// twin of TestCustomFieldVocab_SortPaginatesStably, proving the cursor
+// keeps paging correctly (no repeat, no skip) when it travels as an
+// opaque query-string token instead of a direct store call.
+func walkCFSortedPagesOverWire(t *testing.T, e *env, col string) []string {
+	t.Helper()
+	var walked []string
+	query := "?sort=" + col + "&limit=1"
+	for page := 0; ; page++ {
+		if page > 10 {
+			t.Fatalf("pagination did not terminate after %d pages (walked %v)", page, walked)
+		}
+		var list struct {
+			Data []anyMap `json:"data"`
+			Page struct {
+				HasMore    bool    `json:"has_more"`
+				NextCursor *string `json:"next_cursor"`
+			} `json:"page"`
+		}
+		if status := e.call(t, "GET", "/v1/people"+query, nil, nil, &list); status != http.StatusOK {
+			t.Fatalf("GET /v1/people%s status = %d", query, status)
+		}
+		for _, row := range list.Data {
+			name, ok := row["full_name"].(string)
+			if !ok {
+				t.Fatalf("row carries no full_name: %v", row)
+			}
+			walked = append(walked, name)
+		}
+		if !list.Page.HasMore {
+			return walked
+		}
+		if list.Page.NextCursor == nil || *list.Page.NextCursor == "" {
+			t.Fatal("has_more without a next_cursor")
+		}
+		query = "?sort=" + col + "&limit=1&cursor=" + url.QueryEscape(*list.Page.NextCursor)
+	}
+}
+
 // assert422Code GETs the path and asserts the validation problem's one
 // field error carries the expected machine code.
 func assert422Code(t *testing.T, e *env, path, wantCode string) {
@@ -56,50 +97,12 @@ func assert422Code(t *testing.T, e *env, path, wantCode string) {
 	}
 }
 
-func TestCustomFieldVocabHTTP(t *testing.T) {
-	e := schemaWiredEnv(t)
-
-	status, tier, problem := createCustomField(t, e, anyMap{
-		"object": "person", "label": "Tier", "type": "text", "source": "ui",
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create person field status = %d: %+v", status, problem)
-	}
-	col := tier.ColumnName
-
-	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person B", "source": "ui", col: "beta"})
-	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person A", "source": "ui", col: "alpha"})
-	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person N", "source": "ui"})
-
-	t.Run("cf_ sort orders the page, NULL last", func(t *testing.T) {
-		got := listPeopleNames(t, e, "?sort="+col)
-		want := []string{"Person A", "Person B", "Person N"}
-		for i := range want {
-			if i >= len(got) || got[i] != want[i] {
-				t.Fatalf("sorted names = %v, want %v", got, want)
-			}
-		}
-	})
-
-	t.Run("cf_ filter narrows to the equality match", func(t *testing.T) {
-		got := listPeopleNames(t, e, "?"+col+"=alpha")
-		if len(got) != 1 || got[0] != "Person A" {
-			t.Fatalf("filtered names = %v, want [Person A]", got)
-		}
-	})
-
-	t.Run("unknown cf_ sort answers 422 sort_field_not_allowed", func(t *testing.T) {
-		assert422Code(t, e, "/v1/people?sort=cf_never_defined", "sort_field_not_allowed")
-	})
-
-	t.Run("unknown cf_ filter answers 422 filter_field_not_allowed", func(t *testing.T) {
-		assert422Code(t, e, "/v1/people?cf_never_defined=x", "filter_field_not_allowed")
-	})
-
-	t.Run("multi-field sort answers 422 sort_unsupported", func(t *testing.T) {
-		assert422Code(t, e, "/v1/people?sort=-created_at,full_name", "sort_unsupported")
-	})
-
+// assertCursorSortRefusals defines a number field and proves the two
+// hostile-cursor refusals over the wire: a crafted token whose sort key
+// does not parse as the column's type, and a well-formed token minted
+// under one sort reused under another.
+func assertCursorSortRefusals(t *testing.T, e *env) {
+	t.Helper()
 	status, score, problem := createCustomField(t, e, anyMap{
 		"object": "person", "label": "Score", "type": "number", "source": "ui",
 	})
@@ -134,4 +137,64 @@ func TestCustomFieldVocabHTTP(t *testing.T) {
 		}
 		assert422Code(t, e, "/v1/people?cursor="+url.QueryEscape(list.Page.NextCursor), "cursor_param_mismatch")
 	})
+}
+
+func TestCustomFieldVocabHTTP(t *testing.T) {
+	e := schemaWiredEnv(t)
+
+	status, tier, problem := createCustomField(t, e, anyMap{
+		"object": "person", "label": "Tier", "type": "text", "source": "ui",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create person field status = %d: %+v", status, problem)
+	}
+	col := tier.ColumnName
+
+	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person B", "source": "ui", col: "beta"})
+	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person A", "source": "ui", col: "alpha"})
+	createWithCF(t, e, "/v1/people", anyMap{"full_name": "Person N", "source": "ui"})
+
+	t.Run("cf_ sort orders the page, NULL last", func(t *testing.T) {
+		got := listPeopleNames(t, e, "?sort="+col)
+		want := []string{"Person A", "Person B", "Person N"}
+		for i := range want {
+			if i >= len(got) || got[i] != want[i] {
+				t.Fatalf("sorted names = %v, want %v", got, want)
+			}
+		}
+	})
+
+	t.Run("cf_ filter narrows to the equality match", func(t *testing.T) {
+		got := listPeopleNames(t, e, "?"+col+"=alpha")
+		if len(got) != 1 || got[0] != "Person A" {
+			t.Fatalf("filtered names = %v, want [Person A]", got)
+		}
+	})
+
+	t.Run("cf_ sort paginates stably one row per page over the wire", func(t *testing.T) {
+		got := walkCFSortedPagesOverWire(t, e, col)
+		want := []string{"Person A", "Person B", "Person N"}
+		if len(got) != len(want) {
+			t.Fatalf("walked %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("walked %v, want %v", got, want)
+			}
+		}
+	})
+
+	t.Run("unknown cf_ sort answers 422 sort_field_not_allowed", func(t *testing.T) {
+		assert422Code(t, e, "/v1/people?sort=cf_never_defined", "sort_field_not_allowed")
+	})
+
+	t.Run("unknown cf_ filter answers 422 filter_field_not_allowed", func(t *testing.T) {
+		assert422Code(t, e, "/v1/people?cf_never_defined=x", "filter_field_not_allowed")
+	})
+
+	t.Run("multi-field sort answers 422 sort_unsupported", func(t *testing.T) {
+		assert422Code(t, e, "/v1/people?sort=-created_at,full_name", "sort_unsupported")
+	})
+
+	assertCursorSortRefusals(t, e)
 }

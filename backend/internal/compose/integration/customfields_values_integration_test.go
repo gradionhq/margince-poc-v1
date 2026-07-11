@@ -18,6 +18,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -246,6 +247,98 @@ func TestCustomFieldValues_WrongShapeDropped(t *testing.T) {
 		t.Fatalf("GetPerson: %v", err)
 	}
 	assertCF(t, got.AdditionalProperties, col, json.Number("7"))
+}
+
+// TestCustomFieldValues_WrongShapeDroppedAcrossTypes: WrongShapeDropped
+// proves the drop only for a number-typed mismatch; SQLValue's shape
+// check runs once per column type (currency wants float64, date wants
+// string, boolean wants bool), so each type's own mismatch needs its
+// own proof that the write still succeeds with the key simply absent.
+func TestCustomFieldValues_WrongShapeDroppedAcrossTypes(t *testing.T) {
+	f := setupCFV(t)
+	eur := "EUR"
+	currency := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Budget", Type: customfields.TypeCurrency, Currency: &eur, Source: "ui"})
+	date := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Renewal", Type: customfields.TypeDate, Source: "ui"})
+	boolean := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Strategic", Type: customfields.TypeBoolean, Source: "ui"})
+
+	cases := map[string]struct {
+		col   string
+		wrong any
+	}{
+		"currency takes a float64, not a string": {currency, "not-an-amount"},
+		"date takes a string, not a bool":        {date, true},
+		"boolean takes a bool, not a string":     {boolean, "yes"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			created, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
+				FullName: "Mismatch", Source: "ui",
+				CustomFields: map[string]any{tc.col: tc.wrong},
+			})
+			if err != nil {
+				t.Fatalf("CreatePerson: %v", err)
+			}
+			assertNoCF(t, created.AdditionalProperties, tc.col)
+		})
+	}
+}
+
+// TestCustomFieldValues_NumberAcceptsJSONNumberAndDecimalString:
+// sqlNumber's doc comment promises three input shapes bind a number
+// column: the float64 every other suite writes through, plus the
+// json.Number/plain-decimal-string a UseNumber-decoding caller could
+// hand it — this proves those other two shapes actually round-trip
+// (and that a string that fails to parse as a number still drops,
+// same posture as every other type mismatch).
+func TestCustomFieldValues_NumberAcceptsJSONNumberAndDecimalString(t *testing.T) {
+	f := setupCFV(t)
+	col := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Score", Type: customfields.TypeNumber, Source: "ui"})
+
+	fromJSONNumber, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
+		FullName: "Via json.Number", Source: "ui",
+		CustomFields: map[string]any{col: json.Number("42.5")},
+	})
+	if err != nil {
+		t.Fatalf("CreatePerson (json.Number): %v", err)
+	}
+	assertCF(t, fromJSONNumber.AdditionalProperties, col, json.Number("42.5"))
+
+	fromString, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
+		FullName: "Via decimal string", Source: "ui",
+		CustomFields: map[string]any{col: "7.25"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePerson (decimal string): %v", err)
+	}
+	assertCF(t, fromString.AdditionalProperties, col, json.Number("7.25"))
+
+	unparseable, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
+		FullName: "Via unparseable string", Source: "ui",
+		CustomFields: map[string]any{col: "not-a-number-string"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePerson (unparseable string): %v", err)
+	}
+	assertNoCF(t, unparseable.AdditionalProperties, col)
+}
+
+// TestCustomFieldValues_NumberNaNDropped: a number-typed value that
+// stores as Postgres NUMERIC 'NaN' round-trips through pgtype.Numeric
+// with Valid=true but NaN=true — extractNumber's documented "NaN has no
+// JSON-number wire shape" rule drops it from the read, the same
+// drop-on-mismatch posture every other unrepresentable value gets.
+func TestCustomFieldValues_NumberNaNDropped(t *testing.T) {
+	f := setupCFV(t)
+	col := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Score", Type: customfields.TypeNumber, Source: "ui"})
+
+	created, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{
+		FullName: "NaN Score", Source: "ui",
+		CustomFields: map[string]any{col: math.NaN()},
+	})
+	if err != nil {
+		t.Fatalf("CreatePerson: %v", err)
+	}
+	assertNoCF(t, created.AdditionalProperties, col)
 }
 
 func TestCustomFieldValues_UnknownKeyDropped(t *testing.T) {
