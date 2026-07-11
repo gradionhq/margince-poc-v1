@@ -56,13 +56,20 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	active, err := s.activeColumns(ctx, "deal")
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
-		current, err := readDeal(ctx, tx, id, storekit.LiveOnly)
+		// A decision read (stage/amount snapshot for the transition patch
+		// and history row) — advance touches no custom columns, so the
+		// pre-image needs none; the wire-returning read below carries them.
+		current, err := readDeal(ctx, tx, id, storekit.LiveOnly, nil)
 		if err != nil {
 			return fmt.Errorf("read deal before advance: %w", err)
 		}
@@ -122,7 +129,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		}); err != nil {
 			return fmt.Errorf("emit deal.stage_changed: %w", err)
 		}
-		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced deal: %w", err)
 		}
 		return nil

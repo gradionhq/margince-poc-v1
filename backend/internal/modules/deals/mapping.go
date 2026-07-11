@@ -50,6 +50,7 @@ func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error
 		Source:         req.Source,
 		OrganizationID: idArg[ids.OrganizationKind](req.OrganizationId),
 		OwnerID:        idArg[ids.UserKind](req.OwnerId),
+		CustomFields:   req.AdditionalProperties,
 	}
 	if req.ExpectedCloseDate != nil {
 		in.ExpectedClose = &req.ExpectedCloseDate.Time
@@ -66,6 +67,7 @@ func dealUpdateInput(req crmcontracts.UpdateDealRequest, ifVersion *int64) Updat
 		OwnerID:               idArg[ids.UserKind](req.OwnerId),
 		PartnerOrganizationID: idArg[ids.OrganizationKind](req.PartnerOrgId),
 		IfVersion:             ifVersion,
+		CustomFields:          req.AdditionalProperties,
 	}
 	if req.ExpectedCloseDate != nil {
 		in.ExpectedClose = &req.ExpectedCloseDate.Time

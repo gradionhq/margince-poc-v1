@@ -13,16 +13,41 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
 	pool *pgxpool.Pool
+	// catalog is the fieldcatalog seam (custom-field columns); nil means
+	// no catalog is wired and every read/write runs core-columns-only.
+	catalog fieldcatalog.Reader
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// WithFieldCatalog wires the workspace custom-field catalog in
+// (compose injects modules/customfields' Service here — ADR-0054: a
+// module never imports a sibling), making active cf_* columns
+// participate in deal reads and writes.
+func (s *Store) WithFieldCatalog(catalog fieldcatalog.Reader) *Store {
+	s.catalog = catalog
+	return s
+}
+
+// activeColumns answers the workspace's active custom columns for one
+// object. It runs its own catalog transaction, so callers fetch BEFORE
+// opening their write/read transaction (never inside it — a nested pool
+// acquire under load is a deadlock shape). A store without a wired
+// catalog answers empty: core columns only.
+func (s *Store) activeColumns(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
+	if s.catalog == nil {
+		return nil, nil
+	}
+	return s.catalog.ActiveColumns(ctx, object)
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {

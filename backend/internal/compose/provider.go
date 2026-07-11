@@ -39,7 +39,7 @@ func NewProvider(pool *pgxpool.Pool) *Provider {
 		// The fieldcatalog seam mirrors the HTTP wiring (server.go): the
 		// MCP surface's record verbs carry cf_* values too.
 		people:     people.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		deals:      deals.NewProvider(pool),
+		deals:      deals.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		activities: activities.NewProvider(pool),
 		reports:    newReportEngine(pool),
 	}

@@ -244,7 +244,10 @@ func WithBrief(brain runner.Brain) Option {
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
-	dealsH := deals.NewHandlers(pool)
+	// The fieldcatalog seam for deals (the peopleHandlers wiring in
+	// newServer carries the full note): active cf_* deal columns ride
+	// deal payloads on both surfaces.
+	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
 	// On workspace bootstrap, deals seeds its per-workspace defaults
 	// (the default pipeline) — composed here so neither module imports
 	// the other.

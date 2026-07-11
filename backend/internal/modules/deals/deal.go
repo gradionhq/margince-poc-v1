@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type CreateDealInput struct {
@@ -31,6 +32,10 @@ type CreateDealInput struct {
 	OwnerID        *ids.UserID
 	ExpectedClose  *time.Time
 	Source         string
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (storekit customcolumns).
+	CustomFields map[string]any
 }
 
 func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontracts.Deal, error) {
@@ -54,11 +59,15 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 			return crmcontracts.Deal{}, err
 		}
 	}
+	active, err := s.activeColumns(ctx, "deal")
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = createDealTx(ctx, tx, in, by)
+		out, err = createDealTx(ctx, tx, in, by, active)
 		return err
 	})
 	return out, err
@@ -67,7 +76,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 // createDealTx guards the birth invariants (open stage, future close,
 // visible organization), inserts the deal with its first stage-history
 // row, and runs the write shape — all inside the caller's transaction.
-func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string) (crmcontracts.Deal, error) {
+func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
 	wsID := storekit.MustWorkspace(ctx)
 
 	if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
@@ -95,12 +104,16 @@ func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string)
 	}
 
 	id := ids.New[ids.DealKind]()
+	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 13)
+	args := []any{
+		id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
+		in.OrganizationID, in.OwnerID, in.ExpectedClose, in.Source, by,
+	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
-		                   organization_id, owner_id, expected_close_date, source, captured_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-		id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
-		in.OrganizationID, in.OwnerID, in.ExpectedClose, in.Source, by)
+		                   organization_id, owner_id, expected_close_date, source, captured_by`+cfCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12`+cfHolders+`)`,
+		append(args, cfArgs...)...)
 	if err != nil {
 		// Covers the remaining FKs (pipeline, owner); the stage/pipeline
 		// pairing and the organization target were pre-checked above.
@@ -124,7 +137,7 @@ func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string)
 	if err := storekit.Emit(ctx, tx, auditID, "deal.created", "deal", id.UUID, map[string]any{"name": in.Name}); err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("emit deal.created: %w", err)
 	}
-	out, err := readDeal(ctx, tx, id, storekit.LiveOnly)
+	out, err := readDeal(ctx, tx, id, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("read created deal: %w", err)
 	}
@@ -164,18 +177,28 @@ type UpdateDealInput struct {
 	ForecastCategory      *string
 	WaitUntil             *time.Time
 	IfVersion             *int64
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (storekit customcolumns).
+	CustomFields map[string]any
 }
 
 func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInput) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionUpdate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	active, err := s.activeColumns(ctx, "deal")
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
 	var out crmcontracts.Deal
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
-		current, err := readDeal(ctx, tx, id, storekit.LiveOnly)
+		// current reads WITH active columns so the patch's audit
+		// before-image carries the honest pre-update cf values.
+		current, err := readDeal(ctx, tx, id, storekit.LiveOnly, active)
 		if err != nil {
 			return fmt.Errorf("read deal before update: %w", err)
 		}
@@ -184,6 +207,7 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInpu
 		if err != nil {
 			return err
 		}
+		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 		if p.Empty() {
 			out = current
 			return nil
@@ -199,7 +223,7 @@ func (s *Store) UpdateDeal(ctx context.Context, id ids.DealID, in UpdateDealInpu
 		if err := recordDealUpdate(ctx, tx, id, current, in, p); err != nil {
 			return err
 		}
-		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read updated deal: %w", err)
 		}
 		return nil
@@ -400,12 +424,17 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	active, err := s.activeColumns(ctx, "deal")
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
 	var out crmcontracts.Deal
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
-		if _, err := readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
+		// A liveness probe, not a wire read — no custom columns needed.
+		if _, err := readDeal(ctx, tx, id, storekit.LiveOnly, nil); err != nil {
 			return err
 		}
 		now := time.Now().UTC()
@@ -433,7 +462,7 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 		if err := storekit.Emit(ctx, tx, auditID, "deal.archived", "deal", id.UUID, nil); err != nil {
 			return fmt.Errorf("emit deal.archived: %w", err)
 		}
-		if out, err = readDeal(ctx, tx, id, storekit.IncludeArchived); err != nil {
+		if out, err = readDeal(ctx, tx, id, storekit.IncludeArchived, active); err != nil {
 			return fmt.Errorf("read archived deal: %w", err)
 		}
 		return nil
