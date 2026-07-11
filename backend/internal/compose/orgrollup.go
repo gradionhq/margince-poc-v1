@@ -105,6 +105,8 @@ func weightedValue(baseMinor int64, winProbability int) int64 {
 // an inherently fractional stored FX rate, so unlike weightedValue this
 // runs in float64 — math.Round already implements round-half-away-from-
 // zero, which is the one rounding rule this system uses everywhere.
+// amount_minor magnitudes sit far below float64's ~2^53 exact-integer
+// ceiling, so the multiply-then-round never loses precision here.
 func convertToBase(amountMinor int64, rate float64) int64 {
 	return int64(roundHalfAwayFromZero(float64(amountMinor) * rate))
 }

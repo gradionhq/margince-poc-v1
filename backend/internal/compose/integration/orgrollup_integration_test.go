@@ -312,6 +312,13 @@ func TestOrgRollupRootGates(t *testing.T) {
 		t.Errorf("no organization:read: err = %v, want permission denied", err)
 	}
 
+	// Permission refusal precedes input validation: a caller without
+	// organization:read gets 403 even for a scope outside the vocabulary
+	// — the bogus scope must never be judged before the grant is.
+	if _, err := compose.OrgHierarchyRollup(noPerm, e.Pool, foreign, "subtree"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("no organization:read + bogus scope: err = %v, want permission denied", err)
+	}
+
 	// A scope outside {tree, self} is a refused input, not a default.
 	if _, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, foreign, "subtree"); err == nil {
 		t.Error("invalid scope accepted — must be refused")

@@ -59,15 +59,19 @@ type OrgRollupResult struct {
 // included nodes. Out-of-scope and nonexistent roots both answer
 // ErrNotFound, indistinguishable by design.
 func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID, scope string) (OrgRollupResult, error) {
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		// Permission refusal precedes input validation: a caller without
+		// organization:read gets 403 even for a bogus scope value, matching
+		// arc 1a's gate order — what the caller can't do is decided before
+		// what the caller asked for is judged well-formed.
+		return OrgRollupResult{}, err
+	}
 	if scope != orgRollupScopeTree && scope != orgRollupScopeSelf {
 		// The handler validates the enum at the edge; a value reaching
 		// this far is refused with the wire-ready 422 shape rather than
 		// silently defaulted (the contract names the vocabulary).
 		return OrgRollupResult{}, httperr.Validation("scope", "invalid_enum",
 			fmt.Sprintf("scope must be %q or %q", orgRollupScopeTree, orgRollupScopeSelf))
-	}
-	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		return OrgRollupResult{}, err
 	}
 
 	asOf := time.Now().UTC()
