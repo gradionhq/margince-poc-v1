@@ -93,7 +93,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		wsID := workspaceID(ctx)
 		id := ids.New[ids.PersonKind]()
 		addr := addressColumns(in.Address)
-		cfCols, cfHolders, cfArgs := customInsertFragments(active, in.CustomFields, 16)
+		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 16)
 		args := []any{
 			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID,
 			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
@@ -274,7 +274,7 @@ func (s *Store) UpdatePerson(ctx context.Context, id ids.PersonID, in UpdatePers
 		}
 
 		p := buildPersonPatch(current, in)
-		setCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
+		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 		if in.Social != nil {
 			// The relation replacement rides the person row's version
 			// bump (updated_at below), so If-Match still guards it and

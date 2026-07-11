@@ -56,7 +56,7 @@ func TestSelectSuffix_QuotesIdentifiers(t *testing.T) {
 	}
 }
 
-func TestInsertColumns(t *testing.T) {
+func TestInsertFragments(t *testing.T) {
 	active := []fieldcatalog.Column{
 		col("cf_amount", fieldcatalog.TypeCurrency),
 		col("cf_notes", fieldcatalog.TypeText),
@@ -68,14 +68,12 @@ func TestInsertColumns(t *testing.T) {
 		"cf_unknown": "dropped: no matching active column",
 		"cf_score":   "not-a-number", // present but wrong shape: dropped
 	}
-	cols, placeholders, args := InsertColumns(active, rawExtra, 3)
-	wantCols := []string{`"cf_amount"`, `"cf_notes"`}
-	if !reflect.DeepEqual(cols, wantCols) {
-		t.Fatalf("cols = %v, want %v", cols, wantCols)
+	cols, placeholders, args := InsertFragments(active, rawExtra, 3)
+	if want := `, "cf_amount", "cf_notes"`; cols != want {
+		t.Fatalf("cols = %q, want %q", cols, want)
 	}
-	wantPlaceholders := []string{"$3", "$4"}
-	if !reflect.DeepEqual(placeholders, wantPlaceholders) {
-		t.Fatalf("placeholders = %v, want %v", placeholders, wantPlaceholders)
+	if want := ", $3, $4"; placeholders != want {
+		t.Fatalf("placeholders = %q, want %q", placeholders, want)
 	}
 	wantArgs := []any{int64(1250), "hello"}
 	if !reflect.DeepEqual(args, wantArgs) {
@@ -83,40 +81,63 @@ func TestInsertColumns(t *testing.T) {
 	}
 }
 
-func TestInsertColumns_EmptyWhenNoActiveColumnsOrNoMatches(t *testing.T) {
-	cols, placeholders, args := InsertColumns(nil, map[string]any{"cf_x": "y"}, 1)
-	if cols != nil || placeholders != nil || args != nil {
-		t.Fatalf("no active columns must yield nil everything, got %v %v %v", cols, placeholders, args)
+func TestInsertFragments_EmptyWhenNoActiveColumnsOrNoMatches(t *testing.T) {
+	cols, placeholders, args := InsertFragments(nil, map[string]any{"cf_x": "y"}, 1)
+	if cols != "" || placeholders != "" || args != nil {
+		t.Fatalf("no active columns must yield empty fragments, got %q %q %v", cols, placeholders, args)
 	}
 	active := []fieldcatalog.Column{col("cf_missing", fieldcatalog.TypeText)}
-	cols, placeholders, args = InsertColumns(active, map[string]any{}, 1)
-	if cols != nil || placeholders != nil || args != nil {
-		t.Fatalf("a rawExtra with no matching key must yield nil everything, got %v %v %v", cols, placeholders, args)
+	cols, placeholders, args = InsertFragments(active, map[string]any{}, 1)
+	if cols != "" || placeholders != "" || args != nil {
+		t.Fatalf("a rawExtra with no matching key must yield empty fragments, got %q %q %v", cols, placeholders, args)
 	}
 }
 
-func TestUpdateSetClauses(t *testing.T) {
+func TestSetCustomFieldPatch(t *testing.T) {
 	active := []fieldcatalog.Column{
 		col("cf_active", fieldcatalog.TypeBoolean),
 		col("cf_due", fieldcatalog.TypeDate),
+		col("cf_untouched", fieldcatalog.TypeText),
 	}
 	updates := map[string]any{"cf_active": true, "cf_due": "2026-07-11"}
-	clauses, args := UpdateSetClauses(active, updates, 5)
-	wantClauses := []string{`"cf_active" = $5`, `"cf_due" = $6`}
-	if !reflect.DeepEqual(clauses, wantClauses) {
-		t.Fatalf("clauses = %v, want %v", clauses, wantClauses)
+	current := map[string]any{"cf_active": false}
+
+	p := NewPatch()
+	SetCustomFieldPatch(p, active, updates, current)
+
+	// The SQL SET fragments carry the QUOTED identifier — a cf_ column
+	// name is catalog-derived, and it must never reach the UPDATE text
+	// unquoted (the SelectSuffix/InsertFragments invariant).
+	wantSets := []string{`"cf_active" = $1`, `"cf_due" = $2`}
+	if !reflect.DeepEqual(p.sets, wantSets) {
+		t.Fatalf("sets = %v, want %v", p.sets, wantSets)
 	}
 	wantArgs := []any{true, "2026-07-11"}
-	if !reflect.DeepEqual(args, wantArgs) {
-		t.Fatalf("args = %v, want %v", args, wantArgs)
+	if !reflect.DeepEqual(p.args, wantArgs) {
+		t.Fatalf("args = %v, want %v", p.args, wantArgs)
+	}
+	// The audit diff keeps the BARE wire name: before/after keys are
+	// payload keys, not SQL identifiers.
+	if got := p.Before()["cf_active"]; got != false {
+		t.Fatalf("before[cf_active] = %v, want false", got)
+	}
+	if got := p.After()["cf_due"]; got != "2026-07-11" {
+		t.Fatalf("after[cf_due] = %v, want 2026-07-11", got)
+	}
+	if _, quoted := p.Before()[`"cf_active"`]; quoted {
+		t.Fatal("audit keys must be bare wire names, found a quoted identifier key")
+	}
+	if _, untouched := p.After()["cf_untouched"]; untouched {
+		t.Fatal("a column absent from updates must not enter the patch")
 	}
 }
 
-func TestUpdateSetClauses_MismatchedShapeDropped(t *testing.T) {
+func TestSetCustomFieldPatch_MismatchedShapeDropped(t *testing.T) {
 	active := []fieldcatalog.Column{col("cf_active", fieldcatalog.TypeBoolean)}
-	clauses, args := UpdateSetClauses(active, map[string]any{"cf_active": "not-a-bool"}, 1)
-	if clauses != nil || args != nil {
-		t.Fatalf("a wrong-shaped value must be dropped, got clauses=%v args=%v", clauses, args)
+	p := NewPatch()
+	SetCustomFieldPatch(p, active, map[string]any{"cf_active": "not-a-bool"}, nil)
+	if !p.Empty() {
+		t.Fatalf("a wrong-shaped value must be dropped, got sets=%v", p.sets)
 	}
 }
 

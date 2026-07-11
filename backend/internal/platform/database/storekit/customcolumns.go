@@ -63,13 +63,17 @@ func SelectSuffix(active []fieldcatalog.Column) string {
 	return ", " + strings.Join(parts, ", ")
 }
 
-// InsertColumns returns the quoted column names, $N placeholders, and
-// bind args for each active custom column present (with a type-matching
-// value) in rawExtra. nextParam is the first free bind-parameter index.
-// A key with no active-column match, or whose value shape does not
-// match the column type, is silently dropped (see the package doc's
-// drop-on-mismatch note). Shared by person/organization/deal Create.
-func InsertColumns(active []fieldcatalog.Column, rawExtra map[string]any, nextParam int) (cols, placeholders []string, args []any) {
+// InsertFragments returns the comma-prefixed quoted-column and $N
+// placeholder fragments a literal INSERT statement splices in after its
+// fixed columns/placeholders, plus the bind args — one fragment pair per
+// active custom column present (with a type-matching value) in rawExtra.
+// nextParam is the first free bind-parameter index. A key with no
+// active-column match, or whose value shape does not match the column
+// type, is silently dropped (see the package doc's drop-on-mismatch
+// note). Empty strings when nothing matches, so the caller splices
+// unconditionally. Shared by person/organization/deal Create.
+func InsertFragments(active []fieldcatalog.Column, rawExtra map[string]any, nextParam int) (cols, placeholders string, args []any) {
+	var names, holders []string
 	for _, c := range active {
 		v, present := rawExtra[c.Name]
 		if !present {
@@ -79,19 +83,26 @@ func InsertColumns(active []fieldcatalog.Column, rawExtra map[string]any, nextPa
 		if !ok {
 			continue
 		}
-		cols = append(cols, quoteColumnIdentifier(c.Name))
-		placeholders = append(placeholders, "$"+strconv.Itoa(nextParam+len(args)))
+		names = append(names, quoteColumnIdentifier(c.Name))
+		holders = append(holders, "$"+strconv.Itoa(nextParam+len(args)))
 		args = append(args, sv)
 	}
-	return cols, placeholders, args
+	if len(names) == 0 {
+		return "", "", nil
+	}
+	return ", " + strings.Join(names, ", "), ", " + strings.Join(holders, ", "), args
 }
 
-// UpdateSetClauses returns the "<col> = $N" SET-clause fragments and
-// bind args for each active custom column present (with a type-matching
-// value) in updates. nextParam is the first free bind-parameter index.
-// Same drop-on-mismatch rule as InsertColumns. Shared by
-// person/organization/deal Update for the same reason as InsertColumns.
-func UpdateSetClauses(active []fieldcatalog.Column, updates map[string]any, nextParam int) (clauses []string, args []any) {
+// SetCustomFieldPatch folds an update's custom-field values into the
+// patch — the same Patch that carries core columns, so the audit
+// before/after and the version-guarded UPDATE include cf_ changes with
+// no extra bookkeeping. current is the row's present wire values (the
+// AdditionalProperties map of the pre-update read); an absent key diffs
+// from nil. Same drop-on-mismatch rule as InsertFragments. The SQL SET
+// fragment quotes the catalog-derived identifier (a core column name is
+// a fixed literal in its store's SQL; a cf_ name is data and must never
+// splice in unquoted), while the audit diff keeps the bare wire name.
+func SetCustomFieldPatch(p *Patch, active []fieldcatalog.Column, updates, current map[string]any) {
 	for _, c := range active {
 		v, present := updates[c.Name]
 		if !present {
@@ -101,10 +112,8 @@ func UpdateSetClauses(active []fieldcatalog.Column, updates map[string]any, next
 		if !ok {
 			continue
 		}
-		clauses = append(clauses, quoteColumnIdentifier(c.Name)+" = $"+strconv.Itoa(nextParam+len(args)))
-		args = append(args, sv)
+		p.setQuoted(c.Name, current[c.Name], sv)
 	}
-	return clauses, args
 }
 
 // ScanDests returns fresh scan destinations for active columns, in

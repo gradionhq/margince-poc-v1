@@ -75,7 +75,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 
 		id := ids.New[ids.OrganizationKind]()
 		addr := addressColumns(in.Address)
-		cfCols, cfHolders, cfArgs := customInsertFragments(active, in.CustomFields, 17)
+		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
 		args := []any{
 			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID,
 			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
@@ -250,7 +250,7 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err != nil {
 			return err
 		}
-		setCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
+		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 		if p.Empty() {
 			out = current
 			return nil
