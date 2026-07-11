@@ -21,6 +21,7 @@ stdio protocol channel). Log lines carry the per-request
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--schema-dsn` | `MARGINCE_SCHEMA_DSN` | — | Postgres DSN, **owner** role, for the customfields runtime-DDL pool; unset = `createCustomField`/`updateCustomFieldOptions` answer 501 (decisions/0024) |
 | `--addr` | — | `:8080` | listen address |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
@@ -37,8 +38,9 @@ Operational endpoints (served next to `/v1`):
   restart-loop the process).
 - `/readyz` — readiness: every dependency probe (Postgres; Redis too
   when the relay is inline; the object store when a blobstore is
-  configured; the secret vault when a keyvault is configured) must pass
-  within 2s, else 503 naming the unready dependency.
+  configured; the secret vault when a keyvault is configured; the
+  customfields schema pool when `--schema-dsn` is set) must pass within
+  2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
 
@@ -96,6 +98,26 @@ silent fallback.
 | Env | Default | Meaning |
 |---|---|---|
 | `MARGINCE_KEYVAULT_ROOT_KEY` | — | base64 (std) of 32 bytes; set to enable the vault. Generate: `openssl rand -base64 32` |
+
+## Custom-field schema pool (api) — runtime DDL
+
+`--schema-dsn`/`MARGINCE_SCHEMA_DSN` is the api-only owner-role DSN behind
+`createCustomField` and `updateCustomFieldOptions` (decisions/0024): the
+customfields engine's single chokepoint for a runtime `ALTER TABLE`. Leave
+it unset and both operations answer `501` (`ErrSchemaChangesUnavailable`)
+rather than nil-derefing a pool that was never mounted — `renameCustomField`,
+`retireCustomField`, and `listCustomFields` need no schema pool and always
+work. When set, the api opens a **second** pgxpool sized to `pool_max_conns=3`
+(unless the DSN already sets `pool_max_conns` itself, matching
+`database.NewPool`'s DSN-wins-over-default rule): every schema change is
+serialized behind a transaction-scoped advisory lock keyed on the target
+table, so this pool never runs more than one `ALTER` at a time — a small,
+deliberate footprint next to the app pool's `MaxConns=16` default. The
+transaction runs the DDL as the owner role, then downgrades itself
+(`SET LOCAL ROLE margince_app`) before the catalog/audit write, so the
+credential this DSN names must be the same owner role `cmd/migrate` uses.
+Configured, it also gains the api's `/readyz` `customfields-schema-pool`
+probe.
 
 ## cmd/mcp — the agent tool surface
 
