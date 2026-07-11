@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -313,6 +314,88 @@ func TestRecordHistoryHonestEmptyPageBeyondTheFinalRow(t *testing.T) {
 	}
 	if page.Entries == nil || len(page.Entries) != 0 || page.HasMore || page.NextCursor != "" {
 		t.Fatalf("want honest empty page (non-nil, zero entries, no more): %+v", page)
+	}
+}
+
+// TestRecordHistoryErasureBoundsCollateralScrubs mirrors the field-history
+// sibling (TestFieldHistoryErasureBoundsCollateralScrubs): the eraser's
+// reach is entity-generic — it doesn't stop at the person it was called
+// on. The lead twin shares the subject's email (the tie the eraser
+// follows) and the activity carries the subject's name in its subject
+// line; both create images predate the scrub and both records get their
+// OWN erase tombstone. Record-history must honor the same
+// tombstone-inclusive cut on every collaterally-scrubbed record: every
+// pre-erasure line withheld, the erase line itself served with empty
+// images, and the pre-erasure email never surfacing in any entry.
+func TestRecordHistoryErasureBoundsCollateralScrubs(t *testing.T) {
+	e := Setup(t)
+	personID := e.SeedPerson(t, "Selma Subject", nil)
+	const twinEmail = "selma.twin@example.test"
+	// The subject's address is what ties the twin to the person: the
+	// eraser wipes any lead carrying one of the subject's emails.
+	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
+		 VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'manual', 'human:x')`,
+		personID, twinEmail)
+	leadID := seedLead(t, e, "Selma Subject", twinEmail, nil)
+
+	activity, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+		Kind: "note", Subject: strPtr("Call with Selma"), Source: "manual",
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: personID}},
+	})
+	if err != nil {
+		t.Fatalf("log activity: %v", err)
+	}
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+		t.Fatalf("erase: %v", err)
+	}
+
+	targets := []struct {
+		entityType string
+		id         ids.UUID
+	}{
+		{"lead", leadID.UUID},
+		{"activity", ids.UUID(activity.Id)},
+	}
+	for _, target := range targets {
+		page, err := privacy.ListRecordHistory(e.Admin(), e.Pool, privacy.RecordHistoryFilter{
+			EntityType: target.entityType, EntityID: target.id,
+		})
+		if err != nil {
+			t.Fatalf("%s record-history: %v", target.entityType, err)
+		}
+		// Tombstone-inclusive boundary: exactly the collateral erase line
+		// survives, every pre-erasure line (the twin's create, the
+		// activity's create) is withheld.
+		if len(page.Entries) != 1 || page.HasMore || page.NextCursor != "" {
+			t.Fatalf("%s: entries = %d (has_more=%v cursor=%q), want exactly the tombstone: %+v",
+				target.entityType, len(page.Entries), page.HasMore, page.NextCursor, page.Entries)
+		}
+		tomb := page.Entries[0]
+		if tomb.Action != "erase" {
+			t.Fatalf("%s surviving line action = %q, want erase", target.entityType, tomb.Action)
+		}
+		if len(tomb.Before) != 0 || len(tomb.After) != 0 {
+			t.Errorf("%s tombstone images must be empty (meta rides evidence): before %v after %v",
+				target.entityType, tomb.Before, tomb.After)
+		}
+		// Belt-and-braces on the concrete PII, independent of the entry
+		// count above: the pre-erasure email must not surface in ANY
+		// entry's actor id, summary, or before/after images.
+		for _, entry := range page.Entries {
+			if strings.Contains(entry.Summary, twinEmail) || strings.Contains(entry.ActorID, twinEmail) {
+				t.Errorf("%s entry %s leaked the erased email in actor/summary: %+v",
+					target.entityType, entry.Action, entry)
+			}
+			for field, images := range map[string]map[string]any{"before": entry.Before, "after": entry.After} {
+				for k, v := range images {
+					if s, ok := v.(string); ok && strings.Contains(s, twinEmail) {
+						t.Errorf("%s entry %s leaked the erased email in %s[%s]: %v",
+							target.entityType, entry.Action, field, k, v)
+					}
+				}
+			}
+		}
 	}
 }
 
