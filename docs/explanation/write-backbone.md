@@ -218,10 +218,31 @@ already committed:
 
 ## 5. The consumer side — groups & dedupe
 
-`internal/platform/events/subscriber.go` + `dedupe.go`. Redis consumer groups (seven in V1:
-`cg:context-graph`, `cg:overnight-agent`, `cg:workflows`, `cg:capture`, `cg:flow-bridge`,
-`cg:read-model`, `cg:audit-stream`) each see every event once and scale horizontally inside the group.
-Because Redis groups partition only by stream, the workspace and actor filters run in-process.
+`internal/platform/events/subscriber.go` + `dedupe.go`. The catalog declares **seven** V1 consumer
+groups; each sees every event once and scales horizontally inside the group. Because Redis groups
+partition only by stream, the workspace and actor filters run in-process.
+
+**What each group does — and which are live.** Only **three** are wired to a subscriber today, all in
+`cmd/worker`; the other four are catalog-declared placeholders with no consumer yet (honest status —
+the streams carry events, but nothing reads these groups):
+
+| Group | Job | Status |
+|---|---|---|
+| `cg:context-graph` | maintain the pgvector retrieval embeddings as records change | **live** (worker; only when an embedder model is configured) |
+| `cg:workflows` | dispatch the automation/workflow engine off matching events | **live** (worker) |
+| `cg:overnight-agent` | on `approval.decided`, resume the parked Surface-B run with the human's answer | **live** (worker; only when a model is configured) |
+| `cg:capture` | (reserved) | declared, no subscriber |
+| `cg:flow-bridge` | (reserved) | declared, no subscriber |
+| `cg:read-model` | (reserved) read-model projections | declared, no subscriber |
+| `cg:audit-stream` | (reserved) the agent-action audit slice | declared, no subscriber |
+
+**The workflow seam** (`ports/workflow`) is how `cg:workflows` reacts without a visual builder:
+a `Handler` declares a `Spec` (name + trigger + tier), a pure `Match` predicate, a `Plan` that computes
+a **typed `Effect`** *without applying it* (so dry-run/diff preview work), and an `Apply` that executes
+it — 🟢 effects auto-execute, 🟡 effects need an approval token — idempotent on the handler's
+idempotency key. Effects are a **closed** action set (`create_record`, `update_record`, `assign_owner`,
+`advance_deal`, `send_email`, … — the anti-builder guard). `compose.NewWorkflowEngine` registers the
+shipped starter workflows plus the system ones (lead routing/scoring).
 
 Every handler is wrapped in `events.Dedupe`:
 

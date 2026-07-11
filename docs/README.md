@@ -33,8 +33,10 @@ maps the codebase and links everything below.
 - [architecture.md](explanation/architecture.md) — the module DAG, the spine shapes, tenancy-as-structure.
 - [composition-layer.md](explanation/composition-layer.md) — how `internal/compose/` boots and where every cross-module edge is wired.
 - [contract-first.md](explanation/contract-first.md) — how code is generated from `crm.yaml`.
-- [authorization.md](explanation/authorization.md) — why the auth check lives at the store entry point.
-- [write-backbone.md](explanation/write-backbone.md) — storekit, `audit_log`, and the outbox, in depth.
+- [authorization.md](explanation/authorization.md) — why the auth check lives at the store entry point; the RLS backstop; what a passport is.
+- [write-backbone.md](explanation/write-backbone.md) — storekit, `audit_log`, the outbox, and who consumes the events.
+- [agent-surface.md](explanation/agent-surface.md) — the Surface-B reasoning loop and the model runtime.
+- [privacy-and-consent.md](explanation/privacy-and-consent.md) — the consent gate and the GDPR engines (erasure / SAR / retention).
 
 ## Reading order for a new contributor
 

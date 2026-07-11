@@ -13,7 +13,7 @@ The same module behavior is reached by:
 
 - the REST surface (`internal/compose/server.go`),
 - the MCP tool surface (`cmd/mcp`),
-- agent runs (the Surface-B runner acting under a passport),
+- agent runs (the Surface-B runner acting under a passport — see [agent-surface.md](agent-surface.md)),
 - workers (retention, reconciliation, the close-date sweep, the outbox relay's consumers),
 - compose orchestration flows (briefs, reports, exports, enrichment).
 

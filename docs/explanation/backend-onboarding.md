@@ -25,7 +25,8 @@ Deep dives (read when you touch that area):
 **[reference/modules.md](../reference/modules.md)** (what each of the 14 modules owns) ·
 **[reference/platform-toolkit.md](../reference/platform-toolkit.md)** (the reusable utilities — reach
 for these, don't reinvent) · **[explanation/write-backbone.md](write-backbone.md)** (storekit,
-`audit_log`, the outbox, in depth).
+`audit_log`, the outbox) · **[explanation/agent-surface.md](agent-surface.md)** (the reasoning loop +
+model runtime) · **[explanation/privacy-and-consent.md](privacy-and-consent.md)** (the GDPR engines).
 
 Reference, reach for as needed: **[reference/make-targets.md](../reference/make-targets.md)** ·
 **[reference/configuration.md](../reference/configuration.md)** (every flag/env) ·
