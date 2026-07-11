@@ -1633,6 +1633,124 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/custom-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List custom fields for an object (admin read; includes retired by default).
+         * @description CUSTOM-FIELDS-WIRE-1. Unlike a normal resource list, this admin view returns both
+         *     active and retired fields by default — `status` narrows to one lifecycle state.
+         *     Backs the custom-fields admin field table.
+         */
+        get: operations["listCustomFields"];
+        put?: never;
+        /**
+         * Define a new custom field on an existing core object (🟡 — a schema change).
+         * @description CUSTOM-FIELDS-WIRE-2. Runs the governed engine's single-transaction add: schema
+         *     change + catalog row + one audit entry land or roll back together. Always 🟡 —
+         *     a schema change is never 🟢 — so an agent caller must supply `X-Approval-Token`,
+         *     exactly like `advanceDeal`'s closed-won transition; a human's direct call is
+         *     itself the approval. `column_name` is server-derived and never client-supplied —
+         *     immutable once live. When the requested `label`/`type`/`object` combination is
+         *     judged structural — a new object, a relationship, or logic, never one of the six
+         *     closed types on one of the five closed objects — the request is refused with a
+         *     `structural_change_refused` 422 (see the example below) and nothing is written:
+         *     a structural change ships as a reviewed source change, not a runtime column.
+         */
+        post: operations["createCustomField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/custom-fields/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a custom field's display label (🟢 — not a schema change).
+         * @description CUSTOM-FIELDS-WIRE-3. Audited catalog `label` update only; `column_name` never
+         *     moves — the physical column identity is stable across rename. Merge-PATCH:
+         *     `column_name`, `object`, and `type` are absent from the request schema entirely.
+         */
+        patch: operations["renameCustomField"];
+        trace?: never;
+    };
+    "/custom-fields/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire (soft-retire) a custom field — irreversible-feeling, confirm-first.
+         * @description CUSTOM-FIELDS-WIRE-4. Sets `status=retired`; hides the field from the API and
+         *     filtering while the column and every value in it are preserved — the engine never
+         *     drops a column as a side effect (CUSTOM-FIELDS-AC-13). 🟡 (mirrors `archivePerson`'s
+         *     posture: an irreversible-feeling state change users must confirm) — an agent caller
+         *     must supply `X-Approval-Token`. Not the generic archive shape: this is a status flip
+         *     on a still-fetchable row, not `archived_at` (which stays null).
+         */
+        post: operations["retireCustomField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/custom-fields/{id}/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit a picklist custom field's allowed options (🟡 — regenerates the column's CHECK).
+         * @description CUSTOM-FIELDS-PARAM-5. Only valid for `type=picklist` fields (422 `not_picklist`
+         *     otherwise). Replaces the catalog's `options` array and regenerates the physical
+         *     column's CHECK constraint from the new set via the governed engine (the same
+         *     owner-ALTER-then-downgrade transaction shape as `createCustomField` — this is the
+         *     one DDL path rename/retire never touch). Removing every option is refused (422,
+         *     detail "A picklist needs at least one option") — a picklist always keeps at least
+         *     one allowed value. 🟡 like `retireCustomField`: this mutates a schema-adjacent CHECK
+         *     constraint, so an agent caller must supply `X-Approval-Token`.
+         */
+        patch: operations["updateCustomFieldOptions"];
+        trace?: never;
+    };
     "/consent-purposes": {
         parameters: {
             query?: never;
@@ -3996,6 +4114,91 @@ export interface components {
         FieldHistoryListResponse: {
             data: components["schemas"]["FieldHistoryEntry"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description A workspace-defined runtime field on an existing core object. Mirrors the
+         *     `custom_field` catalog table — the system-of-record for every runtime-added
+         *     column (CUSTOM-FIELDS-SCHEMA-1). `column_name` is the physical `cf_`-prefixed
+         *     identifier, stable across rename; `status=retired` hides the field from the API
+         *     and filtering while the column and its values are preserved (soft retire, never
+         *     a column drop — CUSTOM-FIELDS-AC-13). Deliberately carries no
+         *     `source`/`captured_by` — the catalog row itself has no such columns; provenance
+         *     on create lives in the audit row.
+         */
+        CustomField: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /**
+             * @description The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
+             * @enum {string}
+             */
+            object: "person" | "organization" | "deal" | "lead" | "activity";
+            /** @description Display label; the only thing a rename updates. */
+            label: string;
+            /** @description Admin-facing key the column_name derives from. */
+            slug: string;
+            /**
+             * @description The closed set of six scalar types (CUSTOM-FIELDS-PARAM-1). Immutable once created.
+             * @enum {string}
+             */
+            type: "text" | "number" | "date" | "currency" | "picklist" | "boolean";
+            /**
+             * @description retired = soft: hidden from the API and filtering, column and values preserved (CUSTOM-FIELDS-AC-13).
+             * @enum {string}
+             */
+            status: "active" | "retired";
+            /** @description Server-derived, `cf_`-prefixed, slug-derived physical column identifier (CUSTOM-FIELDS-PARAM-3) — never client-supplied, immutable once live, stable across rename. */
+            readonly column_name: string;
+            /** @description ISO-4217 currency code; present when `type=currency`, null otherwise. */
+            currency?: string | null;
+            /** @description Allowed picklist values; present (non-empty) when `type=picklist` (CUSTOM-FIELDS-PARAM-5), null otherwise. */
+            options?: string[] | null;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /**
+             * Format: date-time
+             * @description Base envelope field (DM-CONV-3); stays null even when `status=retired` — retire is a status flip, not an archive.
+             */
+            archived_at?: string | null;
+            version?: components["schemas"]["RowVersion"];
+        };
+        CustomFieldListResponse: {
+            data: components["schemas"]["CustomField"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description 🟡 always (a schema change is never 🟢) — see `createCustomField`. `currency` is
+         *     required when `type=currency` (pattern `^[A-Z]{3}$`); `options` is required
+         *     non-empty when `type=picklist` (CUSTOM-FIELDS-PARAM-5). Neither conditional
+         *     requirement is expressed as an OpenAPI 3.1 `oneOf`/`if`-`then` here — a prose note
+         *     plus a 422 on mismatch is sufficient, matching how Offer/Product money fields are
+         *     documented elsewhere in this contract.
+         */
+        CreateCustomFieldRequest: {
+            /** @enum {string} */
+            object: "person" | "organization" | "deal" | "lead" | "activity";
+            label: string;
+            /** @enum {string} */
+            type: "text" | "number" | "date" | "currency" | "picklist" | "boolean";
+            currency?: string | null;
+            options?: string[] | null;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Merge-PATCH; `label` only — `column_name`, `object`, and `type` are absent from this request schema entirely (immutable, not just ignored if sent). */
+        RenameCustomFieldRequest: {
+            label?: string;
+        };
+        /** @description CUSTOM-FIELDS-PARAM-5. Replaces the picklist's full allowed-option set (ordered); at least one option is required — an empty array is rejected (422). */
+        UpdateCustomFieldOptionsRequest: {
+            options: string[];
         };
         /**
          * @description One rendered history line for a record mutation. `before`/`after` are
@@ -9127,6 +9330,290 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listCustomFields: {
+        parameters: {
+            query: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
+                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
+                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
+                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
+                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Target core object (CUSTOM-FIELDS-PARAM-2). */
+                object: "person" | "organization" | "deal" | "lead" | "activity";
+                /** @description Filter to one lifecycle state. Omitted returns both active and retired — this admin list intentionally does not default-exclude retired rows. */
+                status?: "active" | "retired";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of custom fields for the given object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomFieldListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createCustomField: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCustomFieldRequest"];
+            };
+        };
+        responses: {
+            /** @description The newly created custom field. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description RBAC denied, or an agent 🟡 create attempted without an approval token. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Field definition failed validation, or is judged structural (`structural_change_refused`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    renameCustomField: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameCustomFieldRequest"];
+            };
+        };
+        responses: {
+            /** @description The renamed custom field. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    retireCustomField: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The retired custom field (`status: "retired"`, `archived_at` still null). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description RBAC denied, or an agent 🟡 retire attempted without an approval token. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateCustomFieldOptions: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCustomFieldOptionsRequest"];
+            };
+        };
+        responses: {
+            /** @description The custom field with its regenerated option set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomField"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description RBAC denied, or an agent 🟡 options edit attempted without an approval token. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The field is not a picklist, or the edit would remove every option. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listConsentPurposes: {

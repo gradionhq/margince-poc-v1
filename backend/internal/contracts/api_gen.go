@@ -735,6 +735,63 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	}
 }
 
+// Defines values for CreateCustomFieldRequestObject.
+const (
+	CreateCustomFieldRequestObjectActivity     CreateCustomFieldRequestObject = "activity"
+	CreateCustomFieldRequestObjectDeal         CreateCustomFieldRequestObject = "deal"
+	CreateCustomFieldRequestObjectLead         CreateCustomFieldRequestObject = "lead"
+	CreateCustomFieldRequestObjectOrganization CreateCustomFieldRequestObject = "organization"
+	CreateCustomFieldRequestObjectPerson       CreateCustomFieldRequestObject = "person"
+)
+
+// Valid indicates whether the value is a known member of the CreateCustomFieldRequestObject enum.
+func (e CreateCustomFieldRequestObject) Valid() bool {
+	switch e {
+	case CreateCustomFieldRequestObjectActivity:
+		return true
+	case CreateCustomFieldRequestObjectDeal:
+		return true
+	case CreateCustomFieldRequestObjectLead:
+		return true
+	case CreateCustomFieldRequestObjectOrganization:
+		return true
+	case CreateCustomFieldRequestObjectPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateCustomFieldRequestType.
+const (
+	CreateCustomFieldRequestTypeBoolean  CreateCustomFieldRequestType = "boolean"
+	CreateCustomFieldRequestTypeCurrency CreateCustomFieldRequestType = "currency"
+	CreateCustomFieldRequestTypeDate     CreateCustomFieldRequestType = "date"
+	CreateCustomFieldRequestTypeNumber   CreateCustomFieldRequestType = "number"
+	CreateCustomFieldRequestTypePicklist CreateCustomFieldRequestType = "picklist"
+	CreateCustomFieldRequestTypeText     CreateCustomFieldRequestType = "text"
+)
+
+// Valid indicates whether the value is a known member of the CreateCustomFieldRequestType enum.
+func (e CreateCustomFieldRequestType) Valid() bool {
+	switch e {
+	case CreateCustomFieldRequestTypeBoolean:
+		return true
+	case CreateCustomFieldRequestTypeCurrency:
+		return true
+	case CreateCustomFieldRequestTypeDate:
+		return true
+	case CreateCustomFieldRequestTypeNumber:
+		return true
+	case CreateCustomFieldRequestTypePicklist:
+		return true
+	case CreateCustomFieldRequestTypeText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateDataSubjectRequestKind.
 const (
 	CreateDataSubjectRequestKindAccess  CreateDataSubjectRequestKind = "access"
@@ -1161,6 +1218,81 @@ func (e CreateVoiceProfileRequestScope) Valid() bool {
 	case CreateVoiceProfileRequestScopeUser:
 		return true
 	case CreateVoiceProfileRequestScopeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CustomFieldObject.
+const (
+	CustomFieldObjectActivity     CustomFieldObject = "activity"
+	CustomFieldObjectDeal         CustomFieldObject = "deal"
+	CustomFieldObjectLead         CustomFieldObject = "lead"
+	CustomFieldObjectOrganization CustomFieldObject = "organization"
+	CustomFieldObjectPerson       CustomFieldObject = "person"
+)
+
+// Valid indicates whether the value is a known member of the CustomFieldObject enum.
+func (e CustomFieldObject) Valid() bool {
+	switch e {
+	case CustomFieldObjectActivity:
+		return true
+	case CustomFieldObjectDeal:
+		return true
+	case CustomFieldObjectLead:
+		return true
+	case CustomFieldObjectOrganization:
+		return true
+	case CustomFieldObjectPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CustomFieldStatus.
+const (
+	CustomFieldStatusActive  CustomFieldStatus = "active"
+	CustomFieldStatusRetired CustomFieldStatus = "retired"
+)
+
+// Valid indicates whether the value is a known member of the CustomFieldStatus enum.
+func (e CustomFieldStatus) Valid() bool {
+	switch e {
+	case CustomFieldStatusActive:
+		return true
+	case CustomFieldStatusRetired:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CustomFieldType.
+const (
+	CustomFieldTypeBoolean  CustomFieldType = "boolean"
+	CustomFieldTypeCurrency CustomFieldType = "currency"
+	CustomFieldTypeDate     CustomFieldType = "date"
+	CustomFieldTypeNumber   CustomFieldType = "number"
+	CustomFieldTypePicklist CustomFieldType = "picklist"
+	CustomFieldTypeText     CustomFieldType = "text"
+)
+
+// Valid indicates whether the value is a known member of the CustomFieldType enum.
+func (e CustomFieldType) Valid() bool {
+	switch e {
+	case CustomFieldTypeBoolean:
+		return true
+	case CustomFieldTypeCurrency:
+		return true
+	case CustomFieldTypeDate:
+		return true
+	case CustomFieldTypeNumber:
+		return true
+	case CustomFieldTypePicklist:
+		return true
+	case CustomFieldTypeText:
 		return true
 	default:
 		return false
@@ -2420,22 +2552,22 @@ func (e SignalWarmContactRelationshipKind) Valid() bool {
 
 // Defines values for SignalWarmContactStrengthBucket.
 const (
-	Moderate SignalWarmContactStrengthBucket = "moderate"
-	None     SignalWarmContactStrengthBucket = "none"
-	Strong   SignalWarmContactStrengthBucket = "strong"
-	Weak     SignalWarmContactStrengthBucket = "weak"
+	SignalWarmContactStrengthBucketModerate SignalWarmContactStrengthBucket = "moderate"
+	SignalWarmContactStrengthBucketNone     SignalWarmContactStrengthBucket = "none"
+	SignalWarmContactStrengthBucketStrong   SignalWarmContactStrengthBucket = "strong"
+	SignalWarmContactStrengthBucketWeak     SignalWarmContactStrengthBucket = "weak"
 )
 
 // Valid indicates whether the value is a known member of the SignalWarmContactStrengthBucket enum.
 func (e SignalWarmContactStrengthBucket) Valid() bool {
 	switch e {
-	case Moderate:
+	case SignalWarmContactStrengthBucketModerate:
 		return true
-	case None:
+	case SignalWarmContactStrengthBucketNone:
 		return true
-	case Strong:
+	case SignalWarmContactStrengthBucketStrong:
 		return true
-	case Weak:
+	case SignalWarmContactStrengthBucketWeak:
 		return true
 	default:
 		return false
@@ -3165,6 +3297,51 @@ func (e BookMeetingJSONBodyLinksEntityType) Valid() bool {
 	case BookMeetingJSONBodyLinksEntityTypeOrganization:
 		return true
 	case BookMeetingJSONBodyLinksEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListCustomFieldsParamsObject.
+const (
+	ListCustomFieldsParamsObjectActivity     ListCustomFieldsParamsObject = "activity"
+	ListCustomFieldsParamsObjectDeal         ListCustomFieldsParamsObject = "deal"
+	ListCustomFieldsParamsObjectLead         ListCustomFieldsParamsObject = "lead"
+	ListCustomFieldsParamsObjectOrganization ListCustomFieldsParamsObject = "organization"
+	ListCustomFieldsParamsObjectPerson       ListCustomFieldsParamsObject = "person"
+)
+
+// Valid indicates whether the value is a known member of the ListCustomFieldsParamsObject enum.
+func (e ListCustomFieldsParamsObject) Valid() bool {
+	switch e {
+	case ListCustomFieldsParamsObjectActivity:
+		return true
+	case ListCustomFieldsParamsObjectDeal:
+		return true
+	case ListCustomFieldsParamsObjectLead:
+		return true
+	case ListCustomFieldsParamsObjectOrganization:
+		return true
+	case ListCustomFieldsParamsObjectPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListCustomFieldsParamsStatus.
+const (
+	Active  ListCustomFieldsParamsStatus = "active"
+	Retired ListCustomFieldsParamsStatus = "retired"
+)
+
+// Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
+func (e ListCustomFieldsParamsStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Retired:
 		return true
 	default:
 		return false
@@ -4234,6 +4411,28 @@ type CreateConsentPurposeRequest struct {
 	RequiresDoubleOptIn *bool  `json:"requires_double_opt_in,omitempty"`
 }
 
+// CreateCustomFieldRequest 🟡 always (a schema change is never 🟢) — see `createCustomField`. `currency` is
+// required when `type=currency` (pattern `^[A-Z]{3}$`); `options` is required
+// non-empty when `type=picklist` (CUSTOM-FIELDS-PARAM-5). Neither conditional
+// requirement is expressed as an OpenAPI 3.1 `oneOf`/`if`-`then` here — a prose note
+// plus a 422 on mismatch is sufficient, matching how Offer/Product money fields are
+// documented elsewhere in this contract.
+type CreateCustomFieldRequest struct {
+	Currency             *string                        `json:"currency,omitempty"`
+	Label                string                         `json:"label"`
+	Object               CreateCustomFieldRequestObject `json:"object"`
+	Options              *[]string                      `json:"options,omitempty"`
+	Source               string                         `json:"source"`
+	Type                 CreateCustomFieldRequestType   `json:"type"`
+	AdditionalProperties map[string]interface{}         `json:"-"`
+}
+
+// CreateCustomFieldRequestObject defines model for CreateCustomFieldRequest.Object.
+type CreateCustomFieldRequestObject string
+
+// CreateCustomFieldRequestType defines model for CreateCustomFieldRequest.Type.
+type CreateCustomFieldRequestType string
+
 // CreateDataSubjectRequest defines model for CreateDataSubjectRequest.
 type CreateDataSubjectRequest struct {
 	AssigneeId *openapi_types.UUID          `json:"assignee_id,omitempty"`
@@ -4496,6 +4695,70 @@ type CreateVoiceProfileRequest struct {
 
 // CreateVoiceProfileRequestScope Defaults to user (owned by the caller).
 type CreateVoiceProfileRequestScope string
+
+// CustomField A workspace-defined runtime field on an existing core object. Mirrors the
+// `custom_field` catalog table — the system-of-record for every runtime-added
+// column (CUSTOM-FIELDS-SCHEMA-1). `column_name` is the physical `cf_`-prefixed
+// identifier, stable across rename; `status=retired` hides the field from the API
+// and filtering while the column and its values are preserved (soft retire, never
+// a column drop — CUSTOM-FIELDS-AC-13). Deliberately carries no
+// `source`/`captured_by` — the catalog row itself has no such columns; provenance
+// on create lives in the audit row.
+type CustomField struct {
+	// ArchivedAt Base envelope field (DM-CONV-3); stays null even when `status=retired` — retire is a status flip, not an archive.
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+
+	// ColumnName Server-derived, `cf_`-prefixed, slug-derived physical column identifier (CUSTOM-FIELDS-PARAM-3) — never client-supplied, immutable once live, stable across rename.
+	ColumnName *string            `json:"column_name,omitempty"`
+	CreatedAt  time.Time          `json:"created_at"`
+	CreatedBy  openapi_types.UUID `json:"created_by"`
+
+	// Currency ISO-4217 currency code; present when `type=currency`, null otherwise.
+	Currency *string            `json:"currency,omitempty"`
+	Id       openapi_types.UUID `json:"id"`
+
+	// Label Display label; the only thing a rename updates.
+	Label string `json:"label"`
+
+	// Object The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
+	Object CustomFieldObject `json:"object"`
+
+	// Options Allowed picklist values; present (non-empty) when `type=picklist` (CUSTOM-FIELDS-PARAM-5), null otherwise.
+	Options *[]string `json:"options,omitempty"`
+
+	// Slug Admin-facing key the column_name derives from.
+	Slug string `json:"slug"`
+
+	// Status retired = soft: hidden from the API and filtering, column and values preserved (CUSTOM-FIELDS-AC-13).
+	Status CustomFieldStatus `json:"status"`
+
+	// Type The closed set of six scalar types (CUSTOM-FIELDS-PARAM-1). Immutable once created.
+	Type      CustomFieldType `json:"type"`
+	UpdatedAt time.Time       `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version     *RowVersion        `json:"version,omitempty"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// CustomFieldObject The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
+type CustomFieldObject string
+
+// CustomFieldStatus retired = soft: hidden from the API and filtering, column and values preserved (CUSTOM-FIELDS-AC-13).
+type CustomFieldStatus string
+
+// CustomFieldType The closed set of six scalar types (CUSTOM-FIELDS-PARAM-1). Immutable once created.
+type CustomFieldType string
+
+// CustomFieldListResponse defines model for CustomFieldListResponse.
+type CustomFieldListResponse struct {
+	Data []CustomField `json:"data"`
+	Page PageInfo      `json:"page"`
+}
 
 // DataSubjectRequest A GDPR data-subject request (Art. 15/16/17) tracked to completion (B-E11.30; data-model §12.5).
 type DataSubjectRequest struct {
@@ -5701,6 +5964,11 @@ type RelationshipStrength struct {
 // RelationshipStrengthBucket Coarse band derived from score for display.
 type RelationshipStrengthBucket string
 
+// RenameCustomFieldRequest Merge-PATCH; `label` only — `column_name`, `object`, and `type` are absent from this request schema entirely (immutable, not just ignored if sent).
+type RenameCustomFieldRequest struct {
+	Label *string `json:"label,omitempty"`
+}
+
 // ReportDerivation The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
 // the exact filter+group+aggregate plus the underlying source rows, which reconcile
 // exactly to the explained aggregate (AC-X1).
@@ -6084,6 +6352,11 @@ type UpdateAutomationRequest struct {
 
 // UpdateAutomationRequestStatus defines model for UpdateAutomationRequest.Status.
 type UpdateAutomationRequestStatus string
+
+// UpdateCustomFieldOptionsRequest CUSTOM-FIELDS-PARAM-5. Replaces the picklist's full allowed-option set (ordered); at least one option is required — an empty array is rejected (422).
+type UpdateCustomFieldOptionsRequest struct {
+	Options []string `json:"options"`
+}
 
 // UpdateDataSubjectRequest defines model for UpdateDataSubjectRequest.
 type UpdateDataSubjectRequest struct {
@@ -6749,6 +7022,121 @@ type ListConsentPurposesParams struct {
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListCustomFieldsParams defines parameters for ListCustomFields.
+type ListCustomFieldsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
+	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
+	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
+	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
+	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// Object Target core object (CUSTOM-FIELDS-PARAM-2).
+	Object ListCustomFieldsParamsObject `form:"object" json:"object"`
+
+	// Status Filter to one lifecycle state. Omitted returns both active and retired — this admin list intentionally does not default-exclude retired rows.
+	Status *ListCustomFieldsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListCustomFieldsParamsObject defines parameters for ListCustomFields.
+type ListCustomFieldsParamsObject string
+
+// ListCustomFieldsParamsStatus defines parameters for ListCustomFields.
+type ListCustomFieldsParamsStatus string
+
+// CreateCustomFieldParams defines parameters for CreateCustomField.
+type CreateCustomFieldParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// RenameCustomFieldParams defines parameters for RenameCustomField.
+type RenameCustomFieldParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateCustomFieldOptionsParams defines parameters for UpdateCustomFieldOptions.
+type UpdateCustomFieldOptionsParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// RetireCustomFieldParams defines parameters for RetireCustomField.
+type RetireCustomFieldParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
 // ListDataSubjectRequestsParams defines parameters for ListDataSubjectRequests.
@@ -7858,6 +8246,15 @@ type ConnectImapJSONRequestBody = ImapConnectRequest
 // CreateConsentPurposeJSONRequestBody defines body for CreateConsentPurpose for application/json ContentType.
 type CreateConsentPurposeJSONRequestBody = CreateConsentPurposeRequest
 
+// CreateCustomFieldJSONRequestBody defines body for CreateCustomField for application/json ContentType.
+type CreateCustomFieldJSONRequestBody = CreateCustomFieldRequest
+
+// RenameCustomFieldJSONRequestBody defines body for RenameCustomField for application/json ContentType.
+type RenameCustomFieldJSONRequestBody = RenameCustomFieldRequest
+
+// UpdateCustomFieldOptionsJSONRequestBody defines body for UpdateCustomFieldOptions for application/json ContentType.
+type UpdateCustomFieldOptionsJSONRequestBody = UpdateCustomFieldOptionsRequest
+
 // CreateDataSubjectRequestJSONRequestBody defines body for CreateDataSubjectRequest for application/json ContentType.
 type CreateDataSubjectRequestJSONRequestBody = CreateDataSubjectRequest
 
@@ -8140,6 +8537,141 @@ func (a Address) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'region': %w", err)
 		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for CreateCustomFieldRequest. Returns the specified
+// element and whether it was found
+func (a CreateCustomFieldRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for CreateCustomFieldRequest
+func (a *CreateCustomFieldRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for CreateCustomFieldRequest to handle AdditionalProperties
+func (a *CreateCustomFieldRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["currency"]; found {
+		err = json.Unmarshal(raw, &a.Currency)
+		if err != nil {
+			return fmt.Errorf("error reading 'currency': %w", err)
+		}
+		delete(object, "currency")
+	}
+
+	if raw, found := object["label"]; found {
+		err = json.Unmarshal(raw, &a.Label)
+		if err != nil {
+			return fmt.Errorf("error reading 'label': %w", err)
+		}
+		delete(object, "label")
+	}
+
+	if raw, found := object["object"]; found {
+		err = json.Unmarshal(raw, &a.Object)
+		if err != nil {
+			return fmt.Errorf("error reading 'object': %w", err)
+		}
+		delete(object, "object")
+	}
+
+	if raw, found := object["options"]; found {
+		err = json.Unmarshal(raw, &a.Options)
+		if err != nil {
+			return fmt.Errorf("error reading 'options': %w", err)
+		}
+		delete(object, "options")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["type"]; found {
+		err = json.Unmarshal(raw, &a.Type)
+		if err != nil {
+			return fmt.Errorf("error reading 'type': %w", err)
+		}
+		delete(object, "type")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for CreateCustomFieldRequest to handle AdditionalProperties
+func (a CreateCustomFieldRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Currency != nil {
+		object["currency"], err = json.Marshal(a.Currency)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'currency': %w", err)
+		}
+	}
+
+	object["label"], err = json.Marshal(a.Label)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'label': %w", err)
+	}
+
+	object["object"], err = json.Marshal(a.Object)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'object': %w", err)
+	}
+
+	if a.Options != nil {
+		object["options"], err = json.Marshal(a.Options)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'options': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	object["type"], err = json.Marshal(a.Type)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'type': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -12054,6 +12586,21 @@ type ServerInterface interface {
 	// Define a consent purpose. 🟢 admin write.
 	// (POST /consent-purposes)
 	CreateConsentPurpose(w http.ResponseWriter, r *http.Request)
+	// List custom fields for an object (admin read; includes retired by default).
+	// (GET /custom-fields)
+	ListCustomFields(w http.ResponseWriter, r *http.Request, params ListCustomFieldsParams)
+	// Define a new custom field on an existing core object (🟡 — a schema change).
+	// (POST /custom-fields)
+	CreateCustomField(w http.ResponseWriter, r *http.Request, params CreateCustomFieldParams)
+	// Rename a custom field's display label (🟢 — not a schema change).
+	// (PATCH /custom-fields/{id})
+	RenameCustomField(w http.ResponseWriter, r *http.Request, id Id, params RenameCustomFieldParams)
+	// Edit a picklist custom field's allowed options (🟡 — regenerates the column's CHECK).
+	// (PATCH /custom-fields/{id}/options)
+	UpdateCustomFieldOptions(w http.ResponseWriter, r *http.Request, id Id, params UpdateCustomFieldOptionsParams)
+	// Retire (soft-retire) a custom field — irreversible-feeling, confirm-first.
+	// (POST /custom-fields/{id}/retire)
+	RetireCustomField(w http.ResponseWriter, r *http.Request, id Id, params RetireCustomFieldParams)
 	// List GDPR data-subject requests (B-E11.30).
 	// (GET /data-subject-requests)
 	ListDataSubjectRequests(w http.ResponseWriter, r *http.Request, params ListDataSubjectRequestsParams)
@@ -12630,6 +13177,36 @@ func (_ Unimplemented) ListConsentPurposes(w http.ResponseWriter, r *http.Reques
 // Define a consent purpose. 🟢 admin write.
 // (POST /consent-purposes)
 func (_ Unimplemented) CreateConsentPurpose(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List custom fields for an object (admin read; includes retired by default).
+// (GET /custom-fields)
+func (_ Unimplemented) ListCustomFields(w http.ResponseWriter, r *http.Request, params ListCustomFieldsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Define a new custom field on an existing core object (🟡 — a schema change).
+// (POST /custom-fields)
+func (_ Unimplemented) CreateCustomField(w http.ResponseWriter, r *http.Request, params CreateCustomFieldParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename a custom field's display label (🟢 — not a schema change).
+// (PATCH /custom-fields/{id})
+func (_ Unimplemented) RenameCustomField(w http.ResponseWriter, r *http.Request, id Id, params RenameCustomFieldParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Edit a picklist custom field's allowed options (🟡 — regenerates the column's CHECK).
+// (PATCH /custom-fields/{id}/options)
+func (_ Unimplemented) UpdateCustomFieldOptions(w http.ResponseWriter, r *http.Request, id Id, params UpdateCustomFieldOptionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Retire (soft-retire) a custom field — irreversible-feeling, confirm-first.
+// (POST /custom-fields/{id}/retire)
+func (_ Unimplemented) RetireCustomField(w http.ResponseWriter, r *http.Request, id Id, params RetireCustomFieldParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -15093,6 +15670,398 @@ func (siw *ServerInterfaceWrapper) CreateConsentPurpose(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateConsentPurpose(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCustomFields operation middleware
+func (siw *ServerInterfaceWrapper) ListCustomFields(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCustomFieldsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "object" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "object", r.URL.Query(), &params.Object, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "object"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "object", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCustomFields(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCustomField operation middleware
+func (siw *ServerInterfaceWrapper) CreateCustomField(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateCustomFieldParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCustomField(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameCustomField operation middleware
+func (siw *ServerInterfaceWrapper) RenameCustomField(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RenameCustomFieldParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameCustomField(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCustomFieldOptions operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCustomFieldOptions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateCustomFieldOptionsParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCustomFieldOptions(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetireCustomField operation middleware
+func (siw *ServerInterfaceWrapper) RetireCustomField(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RetireCustomFieldParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetireCustomField(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -21349,6 +22318,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/consent-purposes", wrapper.CreateConsentPurpose)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/custom-fields", wrapper.ListCustomFields)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/custom-fields", wrapper.CreateCustomField)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/custom-fields/{id}", wrapper.RenameCustomField)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/custom-fields/{id}/options", wrapper.UpdateCustomFieldOptions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/custom-fields/{id}/retire", wrapper.RetireCustomField)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/data-subject-requests", wrapper.ListDataSubjectRequests)

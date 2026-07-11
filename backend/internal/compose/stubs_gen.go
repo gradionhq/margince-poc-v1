@@ -172,6 +172,26 @@ func (stubs) CreateConsentPurpose(w nethttp.ResponseWriter, r *nethttp.Request) 
 	httperr.NotImplemented(w, r, "CreateConsentPurpose")
 }
 
+func (stubs) ListCustomFields(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListCustomFieldsParams) {
+	httperr.NotImplemented(w, r, "ListCustomFields")
+}
+
+func (stubs) CreateCustomField(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateCustomFieldParams) {
+	httperr.NotImplemented(w, r, "CreateCustomField")
+}
+
+func (stubs) RenameCustomField(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RenameCustomFieldParams) {
+	httperr.NotImplemented(w, r, "RenameCustomField")
+}
+
+func (stubs) UpdateCustomFieldOptions(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateCustomFieldOptionsParams) {
+	httperr.NotImplemented(w, r, "UpdateCustomFieldOptions")
+}
+
+func (stubs) RetireCustomField(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RetireCustomFieldParams) {
+	httperr.NotImplemented(w, r, "RetireCustomField")
+}
+
 func (stubs) ListDataSubjectRequests(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDataSubjectRequestsParams) {
 	httperr.NotImplemented(w, r, "ListDataSubjectRequests")
 }
