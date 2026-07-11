@@ -328,11 +328,6 @@ jobs:
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
-        with:
-          # Skip the JS/TS taint (jasmin) pass — the ~19-min scan bottleneck.
-          # Passed here as a -D CLI arg (not only in sonar-project.properties)
-          # because the internal flag is not reliably honored from the file.
-          args: -Dsonar.jasmin.internal.disabled=true
       - name: No token yet — scan skipped
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
