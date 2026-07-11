@@ -51,6 +51,19 @@ func CapturedBy(ctx context.Context) (string, error) {
 //
 //craft:ignore naked-any the audit seam: before/after images are each entity's own snapshot shape, serialized to jsonb
 func Audit(ctx context.Context, tx pgx.Tx, action, entityType string, entityID ids.UUID, before, after any) (ids.UUID, error) {
+	return AuditWithEvidence(ctx, tx, action, entityType, entityID, before, after, nil)
+}
+
+// AuditWithEvidence is Audit for a write that carries operational
+// evidence — context ABOUT the mutation (which retention policy fired,
+// which inbound message triggered it), landing in audit_log.evidence.
+// before/after stay reserved for the record's own field images: a
+// writer that folds operation metadata into them makes downstream
+// projections (field history) read it as field changes that never
+// happened on the record.
+//
+//craft:ignore naked-any the audit seam: before/after images are each entity's own snapshot shape, serialized to jsonb
+func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string, entityID ids.UUID, before, after any, evidence map[string]any) (ids.UUID, error) {
 	p, err := Actor(ctx)
 	if err != nil {
 		return ids.Nil, err
@@ -65,13 +78,20 @@ func Audit(ctx context.Context, tx pgx.Tx, action, entityType string, entityID i
 	if err != nil {
 		return ids.Nil, err
 	}
+	var evidenceJSON []byte
+	if evidence != nil {
+		evidenceJSON, err = json.Marshal(evidence)
+		if err != nil {
+			return ids.Nil, err
+		}
+	}
 
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
-		`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, authorization_rule)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, evidence, authorization_rule)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, wsID, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
-		action, entityType, entityID, beforeJSON, afterJSON,
+		action, entityType, entityID, beforeJSON, afterJSON, evidenceJSON,
 		auth.AuthzRule(p, entityType, action))
 	return id, err
 }

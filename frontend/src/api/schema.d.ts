@@ -1536,6 +1536,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/field-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-field change history for one record, projected from audit_log before/after diffs.
+         * @description One entry per field change, newest first, for the given `entity_type` + `entity_id`.
+         *     A read-only projection over the append-only audit spine — no second history store.
+         *     Only audit verbs whose before/after are honest field images project (create, update,
+         *     archive, restore, advance_stage); evidence-shaped rows (merge, promote, exports,
+         *     tombstones) never fabricate field entries. The projection stops at the erasure
+         *     boundary: after an Art. 17 erase or a retention anonymize, the scrub's tombstone row
+         *     and everything older are withheld — the spine keeps its rows, the read refuses them —
+         *     and a field mask hides history and live value in the same motion. Agent-authored
+         *     changes additionally carry `passport_id`/`evidence`. `limit` counts entries, but one
+         *     mutation's entries are never split across pages, so a page may exceed `limit` by the
+         *     width of its final row. A visible record with no matching changes answers
+         *     `200 {data: []}` — an empty history is honest, not a gap. A record outside the
+         *     caller's row scope answers 404 (existence-hiding), like every single-record read; an
+         *     unbounded caller asking about an id that never existed reads the same honest empty page.
+         */
+        get: operations["getFieldHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/consent-purposes": {
         parameters: {
             query?: never;
@@ -3840,6 +3873,41 @@ export interface components {
             } | null;
             /** Format: date-time */
             occurred_at: string;
+        };
+        /**
+         * @description One per-field change, projected read-only from a single audit_log row's before/after
+         *     diff — not a stored history row. `id` is the source audit_log row's id, so entries from
+         *     the same mutation share it. `old_value`/`new_value` are display-form strings; null means
+         *     the empty/created origin.
+         */
+        FieldHistoryEntry: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+            /** Format: uuid */
+            entity_id: string;
+            field: string;
+            old_value?: string | null;
+            new_value?: string | null;
+            /** Format: date-time */
+            changed_at: string;
+            /** @enum {string} */
+            actor_type: "human" | "agent" | "system" | "connector";
+            actor_id: string;
+            /**
+             * Format: uuid
+             * @description Agent Seat Passport that authorized the change; present for agent actors only.
+             */
+            passport_id?: string | null;
+            /** @description Grounding evidence for an agent-authored change; present for agent actors only. */
+            evidence?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        FieldHistoryListResponse: {
+            data: components["schemas"]["FieldHistoryEntry"][];
+            page: components["schemas"]["PageInfo"];
         };
         /**
          * @description A typed, validated query plan (not free-form SQL). For prebuilt reports, filters
@@ -8824,6 +8892,48 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getFieldHistory: {
+        parameters: {
+            query: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_id: string;
+                /** @description Narrow to one field name. */
+                field?: string;
+                /** @description Narrow to one actor category. */
+                actor_type?: "human" | "agent" | "system" | "connector";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of per-field change entries (empty when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldHistoryListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listConsentPurposes: {
