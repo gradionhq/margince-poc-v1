@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package compose
+
+// Pure mechanics behind GET /organizations/{id}/hierarchy-rollup
+// (RD-T04): the RBAC-aware BFS prune over the parent→children org
+// graph, calendar-quarter bounds in the workspace timezone, and the
+// two rounding rules (win-weighted value, FX base conversion) the
+// rollup's totals are built from. No DB and no HTTP live here —
+// Task 3 wires this against the org tree store and Task 4 wires the
+// HTTP handler.
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// orgTreeNode is one row of the flattened organization hierarchy:
+// enough to walk parent→children and to name a node the caller can't
+// see into.
+type orgTreeNode struct {
+	id          ids.UUID
+	parentID    *ids.UUID
+	displayName string
+}
+
+// restrictedNode is a hierarchy node the caller cannot read, disclosed
+// by identity and name only — never by its figures, and never by its
+// subtree's.
+type restrictedNode struct {
+	ID          ids.UUID
+	DisplayName string
+}
+
+// pruneUnreadable walks the org tree breadth-first from rootID over the
+// parent→children adjacency nodes encodes, splitting it into the
+// RBAC-readable set the rollup sums and the restricted set it discloses
+// without summing. The root itself is never disclosed as restricted —
+// an unreadable root is a 404 at the HTTP layer (rootReadable=false
+// signals that), not a member of any list.
+//
+// A node the caller can't read is the deepest point a branch is
+// visited: its children are never inspected, so a grandchild behind a
+// restricted node is neither included nor separately disclosed. Because
+// readable is consulted fresh for every node, a live grant that flips a
+// node back to readable pulls its whole readable subtree back in on the
+// very next call — pruneUnreadable holds no memory of a prior result.
+func pruneUnreadable(rootID ids.UUID, nodes []orgTreeNode, readable func(ids.UUID) bool) (included []ids.UUID, restricted []restrictedNode, rootReadable bool) {
+	included = []ids.UUID{}
+	restricted = []restrictedNode{}
+	if !readable(rootID) {
+		return included, restricted, false
+	}
+
+	childrenByParent := make(map[ids.UUID][]orgTreeNode, len(nodes))
+	for _, n := range nodes {
+		if n.parentID == nil {
+			continue
+		}
+		childrenByParent[*n.parentID] = append(childrenByParent[*n.parentID], n)
+	}
+
+	included = append(included, rootID)
+	queue := []ids.UUID{rootID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, child := range childrenByParent[current] {
+			if !readable(child.id) {
+				restricted = append(restricted, restrictedNode{ID: child.id, DisplayName: child.displayName})
+				continue
+			}
+			included = append(included, child.id)
+			queue = append(queue, child.id)
+		}
+	}
+	return included, restricted, true
+}
+
+// currentQuarterBounds returns the calendar quarter [start, end) that
+// now falls in, evaluated in loc — the workspace timezone, not UTC, so
+// a moment shortly after midnight UTC can still belong to the prior
+// quarter (and year) for a workspace west of Greenwich.
+func currentQuarterBounds(now time.Time, loc *time.Location) (start, end time.Time) {
+	local := now.In(loc)
+	quarterStartMonth := time.Month(((int(local.Month())-1)/3)*3 + 1)
+	start = time.Date(local.Year(), quarterStartMonth, 1, 0, 0, 0, 0, loc)
+	end = start.AddDate(0, 3, 0)
+	return start, end
+}
+
+// weightedValue rounds baseMinor × winProbability/100 half away from
+// zero, done in integer arithmetic (not float64) because baseMinor is
+// already a minor-unit money amount and winProbability a whole-number
+// percentage — the division is exact enough that float rounding error
+// has no business being introduced.
+func weightedValue(baseMinor int64, winProbability int) int64 {
+	return divRoundHalfAwayFromZero(baseMinor*int64(winProbability), 100)
+}
+
+// convertToBase rounds amountMinor × rate half away from zero. rate is
+// an inherently fractional stored FX rate, so unlike weightedValue this
+// runs in float64 — math.Round already implements round-half-away-from-
+// zero, which is the one rounding rule this system uses everywhere.
+func convertToBase(amountMinor int64, rate float64) int64 {
+	return int64(roundHalfAwayFromZero(float64(amountMinor) * rate))
+}
+
+// roundHalfAwayFromZero rounds v to the nearest integer, ties away from
+// zero — Go's math.Round is exactly this rule, spelled out locally so
+// the two money-rounding call sites read the same intent without an
+// extra import.
+func roundHalfAwayFromZero(v float64) float64 {
+	if v < 0 {
+		return -roundHalfAwayFromZero(-v)
+	}
+	whole := float64(int64(v))
+	if v-whole >= 0.5 {
+		return whole + 1
+	}
+	return whole
+}
+
+// divRoundHalfAwayFromZero divides two integers, rounding the quotient
+// half away from zero. denominator is always the positive divisor
+// (100, for both money-rounding call sites here).
+func divRoundHalfAwayFromZero(numerator, denominator int64) int64 {
+	quotient := numerator / denominator
+	remainder := numerator % denominator
+	if remainder == 0 {
+		return quotient
+	}
+	if absInt64(remainder)*2 >= denominator {
+		if numerator < 0 {
+			quotient--
+		} else {
+			quotient++
+		}
+	}
+	return quotient
+}
+
+func absInt64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// fxRateUnavailableError reports that the rollup needed a stored FX
+// rate for currency as of a point in time and none was on file — the
+// system never invents a rate=1 fallback, per formulas §11.
+type fxRateUnavailableError struct {
+	Currency string
+	AsOf     time.Time
+}
+
+func (e fxRateUnavailableError) Error() string {
+	return fmt.Sprintf("no stored FX rate for %s as of %s; record today's rate for %s before retrying the rollup",
+		e.Currency, e.AsOf.Format(time.DateOnly), e.Currency)
+}
