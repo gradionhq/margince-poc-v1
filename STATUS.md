@@ -78,6 +78,13 @@ Merged so far:
   row-scope, activities dispatching through the link-walk); no new
   table or migration — the projection runs entirely off `audit_log`.
   First arc of the poc-1 feature-delta port.
+- **Org hierarchy roll-up read** — `GET /organizations/{id}/hierarchy-
+  rollup`: a tree or self account roll-up (weighted pipeline,
+  current-quarter closed-won, 30-day activity) with RBAC-honest
+  restricted-node disclosure and base-currency FX conversion (422 on a
+  missing rate, never a silent rate=1). Compose-homed — the read spans
+  organization, deal, stage, activity, and fx_rate — with no new table.
+  Arc 1b of the poc-1 feature-delta port.
 
 ## Pick up here
 

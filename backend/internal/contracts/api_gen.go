@@ -1704,6 +1704,24 @@ func (e OrganizationSizeBand) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationHierarchyRollupScope.
+const (
+	OrganizationHierarchyRollupScopeSelf OrganizationHierarchyRollupScope = "self"
+	OrganizationHierarchyRollupScopeTree OrganizationHierarchyRollupScope = "tree"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationHierarchyRollupScope enum.
+func (e OrganizationHierarchyRollupScope) Valid() bool {
+	switch e {
+	case OrganizationHierarchyRollupScopeSelf:
+		return true
+	case OrganizationHierarchyRollupScopeTree:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PartnerCertStatus.
 const (
 	PartnerCertStatusApplied   PartnerCertStatus = "applied"
@@ -3303,6 +3321,24 @@ func (e ListListsParamsEntityType) Valid() bool {
 	}
 }
 
+// Defines values for GetOrganizationHierarchyRollupParamsScope.
+const (
+	GetOrganizationHierarchyRollupParamsScopeSelf GetOrganizationHierarchyRollupParamsScope = "self"
+	GetOrganizationHierarchyRollupParamsScopeTree GetOrganizationHierarchyRollupParamsScope = "tree"
+)
+
+// Valid indicates whether the value is a known member of the GetOrganizationHierarchyRollupParamsScope enum.
+func (e GetOrganizationHierarchyRollupParamsScope) Valid() bool {
+	switch e {
+	case GetOrganizationHierarchyRollupParamsScopeSelf:
+		return true
+	case GetOrganizationHierarchyRollupParamsScopeTree:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListPartnersParamsPartnerRole.
 const (
 	Consulting ListPartnersParamsPartnerRole = "consulting"
@@ -4825,6 +4861,15 @@ type MeResponse struct {
 // MeResponsePassportScopes defines model for MeResponse.Passport.Scopes.
 type MeResponsePassportScopes string
 
+// Money Money as integer minor-units + ISO-4217 currency. Never a float.
+type Money struct {
+	// AmountMinor Smallest currency unit (e.g. cents). 100000 EUR-cents = €1,000.00.
+	AmountMinor *int64 `json:"amount_minor,omitempty"`
+
+	// Currency ISO-4217 uppercase.
+	Currency *string `json:"currency,omitempty"`
+}
+
 // MorningBrief One persisted Morning-Brief run for the acting rep (data-model §12.5 `brief_run` +
 // `brief_item`): the ranked, honest-short queue of winnable deals plus the metadata that
 // reproduces it. `candidate_count` is how many deals cleared the §10 honest-short bar;
@@ -5099,6 +5144,34 @@ type OrganizationDomain struct {
 	Source         string              `json:"source"`
 	UpdatedAt      *time.Time          `json:"updated_at,omitempty"`
 }
+
+// OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
+// never client-summed. Money is base-currency converted — never a raw
+// cross-currency sum.
+type OrganizationHierarchyRollup struct {
+	ActivityCount30d int `json:"activity_count_30d"`
+
+	// AggregatedAccountCount Count of accounts (nodes) included in the roll-up.
+	AggregatedAccountCount int `json:"aggregated_account_count"`
+
+	// ClosedWon Money as integer minor-units + ISO-4217 currency. Never a float.
+	ClosedWon  Money     `json:"closed_won"`
+	ComputedAt time.Time `json:"computed_at"`
+
+	// RestrictedExcluded Nodes excluded because the viewer cannot read them — disclosed, never a silent drop.
+	RestrictedExcluded []struct {
+		DisplayName string             `json:"display_name"`
+		Id          openapi_types.UUID `json:"id"`
+	} `json:"restricted_excluded"`
+	RootId openapi_types.UUID               `json:"root_id"`
+	Scope  OrganizationHierarchyRollupScope `json:"scope"`
+
+	// WeightedPipeline Money as integer minor-units + ISO-4217 currency. Never a float.
+	WeightedPipeline Money `json:"weighted_pipeline"`
+}
+
+// OrganizationHierarchyRollupScope defines model for OrganizationHierarchyRollup.Scope.
+type OrganizationHierarchyRollupScope string
 
 // OrganizationListResponse defines model for OrganizationListResponse.
 type OrganizationListResponse struct {
@@ -7053,6 +7126,15 @@ type UpdateOrganizationParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
+
+// GetOrganizationHierarchyRollupParams defines parameters for GetOrganizationHierarchyRollup.
+type GetOrganizationHierarchyRollupParams struct {
+	// Scope tree (default): aggregate the whole subtree. self: the root's own figures alone.
+	Scope *GetOrganizationHierarchyRollupParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// GetOrganizationHierarchyRollupParamsScope defines parameters for GetOrganizationHierarchyRollup.
+type GetOrganizationHierarchyRollupParamsScope string
 
 // MergeOrganizationJSONBody defines parameters for MergeOrganization.
 type MergeOrganizationJSONBody struct {
@@ -12032,6 +12114,9 @@ type ServerInterface interface {
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
+	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
+	// (GET /organizations/{id}/hierarchy-rollup)
+	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
 	// Merge this organization into a target (non-lossy).
 	// (POST /organizations/{id}/merge)
 	MergeOrganization(w http.ResponseWriter, r *http.Request, id Id, params MergeOrganizationParams)
@@ -12731,6 +12816,12 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 // Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 // (POST /organizations/{id}/enrich)
 func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
+// (GET /organizations/{id}/hierarchy-rollup)
+func (_ Unimplemented) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17370,6 +17461,56 @@ func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationHierarchyRollup operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOrganizationHierarchyRollupParams
+
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationHierarchyRollup(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergeOrganization operation middleware
 func (siw *ServerInterfaceWrapper) MergeOrganization(w http.ResponseWriter, r *http.Request) {
 
@@ -21189,6 +21330,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/merge", wrapper.MergeOrganization)
