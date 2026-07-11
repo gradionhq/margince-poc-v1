@@ -87,7 +87,10 @@ func openPipelineRollup(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		 FROM organization_open_pipeline_rollup WHERE organization_id = $1`,
 		orgID).Scan(&minorBase, &dealCount)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		// Scan never ran, so minorBase is still its zero value (nil) —
+		// return the named var, not a literal nil, nil: the honest
+		// "nothing to sum" case above, not a swallowed error.
+		return minorBase, nil
 	}
 	if err != nil {
 		return nil, err

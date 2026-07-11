@@ -116,6 +116,14 @@ Merged so far:
   flagged as follow-up; a merged-away record's cf values stay on the
   archived source row — merge survivorship fill is core-columns-only in
   V1).
+- **Formula fields as database-GENERATED artifacts** (RD-T08) —
+  `deal.amount_minor_base` GENERATED column + the
+  `organization_open_pipeline_rollup` security_invoker view, surfaced as
+  gated `computed_fields[]` display rows on the org 360 read (STATE-4:
+  key absent without `computed_field:read`, a new read-only-everywhere
+  RBAC object); the hierarchy-rollup closed-won and brief SQL adopt the
+  column; schema-proof + no-runtime-authoring fitness tests stand guard.
+  Closes Wave 2 of the poc-1 delta port.
 
 ## Pick up here
 
