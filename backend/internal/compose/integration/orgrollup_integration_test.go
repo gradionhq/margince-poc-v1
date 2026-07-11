@@ -97,11 +97,17 @@ func seedRollupOrgActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.T
 }
 
 // rollupOrgReadPerms is the minimal caller the rollup admits: read on
-// organization at the given row-scope tier, nothing else.
+// organization, deal, AND activity at the given row-scope tier — the
+// rollup surfaces deal money and activity counts, so it demands the same
+// object grants the forecast and activity reports do.
 func rollupOrgReadPerms(scope principal.RowScope) principal.Permissions {
 	return principal.Permissions{
 		RoleKeys: []string{"rep"},
-		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true},
+			"deal":         {Read: true},
+			"activity":     {Read: true},
+		},
 		RowScope: scope,
 	}
 }
@@ -132,6 +138,7 @@ func TestOrgRollupReconcilesTreeToSelves(t *testing.T) {
 	seedRollupOrgActivity(t, e, root, now.Add(-24*time.Hour))
 	seedRollupOrgActivity(t, e, grandchild, now.Add(-24*time.Hour))
 	seedRollupOrgActivity(t, e, childA, now.Add(-40*24*time.Hour)) // outside the 30d window
+	seedRollupOrgActivity(t, e, root, now.Add(24*time.Hour))       // future-dated: never counts
 
 	tree, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree")
 	if err != nil {
@@ -145,7 +152,7 @@ func TestOrgRollupReconcilesTreeToSelves(t *testing.T) {
 		t.Errorf("tree closed-won = %d, want 30000", tree.ClosedWonMinor)
 	}
 	if tree.ActivityCount30d != 2 {
-		t.Errorf("tree activity count = %d, want 2 (the 40-day-old touch is out of window)", tree.ActivityCount30d)
+		t.Errorf("tree activity count = %d, want 2 (the 40-day-old touch and the future-dated one are both out of window)", tree.ActivityCount30d)
 	}
 	if tree.AggregatedAccountCount != 4 {
 		t.Errorf("aggregated account count = %d, want 4 (the empty sibling still counts)", tree.AggregatedAccountCount)
@@ -238,6 +245,27 @@ func TestOrgRollupRestrictedNodeDisclosedAndGrantRestores(t *testing.T) {
 	}
 }
 
+// TestOrgRollupWeightedPipelineSurvivesStageArchival: an open deal whose
+// stage is archived still contributes its weighted value — archiving a
+// stage reshapes the pipeline's vocabulary, it never silently zeroes the
+// money already sitting in that stage (matching the forecast report's
+// stage join, which carries no archived_at filter either).
+func TestOrgRollupWeightedPipelineSurvivesStageArchival(t *testing.T) {
+	e := Setup(t)
+	st := seedRollupStages(t, e)
+	root := seedRollupOrg(t, e, "Root Co", nil, nil)
+	seedRollupOpenDeal(t, e, st, root, int64Ptr(10_000), strPtr("EUR"))
+	e.WsExec(t, `UPDATE stage SET archived_at = now() WHERE id = $1`, st.open)
+
+	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree")
+	if err != nil {
+		t.Fatalf("rollup: %v", err)
+	}
+	if res.WeightedPipelineMinor != 4_000 {
+		t.Errorf("weighted = %d, want 4000 (the archived stage's live deal still counts)", res.WeightedPipelineMinor)
+	}
+}
+
 // TestOrgRollupFXRateUnavailableFailsWholeRead: an open deal in a
 // currency with no stored rate to base fails the WHOLE read with the
 // typed error — never a partial sum, never a silent rate of 1.
@@ -310,6 +338,31 @@ func TestOrgRollupRootGates(t *testing.T) {
 	noPerm := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
 	if _, err := compose.OrgHierarchyRollup(noPerm, e.Pool, foreign, "tree"); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("no organization:read: err = %v, want permission denied", err)
+	}
+
+	// The rollup surfaces deal money and activity counts, so
+	// organization:read alone is not enough — a caller missing deal:read
+	// (or activity:read) is refused before any row is touched.
+	for missing, perms := range map[string]principal.Permissions{
+		"deal": {
+			RoleKeys: []string{"rep"},
+			Objects: map[string]principal.ObjectGrant{
+				"organization": {Read: true}, "activity": {Read: true},
+			},
+			RowScope: principal.RowScopeTeam,
+		},
+		"activity": {
+			RoleKeys: []string{"rep"},
+			Objects: map[string]principal.ObjectGrant{
+				"organization": {Read: true}, "deal": {Read: true},
+			},
+			RowScope: principal.RowScopeTeam,
+		},
+	} {
+		caller := e.As(e.Rep1, []ids.UUID{e.Team1}, perms)
+		if _, err := compose.OrgHierarchyRollup(caller, e.Pool, foreign, "tree"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("missing %s:read: err = %v, want permission denied", missing, err)
+		}
 	}
 
 	// Permission refusal precedes input validation: a caller without

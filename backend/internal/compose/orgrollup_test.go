@@ -4,8 +4,12 @@
 package compose
 
 import (
+	"math"
+	"math/big"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -100,29 +104,72 @@ func TestWeightedValue(t *testing.T) {
 	}
 }
 
+// numericRate builds a pgtype.Numeric the way pgx materializes a stored
+// numeric: coefficient × 10^exp.
+func numericRate(coefficient int64, exp int32) pgtype.Numeric {
+	return pgtype.Numeric{Int: big.NewInt(coefficient), Exp: exp, Valid: true}
+}
+
 func TestConvertToBase(t *testing.T) {
 	cases := []struct {
 		name        string
 		amountMinor int64
-		rate        float64
+		rate        pgtype.Numeric
 		want        int64
 	}{
-		{name: "rate of 1.0 is a passthrough", amountMinor: 123456, rate: 1.0, want: 123456},
-		{name: "positive half rounds away from zero", amountMinor: 1, rate: 0.5, want: 1},
-		{name: "negative half rounds away from zero", amountMinor: -1, rate: 0.5, want: -1},
-		{name: "positive one-and-half rounds up", amountMinor: 3, rate: 0.5, want: 2},
-		{name: "negative one-and-half rounds down", amountMinor: -3, rate: 0.5, want: -2},
-		{name: "zero amount converts to zero at any rate", amountMinor: 0, rate: 1.37, want: 0},
+		{name: "rate of 1.0 is a passthrough", amountMinor: 123456, rate: numericRate(1, 0), want: 123456},
+		{name: "positive half rounds away from zero", amountMinor: 1, rate: numericRate(5, -1), want: 1},
+		{name: "negative half rounds away from zero", amountMinor: -1, rate: numericRate(5, -1), want: -1},
+		{name: "positive one-and-half rounds up", amountMinor: 3, rate: numericRate(5, -1), want: 2},
+		{name: "negative one-and-half rounds down", amountMinor: -3, rate: numericRate(5, -1), want: -2},
+		{name: "zero amount converts to zero at any rate", amountMinor: 0, rate: numericRate(137, -2), want: 0},
+		{name: "positive-exponent coefficient scales up", amountMinor: 3, rate: numericRate(2, 3), want: 6000},
+		{
+			// Above float64's 2^53 exact-integer ceiling the old float
+			// conversion would silently drop the odd minor unit; the exact
+			// decimal path must keep it.
+			name:        "amount past 2^53 keeps its last minor unit",
+			amountMinor: 9_007_199_254_740_993, // 2^53 + 1
+			rate:        numericRate(1, 0),
+			want:        9_007_199_254_740_993,
+		},
+		{
+			// Full numeric(20,10) scale: 0.0000000001 × 15,000,000,000
+			// lands exactly on the 1.5 tie, which rounds away from zero
+			// only when judged on exact decimal digits.
+			name:        "ten-decimal rate rounds on exact digits",
+			amountMinor: 15_000_000_000,
+			rate:        numericRate(1, -10),
+			want:        2, // 1.5 exactly, away from zero
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := convertToBase(tc.amountMinor, tc.rate)
+			got, err := convertToBase(tc.amountMinor, tc.rate)
+			if err != nil {
+				t.Fatalf("convertToBase(%d, %v): %v", tc.amountMinor, tc.rate, err)
+			}
 			if got != tc.want {
 				t.Errorf("convertToBase(%d, %v) = %d, want %d", tc.amountMinor, tc.rate, got, tc.want)
 			}
 		})
 	}
+}
+
+func TestConvertToBaseRefusesDishonestResults(t *testing.T) {
+	t.Run("non-finite rate is refused", func(t *testing.T) {
+		if _, err := convertToBase(100, pgtype.Numeric{NaN: true, Valid: true}); err == nil {
+			t.Error("NaN rate converted — must refuse, a money total can never absorb it")
+		}
+	})
+	t.Run("overflowing conversion is refused", func(t *testing.T) {
+		// max-int64 minor units at rate 100 cannot fit int64; a wrapped
+		// (silently truncated) figure would be a lie about money.
+		if _, err := convertToBase(math.MaxInt64, numericRate(1, 2)); err == nil {
+			t.Error("overflowing conversion returned a value — must refuse")
+		}
+	})
 }
 
 func TestFxRateUnavailableErrorMessage(t *testing.T) {

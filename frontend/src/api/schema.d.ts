@@ -314,6 +314,9 @@ export interface paths {
          *     All money converts to the workspace base currency; a missing stored FX rate fails
          *     the whole read with `422 fx_rate_unavailable` rather than substituting a rate of 1.
          *     Totals are server-computed and reconcile exactly to their parts — never client-summed.
+         *     Requires read on organizations, deals, and activities; figures aggregate every deal
+         *     and activity of each readable organization — per-record row visibility within a
+         *     readable account is deliberately not consulted, so account totals stay whole.
          */
         get: operations["getOrganizationHierarchyRollup"];
         put?: never;

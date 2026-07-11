@@ -13,7 +13,10 @@ package compose
 
 import (
 	"fmt"
+	"math/big"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -101,29 +104,50 @@ func weightedValue(baseMinor int64, winProbability int) int64 {
 	return divRoundHalfAwayFromZero(baseMinor*int64(winProbability), 100)
 }
 
-// convertToBase rounds amountMinor × rate half away from zero. rate is
-// an inherently fractional stored FX rate, so unlike weightedValue this
-// runs in float64 — math.Round already implements round-half-away-from-
-// zero, which is the one rounding rule this system uses everywhere.
-// amount_minor magnitudes sit far below float64's ~2^53 exact-integer
-// ceiling, so the multiply-then-round never loses precision here.
-func convertToBase(amountMinor int64, rate float64) int64 {
-	return int64(roundHalfAwayFromZero(float64(amountMinor) * rate))
+// convertToBase rounds amountMinor × rate half away from zero, in EXACT
+// decimal arithmetic over the rate's stored numeric digits (Int × 10^Exp)
+// — never float64, so the open-pipeline conversion carries the same
+// exactness Postgres ROUND over numeric gives closed-won, and an amount
+// past float64's 2^53 exact-integer ceiling cannot lose a minor unit. A
+// non-finite rate or an overflowing result refuses loudly: both would
+// otherwise put a silently wrong number in a money total.
+func convertToBase(amountMinor int64, rate pgtype.Numeric) (int64, error) {
+	if !rate.Valid || rate.NaN || rate.InfinityModifier != pgtype.Finite {
+		return 0, fmt.Errorf("stored FX rate is not a finite number; correct the fx_rate row before retrying the rollup")
+	}
+	product := new(big.Int).Mul(big.NewInt(amountMinor), rate.Int)
+	if rate.Exp >= 0 {
+		product.Mul(product, pow10(int64(rate.Exp)))
+	} else {
+		product = bigDivRoundHalfAwayFromZero(product, pow10(int64(-rate.Exp)))
+	}
+	if !product.IsInt64() {
+		return 0, fmt.Errorf("converted amount exceeds the representable money range in the base currency")
+	}
+	return product.Int64(), nil
 }
 
-// roundHalfAwayFromZero rounds v to the nearest integer, ties away from
-// zero — Go's math.Round is exactly this rule, spelled out locally so
-// the two money-rounding call sites read the same intent without an
-// extra import.
-func roundHalfAwayFromZero(v float64) float64 {
-	if v < 0 {
-		return -roundHalfAwayFromZero(-v)
+// bigDivRoundHalfAwayFromZero is divRoundHalfAwayFromZero over big
+// integers: numerator/denominator with the quotient rounded half away
+// from zero. denominator is always a positive power of ten here.
+func bigDivRoundHalfAwayFromZero(numerator, denominator *big.Int) *big.Int {
+	negative := numerator.Sign() < 0
+	quotient, remainder := new(big.Int).QuoRem(numerator, denominator, new(big.Int))
+	remainder.Abs(remainder)
+	remainder.Lsh(remainder, 1) // 2·|remainder| ≥ denominator ⇔ the dropped fraction is ≥ half
+	if remainder.Cmp(denominator) < 0 {
+		return quotient
 	}
-	whole := float64(int64(v))
-	if v-whole >= 0.5 {
-		return whole + 1
+	if negative {
+		return quotient.Sub(quotient, big.NewInt(1))
 	}
-	return whole
+	return quotient.Add(quotient, big.NewInt(1))
+}
+
+// pow10 returns 10^exp as a big integer; exp is a numeric's scale
+// magnitude, always small and never negative here.
+func pow10(exp int64) *big.Int {
+	return new(big.Int).Exp(big.NewInt(10), big.NewInt(exp), nil)
 }
 
 // divRoundHalfAwayFromZero divides two integers, rounding the quotient

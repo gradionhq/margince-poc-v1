@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -28,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // The rollup's scope vocabulary (crm.yaml enum): the whole readable
@@ -52,19 +54,27 @@ type OrgRollupResult struct {
 	ComputedAt             time.Time
 }
 
-// OrgHierarchyRollup is the gated aggregate read: object-level
-// organization:read, then — inside ONE workspace transaction — the
-// root's row-scope visibility, the bounded tree walk, the per-node
-// readability prune (tree scope only), and the three measures over the
-// included nodes. Out-of-scope and nonexistent roots both answer
-// ErrNotFound, indistinguishable by design.
+// OrgHierarchyRollup is the gated aggregate read: object-level read on
+// organization, deal, AND activity, then — inside ONE workspace
+// transaction — the root's row-scope visibility, the bounded tree walk,
+// the per-node readability prune (tree scope only), and the three
+// measures over the included nodes. Out-of-scope and nonexistent roots
+// both answer ErrNotFound, indistinguishable by design.
+//
+// The rollup surfaces deal money and activity counts, so it demands the
+// same object grants the forecast and activity reports do. Aggregation
+// itself stays ORG-scoped: within a readable organization, per-deal and
+// per-activity row visibility is deliberately not consulted, so account
+// totals stay whole (the contract's description states the same policy).
 func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID, scope string) (OrgRollupResult, error) {
-	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		// Permission refusal precedes input validation: a caller without
-		// organization:read gets 403 even for a bogus scope value, matching
-		// arc 1a's gate order — what the caller can't do is decided before
-		// what the caller asked for is judged well-formed.
-		return OrgRollupResult{}, err
+	for _, object := range []datasource.EntityType{datasource.EntityOrganization, datasource.EntityDeal, datasource.EntityActivity} {
+		if err := auth.Require(ctx, string(object), principal.ActionRead); err != nil {
+			// Permission refusal precedes input validation: a caller missing
+			// any of the three grants gets 403 even for a bogus scope value,
+			// matching arc 1a's gate order — what the caller can't do is
+			// decided before what the caller asked for is judged well-formed.
+			return OrgRollupResult{}, err
+		}
 	}
 	if scope != orgRollupScopeTree && scope != orgRollupScopeSelf {
 		// The handler validates the enum at the edge; a value reaching
@@ -98,7 +108,7 @@ func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID
 			return err
 		}
 
-		fx := &fxConverter{tx: tx, baseCurrency: baseCurrency, asOf: asOf, rates: map[string]float64{}}
+		fx := &fxConverter{tx: tx, baseCurrency: baseCurrency, asOf: asOf, rates: map[string]pgtype.Numeric{}}
 		if result.WeightedPipelineMinor, err = weightedPipelineMinor(ctx, tx, included, fx); err != nil {
 			return err
 		}
@@ -145,6 +155,13 @@ const orgRollupMaxDepth = 50
 // loadOrgTree walks the live organization hierarchy downward from
 // rootID, root-first. RLS carries the workspace scope; an archived or
 // missing root yields an empty slice for the caller to refuse.
+//
+// The walk recurses ONE level past orgRollupMaxDepth on purpose: a row
+// at the cap depth proves the tree keeps going below what the rollup
+// would sum, and a total that silently dropped those nodes would be a
+// lie about money — the whole read fails loudly instead. (Seeding a
+// 51-deep chain to exercise this in the integration lane would be all
+// fixture and no insight; the sentinel row is plain SQL arithmetic.)
 func loadOrgTree(ctx context.Context, tx pgx.Tx, rootID ids.UUID) ([]orgTreeNode, error) {
 	rows, err := tx.Query(ctx, `
 		WITH RECURSIVE org_tree AS (
@@ -155,9 +172,9 @@ func loadOrgTree(ctx context.Context, tx pgx.Tx, rootID ids.UUID) ([]orgTreeNode
 			SELECT o.id, o.parent_org_id, o.display_name, t.depth + 1
 			FROM organization o
 			JOIN org_tree t ON o.parent_org_id = t.id
-			WHERE o.archived_at IS NULL AND t.depth + 1 < $2
+			WHERE o.archived_at IS NULL AND t.depth + 1 <= $2
 		)
-		SELECT id, parent_org_id, display_name FROM org_tree ORDER BY depth, id`,
+		SELECT id, parent_org_id, display_name, depth FROM org_tree ORDER BY depth, id`,
 		rootID, orgRollupMaxDepth)
 	if err != nil {
 		return nil, err
@@ -167,8 +184,14 @@ func loadOrgTree(ctx context.Context, tx pgx.Tx, rootID ids.UUID) ([]orgTreeNode
 	var nodes []orgTreeNode
 	for rows.Next() {
 		var n orgTreeNode
-		if err := rows.Scan(&n.id, &n.parentID, &n.displayName); err != nil {
+		var depth int
+		if err := rows.Scan(&n.id, &n.parentID, &n.displayName, &depth); err != nil {
 			return nil, err
+		}
+		if depth >= orgRollupMaxDepth {
+			return nil, fmt.Errorf(
+				"organization tree under %s exceeds the supported depth of %d; roll up from a lower node or flatten the hierarchy",
+				rootID, orgRollupMaxDepth)
 		}
 		nodes = append(nodes, n)
 	}
@@ -242,12 +265,14 @@ func orgReadablePredicate(ctx context.Context, tx pgx.Tx, nodes []orgTreeNode) (
 
 // fxConverter converts open-deal amounts to the workspace base currency
 // at the stored as-of rate, memoizing one lookup per currency for the
-// duration of a single rollup read.
+// duration of a single rollup read. Rates stay pgtype.Numeric end to
+// end: the conversion is exact decimal arithmetic, the same discipline
+// closed-won gets from Postgres ROUND over numeric.
 type fxConverter struct {
 	tx           pgx.Tx
 	baseCurrency string
 	asOf         time.Time
-	rates        map[string]float64
+	rates        map[string]pgtype.Numeric
 }
 
 // toBase converts amountMinor from currency to the base currency. A
@@ -277,7 +302,7 @@ func (c *fxConverter) toBase(ctx context.Context, amountMinor int64, currency st
 		}
 		c.rates[currency] = rate
 	}
-	return convertToBase(amountMinor, rate), nil
+	return convertToBase(amountMinor, rate)
 }
 
 // openDealRow is one open deal's contribution inputs: nullable money
@@ -295,10 +320,13 @@ type openDealRow struct {
 // are collected before converting because the FX lookup queries the
 // same transaction's connection.
 func weightedPipelineMinor(ctx context.Context, tx pgx.Tx, included []ids.UUID, fx *fxConverter) (int64, error) {
+	// The stage join deliberately carries NO archived_at filter, matching
+	// the forecast report's join: archiving a stage reshapes the pipeline
+	// vocabulary, it must never silently zero the open deals still in it.
 	rows, err := tx.Query(ctx, `
 		SELECT d.amount_minor, d.currency, s.win_probability
 		FROM deal d
-		JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id AND s.archived_at IS NULL
+		JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
 		WHERE d.organization_id = ANY($1) AND d.status = 'open' AND d.archived_at IS NULL`,
 		included)
 	if err != nil {
@@ -348,15 +376,19 @@ func closedWonMinorThisQuarter(ctx context.Context, tx pgx.Tx, included []ids.UU
 }
 
 // orgActivityCount30d counts distinct live activities linked to any
-// included organization in the 30 days up to asOf. DISTINCT because one
-// activity may link several orgs of the same tree and must count once.
+// included organization in the half-open window [asOf−30d, asOf).
+// DISTINCT because one activity may link several orgs of the same tree
+// and must count once; the upper bound keeps a future-dated activity (a
+// scheduled call, a clock-skewed import) out of a count that claims to
+// describe the PAST 30 days.
 func orgActivityCount30d(ctx context.Context, tx pgx.Tx, included []ids.UUID, asOf time.Time) (int, error) {
 	var count int
 	err := tx.QueryRow(ctx, `
 		SELECT COUNT(DISTINCT a.id)
 		FROM activity a
 		JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization'
-		WHERE l.organization_id = ANY($1) AND a.archived_at IS NULL AND a.occurred_at >= $2`,
-		included, asOf.AddDate(0, 0, -30)).Scan(&count)
+		WHERE l.organization_id = ANY($1) AND a.archived_at IS NULL
+		  AND a.occurred_at >= $2 AND a.occurred_at < $3`,
+		included, asOf.AddDate(0, 0, -30), asOf).Scan(&count)
 	return count, err
 }
