@@ -145,11 +145,13 @@ type ListOrganizationsInput struct {
 }
 
 // organizationListFields is the organization list's core sortable
-// vocabulary (data-model §13); active cf_ columns join it per request.
+// vocabulary — exactly the data-model §13.5 DM-VOCAB-2 set; active cf_
+// columns join it per request.
 var organizationListFields = map[string]string{
 	"created_at":   storekit.KindTimestamp,
 	"updated_at":   storekit.KindTimestamp,
 	"display_name": fieldcatalog.TypeText,
+	ownerIDColumn:  storekit.KindUUID,
 }
 
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
@@ -322,7 +324,7 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		p.Set("size_band", current.SizeBand, *in.SizeBand)
 	}
 	if in.OwnerID != nil {
-		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+		p.Set(ownerIDColumn, current.OwnerId, *in.OwnerID)
 	}
 	if in.ParentOrgID != nil {
 		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {

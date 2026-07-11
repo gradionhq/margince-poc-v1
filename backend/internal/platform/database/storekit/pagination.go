@@ -43,11 +43,24 @@ func mintCursorToken(c Cursor) string {
 }
 
 // MalformedCursorError is a client fault: the opaque keyset token is
-// client-supplied input, so failing to decode it maps to a 4xx at the
+// client-supplied input, so failing to decode it — or a decoded sort key
+// that does not parse as the sort column's kind — maps to a 4xx at the
 // transport (httperr), never a 500.
 type MalformedCursorError struct{}
 
 func (*MalformedCursorError) Error() string { return "store: malformed cursor" }
+
+// CursorSortMismatchError is the other cursor client fault: the token
+// decodes fine but was minted under a different sort (field or
+// direction), so its keyset tuple cannot continue this list. Distinct
+// from MalformedCursorError because the contract's Cursor parameter
+// promises its own code (422 cursor_param_mismatch) for exactly this
+// case — the caller drops the cursor or restores the original sort.
+type CursorSortMismatchError struct{}
+
+func (*CursorSortMismatchError) Error() string {
+	return "store: cursor was minted under a different sort"
+}
 
 func DecodeCursor(token string) (Cursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(token)

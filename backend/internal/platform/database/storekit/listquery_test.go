@@ -187,9 +187,15 @@ func TestKeysetClause_NullKeyContinuesInsideNullTail(t *testing.T) {
 
 // A cursor minted under one sort must not continue a differently-sorted
 // list — the keyset tuple would be meaningless, so the token is refused
-// as malformed rather than silently misordering the page.
-func TestKeysetClause_SortMismatchIsMalformed(t *testing.T) {
+// with the mismatch's own type (the contract's cursor_param_mismatch,
+// distinct from an undecodable token) rather than silently misordering
+// the page.
+func TestKeysetClause_SortMismatchIsTypedMismatch(t *testing.T) {
 	sorted, err := ParseListSort(sortSpec("cf_score"), testVocab)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descending, err := ParseListSort(sortSpec("-cf_score"), testVocab)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,17 +207,92 @@ func TestKeysetClause_SortMismatchIsMalformed(t *testing.T) {
 		mintedBy *ListSort
 		readBy   *ListSort
 	}{
-		"sorted cursor on a default list": {sorted, def},
-		"default cursor on a sorted list": {def, sorted},
+		"sorted cursor on a default list":       {sorted, def},
+		"default cursor on a sorted list":       {def, sorted},
+		"ascending cursor on a descending sort": {sorted, descending},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			token := c.mintedBy.EncodePageCursor(&key, at, id)
 			arg, _ := keysetArgs()
 			_, err := c.readBy.KeysetClause(token, arg)
+			var mismatch *CursorSortMismatchError
+			if !errors.As(err, &mismatch) {
+				t.Fatalf("err = %v, want CursorSortMismatchError", err)
+			}
+		})
+	}
+}
+
+// A token whose JSON decodes but whose sort key does not parse as the
+// sort column's kind is a malformed cursor — a crafted key must answer
+// the client-fault type, never reach the typed bind cast where Postgres
+// would fail the whole query (22P02 → 500).
+func TestKeysetClause_UnparseableSortKeyIsMalformed(t *testing.T) {
+	vocab := SortVocabulary(map[string]string{
+		"created_at": KindTimestamp,
+		"owner_id":   KindUUID,
+	}, []fieldcatalog.Column{
+		{Name: "cf_score", Type: fieldcatalog.TypeNumber},
+		{Name: "cf_budget", Type: fieldcatalog.TypeCurrency},
+		{Name: "cf_renewal", Type: fieldcatalog.TypeDate},
+		{Name: "cf_strategic", Type: fieldcatalog.TypeBoolean},
+	})
+	at, id := time.Now().UTC(), ids.NewV7()
+
+	for field, badKey := range map[string]string{
+		"cf_score":     "abc",
+		"cf_budget":    "12.50",
+		"cf_renewal":   "July 11",
+		"cf_strategic": "maybe",
+		"owner_id":     "not-a-uuid",
+		"created_at":   "yesterday",
+	} {
+		t.Run(field, func(t *testing.T) {
+			s, err := ParseListSort(sortSpec(field), vocab)
+			if err != nil {
+				t.Fatal(err)
+			}
+			token := mintCursorToken(Cursor{CreatedAt: at, ID: id, SortField: field, SortKey: &badKey})
+			arg, _ := keysetArgs()
+			_, err = s.KeysetClause(token, arg)
 			var malformed *MalformedCursorError
 			if !errors.As(err, &malformed) {
-				t.Fatalf("err = %v, want MalformedCursorError", err)
+				t.Fatalf("sort key %q under %s: err = %v, want MalformedCursorError", badKey, field, err)
+			}
+		})
+	}
+}
+
+// The kinds the custom-column filter grammar does not cover — uuid and
+// timestamptz core columns — accept exactly their Postgres text forms as
+// cursor keys and bind under their own casts, so a legitimately minted
+// token round-trips.
+func TestKeysetClause_CoreKindKeysRoundTrip(t *testing.T) {
+	vocab := SortVocabulary(map[string]string{
+		"updated_at": KindTimestamp,
+		"owner_id":   KindUUID,
+	}, nil)
+	at, id := time.Now().UTC(), ids.NewV7()
+
+	for field, tc := range map[string]struct{ key, wantCast string }{
+		"owner_id":   {key: ids.NewV7().String(), wantCast: "::uuid"},
+		"updated_at": {key: "2026-07-11 12:00:00.123456+00", wantCast: "::timestamptz"},
+	} {
+		t.Run(field, func(t *testing.T) {
+			s, err := ParseListSort(sortSpec(field), vocab)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := tc.key
+			token := s.EncodePageCursor(&key, at, id)
+			arg, _ := keysetArgs()
+			clause, err := s.KeysetClause(token, arg)
+			if err != nil {
+				t.Fatalf("KeysetClause(%s key %q): %v", field, key, err)
+			}
+			if !strings.Contains(clause, "$1"+tc.wantCast) {
+				t.Fatalf("clause = %q, want the %s bind cast", clause, tc.wantCast)
 			}
 		})
 	}

@@ -13,8 +13,11 @@ package integration
 // 422 codes while the core vocabulary keeps working.
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -22,6 +25,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// craftCursor forges the opaque page token a hostile client could send:
+// the Cursor JSON shape, base64url-encoded — bypassing the store's own
+// minting so the sort key can carry arbitrary text.
+func craftCursor(t *testing.T, c storekit.Cursor) string {
+	t.Helper()
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshaling crafted cursor: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
 
 // seedScoredDeal creates one deal carrying the given custom-field values.
 func (f dealCFVFixture) seedScoredDeal(t *testing.T, name string, cf map[string]any) ids.UUID {
@@ -182,12 +197,57 @@ func TestCustomFieldVocab_RetiredAndUnknownRefused(t *testing.T) {
 	}
 }
 
-// TestCustomFieldVocab_CoreVocabulary: the core sortable fields work
-// through the same mechanism (full_name ordering proves the ORDER BY),
-// the documented default spelling stays accepted, and a core column
-// outside the vocabulary — or a multi-field spec — is refused.
+// TestCustomFieldVocab_CoreVocabulary: each list's core sortable
+// vocabulary is exactly its data-model §13.5 DM-VOCAB table — every
+// spec-listed field sorts in both directions (full_name ordering proves
+// the ORDER BY), the documented default spelling stays accepted, and a
+// real column the tables do not list — or a multi-field spec — is
+// refused.
 func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 	f := setupCFV(t)
+	// The deal list shares f's Env (Setup rebuilds the schema, so one
+	// per test) — its store rides the same pool and field catalog.
+	dealStore := deals.NewStore(f.e.Pool).WithFieldCatalog(f.svc)
+	dealCtx := f.e.As(f.e.Rep1, nil, dealCFVPerms)
+
+	// The DM-VOCAB-1..3 sort tables, verbatim from the spec, each paired
+	// with its store's list call.
+	resources := map[string]struct {
+		specFields []string
+		list       func(sort string) error
+	}{
+		"people (DM-VOCAB-1)": {
+			specFields: []string{"created_at", "updated_at", "full_name", "owner_id"},
+			list: func(sort string) error {
+				_, _, err := f.store.ListPeople(f.ctx, people.ListPeopleInput{Sort: &sort})
+				return err
+			},
+		},
+		"organizations (DM-VOCAB-2)": {
+			specFields: []string{"created_at", "updated_at", "display_name", "owner_id"},
+			list: func(sort string) error {
+				_, _, err := f.store.ListOrganizations(f.ctx, people.ListOrganizationsInput{Sort: &sort})
+				return err
+			},
+		},
+		"deals (DM-VOCAB-3)": {
+			specFields: []string{"created_at", "updated_at", "amount_minor", "expected_close_date", "last_activity_at"},
+			list: func(sort string) error {
+				_, _, err := dealStore.ListDeals(dealCtx, deals.ListDealsInput{Sort: &sort})
+				return err
+			},
+		},
+	}
+	for resource, r := range resources {
+		for _, field := range r.specFields {
+			for _, spec := range []string{field, "-" + field} {
+				if err := r.list(spec); err != nil {
+					t.Fatalf("%s sort=%s: %v — the spec table lists this field as sortable", resource, spec, err)
+				}
+			}
+		}
+	}
+
 	zoe, err := f.store.CreatePerson(f.ctx, people.CreatePersonInput{FullName: "Zoe Last", Source: "ui"})
 	if err != nil {
 		t.Fatalf("CreatePerson: %v", err)
@@ -215,11 +275,12 @@ func TestCustomFieldVocab_CoreVocabulary(t *testing.T) {
 		t.Fatalf("default sort must stay -created_at,id (newest first), got %v", rows)
 	}
 
-	notSortable := "owner_id"
-	_, _, err = f.store.ListPeople(f.ctx, people.ListPeopleInput{Sort: &notSortable})
+	// A real column DM-VOCAB-3 does not list stays outside the vocabulary:
+	// deal name sorted in poc-1, and the spec table dropped it.
+	dealName := "name"
 	var sortErr *storekit.SortError
-	if !errors.As(err, &sortErr) || sortErr.Code != storekit.CodeSortFieldNotAllowed {
-		t.Fatalf("sort=owner_id err = %v, want SortError %s", err, storekit.CodeSortFieldNotAllowed)
+	if err := resources["deals (DM-VOCAB-3)"].list(dealName); !errors.As(err, &sortErr) || sortErr.Code != storekit.CodeSortFieldNotAllowed {
+		t.Fatalf("deals sort=name err = %v, want SortError %s", err, storekit.CodeSortFieldNotAllowed)
 	}
 
 	multi := "-created_at,full_name"
@@ -245,7 +306,8 @@ func TestCustomFieldVocab_MalformedFilterValueRefused(t *testing.T) {
 
 // TestCustomFieldVocab_SortedCursorRefusedUnderOtherSort: a cursor
 // minted under one ordering cannot continue another — the token is
-// refused as malformed instead of silently mis-paging.
+// refused with the sort-mismatch type (the contract's
+// cursor_param_mismatch) instead of silently mis-paging.
 func TestCustomFieldVocab_SortedCursorRefusedUnderOtherSort(t *testing.T) {
 	f := setupDealCFV(t)
 	score := f.defineDealField(t, customfields.FieldSpec{Object: "deal", Label: "Score", Type: customfields.TypeNumber, Source: "ui"})
@@ -259,8 +321,28 @@ func TestCustomFieldVocab_SortedCursorRefusedUnderOtherSort(t *testing.T) {
 	}
 
 	_, _, err := f.store.ListDeals(f.ctx, deals.ListDealsInput{Cursor: &page.NextCursor})
+	var mismatch *storekit.CursorSortMismatchError
+	if !errors.As(err, &mismatch) {
+		t.Fatalf("sorted cursor on the default list err = %v, want CursorSortMismatchError", err)
+	}
+}
+
+// TestCustomFieldVocab_CraftedCursorKeyIsClientFault: a well-formed
+// token whose sort key does not parse as the sort column's type is
+// refused as a malformed cursor at the store — it never reaches the
+// typed bind cast where Postgres would fail the query (22P02 → 500).
+func TestCustomFieldVocab_CraftedCursorKeyIsClientFault(t *testing.T) {
+	f := setupDealCFV(t)
+	score := f.defineDealField(t, customfields.FieldSpec{Object: "deal", Label: "Score", Type: customfields.TypeNumber, Source: "ui"})
+	f.seedScoredDeal(t, "A", map[string]any{score: float64(1)})
+
+	badKey := "abc"
+	crafted := craftCursor(t, storekit.Cursor{
+		CreatedAt: time.Now().UTC(), ID: ids.NewV7(), SortField: score, SortKey: &badKey,
+	})
+	_, _, err := f.store.ListDeals(f.ctx, deals.ListDealsInput{Sort: &score, Cursor: &crafted})
 	var malformed *storekit.MalformedCursorError
 	if !errors.As(err, &malformed) {
-		t.Fatalf("sorted cursor on the default list err = %v, want MalformedCursorError", err)
+		t.Fatalf("crafted numeric sort key err = %v, want MalformedCursorError", err)
 	}
 }

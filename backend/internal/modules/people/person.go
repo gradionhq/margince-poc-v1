@@ -171,12 +171,14 @@ type ListPeopleInput struct {
 	CustomFilters map[string]string
 }
 
-// personListFields is the person list's core sortable vocabulary
-// (data-model §13); active cf_ columns join it per request.
+// personListFields is the person list's core sortable vocabulary —
+// exactly the data-model §13.5 DM-VOCAB-1 set; active cf_ columns join
+// it per request.
 var personListFields = map[string]string{
-	"created_at": storekit.KindTimestamp,
-	"updated_at": storekit.KindTimestamp,
-	"full_name":  fieldcatalog.TypeText,
+	"created_at":  storekit.KindTimestamp,
+	"updated_at":  storekit.KindTimestamp,
+	"full_name":   fieldcatalog.TypeText,
+	ownerIDColumn: storekit.KindUUID,
 }
 
 func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontracts.Person, storekit.Page, error) {
@@ -375,7 +377,7 @@ func buildPersonPatch(current crmcontracts.Person, in UpdatePersonInput) *storek
 		p.Set("title", current.Title, *in.Title)
 	}
 	if in.OwnerID != nil {
-		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+		p.Set(ownerIDColumn, current.OwnerId, *in.OwnerID)
 	}
 	if in.Address != nil {
 		cur := addressColumns(current.Address)

@@ -6703,21 +6703,25 @@ type cookieAuthContextKey string
 // ListActivitiesParams defines parameters for ListActivities.
 type ListActivitiesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -6824,11 +6828,13 @@ type SendEmailParams struct {
 // ListApprovalsParams defines parameters for ListApprovals.
 type ListApprovalsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -6862,11 +6868,13 @@ type RejectApprovalJSONBody struct {
 // ListAttachmentsParams defines parameters for ListAttachments.
 type ListAttachmentsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -6891,11 +6899,13 @@ type UploadAttachmentMultipartBodyEntityType string
 // ListAuditLogParams defines parameters for ListAuditLog.
 type ListAuditLogParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -6915,11 +6925,13 @@ type ListAuditLogParams struct {
 // ListAutomationsParams defines parameters for ListAutomations.
 type ListAutomationsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -6939,11 +6951,13 @@ type UpdateAutomationParams struct {
 // ListAutomationRunsParams defines parameters for ListAutomationRuns.
 type ListAutomationRunsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7012,11 +7026,13 @@ type BookMeetingJSONBodyLinksEntityType string
 // ListConsentPurposesParams defines parameters for ListConsentPurposes.
 type ListConsentPurposesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7026,21 +7042,25 @@ type ListConsentPurposesParams struct {
 // ListCustomFieldsParams defines parameters for ListCustomFields.
 type ListCustomFieldsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Object Target core object (CUSTOM-FIELDS-PARAM-2).
@@ -7143,11 +7163,13 @@ type ListDataSubjectRequestsParams struct {
 	Status *ListDataSubjectRequestsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7172,21 +7194,25 @@ type CreateDataSubjectRequestParams struct {
 // ListDealsParams defines parameters for ListDeals.
 type ListDealsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7274,11 +7300,13 @@ type AdvanceDealParams struct {
 // ListDealOffersParams defines parameters for ListDealOffers.
 type ListDealOffersParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7304,11 +7332,13 @@ type CreateOfferParams struct {
 // GetFieldHistoryParams defines parameters for GetFieldHistory.
 type GetFieldHistoryParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7332,21 +7362,25 @@ type GetFieldHistoryParamsActorType string
 // ListLeadsParams defines parameters for ListLeads.
 type ListLeadsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7428,11 +7462,13 @@ type ListListsParamsEntityType string
 // ListListMembersParams defines parameters for ListListMembers.
 type ListListMembersParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7512,21 +7548,25 @@ type SendOfferParams struct {
 // ListOrganizationsParams defines parameters for ListOrganizations.
 type ListOrganizationsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7625,21 +7665,25 @@ type UpsertPartnerParams struct {
 // ListPartnersParams defines parameters for ListPartners.
 type ListPartnersParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort        *Sort                          `form:"sort,omitempty" json:"sort,omitempty"`
 	PartnerRole *ListPartnersParamsPartnerRole `form:"partner_role,omitempty" json:"partner_role,omitempty"`
 	CertStatus  *ListPartnersParamsCertStatus  `form:"cert_status,omitempty" json:"cert_status,omitempty"`
@@ -7654,21 +7698,25 @@ type ListPartnersParamsCertStatus string
 // ListPeopleParams defines parameters for ListPeople.
 type ListPeopleParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7792,21 +7840,25 @@ type UpdatePipelineParams struct {
 // ListProductsParams defines parameters for ListProducts.
 type ListProductsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Sort Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-	// `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-	// is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-	// data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-	// An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7902,11 +7954,13 @@ type ListRecordGrantsParams struct {
 	SubjectId   *openapi_types.UUID                `form:"subject_id,omitempty" json:"subject_id,omitempty"`
 
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7962,11 +8016,13 @@ type RevokeRecordGrantParams struct {
 // GetRecordHistoryParams defines parameters for GetRecordHistory.
 type GetRecordHistoryParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -7976,11 +8032,13 @@ type GetRecordHistoryParams struct {
 // ListRelationshipsParams defines parameters for ListRelationships.
 type ListRelationshipsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -8025,11 +8083,13 @@ type SearchParams struct {
 	Types *[]SearchParamsTypes `form:"types,omitempty" json:"types,omitempty"`
 
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -8042,11 +8102,13 @@ type SearchParamsTypes string
 // ListSignalsParams defines parameters for ListSignals.
 type ListSignalsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
@@ -8173,11 +8235,13 @@ type UpdateSavedViewParams struct {
 // ListVoiceProfilesParams defines parameters for ListVoiceProfiles.
 type ListVoiceProfilesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` and `filter` of the originating request plus the last row's keyset
-	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-	// or filter that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.

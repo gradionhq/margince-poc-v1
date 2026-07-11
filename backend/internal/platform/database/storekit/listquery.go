@@ -30,10 +30,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// KindTimestamp types the core timestamptz vocabulary entries
-// (created_at, updated_at, last_activity_at) — the one sortable kind the
-// six fieldcatalog custom-column types do not cover.
-const KindTimestamp = "timestamptz"
+// KindTimestamp and KindUUID type the core vocabulary entries the six
+// fieldcatalog custom-column types do not cover: the timestamptz columns
+// (created_at, updated_at, last_activity_at) and the uuid references the
+// spec's sort tables name (owner_id, DM-VOCAB-1/2).
+const (
+	KindTimestamp = "timestamptz"
+	KindUUID      = "uuid"
+)
 
 // defaultSortSpelling is the contract's documented default sort. It IS
 // the default, so the spelling is accepted and normalized to it — the
@@ -155,11 +159,14 @@ func (s *ListSort) EncodePageCursor(sortKey *string, createdAt time.Time, id ids
 
 // KeysetClause renders the WHERE fragment that continues the page after
 // token under this sort. A token minted under a different sort (or
-// direction) is refused as malformed: its keyset tuple cannot order this
-// list. For a non-null key the continuation is exact — strictly past the
-// key, OR equal-key rows past the (created_at, id) tie-breaker, OR the
-// NULL tail that sorts after every key; once inside the NULL tail only
-// the house tuple advances.
+// direction) is a CursorSortMismatchError — its keyset tuple cannot
+// order this list; a token whose sort key does not parse as the sort
+// column's kind is malformed, refused here so a crafted key never
+// reaches the typed bind cast where Postgres would fail the query. For a
+// non-null key the continuation is exact — strictly past the key, OR
+// equal-key rows past the (created_at, id) tie-breaker, OR the NULL tail
+// that sorts after every key; once inside the NULL tail only the house
+// tuple advances.
 func (s *ListSort) KeysetClause(token string, arg func(any) int) (string, error) {
 	c, err := DecodeCursor(token)
 	if err != nil {
@@ -167,17 +174,20 @@ func (s *ListSort) KeysetClause(token string, arg func(any) int) (string, error)
 	}
 	if s == nil {
 		if c.SortField != "" {
-			return "", &MalformedCursorError{}
+			return "", &CursorSortMismatchError{}
 		}
 		return SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)), nil
 	}
 	if c.SortField != s.name || c.SortDesc != s.desc {
-		return "", &MalformedCursorError{}
+		return "", &CursorSortMismatchError{}
 	}
 
 	col := quoteColumnIdentifier(s.name)
 	if c.SortKey == nil {
 		return SQLf("(%s IS NULL AND (created_at, id) < ($%d, $%d))", col, arg(c.CreatedAt), arg(c.ID)), nil
+	}
+	if !parsesAsKind(s.kind, *c.SortKey) {
+		return "", &MalformedCursorError{}
 	}
 	cmp := ">"
 	if s.desc {
@@ -232,32 +242,80 @@ func CustomFilterClauses(active []fieldcatalog.Column, filters map[string]string
 // type's cast — a malformed value answers the typed 422, never a query
 // execution error.
 func checkListFilterValue(c fieldcatalog.Column, value string) error {
-	invalid := func(want string) error {
-		return &PredicateError{
-			Field: c.Name, Code: CodeFilterValueInvalid,
-			Message: fmt.Sprintf("filtering the %s field %q takes %s", c.Type, c.Name, want),
-		}
+	if parsesAsKind(c.Type, value) {
+		return nil
 	}
-	switch c.Type {
+	return &PredicateError{
+		Field: c.Name, Code: CodeFilterValueInvalid,
+		Message: fmt.Sprintf("filtering the %s field %q takes %s", c.Type, c.Name, kindOperandShape(c.Type)),
+	}
+}
+
+// parsesAsKind reports whether a text-form value (a cf_* query parameter
+// or a cursor's sort key) parses as the vocabulary kind, so it may bind
+// under the kind's typed cast without risking a query execution error.
+// text and picklist accept any string.
+func parsesAsKind(kind, value string) bool {
+	switch kind {
 	case fieldcatalog.TypeNumber:
-		if _, err := strconv.ParseFloat(value, 64); err != nil {
-			return invalid("a number")
-		}
+		_, err := strconv.ParseFloat(value, 64)
+		return err == nil
 	case fieldcatalog.TypeCurrency:
-		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
-			return invalid("an integer minor-unit amount")
-		}
+		_, err := strconv.ParseInt(value, 10, 64)
+		return err == nil
 	case fieldcatalog.TypeDate:
-		if _, err := time.Parse("2006-01-02", value); err != nil {
-			return invalid("an ISO date (YYYY-MM-DD)")
-		}
+		_, err := time.Parse("2006-01-02", value)
+		return err == nil
 	case fieldcatalog.TypeBoolean:
-		if value != "true" && value != "false" {
-			return invalid("true or false")
+		return value == "true" || value == "false"
+	case KindUUID:
+		_, err := ids.Parse(value)
+		return err == nil
+	case KindTimestamp:
+		return parsesAsTimestamptz(value)
+	default: // text, picklist
+		return true
+	}
+}
+
+// pgTimestamptzTextLayouts cover Postgres's timestamptz text output —
+// the form a sorted cursor key round-trips through — with and without
+// fractional seconds, under whole-hour (`+00`) and minute (`+05:30`)
+// session-timezone offsets, plus the RFC 3339 spelling for good measure.
+var pgTimestamptzTextLayouts = []string{
+	"2006-01-02 15:04:05.999999-07",
+	"2006-01-02 15:04:05.999999-07:00",
+	time.RFC3339Nano,
+}
+
+func parsesAsTimestamptz(value string) bool {
+	for _, layout := range pgTimestamptzTextLayouts {
+		if _, err := time.Parse(layout, value); err == nil {
+			return true
 		}
 	}
-	// text/picklist: any string is a valid equality operand.
-	return nil
+	return false
+}
+
+// kindOperandShape names the text form a kind's values take — the
+// actionable half of a value-invalid refusal.
+func kindOperandShape(kind string) string {
+	switch kind {
+	case fieldcatalog.TypeNumber:
+		return "a number"
+	case fieldcatalog.TypeCurrency:
+		return "an integer minor-unit amount"
+	case fieldcatalog.TypeDate:
+		return "an ISO date (YYYY-MM-DD)"
+	case fieldcatalog.TypeBoolean:
+		return "true or false"
+	case KindUUID:
+		return "a UUID"
+	case KindTimestamp:
+		return "a timestamp"
+	default: // text, picklist
+		return "a string"
+	}
 }
 
 // listBindCast is the explicit bind cast per vocabulary kind, so a
@@ -275,6 +333,8 @@ func listBindCast(kind string) string {
 		return "::bigint"
 	case KindTimestamp:
 		return "::timestamptz"
+	case KindUUID:
+		return "::uuid"
 	default: // text, picklist
 		return "::text"
 	}

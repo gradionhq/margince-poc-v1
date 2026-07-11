@@ -64,18 +64,18 @@ type ListDealsInput struct {
 	CustomFilters map[string]string
 }
 
-// dealNameColumn is the deal's display-name column — the quick-find
-// expression and the sortable vocabulary name it in one spelling.
+// dealNameColumn is the deal's display-name column, the quick-find
+// match expression. Deliberately NOT in the sortable vocabulary: the
+// data-model §13.5 DM-VOCAB-3 set does not list it.
 const dealNameColumn = "name"
 
-// dealListFields is the deal list's core sortable vocabulary
-// (data-model §13, mirroring poc-1's deal set); active cf_ columns join
-// it per request.
+// dealListFields is the deal list's core sortable vocabulary — exactly
+// the data-model §13.5 DM-VOCAB-3 set; active cf_ columns join it per
+// request.
 var dealListFields = map[string]string{
 	"created_at":          storekit.KindTimestamp,
 	"updated_at":          storekit.KindTimestamp,
 	"last_activity_at":    storekit.KindTimestamp,
-	dealNameColumn:        fieldcatalog.TypeText,
 	"amount_minor":        fieldcatalog.TypeCurrency,
 	"expected_close_date": fieldcatalog.TypeDate,
 }

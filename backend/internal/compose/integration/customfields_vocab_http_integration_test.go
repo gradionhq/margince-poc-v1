@@ -13,7 +13,12 @@ package integration
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // listPeopleNames GETs /v1/people with the given query string and
@@ -93,5 +98,40 @@ func TestCustomFieldVocabHTTP(t *testing.T) {
 
 	t.Run("multi-field sort answers 422 sort_unsupported", func(t *testing.T) {
 		assert422Code(t, e, "/v1/people?sort=-created_at,full_name", "sort_unsupported")
+	})
+
+	status, score, problem := createCustomField(t, e, anyMap{
+		"object": "person", "label": "Score", "type": "number", "source": "ui",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create person number field status = %d: %+v", status, problem)
+	}
+
+	t.Run("crafted cursor sort key answers 422 malformed_cursor, never 500", func(t *testing.T) {
+		badKey := "abc"
+		crafted := craftCursor(t, storekit.Cursor{
+			CreatedAt: time.Now().UTC(), ID: ids.NewV7(),
+			SortField: score.ColumnName, SortKey: &badKey,
+		})
+		assert422Code(t, e,
+			"/v1/people?sort="+score.ColumnName+"&cursor="+url.QueryEscape(crafted),
+			"malformed_cursor")
+	})
+
+	t.Run("cursor reused under another sort answers 422 cursor_param_mismatch", func(t *testing.T) {
+		var list struct {
+			Page struct {
+				NextCursor string `json:"next_cursor"`
+				HasMore    bool   `json:"has_more"`
+			} `json:"page"`
+		}
+		path := "/v1/people?sort=" + score.ColumnName + "&limit=1"
+		if status := e.call(t, "GET", path, nil, nil, &list); status != http.StatusOK {
+			t.Fatalf("GET %s status = %d", path, status)
+		}
+		if !list.Page.HasMore || list.Page.NextCursor == "" {
+			t.Fatalf("expected a sorted next-page cursor, got %+v", list.Page)
+		}
+		assert422Code(t, e, "/v1/people?cursor="+url.QueryEscape(list.Page.NextCursor), "cursor_param_mismatch")
 	})
 }

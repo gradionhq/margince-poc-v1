@@ -17,6 +17,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
+// ownerIDColumn is the owner reference column person and organization
+// rows share — their sortable vocabularies (DM-VOCAB-1/2) and ownership
+// patches name it in one spelling.
+const ownerIDColumn = "owner_id"
+
 // Store owns this module's tables (data-seam ownership, ADR-0014 Am.1);
 // every write rides the storekit audit+outbox shape in one transaction.
 type Store struct {
