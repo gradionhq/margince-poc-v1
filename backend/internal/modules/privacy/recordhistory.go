@@ -80,8 +80,11 @@ type RecordHistoryFilter struct {
 // RecordHistoryEntry is one audit_log row rendered as a history line —
 // the whole-mutation view, one entry per row (field-history's per-field
 // projection is the sibling read). Before/After are the row's own field
-// images with the entity's mask applied by omission; operational meta
-// rides audit_log.evidence, which this read never selects.
+// images with the entity's mask applied by omission. Scrub tombstones and
+// retention rows carry their operational tallies on audit_log.evidence,
+// which this read never selects; other meta verbs' before/after payloads
+// are served verbatim—workspace-operational context behind the same
+// record-read gate, never subject PII.
 type RecordHistoryEntry struct {
 	ID                ids.UUID
 	ActorType         string
@@ -156,8 +159,11 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 //
 // Unlike field-history there is no action allowlist: a merge or export
 // line IS the point of this view. Payload honesty is inherited instead —
-// meta writers put operation metadata in audit_log.evidence, and this
-// read never selects that column.
+// scrub tombstones and retention rows carry operational tallies on
+// audit_log.evidence, which this read never selects; other meta verbs
+// (merge, promote, export, record_share, enrich, coldstart) serve
+// operational context verbatim from before/after, workspace-operational
+// data behind the same record-read gate, never subject PII.
 func ListRecordHistory(ctx context.Context, pool *pgxpool.Pool, f RecordHistoryFilter) (RecordHistoryPage, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
