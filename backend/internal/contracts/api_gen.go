@@ -6721,7 +6721,8 @@ type ListActivitiesParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7060,7 +7061,8 @@ type ListCustomFieldsParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// Object Target core object (CUSTOM-FIELDS-PARAM-2).
@@ -7212,7 +7214,8 @@ type ListDealsParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7380,7 +7383,8 @@ type ListLeadsParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7566,7 +7570,8 @@ type ListOrganizationsParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7683,7 +7688,8 @@ type ListPartnersParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort        *Sort                          `form:"sort,omitempty" json:"sort,omitempty"`
 	PartnerRole *ListPartnersParamsPartnerRole `form:"partner_role,omitempty" json:"partner_role,omitempty"`
 	CertStatus  *ListPartnersParamsCertStatus  `form:"cert_status,omitempty" json:"cert_status,omitempty"`
@@ -7716,7 +7722,8 @@ type ListPeopleParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
@@ -7858,7 +7865,8 @@ type ListProductsParams struct {
 	// accepted multi-field spelling; any other comma-separated multi-field spec returns
 	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
 	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-	// columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.

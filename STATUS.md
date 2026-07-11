@@ -113,7 +113,9 @@ Merged so far:
   extended keyset cursor (sort-fingerprinted, crafted-token-hardened);
   active columns join the vocabulary, retired leave it. Arc 2a-ii
   completes CF-T05's core parity (collections/saved-views cf-awareness
-  flagged as follow-up).
+  flagged as follow-up; a merged-away record's cf values stay on the
+  archived source row — merge survivorship fill is core-columns-only in
+  V1).
 
 ## Pick up here
 

@@ -5585,7 +5585,8 @@ export interface components {
          *     accepted multi-field spelling; any other comma-separated multi-field spec returns
          *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
          *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-         *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+         *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+         *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
          */
         Sort: string;
         /** @description Include soft-deleted (archived) rows. Default false. */
@@ -5843,7 +5844,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -6106,7 +6108,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -6497,7 +6500,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 partner_role?: "hosting" | "consulting" | "strategic";
@@ -6546,7 +6550,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -7097,7 +7102,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -7989,7 +7995,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -9406,7 +9413,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Target core object (CUSTOM-FIELDS-PARAM-2). */
@@ -10290,7 +10298,8 @@ export interface operations {
                  *     accepted multi-field spelling; any other comma-separated multi-field spec returns
                  *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
                  *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
-                 *     columns; an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
