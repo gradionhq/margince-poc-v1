@@ -127,7 +127,7 @@ func TestConvertToBase(t *testing.T) {
 
 func TestFxRateUnavailableErrorMessage(t *testing.T) {
 	asOf := time.Date(2026, time.July, 11, 0, 0, 0, 0, time.UTC)
-	err := fxRateUnavailableError{Currency: "JPY", AsOf: asOf}
+	err := FXRateUnavailableError{Currency: "JPY", AsOf: asOf}
 
 	msg := err.Error()
 	if msg == "" {

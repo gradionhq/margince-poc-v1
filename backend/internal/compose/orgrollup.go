@@ -7,9 +7,9 @@ package compose
 // (RD-T04): the RBAC-aware BFS prune over the parent→children org
 // graph, calendar-quarter bounds in the workspace timezone, and the
 // two rounding rules (win-weighted value, FX base conversion) the
-// rollup's totals are built from. No DB and no HTTP live here —
-// Task 3 wires this against the org tree store and Task 4 wires the
-// HTTP handler.
+// rollup's totals are built from. No DB and no HTTP live here — the
+// gated tree walk and measures are in orgrollupread.go, the HTTP
+// handler arrives with the transport slice.
 
 import (
 	"fmt"
@@ -150,15 +150,17 @@ func absInt64(v int64) int64 {
 	return v
 }
 
-// fxRateUnavailableError reports that the rollup needed a stored FX
+// FXRateUnavailableError reports that the rollup needed a stored FX
 // rate for currency as of a point in time and none was on file — the
-// system never invents a rate=1 fallback, per formulas §11.
-type fxRateUnavailableError struct {
+// system never invents a rate=1 fallback, per formulas §11. Exported so
+// the HTTP layer and the integration suites match it via errors.As and
+// map it to 422 fx_rate_unavailable.
+type FXRateUnavailableError struct {
 	Currency string
 	AsOf     time.Time
 }
 
-func (e fxRateUnavailableError) Error() string {
+func (e FXRateUnavailableError) Error() string {
 	return fmt.Sprintf("no stored FX rate for %s as of %s; record today's rate for %s before retrying the rollup",
 		e.Currency, e.AsOf.Format(time.DateOnly), e.Currency)
 }
