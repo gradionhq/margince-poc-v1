@@ -118,6 +118,8 @@ var tableOwners = map[string]string{
 	"erasure_suppression": "internal/modules/privacy",
 	// customfields (the governed add-field engine's catalog, decisions/0024)
 	"custom_field": "internal/modules/customfields",
+	// quotas (RD-T06: owner-XOR-team revenue targets)
+	"quota": "internal/modules/quotas",
 	// compose (HTTP replay protection is transport plumbing, not domain;
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)
