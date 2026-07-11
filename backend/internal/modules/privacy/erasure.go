@@ -101,11 +101,18 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			return err
 		}
 
-		if err := anonymizeSubjectRows(ctx, tx, subject, emails); err != nil {
+		leadsWiped, err := anonymizeSubjectRows(ctx, tx, subject, emails)
+		if err != nil {
 			return err
 		}
 		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject)
 		if err != nil {
+			return err
+		}
+		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
+			return err
+		}
+		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
 			return err
 		}
 		// Purge the subject's attachment bytes and rows together, inside the
@@ -124,7 +131,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// PII. The paired event tells consumers the subject is gone.
 		auditID, err := storekit.Audit(ctx, tx, actionErase, "person", subject.UUID, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
-			"activities_redacted": activitiesRedacted,
+			"activities_redacted": len(activitiesRedacted),
 		})
 		if err != nil {
 			return err
@@ -187,8 +194,9 @@ func (e *Eraser) eraseAttachments(ctx context.Context, tx pgx.Tx, where string, 
 // reference it), the email/phone child rows delete outright, the
 // SEGREGATED lead twin — the lead they were promoted from, and any lead
 // row carrying one of their addresses — anonymizes the same way, and
-// the subject's own embeddings drop.
-func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) error {
+// the subject's own embeddings drop. It returns the wiped lead ids so
+// the caller can tombstone each twin's own audit spine.
+func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]ids.UUID, error) {
 	if _, err := tx.Exec(ctx, `
 		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
 		  title = NULL, raw = NULL,
@@ -196,24 +204,25 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		  address_region = NULL, address_postal_code = NULL, address_country = NULL,
 		  archived_at = coalesce(archived_at, now())
 		WHERE id = $1`, personID, erasedName); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
-		return err
+		return nil, err
 	}
 	// Anonymize the lead twins and drop their field-level provenance in
 	// one pass: the provenance rows describe WHO captured WHICH of the
 	// subject's fields from WHERE — subject-linked metadata that must not
 	// outlive the fields it annotates. The CTE runs the UPDATE first and
 	// feeds the touched lead ids to the DELETE, so the email match still
-	// sees the pre-anonymize addresses.
-	if _, err := tx.Exec(ctx, `
+	// sees the pre-anonymize addresses; the same ids flow back out for
+	// the per-twin tombstones.
+	rows, err := tx.Query(ctx, `
 		WITH wiped AS (
 		  UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
 		    company_name = NULL, candidate_org_key = NULL, raw = NULL,
@@ -222,19 +231,50 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		     OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
 		     OR (email IS NOT NULL AND lower(email) = ANY($2))
 		  RETURNING id
+		), pruned AS (
+		  DELETE FROM field_provenance
+		  WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)
 		)
-		DELETE FROM field_provenance
-		WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)`,
-		personID, lowercased(emails)); err != nil {
-		return err
+		SELECT id FROM wiped`,
+		personID, lowercased(emails))
+	if err != nil {
+		return nil, err
+	}
+	wiped, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
-		return err
+		return nil, err
 	}
-	_, err := tx.Exec(ctx,
-		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID)
-	return err
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID); err != nil {
+		return nil, err
+	}
+	return wiped, nil
+}
+
+// tombstoneCollateralScrubs stamps a per-record erase tombstone for each
+// record the erasure scrubbed alongside the subject. The field-history
+// projection cuts a record's timeline at ITS OWN newest erase row — the
+// person's tombstone cannot bound a lead twin's or an activity's spine,
+// so without these the scrubbed records' historical audit images (a lead
+// create's email, an activity create's subject line) would project the
+// erased PII straight back out. The payload is meta-only, like the
+// person tombstone: it must never re-store what it certifies gone. No
+// paired outbox event on purpose: the erasure's single retention.applied
+// on the person is the bus-visible fact, and the collateral scrubs have
+// never announced themselves per record.
+func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string, records []ids.UUID, reason string) error {
+	for _, id := range records {
+		if _, err := storekit.Audit(ctx, tx, actionErase, entityType, id, nil, map[string]any{
+			"reason": reason, "cause": "person_erasure",
+		}); err != nil {
+			return fmt.Errorf("tombstoning scrubbed %s: %w", entityType, err)
+		}
+	}
+	return nil
 }
 
 // subjectOnlyActivities selects timeline rows linked to the erased
@@ -255,14 +295,21 @@ const subjectOnlyActivities = `
 // GENERATED search_tsv refreshes from the now-empty text, so the erased
 // name is no longer full-text searchable). The subject's attachments are
 // purged separately by eraseAttachments (objects first); this handles only
-// the timeline text and its field-level provenance.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (int64, error) {
-	tag, err := tx.Exec(ctx, `
+// the timeline text and its field-level provenance. It returns the
+// redacted activity ids so the caller can tombstone each record's own
+// audit spine.
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]ids.UUID, error) {
+	rows, err := tx.Query(ctx, `
 		UPDATE activity SET subject = $2, body = NULL,
 		  archived_at = coalesce(archived_at, now())
-		WHERE id IN (`+subjectOnlyActivities+`)`, personID, erasedName)
+		WHERE id IN (`+subjectOnlyActivities+`)
+		RETURNING id`, personID, erasedName)
 	if err != nil {
-		return 0, err
+		return nil, err
+	}
+	redacted, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return nil, err
 	}
 	// The redacted rows' field-level provenance goes with the fields it
 	// annotated — origin metadata must not outlive the erased text.
@@ -270,9 +317,9 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 		DELETE FROM field_provenance
 		WHERE object_type = 'activity' AND object_id IN (`+subjectOnlyActivities+`)`,
 		personID); err != nil {
-		return 0, err
+		return nil, err
 	}
-	return tag.RowsAffected(), nil
+	return redacted, nil
 }
 
 // purgeDerivedTraces removes what the system DERIVED from the subject

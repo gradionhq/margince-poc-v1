@@ -352,6 +352,58 @@ func TestFieldHistoryStopsAtErasureBoundary(t *testing.T) {
 	}
 }
 
+// TestFieldHistoryErasureBoundsCollateralScrubs proves the erasure
+// boundary reaches every record the eraser scrubs, not only the person:
+// the lead twin's create image carries the subject's email and the
+// activity's create image carries the subject line, and both live in the
+// append-only spine — so each collaterally-scrubbed record needs its OWN
+// erase tombstone, or the erased PII projects straight back out of the
+// twin's field history.
+func TestFieldHistoryErasureBoundsCollateralScrubs(t *testing.T) {
+	e := Setup(t)
+	personID := e.SeedPerson(t, "Selma Subject", nil)
+	const twinEmail = "selma.twin@example.test"
+	// The subject's address is what ties the twin to the person: the
+	// eraser wipes any lead carrying one of the subject's emails.
+	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
+		 VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'manual', 'human:x')`,
+		personID, twinEmail)
+	leadID := seedLead(t, e, "Selma Subject", twinEmail, nil)
+
+	activity, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+		Kind: "note", Subject: strPtr("Call with Selma"), Source: "manual",
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: personID}},
+	})
+	if err != nil {
+		t.Fatalf("log activity: %v", err)
+	}
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+		t.Fatalf("erase: %v", err)
+	}
+
+	// Both create images predate the erasure and hold the subject's PII;
+	// after the scrub neither may project — even to the unbounded admin.
+	targets := []struct {
+		entityType string
+		id         ids.UUID
+	}{
+		{"lead", leadID.UUID},
+		{"activity", ids.UUID(activity.Id)},
+	}
+	for _, target := range targets {
+		page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+			EntityType: target.entityType, EntityID: target.id,
+		})
+		if err != nil {
+			t.Fatalf("%s field-history: %v", target.entityType, err)
+		}
+		if len(page.Entries) != 0 || page.HasMore || page.NextCursor != "" {
+			t.Errorf("%s: erased PII projected past the erasure: %+v", target.entityType, page.Entries)
+		}
+	}
+}
+
 // TestFieldHistoryProjectsOnlyFieldImageVerbs pins the action allowlist
 // end to end: verbs whose payloads are evidence maps (merge relink
 // counts, export receipts) must not fabricate field entries, while the
