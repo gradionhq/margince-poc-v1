@@ -43,6 +43,14 @@ if [[ -n "$COVER_OUT" ]]; then
   COVERDIR="$(mktemp -d)"; export COVERDIR
 fi
 
+# Per-package go-test timeout. Coverage instrumentation roughly doubles a
+# package's wall-time, and the heaviest package (compose/integration re-migrates
+# per test, ~180×) can cross the tight 300s cap under coverage + parallel
+# Postgres contention. Give the coverage run more headroom; a plain run keeps
+# the tight 300s. Overridable via INTEGRATION_TIMEOUT.
+IT_TIMEOUT="${INTEGRATION_TIMEOUT:-$([[ -n "$COVER_OUT" ]] && echo 600s || echo 300s)}"
+export IT_TIMEOUT
+
 # Build the migrated template once, fresh, before fanning out. Every package
 # clones from it (CREATE DATABASE ... TEMPLATE) instead of re-migrating.
 echo "test-integration-parallel: building migrated template ${TEMPLATE_NAME}…"
@@ -97,7 +105,7 @@ run_one() {
            MARGINCE_TEST_DSN="$(owner_clone_dsn "$db")" \
            MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
            MARGINCE_TEST_BLOBSTORE_BUCKET="$bucket" \
-        go test -p 1 -tags=integration -v -count=1 -timeout=300s \
+        go test -p 1 -tags=integration -v -count=1 -timeout="$IT_TIMEOUT" \
           "${cover_pre[@]+"${cover_pre[@]}"}" "$rel" "${cover_post[@]+"${cover_post[@]}"}" ) || st=$?
     drop_clone "$db"
     echo "EXIT $st"
