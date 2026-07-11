@@ -65,16 +65,14 @@ func (s *Service) SetOptions(ctx context.Context, id ids.UUID, options []string)
 	return out, nil
 }
 
-// setOptionsInTx is SetOptions' transaction body: GUC + row lock →
-// picklist check → advisory lock → CHECK regeneration (owner) →
-// downgrade → catalog UPDATE + audit.
-func (s *Service) setOptionsInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUID, options []string) (crmcontracts.CustomField, error) {
-	// The GUC binds first so the FOR UPDATE read is workspace-scoped even
-	// where the owner role is subject to the catalog's FORCE RLS; the
-	// explicit workspace predicate keeps it correct where it is not (a
-	// superuser owner in dev).
+// lockPicklistField binds the workspace GUC, takes FOR UPDATE on the
+// catalog row, and refuses a non-picklist target. The GUC binds first so
+// the read is workspace-scoped even where the owner role is subject to
+// the catalog's FORCE RLS; the explicit workspace predicate keeps it
+// correct where it is not (a superuser owner in dev).
+func lockPicklistField(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUID) (lockedField, error) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
-		return crmcontracts.CustomField{}, fmt.Errorf("customfields: binding workspace GUC: %w", err)
+		return lockedField{}, fmt.Errorf("customfields: binding workspace GUC: %w", err)
 	}
 	var f lockedField
 	err := tx.QueryRow(ctx,
@@ -82,13 +80,24 @@ func (s *Service) setOptionsInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 		   FROM custom_field WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
 		id, wsID).Scan(&f.Object, &f.ColumnName, &f.Type, &f.Status, &f.Label, &f.OptionsRaw, &f.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.CustomField{}, apperrors.ErrNotFound
+		return lockedField{}, apperrors.ErrNotFound
 	}
 	if err != nil {
-		return crmcontracts.CustomField{}, fmt.Errorf("customfields: locking catalog row: %w", err)
+		return lockedField{}, fmt.Errorf("customfields: locking catalog row: %w", err)
 	}
 	if f.Type != TypePicklist {
-		return crmcontracts.CustomField{}, ErrNotPicklist
+		return lockedField{}, ErrNotPicklist
+	}
+	return f, nil
+}
+
+// setOptionsInTx is SetOptions' transaction body: GUC + row lock →
+// picklist check → advisory lock → CHECK regeneration (owner) →
+// downgrade → catalog UPDATE + audit.
+func (s *Service) setOptionsInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUID, options []string) (crmcontracts.CustomField, error) {
+	f, err := lockPicklistField(ctx, tx, wsID, id)
+	if err != nil {
+		return crmcontracts.CustomField{}, err
 	}
 	ddl, err := BuildOptionsDDL(f.Object, f.ColumnName, options)
 	if err != nil {
