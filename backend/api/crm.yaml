@@ -2984,6 +2984,50 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /field-history:
+    get:
+      tags: [Compliance]
+      operationId: getFieldHistory
+      security: [ { cookieAuth: [] } ]   # human session only
+      x-agent-access: human-only
+      summary: Per-field change history for one record, projected from audit_log before/after diffs.
+      description: |
+        One entry per field change, newest first, for the given `entity_type` + `entity_id`.
+        A read-only projection over the append-only audit spine — no second history store, so
+        an erasure scrub and a field mask hide history and live value in the same motion.
+        Agent-authored changes additionally carry `passport_id`/`evidence`. A visible record
+        with no matching changes answers `200 {data: []}` — an empty history is honest, not a gap.
+        A record outside the caller's row scope answers 404 (existence-hiding), like every
+        single-record read.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: entity_type
+          in: query
+          required: true
+          schema: { type: string, enum: [person, organization, deal, lead, activity] }
+        - name: entity_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: field
+          in: query
+          schema: { type: string }
+          description: Narrow to one field name.
+        - name: actor_type
+          in: query
+          schema: { type: string, enum: [human, agent, system, connector] }
+          description: Narrow to one actor category.
+      responses:
+        '200':
+          description: A page of per-field change entries (empty when none).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FieldHistoryListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /consent-purposes:
     get:
       tags: [Compliance]
@@ -5848,6 +5892,34 @@ components:
         authorization_rule: { type: [string, 'null'], description: Which RBAC/scope rule allowed it. }
         evidence: { type: [object, 'null'], additionalProperties: true, description: e.g. which inbound email/meeting triggered a promotion. }
         occurred_at: { type: string, format: date-time }
+
+    FieldHistoryEntry:
+      type: object
+      description: |
+        One per-field change, projected read-only from a single audit_log row's before/after
+        diff — not a stored history row. `id` is the source audit_log row's id, so entries from
+        the same mutation share it. `old_value`/`new_value` are display-form strings; null means
+        the empty/created origin.
+      required: [id, entity_type, entity_id, field, changed_at, actor_type, actor_id]
+      properties:
+        id: { type: string, format: uuid }
+        entity_type: { type: string, enum: [person, organization, deal, lead, activity] }
+        entity_id: { type: string, format: uuid }
+        field: { type: string }
+        old_value: { type: [string, 'null'] }
+        new_value: { type: [string, 'null'] }
+        changed_at: { type: string, format: date-time }
+        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_id: { type: string }
+        passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport that authorized the change; present for agent actors only. }
+        evidence: { type: [object, 'null'], additionalProperties: true, description: Grounding evidence for an agent-authored change; present for agent actors only. }
+
+    FieldHistoryListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/FieldHistoryEntry' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- Reports ----
     RunReportRequest:

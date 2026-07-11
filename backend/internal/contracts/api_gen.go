@@ -1251,6 +1251,57 @@ func (e EnrichmentProposalStatus) Valid() bool {
 	}
 }
 
+// Defines values for FieldHistoryEntryActorType.
+const (
+	FieldHistoryEntryActorTypeAgent     FieldHistoryEntryActorType = "agent"
+	FieldHistoryEntryActorTypeConnector FieldHistoryEntryActorType = "connector"
+	FieldHistoryEntryActorTypeHuman     FieldHistoryEntryActorType = "human"
+	FieldHistoryEntryActorTypeSystem    FieldHistoryEntryActorType = "system"
+)
+
+// Valid indicates whether the value is a known member of the FieldHistoryEntryActorType enum.
+func (e FieldHistoryEntryActorType) Valid() bool {
+	switch e {
+	case FieldHistoryEntryActorTypeAgent:
+		return true
+	case FieldHistoryEntryActorTypeConnector:
+		return true
+	case FieldHistoryEntryActorTypeHuman:
+		return true
+	case FieldHistoryEntryActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldHistoryEntryEntityType.
+const (
+	FieldHistoryEntryEntityTypeActivity     FieldHistoryEntryEntityType = "activity"
+	FieldHistoryEntryEntityTypeDeal         FieldHistoryEntryEntityType = "deal"
+	FieldHistoryEntryEntityTypeLead         FieldHistoryEntryEntityType = "lead"
+	FieldHistoryEntryEntityTypeOrganization FieldHistoryEntryEntityType = "organization"
+	FieldHistoryEntryEntityTypePerson       FieldHistoryEntryEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the FieldHistoryEntryEntityType enum.
+func (e FieldHistoryEntryEntityType) Valid() bool {
+	switch e {
+	case FieldHistoryEntryEntityTypeActivity:
+		return true
+	case FieldHistoryEntryEntityTypeDeal:
+		return true
+	case FieldHistoryEntryEntityTypeLead:
+		return true
+	case FieldHistoryEntryEntityTypeOrganization:
+		return true
+	case FieldHistoryEntryEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FilteredExportRequestFormat.
 const (
 	Csv  FilteredExportRequestFormat = "csv"
@@ -3153,6 +3204,57 @@ func (e ListDealOffersParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for GetFieldHistoryParamsEntityType.
+const (
+	GetFieldHistoryParamsEntityTypeActivity     GetFieldHistoryParamsEntityType = "activity"
+	GetFieldHistoryParamsEntityTypeDeal         GetFieldHistoryParamsEntityType = "deal"
+	GetFieldHistoryParamsEntityTypeLead         GetFieldHistoryParamsEntityType = "lead"
+	GetFieldHistoryParamsEntityTypeOrganization GetFieldHistoryParamsEntityType = "organization"
+	GetFieldHistoryParamsEntityTypePerson       GetFieldHistoryParamsEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the GetFieldHistoryParamsEntityType enum.
+func (e GetFieldHistoryParamsEntityType) Valid() bool {
+	switch e {
+	case GetFieldHistoryParamsEntityTypeActivity:
+		return true
+	case GetFieldHistoryParamsEntityTypeDeal:
+		return true
+	case GetFieldHistoryParamsEntityTypeLead:
+		return true
+	case GetFieldHistoryParamsEntityTypeOrganization:
+		return true
+	case GetFieldHistoryParamsEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetFieldHistoryParamsActorType.
+const (
+	GetFieldHistoryParamsActorTypeAgent     GetFieldHistoryParamsActorType = "agent"
+	GetFieldHistoryParamsActorTypeConnector GetFieldHistoryParamsActorType = "connector"
+	GetFieldHistoryParamsActorTypeHuman     GetFieldHistoryParamsActorType = "human"
+	GetFieldHistoryParamsActorTypeSystem    GetFieldHistoryParamsActorType = "system"
+)
+
+// Valid indicates whether the value is a known member of the GetFieldHistoryParamsActorType enum.
+func (e GetFieldHistoryParamsActorType) Valid() bool {
+	switch e {
+	case GetFieldHistoryParamsActorTypeAgent:
+		return true
+	case GetFieldHistoryParamsActorTypeConnector:
+		return true
+	case GetFieldHistoryParamsActorTypeHuman:
+		return true
+	case GetFieldHistoryParamsActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListLeadsParamsStatus.
 const (
 	Disqualified ListLeadsParamsStatus = "disqualified"
@@ -4429,6 +4531,40 @@ type EnrichmentProposal struct {
 
 // EnrichmentProposalStatus Always staged — accept via the approval inbox.
 type EnrichmentProposalStatus string
+
+// FieldHistoryEntry One per-field change, projected read-only from a single audit_log row's before/after
+// diff — not a stored history row. `id` is the source audit_log row's id, so entries from
+// the same mutation share it. `old_value`/`new_value` are display-form strings; null means
+// the empty/created origin.
+type FieldHistoryEntry struct {
+	ActorId    string                      `json:"actor_id"`
+	ActorType  FieldHistoryEntryActorType  `json:"actor_type"`
+	ChangedAt  time.Time                   `json:"changed_at"`
+	EntityId   openapi_types.UUID          `json:"entity_id"`
+	EntityType FieldHistoryEntryEntityType `json:"entity_type"`
+
+	// Evidence Grounding evidence for an agent-authored change; present for agent actors only.
+	Evidence *map[string]interface{} `json:"evidence,omitempty"`
+	Field    string                  `json:"field"`
+	Id       openapi_types.UUID      `json:"id"`
+	NewValue *string                 `json:"new_value,omitempty"`
+	OldValue *string                 `json:"old_value,omitempty"`
+
+	// PassportId Agent Seat Passport that authorized the change; present for agent actors only.
+	PassportId *openapi_types.UUID `json:"passport_id,omitempty"`
+}
+
+// FieldHistoryEntryActorType defines model for FieldHistoryEntry.ActorType.
+type FieldHistoryEntryActorType string
+
+// FieldHistoryEntryEntityType defines model for FieldHistoryEntry.EntityType.
+type FieldHistoryEntryEntityType string
+
+// FieldHistoryListResponse defines model for FieldHistoryListResponse.
+type FieldHistoryListResponse struct {
+	Data []FieldHistoryEntry `json:"data"`
+	Page PageInfo            `json:"page"`
+}
 
 // FilteredExportRequest A filtered export request. Supply exactly ONE source: an inline `object` (with a required `filter`), a `view_id` (a saved view whose filter state is exported), or a `list_id` (a dynamic list whose definition is exported). The slice is always row-scoped to the caller through the one filter engine.
 type FilteredExportRequest struct {
@@ -6649,6 +6785,34 @@ type CreateOfferParams struct {
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
+
+// GetFieldHistoryParams defines parameters for GetFieldHistory.
+type GetFieldHistoryParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit      *Limit                          `form:"limit,omitempty" json:"limit,omitempty"`
+	EntityType GetFieldHistoryParamsEntityType `form:"entity_type" json:"entity_type"`
+	EntityId   openapi_types.UUID              `form:"entity_id" json:"entity_id"`
+
+	// Field Narrow to one field name.
+	Field *string `form:"field,omitempty" json:"field,omitempty"`
+
+	// ActorType Narrow to one actor category.
+	ActorType *GetFieldHistoryParamsActorType `form:"actor_type,omitempty" json:"actor_type,omitempty"`
+}
+
+// GetFieldHistoryParamsEntityType defines parameters for GetFieldHistory.
+type GetFieldHistoryParamsEntityType string
+
+// GetFieldHistoryParamsActorType defines parameters for GetFieldHistory.
+type GetFieldHistoryParamsActorType string
 
 // ListLeadsParams defines parameters for ListLeads.
 type ListLeadsParams struct {
@@ -11778,6 +11942,9 @@ type ServerInterface interface {
 	// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 	// (POST /exports)
 	CreateFilteredExport(w http.ResponseWriter, r *http.Request)
+	// Per-field change history for one record, projected from audit_log before/after diffs.
+	// (GET /field-history)
+	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
@@ -12384,6 +12551,12 @@ func (_ Unimplemented) ListDealStakeholders(w http.ResponseWriter, r *http.Reque
 // Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 // (POST /exports)
 func (_ Unimplemented) CreateFilteredExport(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Per-field change history for one record, projected from audit_log before/after diffs.
+// (GET /field-history)
+func (_ Unimplemented) GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -15559,6 +15732,110 @@ func (siw *ServerInterfaceWrapper) CreateFilteredExport(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateFilteredExport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFieldHistory operation middleware
+func (siw *ServerInterfaceWrapper) GetFieldHistory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetFieldHistoryParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "entity_type", r.URL.Query(), &params.EntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "entity_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "entity_id", r.URL.Query(), &params.EntityId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "field" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "field", r.URL.Query(), &params.Field, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "field"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "field", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "actor_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actor_type", r.URL.Query(), &params.ActorType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_type", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFieldHistory(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20822,6 +21099,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/exports", wrapper.CreateFilteredExport)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)
