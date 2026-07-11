@@ -123,8 +123,22 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, arch
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, archived, active)
-		return err
+		if out, err = readOrganization(ctx, tx, id, archived, active); err != nil {
+			return err
+		}
+		// STATE-4: the gate is a pure permission check (no query), so a
+		// caller whose role lacks computed_field:read never pays for the
+		// rollup read below, and out.ComputedFields stays its nil zero
+		// value — omitempty then drops the key entirely on marshal (T1).
+		if computedFieldsVisible(ctx) {
+			minor, _, err := openPipelineRollup(ctx, tx, id)
+			if err != nil {
+				return fmt.Errorf("read open pipeline rollup: %w", err)
+			}
+			rows := organizationComputedFields(minor)
+			out.ComputedFields = &rows
+		}
+		return nil
 	})
 	return out, err
 }
