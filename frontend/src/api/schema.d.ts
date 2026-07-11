@@ -2504,8 +2504,8 @@ export interface paths {
          *     fetchable by id, and returns 200 + the full archived entity — never 204. This
          *     deliberately does not follow /automations/{id}'s deleteAutomation 204-on-archive
          *     shape, which predates/diverges from the standard convention every other archive
-         *     operation in this contract (archivePerson, archiveOrganization, archiveDeal,
-         *     archivePipeline) correctly follows. Human session only, like createQuota/updateQuota.
+         *     operation in this contract (archivePerson, archiveOrganization, archiveDeal)
+         *     correctly follows. Human session only, like createQuota/updateQuota.
          */
         delete: operations["archiveQuota"];
         options?: never;
