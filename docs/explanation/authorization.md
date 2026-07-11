@@ -56,16 +56,18 @@ Minting and using one: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md)
 
 ## The two layers, precisely
 
-**1. Admission — *may this principal perform this kind of action at all?*** Minted in one place,
-`platform/auth`. `Admit`/`Gate` combines the agent scope, the seat ceiling (a `read` seat may GET but
-never mutate), the autonomy tier (below), and object-level RBAC — re-derived live on every call.
-Handlers decode the request and encode the response; they never decide authorization.
+**1. Admission — *may this agent take this kind of action at all?*** `platform/auth`'s `Gate.Admit`
+combines the agent **scope**, the **seat ceiling** (a `read` seat may GET but never mutate), and the
+**autonomy tier** (below), re-derived live on every call. Object-level RBAC and row visibility are
+**not** `Admit`'s job — they live at the store (layer 2). Handlers decode the request and encode the
+response; they never decide authorization.
 
-**2. Row scope — *may this principal see or touch this particular row?*** Enforced where the SQL is:
-`auth.Require` + `auth.EnsureVisible` at the store entry, the list-scope clauses composed into every
-query (`ScopeClause`), and `auth.EnsureLinkTarget` for foreign-key references. Row-scope checks often
-must run **inside the same transaction** as the read or write they guard — checking in a handler would
-be checking a different snapshot.
+**2. Object RBAC + row scope — *may this principal do this to this particular record?*** Enforced where
+the SQL is, at the store/service entry: **`auth.Require`** (object level — does the role grant this
+verb on this object type?), plus **`auth.EnsureVisible`** / the list-scope clauses (`ScopeClause`) /
+`auth.EnsureLinkTarget` (row level — may they see this row?). These often must run **inside the same
+transaction** as the read or write they guard — checking in a handler would be checking a different
+snapshot.
 
 ## Autonomy tiers — how agent actions are governed (🟢 / 🟡)
 

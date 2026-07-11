@@ -106,7 +106,7 @@ edit. Everything else you author.
 |---|---|
 | `backend/api/crm.yaml` | the contract itself — the *input* to codegen (this is the one "source" file the generators read) |
 | `internal/modules/<name>/` | the handler methods, the store/service, the SQL |
-| `backend/migrations/core|custom/*.sql` | schema changes (up + down) |
+| `backend/migrations/{core,custom}/*.sql` | schema changes (up + down) |
 | `internal/compose/{server,provider,registry}.go` + adapters | cross-module wiring and edges |
 | `backend/**/*_test.go` | unit, fitness, and integration tests |
 | `decisions/NNNN-*.md`, `docs/**` | the record of a non-obvious decision, and docs |
@@ -137,7 +137,7 @@ Four process roles, all assembled through `internal/compose`. Flags/env are tabl
 
 Every store method follows one shape: open the **workspace transaction**, gate at the entry point, run
 SQL over the tables the module owns, and — for a mutation — commit the domain row + an audit row + an
-event row together. That is the whole write contract in one call site:
+event row together. That is the whole write contract in one call site (illustrative, not copy-paste Go):
 
 ```go
 func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (Deal, error) {

@@ -21,9 +21,10 @@ composition layer. For adding a single operation to an *existing* module, use
    stubs automatically — no routing to write.
 5. **Only import `shared` + `platform` + the generated contract** — never a sibling module. `arch-lint`
    fails a sibling import.
-6. **`make check`** — the `var _ ServerInterface = Server{}` assertion proves the ops are implemented,
-   `arch-lint` proves the DAG holds, and the fitness tests (table ownership, RBAC gate, write shape)
-   run.
+6. **`make check`** — the `var _ ServerInterface = Server{}` assertion proves signature coverage (a
+   generated 501 stub satisfies it too, so add an endpoint test to prove your handler is actually
+   wired, not still the stub), `arch-lint` proves the DAG holds, and the fitness tests (table
+   ownership, RBAC gate, write shape) run.
 
 ## Add a cross-module edge (module A needs module B)
 

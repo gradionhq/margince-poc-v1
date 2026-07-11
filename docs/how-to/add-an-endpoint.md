@@ -39,10 +39,11 @@ the store mechanics step 3 relies on, see
 5. **Add a migration if the schema changed** — see [apply-migrations.md](apply-migrations.md), and
    record any new table in the owning module's `doc.go` "Tables owned".
 
-6. **Verify** — `make check`. `build` proves the operation is implemented (the
-   `var _ ServerInterface = Server{}` assertion fails if it's still only the stub), `drift` proves the
-   generated files match the contract, and the fitness tests run. Add `make test-integration` for the
-   real-Postgres lane and `make frontend-check` if `frontend/` changed.
+6. **Verify** — `make check`. `build` + the `var _ ServerInterface = Server{}` assertion prove the
+   operation exists on the contract surface — but a generated 501 stub also satisfies the interface, so
+   **an endpoint test asserting a non-501 response is what proves your handler is wired** (not still the
+   stub). `drift` proves the generated files match the contract, and the fitness tests run. Add
+   `make test-integration` for the real-Postgres lane and `make frontend-check` if `frontend/` changed.
 
 7. **Commit the contract and generated output together** — `crm.yaml` **and** every regenerated
    `*_gen.go` in the same commit (plus `frontend/src/api/schema.d.ts` if it changed). A hand edit or a
