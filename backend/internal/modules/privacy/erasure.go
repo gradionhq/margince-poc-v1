@@ -35,6 +35,11 @@ import (
 // carrying nothing of the subject.
 const erasedName = "Erased Subject"
 
+// actionErase names the Art. 17 scrub in both vocabularies it crosses:
+// the retention policy's action column and the audit spine's verb. The
+// field-history projection cuts at audit rows carrying it.
+const actionErase = "erase"
+
 // Eraser executes the shared erase path both the DSR surface and the
 // retention engine's 'erase' action ride.
 type Eraser struct {
@@ -117,7 +122,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 
 		// The tombstone: action=erase with counts only — proof without
 		// PII. The paired event tells consumers the subject is gone.
-		auditID, err := storekit.Audit(ctx, tx, "erase", "person", subject.UUID, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, actionErase, "person", subject.UUID, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
 			"activities_redacted": activitiesRedacted,
 		})
@@ -125,7 +130,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			return err
 		}
 		return storekit.Emit(ctx, tx, auditID, "retention.applied", "person", subject.UUID, map[string]any{
-			"action": "erase", "reason": reason,
+			"action": actionErase, "reason": reason,
 		})
 	})
 }

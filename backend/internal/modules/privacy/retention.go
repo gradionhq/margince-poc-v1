@@ -198,7 +198,7 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 
 // apply runs ONE action on ONE record in one audited transaction.
 func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id ids.UUID) error {
-	if pol.ObjectType == "person" && pol.Action == "erase" {
+	if pol.ObjectType == "person" && pol.Action == actionErase {
 		return s.eraser.ErasePerson(ctx, id, "retention")
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -261,11 +261,13 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		if err != nil {
 			return err
 		}
-		// The audit action vocabulary is closed (0012); retention names
-		// itself in evidence: archive→archive, anonymize→update,
-		// erase→erase.
-		auditAction := map[string]string{"archive": "archive", "anonymize": "update", "erase": "erase"}[pol.Action]
-		auditID, err := storekit.Audit(ctx, tx, auditAction, pol.ObjectType, id, nil, map[string]any{
+		// Retention audits under the verb of the action it ran —
+		// archive, anonymize and erase are all in the closed audit
+		// vocabulary (0053) — so a governance read can tell a retention
+		// anonymize from a user edit, and the field-history projection
+		// can treat anonymize/erase as its scrub boundary instead of
+		// parsing payload shapes.
+		auditID, err := storekit.Audit(ctx, tx, pol.Action, pol.ObjectType, id, nil, map[string]any{
 			"retention_action": pol.Action, "policy": pol.ID, "retain_days": pol.RetainDays,
 		})
 		if err != nil {

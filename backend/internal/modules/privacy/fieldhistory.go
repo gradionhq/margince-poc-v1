@@ -6,9 +6,11 @@ package privacy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -74,6 +76,39 @@ var fieldHistoryActorTypes = map[string]bool{
 	"human": true, "agent": true, "system": true, "connector": true,
 }
 
+// fieldHistoryProjectedActions is the closed set of audit verbs whose
+// before/after columns are honest per-field images of the record:
+// create/update/restore carry value snapshots, archive carries the
+// lifecycle image (lead disqualification records its status flip there),
+// advance_stage carries the deal's stage patch. Every other verb's
+// payload is evidence ABOUT an operation — merge relink counts, promote
+// provenance, an erase tombstone's suppression tallies, an export
+// receipt, assignment routing — and projecting one would fabricate
+// field changes that never happened on the record.
+var fieldHistoryProjectedActions = map[string]bool{
+	"create": true, "update": true, "archive": true, "restore": true, "advance_stage": true,
+}
+
+// fieldHistoryProjectedActionList mirrors fieldHistoryProjectedActions
+// for SQL ANY() binding, so the scan never spends its row budget on
+// rows the diff would refuse anyway.
+var fieldHistoryProjectedActionList = func() []string {
+	list := make([]string, 0, len(fieldHistoryProjectedActions))
+	for action := range fieldHistoryProjectedActions {
+		list = append(list, action)
+	}
+	sort.Strings(list)
+	return list
+}()
+
+// fieldHistoryScrubActions are the verbs certifying the record's PII was
+// scrubbed in place: an Art. 17 erase (erasure.go, retention's
+// activity/erase) or a retention anonymize. The audit spine is
+// append-only, so a scrub cannot rewrite the historical field images it
+// certifies gone — the projection enforces the scrub instead, by never
+// reading the tombstone row or anything older.
+var fieldHistoryScrubActions = []string{actionErase, "anonymize"}
+
 // entityFieldMask names fields whose history is withheld for an entity
 // type, exactly as the live value would be withheld — hiding history and
 // value is one motion, never two mechanisms. Empty until field-level
@@ -86,6 +121,7 @@ var defaultFieldMasks = map[string]entityFieldMask{}
 // auditDiffRow carries the columns of one audit_log row the diff needs.
 type auditDiffRow struct {
 	id         ids.UUID
+	action     string
 	entityType string
 	entityID   ids.UUID
 	actorType  string
@@ -103,6 +139,14 @@ type auditDiffRow struct {
 // never fabricated. Keys emit alphabetically so a row's entries are
 // deterministic. passport/evidence surface only for agent actors.
 func diffAuditRowFields(row auditDiffRow, mask entityFieldMask, fieldFilter *string) []FieldHistoryEntry {
+	// A meta verb's payload is evidence, not a field image (see
+	// fieldHistoryProjectedActions). The SQL scan already excludes such
+	// rows; this guard keeps the invariant with the diff itself, so no
+	// caller can ever project an erase tombstone's tallies or a merge's
+	// relink counts as field changes.
+	if !fieldHistoryProjectedActions[row.action] {
+		return nil
+	}
 	before := applyFieldMask(row.before, mask)
 	after := applyFieldMask(row.after, mask)
 
@@ -240,8 +284,12 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 		if visErr != nil {
 			return visErr
 		}
+		boundary, err := latestScrubTombstone(ctx, tx, f)
+		if err != nil {
+			return err
+		}
 		var scanErr error
-		page, scanErr = scanFieldHistorySpine(ctx, tx, f, mask, limit, cursorTime, cursorID, useCursor)
+		page, scanErr = scanFieldHistorySpine(ctx, tx, f, mask, limit, cursorTime, cursorID, useCursor, boundary)
 		return scanErr
 	})
 	if err != nil {
@@ -260,12 +308,12 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 // cap, the limit, and true spine exhaustion are three distinct reasons to
 // stop, and only the first two ever set a next cursor.
 func scanFieldHistorySpine(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter, mask entityFieldMask,
-	limit int, cursorTime time.Time, cursorID ids.UUID, useCursor bool,
+	limit int, cursorTime time.Time, cursorID ids.UUID, useCursor bool, boundary scrubBoundary,
 ) (FieldHistoryPage, error) {
 	var page FieldHistoryPage
 	scanned := 0
 	for {
-		rows, batch, err := queryFieldHistoryBatch(ctx, tx, f, cursorTime, cursorID, useCursor)
+		rows, batch, err := queryFieldHistoryBatch(ctx, tx, f, cursorTime, cursorID, useCursor, boundary)
 		if err != nil {
 			return FieldHistoryPage{}, err
 		}
@@ -284,7 +332,7 @@ func scanFieldHistorySpine(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
 			page.HasMore = true
 			return page, nil
 		case len(page.Entries) >= limit:
-			more, err := hasFollowingAuditRow(ctx, tx, f, cursorTime, cursorID)
+			more, err := hasFollowingAuditRow(ctx, tx, f, cursorTime, cursorID, boundary)
 			if err != nil {
 				return FieldHistoryPage{}, err
 			}
@@ -324,34 +372,74 @@ func scanFieldHistoryBatch(entries []FieldHistoryEntry, rows []auditDiffRow, f F
 	return entries, cursorTime, cursorID, scanned
 }
 
-// queryFieldHistoryBatch fetches the next window of audit rows for the
-// record, newest first, decoding the jsonb sides eagerly so a corrupt
-// payload surfaces as an error, never as a silently empty diff.
-func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
-	cursorTime time.Time, cursorID ids.UUID, useCursor bool,
-) ([]auditDiffRow, int, error) {
-	var (
-		rows pgx.Rows
-		err  error
-	)
-	if useCursor {
-		rows, err = tx.Query(ctx, `
-			SELECT id, actor_type, actor_id, passport_id, evidence, occurred_at, before, after
-			FROM audit_log
-			WHERE entity_type = $1 AND entity_id = $2
-			  AND (occurred_at, id) < ($3, $4)
-			ORDER BY occurred_at DESC, id DESC
-			LIMIT $5`,
-			f.EntityType, f.EntityID, cursorTime, cursorID, fieldHistoryScanBatch)
-	} else {
-		rows, err = tx.Query(ctx, `
-			SELECT id, actor_type, actor_id, passport_id, evidence, occurred_at, before, after
-			FROM audit_log
-			WHERE entity_type = $1 AND entity_id = $2
-			ORDER BY occurred_at DESC, id DESC
-			LIMIT $3`,
-			f.EntityType, f.EntityID, fieldHistoryScanBatch)
+// scrubBoundary is the spine position of the newest erase/anonymize
+// tombstone for the record; the projection never reads at or before it.
+// The zero value means the record was never scrubbed and the spine is
+// read unbounded — audit_log rows always carry a real occurred_at, so a
+// zero time cannot name a genuine tombstone.
+type scrubBoundary struct {
+	occurredAt time.Time
+	id         ids.UUID
+}
+
+func (b scrubBoundary) exists() bool { return !b.occurredAt.IsZero() }
+
+// latestScrubTombstone finds the record's newest scrub tombstone (see
+// fieldHistoryScrubActions); the zero boundary when the record was never
+// scrubbed. Everything at or before that position is exactly the PII the
+// scrub removed from the live row — the append-only spine still holds
+// those field images, so the read must refuse them; the tombstone's own
+// payload (suppression tallies) is withheld with them.
+func latestScrubTombstone(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter) (scrubBoundary, error) {
+	var b scrubBoundary
+	err := tx.QueryRow(ctx, `
+		SELECT occurred_at, id FROM audit_log
+		WHERE entity_type = $1 AND entity_id = $2 AND action = ANY($3)
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT 1`,
+		f.EntityType, f.EntityID, fieldHistoryScrubActions).Scan(&b.occurredAt, &b.id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return scrubBoundary{}, nil
 	}
+	if err != nil {
+		return scrubBoundary{}, err
+	}
+	return b, nil
+}
+
+// fieldHistorySpineWhere renders the WHERE conditions every spine read
+// shares — the record, the field-image action allowlist, and the scrub
+// boundary — appending their bind values to args. Both the batch fetch
+// and the has-more probe build on it, so the two can never disagree on
+// which rows are projectable.
+func fieldHistorySpineWhere(f FieldHistoryFilter, boundary scrubBoundary, args []any) ([]string, []any) {
+	conds := []string{"entity_type = $1", "entity_id = $2", "action = ANY($3)"}
+	args = append(args, f.EntityType, f.EntityID, fieldHistoryProjectedActionList)
+	if boundary.exists() {
+		conds = append(conds, fmt.Sprintf("(occurred_at, id) > ($%d, $%d)", len(args)+1, len(args)+2))
+		args = append(args, boundary.occurredAt, boundary.id)
+	}
+	return conds, args
+}
+
+// queryFieldHistoryBatch fetches the next window of projectable audit
+// rows for the record, newest first, decoding the jsonb sides eagerly so
+// a corrupt payload surfaces as an error, never as a silently empty diff.
+func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
+	cursorTime time.Time, cursorID ids.UUID, useCursor bool, boundary scrubBoundary,
+) ([]auditDiffRow, int, error) {
+	conds, args := fieldHistorySpineWhere(f, boundary, nil)
+	if useCursor {
+		conds = append(conds, fmt.Sprintf("(occurred_at, id) < ($%d, $%d)", len(args)+1, len(args)+2))
+		args = append(args, cursorTime, cursorID)
+	}
+	args = append(args, fieldHistoryScanBatch)
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id, action, actor_type, actor_id, passport_id, evidence, occurred_at, before, after
+		FROM audit_log
+		WHERE %s
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT $%d`, strings.Join(conds, " AND "), len(args)), args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -361,7 +449,7 @@ func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter
 	for rows.Next() {
 		var r auditDiffRow
 		var evidenceJSON, beforeJSON, afterJSON []byte
-		if err := rows.Scan(&r.id, &r.actorType, &r.actorID, &r.passportID,
+		if err := rows.Scan(&r.id, &r.action, &r.actorType, &r.actorID, &r.passportID,
 			&evidenceJSON, &r.occurredAt, &beforeJSON, &afterJSON); err != nil {
 			return nil, 0, err
 		}
@@ -387,18 +475,21 @@ func unmarshalJSONBMap(raw []byte, dst *map[string]any) error {
 	return json.Unmarshal(raw, dst)
 }
 
-// hasFollowingAuditRow answers whether any audit row for the record
-// precedes the cursor position. It deliberately ignores the actor
-// filter: the rare cost is one extra empty page, never a false "done".
+// hasFollowingAuditRow answers whether any projectable audit row for the
+// record precedes the cursor position. It applies the scan's hard limits
+// — the action allowlist and the scrub boundary, which no later page may
+// cross — but deliberately ignores the caller's actor and field filters:
+// the rare cost of that looseness is one extra empty page, never a false
+// "done".
 func hasFollowingAuditRow(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
-	cursorTime time.Time, cursorID ids.UUID,
+	cursorTime time.Time, cursorID ids.UUID, boundary scrubBoundary,
 ) (bool, error) {
+	conds, args := fieldHistorySpineWhere(f, boundary, nil)
+	conds = append(conds, fmt.Sprintf("(occurred_at, id) < ($%d, $%d)", len(args)+1, len(args)+2))
+	args = append(args, cursorTime, cursorID)
 	var exists bool
-	err := tx.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM audit_log
-			WHERE entity_type = $1 AND entity_id = $2
-			  AND (occurred_at, id) < ($3, $4))`,
-		f.EntityType, f.EntityID, cursorTime, cursorID).Scan(&exists)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(SELECT 1 FROM audit_log WHERE %s)`,
+		strings.Join(conds, " AND ")), args...).Scan(&exists)
 	return exists, err
 }

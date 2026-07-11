@@ -15,9 +15,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// Handlers is privacy's transport surface: today only the audit-log
-// governance read (the erasure/SAR/retention engines run behind the DSR
-// queue and the worker, not their own routes).
+// Handlers is privacy's transport surface: the audit-log governance
+// read and the field-history projection (the erasure/SAR/retention
+// engines run behind the DSR queue and the worker, not their own
+// routes).
 type Handlers struct {
 	pool *pgxpool.Pool
 }

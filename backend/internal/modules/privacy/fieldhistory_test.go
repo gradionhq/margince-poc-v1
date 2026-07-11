@@ -13,6 +13,7 @@ import (
 func fhRow(actorType string, before, after map[string]any) auditDiffRow {
 	return auditDiffRow{
 		id:         ids.NewV7(),
+		action:     "update",
 		entityType: "person",
 		entityID:   ids.NewV7(),
 		actorType:  actorType,
@@ -69,8 +70,30 @@ func TestDiffRemovedFieldEmitsNilNewValue(t *testing.T) {
 }
 
 func TestDiffErasureTombstoneEmitsNothing(t *testing.T) {
-	if entries := diffAuditRowFields(fhRow("system", nil, nil), nil, nil); len(entries) != 0 {
-		t.Fatalf("tombstone (before=nil, after=nil) emitted %d entries, want 0", len(entries))
+	// The real tombstone shape (erasure.go): action=erase, before=nil,
+	// after carrying the suppression tallies — proof of the scrub, not
+	// field images. None of its keys may surface as field changes.
+	row := fhRow("system", nil, map[string]any{
+		"reason": "dsr", "emails_suppressed": 2.0, "raw_rows_purged": 1.0, "activities_redacted": 3.0,
+	})
+	row.action = "erase"
+	if entries := diffAuditRowFields(row, nil, nil); len(entries) != 0 {
+		t.Fatalf("erase tombstone emitted %d entries, want 0 — its payload is proof, not fields", len(entries))
+	}
+}
+
+func TestDiffMetaVerbPayloadsNeverProjectAsFields(t *testing.T) {
+	// Evidence-carrying verbs (merge relink counts, promote provenance,
+	// export receipts) must emit nothing even though their payloads are
+	// non-empty maps — projecting them would fabricate a timeline.
+	for _, action := range []string{"merge", "promote", "export", "assign", "anonymize"} {
+		row := fhRow("human",
+			map[string]any{"merged_into_id": nil},
+			map[string]any{"merged_into_id": "p-2", "relinked": map[string]any{"activities": 3.0}})
+		row.action = action
+		if entries := diffAuditRowFields(row, nil, nil); len(entries) != 0 {
+			t.Errorf("%s row emitted %d entries, want 0", action, len(entries))
+		}
 	}
 }
 

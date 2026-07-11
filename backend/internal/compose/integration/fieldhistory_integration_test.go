@@ -27,13 +27,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// seedAuditDiffRow inserts a raw audit row with a controlled
+// seedAuditActionRow inserts a raw audit row with a controlled verb and
 // before/after payload — the projection's input. INSERT is the one verb
 // the append-only trigger admits, and the workspace tx satisfies RLS.
 // before/after are marshaled to jsonb bytes explicitly: pgx does not
 // accept a bare map[string]any for a jsonb column without a registered
 // type, the same reason storekit.Audit marshals before binding.
-func seedAuditDiffRow(t *testing.T, e *Env, entityType string, entityID ids.UUID,
+func seedAuditActionRow(t *testing.T, e *Env, action, entityType string, entityID ids.UUID,
 	actorType string, before, after map[string]any, occurredAt time.Time,
 ) ids.UUID {
 	t.Helper()
@@ -51,14 +51,23 @@ func seedAuditDiffRow(t *testing.T, e *Env, entityType string, entityID ids.UUID
 		_, err := tx.Exec(ctx,
 			`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action,
 			                        entity_type, entity_id, before, after, occurred_at)
-			 VALUES ($1, $2, $3, 'user-1', 'update', $4, $5, $6, $7, $8)`,
-			rowID, e.WS, actorType, entityType, entityID, beforeJSON, afterJSON, occurredAt)
+			 VALUES ($1, $2, $3, 'user-1', $4, $5, $6, $7, $8, $9)`,
+			rowID, e.WS, actorType, action, entityType, entityID, beforeJSON, afterJSON, occurredAt)
 		return err
 	})
 	if err != nil {
 		t.Fatalf("seed audit row: %v", err)
 	}
 	return rowID
+}
+
+// seedAuditDiffRow is seedAuditActionRow fixed to the plain update verb —
+// the shape most projection tests exercise.
+func seedAuditDiffRow(t *testing.T, e *Env, entityType string, entityID ids.UUID,
+	actorType string, before, after map[string]any, occurredAt time.Time,
+) ids.UUID {
+	t.Helper()
+	return seedAuditActionRow(t, e, "update", entityType, entityID, actorType, before, after, occurredAt)
 }
 
 func TestFieldHistoryGatesOnReadPermissionAndVisibility(t *testing.T) {
@@ -174,8 +183,8 @@ func TestFieldHistoryActorAndFieldFilters(t *testing.T) {
 func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 	e := Setup(t)
 	// SeedOrg's own create audit row (before=nil, after={display_name})
-	// is a real, un-suppressible third row — the field-history surface
-	// has no action filter to hide it — so it plays the true oldest row
+	// is a real projected third row — create carries honest field images,
+	// so the action allowlist keeps it — so it plays the true oldest row
 	// (a one-field genesis) instead of fighting to exclude it. rOldest
 	// and rNewest are dated forward from it so ordering is unambiguous
 	// regardless of clock skew between the test process and Postgres.
@@ -293,6 +302,96 @@ func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
 		EntityType: "activity", EntityID: activityID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("out-of-scope activity field-history: err = %v, want not found", err)
+	}
+}
+
+// TestFieldHistoryStopsAtErasureBoundary proves the Art. 17 guarantee:
+// the audit spine is append-only, so an erasure cannot rewrite the
+// historical before/after images that hold the subject's PII — the
+// projection must enforce the scrub instead. After the REAL erasure
+// engine runs, the tombstone row and everything older are withheld from
+// every caller, including the unbounded admin; only changes made after
+// the scrub project.
+func TestFieldHistoryStopsAtErasureBoundary(t *testing.T) {
+	e := Setup(t)
+	personID := e.SeedPerson(t, "Selma Subject", nil)
+	// Pre-erasure PII images, backdated so the erasure tombstone (stamped
+	// at real now) is unambiguously newer.
+	past := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Microsecond)
+	seedAuditDiffRow(t, e, "person", personID, "human",
+		map[string]any{"email": "selma@example.com", "full_name": "Selma Subject"},
+		map[string]any{"email": "selma.subject@example.com", "full_name": "Selma S."}, past)
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "dsr"); err != nil {
+		t.Fatalf("erase: %v", err)
+	}
+
+	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "person", EntityID: personID,
+	})
+	if err != nil {
+		t.Fatalf("post-erasure list: %v", err)
+	}
+	if len(page.Entries) != 0 || page.HasMore || page.NextCursor != "" {
+		t.Fatalf("pre-erasure history re-surfaced past the tombstone: %+v", page.Entries)
+	}
+
+	// The boundary is a cut, not a ban: a change made AFTER the scrub is
+	// ordinary history again.
+	future := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+	seedAuditDiffRow(t, e, "person", personID, "human",
+		nil, map[string]any{"owner_id": "rep-2"}, future)
+	page, err = privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "person", EntityID: personID,
+	})
+	if err != nil {
+		t.Fatalf("post-scrub change list: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Field != "owner_id" {
+		t.Fatalf("want exactly the post-erasure owner_id entry, got %+v", page.Entries)
+	}
+}
+
+// TestFieldHistoryProjectsOnlyFieldImageVerbs pins the action allowlist
+// end to end: verbs whose payloads are evidence maps (merge relink
+// counts, export receipts) must not fabricate field entries, while the
+// honest create/update rows around them still project.
+func TestFieldHistoryProjectsOnlyFieldImageVerbs(t *testing.T) {
+	e := Setup(t)
+	personID := e.SeedPerson(t, "Meta Subject", nil)
+	base := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+
+	seedAuditActionRow(t, e, "merge", "person", personID, "human",
+		map[string]any{"merged_into_id": nil},
+		map[string]any{
+			"merged_into_id": ids.NewV7(),
+			"relinked":       map[string]any{"activities": 3},
+			"filled":         map[string]any{"title": "CTO"},
+		}, base)
+	seedAuditActionRow(t, e, "export", "person", personID, "human",
+		nil, map[string]any{"format": "sar_json"}, base.Add(time.Second))
+	seedAuditDiffRow(t, e, "person", personID, "human",
+		map[string]any{"title": "VP"}, map[string]any{"title": "CTO"}, base.Add(2*time.Second))
+
+	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "person", EntityID: personID,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	fields := map[string]bool{}
+	for _, en := range page.Entries {
+		fields[en.Field] = true
+	}
+	for _, fabricated := range []string{"merged_into_id", "relinked", "filled", "format"} {
+		if fields[fabricated] {
+			t.Errorf("meta payload key %q projected as a field change", fabricated)
+		}
+	}
+	// The honest rows still project: the seeded update and SeedPerson's
+	// own create-genesis row.
+	if !fields["title"] || !fields["full_name"] {
+		t.Errorf("honest field images went missing: %v", fields)
 	}
 }
 
