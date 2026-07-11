@@ -344,6 +344,10 @@ func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
 
+func (stubs) GetOrganizationHierarchyRollup(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganizationHierarchyRollupParams) {
+	httperr.NotImplemented(w, r, "GetOrganizationHierarchyRollup")
+}
+
 func (stubs) MergeOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.MergeOrganizationParams) {
 	httperr.NotImplemented(w, r, "MergeOrganization")
 }

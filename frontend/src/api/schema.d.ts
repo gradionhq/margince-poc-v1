@@ -296,6 +296,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/hierarchy-rollup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
+         * @description `roll-up(node) = self(node) + Σ roll-up(readable child)` over the parent_org_id tree,
+         *     walked with one bounded indexed recursive query. A child the caller cannot read
+         *     contributes nothing and is named in `restricted_excluded` — never silently summed.
+         *     All money converts to the workspace base currency; a missing stored FX rate fails
+         *     the whole read with `422 fx_rate_unavailable` rather than substituting a rate of 1.
+         *     Totals are server-computed and reconcile exactly to their parts — never client-summed.
+         */
+        get: operations["getOrganizationHierarchyRollup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/partner": {
         parameters: {
             query?: never;
@@ -2709,6 +2737,30 @@ export interface components {
         OrganizationListResponse: {
             data: components["schemas"]["Organization"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description The account-tree roll-up over organization.parent_org_id. A server read only,
+         *     never client-summed. Money is base-currency converted — never a raw
+         *     cross-currency sum.
+         */
+        OrganizationHierarchyRollup: {
+            /** Format: uuid */
+            root_id: string;
+            /** @enum {string} */
+            scope: "tree" | "self";
+            weighted_pipeline: components["schemas"]["Money"];
+            closed_won: components["schemas"]["Money"];
+            activity_count_30d: number;
+            /** @description Count of accounts (nodes) included in the roll-up. */
+            aggregated_account_count: number;
+            /** @description Nodes excluded because the viewer cannot read them — disclosed, never a silent drop. */
+            restricted_excluded: {
+                /** Format: uuid */
+                id: string;
+                display_name: string;
+            }[];
+            /** Format: date-time */
+            computed_at: string;
         };
         /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
@@ -5999,6 +6051,36 @@ export interface operations {
                     "application/json": components["schemas"]["Organization"];
                 };
             };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganizationHierarchyRollup: {
+        parameters: {
+            query?: {
+                /** @description tree (default): aggregate the whole subtree. self: the root's own figures alone. */
+                scope?: "tree" | "self";
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's hierarchy roll-up. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationHierarchyRollup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };

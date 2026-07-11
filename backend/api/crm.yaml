@@ -709,6 +709,36 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/hierarchy-rollup:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationHierarchyRollup
+      summary: Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
+      description: |
+        `roll-up(node) = self(node) + Σ roll-up(readable child)` over the parent_org_id tree,
+        walked with one bounded indexed recursive query. A child the caller cannot read
+        contributes nothing and is named in `restricted_excluded` — never silently summed.
+        All money converts to the workspace base currency; a missing stored FX rate fails
+        the whole read with `422 fx_rate_unavailable` rather than substituting a rate of 1.
+        Totals are server-computed and reconcile exactly to their parts — never client-summed.
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [tree, self], default: tree }
+          description: 'tree (default): aggregate the whole subtree. self: the root''s own figures alone.'
+      responses:
+        '200':
+          description: The organization's hierarchy roll-up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationHierarchyRollup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /organizations/{id}/partner:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -4968,6 +4998,31 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Organization' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    OrganizationHierarchyRollup:
+      type: object
+      description: |
+        The account-tree roll-up over organization.parent_org_id. A server read only,
+        never client-summed. Money is base-currency converted — never a raw
+        cross-currency sum.
+      required: [root_id, scope, weighted_pipeline, closed_won, activity_count_30d, aggregated_account_count, restricted_excluded, computed_at]
+      properties:
+        root_id: { type: string, format: uuid }
+        scope: { type: string, enum: [tree, self] }
+        weighted_pipeline: { $ref: '#/components/schemas/Money' }
+        closed_won: { $ref: '#/components/schemas/Money' }
+        activity_count_30d: { type: integer }
+        aggregated_account_count: { type: integer, description: Count of accounts (nodes) included in the roll-up. }
+        restricted_excluded:
+          type: array
+          description: Nodes excluded because the viewer cannot read them — disclosed, never a silent drop.
+          items:
+            type: object
+            required: [id, display_name]
+            properties:
+              id: { type: string, format: uuid }
+              display_name: { type: string }
+        computed_at: { type: string, format: date-time }
 
     # ---- Relationship ----
     Relationship:

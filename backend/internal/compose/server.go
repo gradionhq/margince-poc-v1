@@ -44,6 +44,12 @@ import (
 	"github.com/gradionhq/margince/backend/web"
 )
 
+// fallback pushes the stubs one embedding level deeper than the module
+// handlers, so a module method always wins promotion and the stub only
+// answers operations nothing implements yet (currently:
+// GetOrganizationHierarchyRollup, pending the compose-layer handler).
+type fallback struct{ stubs }
+
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
 type (
@@ -61,11 +67,10 @@ type (
 	voiceHandlers       = ai.Handlers
 )
 
-// Server satisfies crmcontracts.ServerInterface by embedding the module
-// transport handler sets. Every contract operation is implemented; the
-// generated stubs (stubs_gen.go) stay as the drift gate's inventory and
-// would resurface as a compile error here if a regenerated contract
-// added an operation nothing implements.
+// Server satisfies crmcontracts.ServerInterface by embedding: the module
+// transport handlers at depth one shadow the depth-two stubs, so an
+// operation with no module handler yet resolves to its generated 501
+// (stubs_gen.go) rather than failing the build.
 type Server struct {
 	authHandlers
 	peopleHandlers
@@ -85,6 +90,7 @@ type Server struct {
 	scrapeHandlers
 	imapConnectHandlers
 	filteredExportHandlers
+	fallback
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
