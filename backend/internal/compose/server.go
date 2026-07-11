@@ -3,12 +3,13 @@
 
 package compose
 
-// The contract HTTP surface: module transport handlers shadow the
-// generated-interface stubs by embedding depth (the Server struct below
-// is the inventory), so every one of the contract's operations
-// either runs real module code or answers an explicit 501 — never a
-// silent 404. The chassis (headers, correlation, panic recovery) is
-// platform/httpserver; what lives here is the wiring.
+// The contract HTTP surface: module transport handlers, aggregated by
+// embedding (the Server struct below is the inventory), together cover
+// every operation crmcontracts.ServerInterface declares — there is no
+// generated-stub fallback left; a module gap now fails the build's
+// `var _ crmcontracts.ServerInterface = Server{}` assertion rather than
+// answering a silent 501. The chassis (headers, correlation, panic
+// recovery) is platform/httpserver; what lives here is the wiring.
 
 import (
 	"context"
@@ -44,12 +45,6 @@ import (
 	"github.com/gradionhq/margince/backend/web"
 )
 
-// fallback pushes the stubs one embedding level deeper than the module
-// handlers, so a module method always wins promotion and the stub only
-// answers operations nothing implements yet (currently: GetRecordHistory,
-// pending the privacy module handler).
-type fallback struct{ stubs }
-
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
 type (
@@ -67,10 +62,10 @@ type (
 	voiceHandlers       = ai.Handlers
 )
 
-// Server satisfies crmcontracts.ServerInterface by embedding: the module
-// transport handlers at depth one shadow the depth-two stubs, so an
-// operation with no module handler yet resolves to its generated 501
-// (stubs_gen.go) rather than failing the build.
+// Server satisfies crmcontracts.ServerInterface by embedding: every
+// operation the contract declares resolves to exactly one of these
+// handler sets' methods — a module gap is a compile error, not a
+// runtime 501.
 type Server struct {
 	authHandlers
 	peopleHandlers
@@ -91,7 +86,6 @@ type Server struct {
 	imapConnectHandlers
 	filteredExportHandlers
 	orgRollupHandlers
-	fallback
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
