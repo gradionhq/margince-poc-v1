@@ -233,6 +233,9 @@ func TestSQLValue_DropOnMismatch(t *testing.T) {
 		wire any
 	}{
 		{"currency given a string", fieldcatalog.TypeCurrency, "150000"},
+		{"currency given a fractional amount", fieldcatalog.TypeCurrency, 12.5},
+		{"currency given a magnitude beyond int64", fieldcatalog.TypeCurrency, 1e19},
+		{"currency given a magnitude beyond negative int64", fieldcatalog.TypeCurrency, -1e19},
 		{"number given a bool", fieldcatalog.TypeNumber, true},
 		{"number given an unparseable string", fieldcatalog.TypeNumber, "not-a-number"},
 		{"date given a number", fieldcatalog.TypeDate, float64(20260711)},
@@ -245,6 +248,33 @@ func TestSQLValue_DropOnMismatch(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if _, ok := SQLValue(col("cf_x", c.typ), c.wire); ok {
 				t.Fatalf("SQLValue(%q, %#v): expected ok=false (drop-on-mismatch)", c.typ, c.wire)
+			}
+		})
+	}
+}
+
+// TestSQLValue_CurrencyExactIntegralPasses: an exact-integral float64,
+// including one with a large magnitude that still fits int64, binds
+// straight through — only a fractional or out-of-range amount is
+// dropped (see TestSQLValue_DropOnMismatch's currency cases).
+func TestSQLValue_CurrencyExactIntegralPasses(t *testing.T) {
+	cases := []struct {
+		name string
+		wire float64
+		want int64
+	}{
+		{"small exact amount", 150000, 150000},
+		{"large but in-range exact amount", 9_000_000_000_000, 9_000_000_000_000},
+		{"exact negative amount", -150000, -150000},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			bind, ok := SQLValue(col("cf_amount", fieldcatalog.TypeCurrency), c.wire)
+			if !ok {
+				t.Fatalf("SQLValue: expected ok=true for %v", c.wire)
+			}
+			if bind != c.want {
+				t.Fatalf("SQLValue = %#v, want %#v", bind, c.want)
 			}
 		})
 	}

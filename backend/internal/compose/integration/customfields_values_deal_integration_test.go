@@ -132,7 +132,7 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 	assertCF(t, inA.AdditionalProperties, col, "enterprise")
 
 	wsB, ctxB := seedSecondWorkspace(t, OwnerConn(t))
-	ctxB = withPerms(ctxB, wsB, dealCFVPerms)
+	ctxB = withPerms(ctxB, t, wsB, dealCFVPerms)
 	pipelineB, stageB := seedDealFixtureIn(ctxB, t, f.store)
 	inB, err := f.store.CreateDeal(ctxB, deals.CreateDealInput{
 		Name: "Tenant B Deal", PipelineID: pipelineB, StageID: stageB, Source: "ui",
@@ -147,7 +147,7 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 	// shared physical column.
 	var stored *string
 	err = database.WithWorkspaceTx(ctxB, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
+		return tx.QueryRow(ctxB,
 			`SELECT `+col+` FROM deal WHERE id = $1`, ids.UUID(inB.Id)).Scan(&stored)
 	})
 	if err != nil {
@@ -168,10 +168,14 @@ func TestCustomFieldValues_DealWorkspaceIsolation(t *testing.T) {
 // withPerms rebinds a second-tenant context under the given permission
 // set (seedSecondWorkspace fixes catalog-admin perms; the deal suites
 // need the deal + pipeline grants too).
-func withPerms(ctx context.Context, ws ids.UUID, perms principal.Permissions) context.Context {
+func withPerms(ctx context.Context, t *testing.T, ws ids.UUID, perms principal.Permissions) context.Context {
+	t.Helper()
 	rebound := principal.WithWorkspaceID(context.Background(), ws)
 	rebound = principal.WithCorrelationID(rebound, ids.NewV7())
-	actor, _ := principal.Actor(ctx)
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		t.Fatal("withPerms: no actor on the source context")
+	}
 	actor.Permissions = perms
 	return principal.WithActor(rebound, actor)
 }

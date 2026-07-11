@@ -406,7 +406,8 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 		if err := auth.EnsureVisible(ctx, tx, "person", id.UUID); err != nil {
 			return err
 		}
-		if _, err := readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
+		// A liveness probe, not a wire read — no custom columns needed.
+		if _, err := readPerson(ctx, tx, id, storekit.LiveOnly, nil); err != nil {
 			return err
 		}
 

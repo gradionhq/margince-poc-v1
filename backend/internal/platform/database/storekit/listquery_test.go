@@ -158,7 +158,7 @@ func TestKeysetClause_DescendingComparesBelow(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := "10"
-	token := s.EncodePageCursor(&key, time.Now().UTC(), ids.NewV7())
+	token := s.EncodePageCursor(&key, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC), ids.NewV7())
 	arg, _ := keysetArgs()
 	clause, err := s.KeysetClause(token, arg)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestKeysetClause_SortMismatchIsTypedMismatch(t *testing.T) {
 	}
 	var def *ListSort
 	key := "1"
-	at, id := time.Now().UTC(), ids.NewV7()
+	at, id := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC), ids.NewV7()
 
 	cases := map[string]struct {
 		mintedBy *ListSort
@@ -238,7 +238,7 @@ func TestKeysetClause_UnparseableSortKeyIsMalformed(t *testing.T) {
 		{Name: "cf_renewal", Type: fieldcatalog.TypeDate},
 		{Name: "cf_strategic", Type: fieldcatalog.TypeBoolean},
 	})
-	at, id := time.Now().UTC(), ids.NewV7()
+	at, id := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC), ids.NewV7()
 
 	for field, badKey := range map[string]string{
 		"cf_score":     "abc",
@@ -273,7 +273,7 @@ func TestKeysetClause_CoreKindKeysRoundTrip(t *testing.T) {
 		"updated_at": KindTimestamp,
 		"owner_id":   KindUUID,
 	}, nil)
-	at, id := time.Now().UTC(), ids.NewV7()
+	at, id := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC), ids.NewV7()
 
 	for field, tc := range map[string]struct{ key, wantCast string }{
 		"owner_id":   {key: ids.NewV7().String(), wantCast: "::uuid"},

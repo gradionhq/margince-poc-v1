@@ -25,6 +25,7 @@ package storekit
 
 import (
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -228,6 +229,16 @@ func SQLValue(c fieldcatalog.Column, v any) (any, bool) {
 	case fieldcatalog.TypeCurrency:
 		f, ok := v.(float64)
 		if !ok {
+			return nil, false
+		}
+		// A currency column is int64 minor units: a fractional amount
+		// (int64(f) would silently truncate it) or a magnitude int64
+		// cannot hold (int64(f) is undefined behavior for an
+		// out-of-range float in Go) must drop rather than store garbage
+		// money — same drop-on-mismatch contract as every other type
+		// here, just enforced with a range/integrality check instead of
+		// a type assertion.
+		if f != math.Trunc(f) || f < math.MinInt64 || f > math.MaxInt64 {
 			return nil, false
 		}
 		return int64(f), true

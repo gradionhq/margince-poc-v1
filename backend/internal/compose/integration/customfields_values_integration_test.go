@@ -262,7 +262,8 @@ func TestCustomFieldValues_WrongShapeDroppedAcrossTypes(t *testing.T) {
 	boolean := f.defineField(t, customfields.FieldSpec{Object: "person", Label: "Strategic", Type: customfields.TypeBoolean, Source: "ui"})
 
 	cases := map[string]struct {
-		col   string
+		col string
+		//craft:ignore naked-any wrong is a deliberately wrong-shaped value for the case's field type (a string where currency wants float64, a bool where date wants string, …) — the mismatch IS the test input
 		wrong any
 	}{
 		"currency takes a float64, not a string": {currency, "not-an-amount"},
@@ -396,7 +397,7 @@ func TestCustomFieldValues_RetiredFieldHiddenButPreserved(t *testing.T) {
 	// The stored value is untouched underneath.
 	var stored *string
 	err = database.WithWorkspaceTx(f.ctx, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
+		return tx.QueryRow(f.ctx,
 			`SELECT `+col+` FROM person WHERE id = $1`, ids.UUID(created.Id)).Scan(&stored)
 	})
 	if err != nil {
@@ -437,7 +438,7 @@ func TestCustomFieldValues_WorkspaceIsolation(t *testing.T) {
 	// shared physical column.
 	var stored *string
 	err = database.WithWorkspaceTx(ctxB, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
+		return tx.QueryRow(ctxB,
 			`SELECT `+col+` FROM person WHERE id = $1`, ids.UUID(inB.Id)).Scan(&stored)
 	})
 	if err != nil {
@@ -477,7 +478,7 @@ func TestCustomFieldValues_UpdateAuditCarriesDiff(t *testing.T) {
 
 	var before, after map[string]any
 	err = database.WithWorkspaceTx(f.ctx, f.e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
+		return tx.QueryRow(f.ctx,
 			`SELECT before, after FROM audit_log
 			 WHERE entity_type = 'person' AND entity_id = $1 AND action = 'update'
 			 ORDER BY occurred_at DESC LIMIT 1`, ids.UUID(created.Id)).Scan(&before, &after)
