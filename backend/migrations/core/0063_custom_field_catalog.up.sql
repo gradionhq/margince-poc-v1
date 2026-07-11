@@ -57,7 +57,3 @@ CREATE POLICY custom_field_tenant_isolation ON custom_field
   USING      (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
   WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
 
--- Belt-and-braces alongside 0015's ALTER DEFAULT PRIVILEGES (which already
--- covers every table the owner role creates from here on): explicit here
--- so the catalog's app-role access is visible at the table's own definition.
-GRANT SELECT, INSERT, UPDATE, DELETE ON custom_field TO margince_app;
