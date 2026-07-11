@@ -43,7 +43,7 @@ maps the codebase and links everything below.
 1. [tutorials/getting-started.md](tutorials/getting-started.md) — get it running.
 2. [explanation/backend-onboarding.md](explanation/backend-onboarding.md) — the map + reading order hub.
 3. [architecture.md](explanation/architecture.md) → [contract-first.md](explanation/contract-first.md) → [authorization.md](explanation/authorization.md).
-4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
+4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [composition-layer.md](explanation/composition-layer.md), [agent-surface.md](explanation/agent-surface.md), [privacy-and-consent.md](explanation/privacy-and-consent.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
 5. [CONTRIBUTING.md](../CONTRIBUTING.md) + [AGENTS.md](../AGENTS.md) — the PR loop and the binding engineering rules.
 
 ---

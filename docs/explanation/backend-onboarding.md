@@ -1,74 +1,57 @@
 # Backend contributor orientation
 
-The single starting point for a developer new to the **margince-next** backend. It does **not**
-re-explain the concepts other docs already own — it is the map that ties them together, plus the
-code-level detail and change-recipes those docs deliberately leave out. Everything here is about
-*this* repository.
+The single starting point for a developer new to the **margince-next** backend — the map that ties the
+other docs together, plus the code-level detail and change-recipes they leave out. It does **not**
+re-explain what they already own.
 
 ## Start here (reading order)
 
-1. **[tutorials/getting-started.md](../tutorials/getting-started.md)** — clone → running instance in
-   five commands. Do this first.
-2. **[explanation/architecture.md](architecture.md)** — the shape: the `shared → platform → modules →
-   compose → cmd` DAG, the two spine shapes, the write shape, tenancy-as-structure, the one governed
-   agent surface. Read it for the *why*; this page won't repeat it.
-3. **[explanation/contract-first.md](contract-first.md)** — how the Go surface is generated from
-   `backend/api/crm.yaml`, and why drift is merge-blocking.
-4. **[explanation/authorization.md](authorization.md)** — why the auth check lives at the store/service
-   entry point, not in the handler.
-5. **This page** — the system in one screen, the map, what's generated vs what you write, the code you
-   actually call (store/RLS/write-shape), the gates that judge your PR, and the two change-recipes.
-6. **[CONTRIBUTING.md](../../CONTRIBUTING.md)** + **[AGENTS.md](../../AGENTS.md)** — the PR loop
-   (accountability, DCO sign-off, gates) and the binding engineering rules.
+1. **[tutorials/getting-started.md](../tutorials/getting-started.md)** — clone → running instance in five commands. Do this first.
+2. **[explanation/architecture.md](architecture.md)** — the shape: the `shared → platform → modules → compose → cmd` DAG, the spine shapes, tenancy-as-structure. The *why*.
+3. **[explanation/contract-first.md](contract-first.md)** — how the Go surface is generated from `crm.yaml`, and why drift is merge-blocking.
+4. **[explanation/authorization.md](authorization.md)** — why the auth check lives at the store entry point, not the handler.
+5. **This page** — the system in one screen, the find-it map, generated-vs-written, the code you call, the gates, the change-recipes.
+6. **[CONTRIBUTING.md](../../CONTRIBUTING.md)** + **[AGENTS.md](../../AGENTS.md)** — the PR loop and the binding engineering rules.
 
-Deep dives (read when you touch that area):
-**[reference/modules.md](../reference/modules.md)** (what each of the 14 modules owns) ·
-**[reference/platform-toolkit.md](../reference/platform-toolkit.md)** (the reusable utilities — reach
-for these, don't reinvent) · **[explanation/write-backbone.md](write-backbone.md)** (storekit,
-`audit_log`, the outbox) · **[explanation/agent-surface.md](agent-surface.md)** (the reasoning loop +
-model runtime) · **[explanation/privacy-and-consent.md](privacy-and-consent.md)** (the GDPR engines).
+**Deep dives** — read when you touch that area:
 
-Reference, reach for as needed: **[reference/make-targets.md](../reference/make-targets.md)** ·
-**[reference/configuration.md](../reference/configuration.md)** (every flag/env) ·
-**[how-to/apply-migrations.md](../how-to/apply-migrations.md)** ·
-**[how-to/mint-a-passport.md](../how-to/mint-a-passport.md)** →
-**[how-to/run-the-mcp-server.md](../how-to/run-the-mcp-server.md)**. Implementation decisions are
-recorded under **[`decisions/`](../../decisions/)**.
+- **[reference/modules.md](../reference/modules.md)** — what each module owns.
+- **[reference/platform-toolkit.md](../reference/platform-toolkit.md)** — the reusable utilities (reach for these, don't reinvent).
+- **[explanation/write-backbone.md](write-backbone.md)** — storekit, `audit_log`, the outbox.
+- **[explanation/composition-layer.md](composition-layer.md)** — how `internal/compose` boots and wires the modules.
+- **[explanation/agent-surface.md](agent-surface.md)** — the agent reasoning loop + model runtime.
+- **[explanation/privacy-and-consent.md](privacy-and-consent.md)** — the consent gate + GDPR engines.
+
+**Reference** — look it up:
+
+- **[reference/make-targets.md](../reference/make-targets.md)** — every `make` target.
+- **[reference/configuration.md](../reference/configuration.md)** — every flag and env var.
+- **[how-to/apply-migrations.md](../how-to/apply-migrations.md)**, **[mint-a-passport.md](../how-to/mint-a-passport.md)** → **[run-the-mcp-server.md](../how-to/run-the-mcp-server.md)** — common tasks.
+- **[`decisions/`](../../decisions/)** — the implementation decision records.
 
 ---
 
 ## The system in one screen
 
-Margince is a **governed, multi-tenant CRM**: a Go backend serving a contract-defined HTTP API under
+Margince is a **governed, multi-tenant CRM** — a Go backend serving a contract-defined HTTP API under
 `/v1` (plus an MCP tool surface for AI agents) over Postgres + Redis, with an embedded SPA. "Governed"
-is the theme — every read is tenant-isolated and RBAC-scoped, every write is audited and announced as
-an event, and every AI action is tiered (auto-execute vs stage-for-human-approval).
+is the theme: every read is tenant-isolated and RBAC-scoped, every write is audited and announced as an
+event, and every AI action is tiered (auto-execute vs. stage for human approval).
 
-What happens on one request:
+**What happens on one request:**
 
-```
-1. cmd/api receives an HTTP request; the chassis middleware binds actor + workspace + correlation_id
-   onto the context and (for agents) resolves the autonomy tier.
-2. The generated chi router dispatches to the operation's method on compose.Server, which is a real
-   module Handler shadowing a generated 501 stub.
-3. The Handler decodes the request and calls its module's Store/Service — where the RBAC gate and the
-   workspace transaction (RLS) live. Handlers never decide authorization.
-4. The Store runs SQL over the tables it owns inside WithWorkspaceTx, and for a mutation writes the
-   domain row + an audit_log row + an event_outbox row in that one transaction.
-5. After commit, the outbox relay ships the event to Redis; consumer groups (context-graph, overnight
-   reasoning, read-model, …) react. The Handler maps any error through a sentinel and returns.
-```
+1. **`cmd/api`** receives the request; middleware binds actor + workspace + `correlation_id` onto the context (and, for an agent, resolves the autonomy tier).
+2. The **generated router** dispatches to the operation's method on `compose.Server` — a real module handler shadowing a generated 501 stub.
+3. The **handler** decodes and calls its module's **Store/Service**, where the RBAC gate and the workspace transaction (RLS) live. Handlers never decide authorization.
+4. The **Store** runs SQL over the tables it owns inside `WithWorkspaceTx`; a mutation writes the domain row + an `audit_log` row + an `event_outbox` row in that one transaction.
+5. After commit, the **outbox relay** ships the event to Redis, where consumer groups (context-graph, workflows, overnight reasoning) react. The handler maps any error through a sentinel and returns.
 
-Everything below is the detail behind those five steps. The pieces:
+Everything below is the detail behind those five steps:
 
-- **The contract** (`backend/api/crm.yaml`) defines the surface; code is generated from it
-  ([contract-first.md](contract-first.md)).
-- **Fourteen modules** (`internal/modules/`) are the capabilities; each owns its tables and never
-  imports a sibling ([reference/modules.md](../reference/modules.md)).
-- **The platform toolkit** (`internal/platform/`, `internal/shared/`) is the reusable plumbing every
-  module composes ([reference/platform-toolkit.md](../reference/platform-toolkit.md)).
-- **The compose layer** (`internal/compose/`) wires modules into the four binaries and injects every
-  cross-module edge.
+- **The contract** (`backend/api/crm.yaml`) defines the surface; the Go is generated from it — [contract-first.md](contract-first.md).
+- **The modules** (`internal/modules/`) are the capabilities; each owns its tables and never imports a sibling — [reference/modules.md](../reference/modules.md).
+- **The platform toolkit** (`internal/platform/`, `internal/shared/`) is the reusable plumbing every module composes — [reference/platform-toolkit.md](../reference/platform-toolkit.md).
+- **The compose layer** (`internal/compose/`) wires the modules into the four binaries and injects every cross-module edge — [composition-layer.md](composition-layer.md).
 
 ---
 

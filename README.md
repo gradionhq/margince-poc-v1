@@ -265,16 +265,12 @@ per-client throttling at the proxy.
 ## Deliberately not here yet
 
 The approval edit-then-approve re-gating path (`edited_payload` answers
-422 until it re-enters the gate properly), disqualify/enrich/send tools
-(their underlying verbs first), the hosted A2 MCP server (OAuth2 + PKCE
-+ DCR + the JWS approval-token serialization — until then `/passports`
-is the A1 issuance path, decisions/0012), `run_report`/schema
-introspection on the SoR seam, capture connectors, search/context graph,
-the RLS row-scope backstop (B-EP03.3b), field-level masking (B-EP03.4),
-record grants (A52), consent enforcement, the Idempotency-Key replay
-store, event versioning/replay/dead-letter (B-EP04.12/.14/.15), and the
-River job runner (deferred, decisions/0005). The contract routes for all
-of these exist and answer 501.
+422 until it re-enters the gate properly), the disqualify/enrich/send
+tools (their underlying verbs first), `run_report`/schema introspection
+on the SoR seam, the RLS row-scope backstop (B-EP03.3b), field-level
+masking (B-EP03.4), record grants (A52), the Idempotency-Key replay
+store, and event versioning/replay/dead-letter (B-EP04.12/.14/.15). The
+contract routes for these exist and answer 501.
 
 ## Working conventions (where findings go)
 

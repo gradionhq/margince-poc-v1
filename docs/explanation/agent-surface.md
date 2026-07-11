@@ -63,9 +63,10 @@ not architecture**. `internal/modules/ai/` owns it:
   a PII filter**: names, emails, and phone numbers pass through (privacy is handled by the location
   ladder and the erasure engines, not by stripping). The sovereign profile blocks egress entirely.
 - **Metering & budget** — `ai_usage` accumulates per-(workspace, day, task, tier) counters against a
-  monthly token budget. At ≥80% utilization the router soft-degrades a tier; at ≥100% it queues
-  non-interactive work (`ErrBudgetExhausted`). **Core CRM is never behind this error — only model
-  calls are.**
+  **workspace monthly token budget** (distinct from the per-run step/output-token ceilings above,
+  which stop a single runaway run). At ≥80% utilization the router soft-degrades a tier; at ≥100% it
+  queues non-interactive work (`ErrBudgetExhausted`). **Core CRM is never behind this error — only
+  model calls are.**
 
 ## Automations & MCP transports (in brief)
 

@@ -32,7 +32,7 @@ numbers appear here when releases start.
   below the transport on MCP and REST alike, and the approval engine
   (stage → human decision → single-use redemption).
 - **AI surfaces**: model routing (`ai-routing.yaml`, Anthropic BYOK /
-  Ollama / offline fake), the Surface-B runner + scheduler, search
+  Ollama / vLLM / offline fake), the Surface-B runner + scheduler, search
   (FTS + pgvector hybrid), capture connector seam, cold-start read-back.
 - **GDPR arm**: per-purpose consent with default-deny suppression,
   retention evaluator with DE (GoBD) statutory floors, legal hold,
