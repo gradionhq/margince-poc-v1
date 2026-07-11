@@ -12,8 +12,11 @@ package integration
 // splitting one audit row's entries across two pages.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -444,6 +447,41 @@ func TestFieldHistoryProjectsOnlyFieldImageVerbs(t *testing.T) {
 	// own create-genesis row.
 	if !fields["title"] || !fields["full_name"] {
 		t.Errorf("honest field images went missing: %v", fields)
+	}
+}
+
+// TestFieldHistoryExcludesRetentionArchiveMeta runs the REAL retention
+// engine and pins that its archive audit projects nothing: the policy
+// metadata (retention_action/policy/retain_days) rides the audit row's
+// evidence column, never before/after — so an archive verb the
+// projection allowlist admits cannot fabricate field changes that never
+// happened on the record.
+func TestFieldHistoryExcludesRetentionArchiveMeta(t *testing.T) {
+	e := Setup(t)
+	seedRetentionPolicies(t, e)
+	_, _, staleDeal, _ := seedOverAgeRecords(t, e)
+
+	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.Evaluate(context.Background()); err != nil {
+		t.Fatalf("retention pass: %v", err)
+	}
+
+	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "deal", EntityID: staleDeal,
+	})
+	if err != nil {
+		t.Fatalf("archived deal field-history: %v", err)
+	}
+	for _, en := range page.Entries {
+		switch en.Field {
+		case "retention_action", "policy", "retain_days":
+			t.Errorf("retention policy metadata %q projected as a field change", en.Field)
+		}
+	}
+	// The deal was raw-seeded (no create audit), so the retention archive
+	// row is its whole spine — and that row carries no field images.
+	if len(page.Entries) != 0 {
+		t.Errorf("retention-archived deal fabricated %d field entries: %+v", len(page.Entries), page.Entries)
 	}
 }
 

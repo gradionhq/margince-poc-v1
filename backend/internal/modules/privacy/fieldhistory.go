@@ -79,7 +79,9 @@ var fieldHistoryActorTypes = map[string]bool{
 // fieldHistoryProjectedActions is the closed set of audit verbs whose
 // before/after columns are honest per-field images of the record:
 // create/update/restore carry value snapshots, archive carries the
-// lifecycle image (lead disqualification records its status flip there),
+// lifecycle image (lead disqualification records its status flip there;
+// a retention archive carries no images at all — its policy metadata
+// rides the evidence column — so it projects an honest nothing),
 // advance_stage carries the deal's stage patch. Every other verb's
 // payload is evidence ABOUT an operation — merge relink counts, promote
 // provenance, an erase tombstone's suppression tallies, an export

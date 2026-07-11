@@ -266,8 +266,12 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		// vocabulary (0053) — so a governance read can tell a retention
 		// anonymize from a user edit, and the field-history projection
 		// can treat anonymize/erase as its scrub boundary instead of
-		// parsing payload shapes.
-		auditID, err := storekit.Audit(ctx, tx, pol.Action, pol.ObjectType, id, nil, map[string]any{
+		// parsing payload shapes. The policy metadata rides the evidence
+		// column, and before/after stay nil: this row records that a
+		// policy acted, not a field diff, so a projectable verb like
+		// archive must carry no payload the field-history diff could
+		// mistake for record fields.
+		auditID, err := storekit.AuditWithEvidence(ctx, tx, pol.Action, pol.ObjectType, id, nil, nil, map[string]any{
 			"retention_action": pol.Action, "policy": pol.ID, "retain_days": pol.RetainDays,
 		})
 		if err != nil {

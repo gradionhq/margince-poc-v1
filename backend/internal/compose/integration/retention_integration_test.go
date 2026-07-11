@@ -133,8 +133,10 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 		if err := tx.QueryRow(context.Background(), `SELECT body IS NULL FROM activity WHERE id = $1`, transcript).Scan(&transcriptBodyGone); err != nil {
 			return err
 		}
+		// The policy metadata lives in evidence — before/after stay nil so
+		// the field-history projection can never read it as field changes.
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM audit_log WHERE after ? 'retention_action'`).Scan(&retentionAudits)
+			`SELECT count(*) FROM audit_log WHERE evidence ? 'retention_action' AND before IS NULL AND after IS NULL`).Scan(&retentionAudits)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +164,7 @@ func TestRetentionActsOnOverAgeRecordsAndHonorsLegalHold(t *testing.T) {
 	var second int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM audit_log WHERE after ? 'retention_action'`).Scan(&second)
+			`SELECT count(*) FROM audit_log WHERE evidence ? 'retention_action'`).Scan(&second)
 	})
 	if err != nil || second != retentionAudits {
 		t.Fatalf("second pass re-acted: %d → %d audits (%v)", retentionAudits, second, err)
