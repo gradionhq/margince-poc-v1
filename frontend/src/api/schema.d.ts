@@ -2835,7 +2835,7 @@ export interface components {
             formula_sql: string;
             dependencies: string[];
             computable: boolean;
-            /** @description Set (non-null) iff computable=false, e.g. "not_yet_built". */
+            /** @description Set (non-null) iff computable=false, e.g. "not_yet_built", "awaiting_fx". */
             reason?: string | null;
         };
         /** @description A company. Mirrors the `organization` table. */

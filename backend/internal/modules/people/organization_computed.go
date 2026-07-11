@@ -30,7 +30,14 @@ import (
 const (
 	notYetBuiltReason             = "not_yet_built"
 	servedByHierarchyRollupReason = "served_by_hierarchy_rollup"
-	openPipelineFormulaSQL        = "organization_open_pipeline_rollup (0065): SUM(deal.amount_minor_base) FROM deal WHERE deal.status = 'open' AND deal.organization_id = <this org> AND deal.archived_at IS NULL"
+	// awaitingFXReason floors open_pipeline when the view row EXISTS
+	// (open deals reference this organization) but its aggregate is
+	// itself NULL: every one of those deals is still missing
+	// fx_rate_to_base, the ordinary state for an open deal (0065's
+	// documented "not computable yet" case) — distinct from the
+	// genuine zero of an organization with no open deals at all.
+	awaitingFXReason       = "awaiting_fx"
+	openPipelineFormulaSQL = "organization_open_pipeline_rollup (0065): SUM(deal.amount_minor_base) FROM deal WHERE deal.status = 'open' AND deal.organization_id = <this org> AND deal.archived_at IS NULL"
 )
 
 // openPipelineDependencies names the columns feeding the view's
@@ -78,59 +85,77 @@ func computedFieldsVisible(ctx context.Context) bool {
 // transaction already established, not add protection.
 //
 // No row (an organization with no open deals at all) is the honest
-// "nothing to sum" case: (nil, 0, nil), never an error.
-func openPipelineRollup(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (minorBase *int64, err error) {
-	var dealCount int // scanned from the view but unused for display: the schema carries
-	// it for future rows; no consumer today per RD-T08 (rule T8).
+// "nothing to sum" case: (nil, 0, nil), never an error. dealCount is the
+// caller's only way to distinguish that genuine-zero state from the
+// OTHER honest "not computable yet" state — open deals exist
+// (dealCount > 0) but every one is still missing fx_rate_to_base, so
+// the aggregate itself comes back NULL.
+func openPipelineRollup(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (minorBase *int64, dealCount int, err error) {
 	err = tx.QueryRow(ctx,
 		`SELECT open_pipeline_minor_base, open_deal_count
 		 FROM organization_open_pipeline_rollup WHERE organization_id = $1`,
 		orgID).Scan(&minorBase, &dealCount)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Scan never ran, so minorBase is still its zero value (nil) —
-		// return the named var, not a literal nil, nil: the honest
-		// "nothing to sum" case above, not a swallowed error.
-		return minorBase, nil
+		// Scan never ran, so minorBase/dealCount are still their zero
+		// values (nil, 0) — return the named vars, not literal zeroes:
+		// the honest "nothing to sum" case above, not a swallowed error.
+		return minorBase, dealCount, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return minorBase, nil
+	return minorBase, dealCount, nil
 }
 
 // organizationComputedFields assembles the 5 display rows RD-T08 names.
-// It takes only the aggregate figure; the count from the view (rule T8:
-// no dead returns) stays at the SQL layer until a consumer claims it.
+// It takes the view's two output columns (rule T8: no dead returns —
+// openDealCount now has a real consumer, the three-way branch below).
 //
-// A NULL aggregate (open deals exist but every one is still missing its
-// FX input, so amount_minor_base is itself NULL — 0065's documented
-// "not computable yet" case) and NO row at all (no open deals) both
-// floor to a real value_minor of 0 here, with computable staying true:
-// the poc-1-tested behaviour. 0065's migration comment records the more
-// nuanced "NULL is honestly not-computable-yet" distinction at the SQL
-// layer; this display row deliberately takes the coarser floor because
-// a record-page tile has no way to render "unknown" money, and 0 is the
-// truthful lower bound of "the open deals we CAN price sum to this much."
-func organizationComputedFields(openPipelineMinor *int64) []crmcontracts.ComputedField {
-	value := int64(0)
-	if openPipelineMinor != nil {
-		value = *openPipelineMinor
-	}
+// open_pipeline is a genuine three-way state, not a single floor:
+//   - openDealCount == 0 (no view row: an organization with no open
+//     deals at all) is the honest "nothing to sum" case: computable:true,
+//     value_minor:0 — a real zero, not a missing one.
+//   - openPipelineMinor != nil (the view row's aggregate is non-NULL) is
+//     the genuinely computable case: computable:true, value_minor:sum.
+//   - openPipelineMinor == nil AND openDealCount > 0 (open deals exist
+//     but every one is still missing fx_rate_to_base, the ordinary state
+//     for an open deal — 0065's documented "not computable yet" case) is
+//     NOT a zero: flooring it would show a dishonest 0 pipeline beside a
+//     non-zero weighted_pipeline. It floors instead to computable:false,
+//     reason:"awaiting_fx", with no value_minor on the wire — the honest
+//     "not computable yet" state 0065's migration comment already names,
+//     now surfaced here instead of floored away. formula_sql stays
+//     populated: the formula exists, only its FX input doesn't yet.
+func organizationComputedFields(openPipelineMinor *int64, openDealCount int) []crmcontracts.ComputedField {
 	weightedReason := servedByHierarchyRollupReason
 	customerAgeReason := notYetBuiltReason
 	nrrReason := notYetBuiltReason
 	marginReason := notYetBuiltReason
 
+	openPipelineRow := crmcontracts.ComputedField{
+		Key:          "open_pipeline",
+		Label:        "Open pipeline",
+		Kind:         crmcontracts.ComputedFieldKindCurrencyMinor,
+		FormulaSql:   openPipelineFormulaSQL,
+		Dependencies: openPipelineDependencies,
+	}
+	switch {
+	case openPipelineMinor != nil:
+		value := *openPipelineMinor
+		openPipelineRow.Computable = true
+		openPipelineRow.ValueMinor = &value
+	case openDealCount == 0:
+		zero := int64(0)
+		openPipelineRow.Computable = true
+		openPipelineRow.ValueMinor = &zero
+	default:
+		reason := awaitingFXReason
+		openPipelineRow.Computable = false
+		openPipelineRow.Reason = &reason
+	}
+
 	return []crmcontracts.ComputedField{
-		{
-			Key:          "open_pipeline",
-			Label:        "Open pipeline",
-			Kind:         crmcontracts.ComputedFieldKindCurrencyMinor,
-			ValueMinor:   &value,
-			FormulaSql:   openPipelineFormulaSQL,
-			Dependencies: openPipelineDependencies,
-			Computable:   true,
-		},
+		openPipelineRow,
 		{
 			Key:          "weighted_pipeline",
 			Label:        "Weighted pipeline",

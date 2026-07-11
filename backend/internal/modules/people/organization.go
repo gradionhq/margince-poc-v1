@@ -131,11 +131,11 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, arch
 		// rollup read below, and out.ComputedFields stays its nil zero
 		// value — omitempty then drops the key entirely on marshal (T1).
 		if computedFieldsVisible(ctx) {
-			minor, err := openPipelineRollup(ctx, tx, id)
+			minor, dealCount, err := openPipelineRollup(ctx, tx, id)
 			if err != nil {
 				return fmt.Errorf("read open pipeline rollup: %w", err)
 			}
-			rows := organizationComputedFields(minor)
+			rows := organizationComputedFields(minor, dealCount)
 			out.ComputedFields = &rows
 		}
 		return nil

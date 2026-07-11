@@ -274,18 +274,19 @@ func TestOrganizationComputed_NoOpenDeals_FloorsToZero(t *testing.T) {
 	}
 }
 
-// TestOrganizationComputed_OpenDealsWithoutFrozenFX_NullAggregateFloorsToZero
-// is the OTHER honest "not computable yet" state 0065 documents: open
-// deals exist (the view row IS present, open_deal_count > 0) but every
-// one is still missing fx_rate_to_base — the ordinary state for an open
-// deal through any real write path — so amount_minor_base is NULL for
-// every summand and SUM ignores them all, leaving the row's aggregate
-// itself NULL. The assembler floors this to the same 0 as the no-row
-// case (a record-page tile can't render "unknown" money), but the two
-// underlying database states are genuinely different, and this test
-// proves both: the row EXISTS with a NULL aggregate, not that no row
-// exists at all.
-func TestOrganizationComputed_OpenDealsWithoutFrozenFX_NullAggregateFloorsToZero(t *testing.T) {
+// TestOrganizationComputed_OpenDealsWithoutFrozenFX_AwaitingFX is the
+// OTHER honest "not computable yet" state 0065 documents: open deals
+// exist (the view row IS present, open_deal_count > 0) but every one is
+// still missing fx_rate_to_base — the ordinary state for an open deal
+// through any real write path — so amount_minor_base is NULL for every
+// summand and SUM ignores them all, leaving the row's aggregate itself
+// NULL. Flooring this to a real 0 would be dishonest: it would sit
+// beside a non-zero weighted_pipeline (arc 1b's hierarchy-rollup) as a
+// fabricated "no pipeline" figure. The assembler instead floors it to
+// computable:false, reason:"awaiting_fx", with no value_minor on the
+// wire — the row EXISTS with a NULL aggregate, distinct from the
+// genuine-zero no-row case the next test covers.
+func TestOrganizationComputed_OpenDealsWithoutFrozenFX_AwaitingFX(t *testing.T) {
 	e := Setup(t)
 	pipeline, open := pipelineFixtureFor(e.Admin(), t, e)
 	orgID := e.SeedOrg(t, "Unpriced Pipeline LLC", nil)
@@ -315,11 +316,39 @@ func TestOrganizationComputed_OpenDealsWithoutFrozenFX_NullAggregateFloorsToZero
 		t.Fatal(err)
 	}
 	open0 := computedFieldByKey(*org.ComputedFields, "open_pipeline")
-	if !open0.Computable {
-		t.Fatal("a NULL-aggregate row still floors to computable=true (a real zero, not a floor reason)")
+	if open0.Computable {
+		t.Fatalf("a NULL-aggregate row with open deals present must be computable=false, got %+v", open0)
 	}
-	if open0.ValueMinor == nil || *open0.ValueMinor != 0 {
-		t.Fatalf("open_pipeline.value_minor = %v, want 0", open0.ValueMinor)
+	if open0.Reason == nil || *open0.Reason != "awaiting_fx" {
+		t.Fatalf("open_pipeline.reason = %v, want \"awaiting_fx\"", open0.Reason)
+	}
+	if open0.ValueMinor != nil {
+		t.Fatalf("open_pipeline.value_minor = %v, want absent (awaiting_fx carries no value)", open0.ValueMinor)
+	}
+	if open0.FormulaSql == "" {
+		t.Fatal("open_pipeline.formula_sql must stay populated: the formula exists, only its FX input doesn't yet")
+	}
+
+	raw, err := json.Marshal(org)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	fields, ok := wire["computed_fields"].([]any)
+	if !ok {
+		t.Fatalf("computed_fields not a JSON array in the wire payload: %v", wire["computed_fields"])
+	}
+	for _, f := range fields {
+		row, ok := f.(map[string]any)
+		if !ok || row["key"] != "open_pipeline" {
+			continue
+		}
+		if _, present := row["value_minor"]; present {
+			t.Fatalf("open_pipeline.value_minor key must be entirely absent from the wire for awaiting_fx, got %v", row["value_minor"])
+		}
 	}
 }
 

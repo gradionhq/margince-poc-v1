@@ -33,6 +33,13 @@
 --    aggregate column NULL (SUM ignores NULLs) — both are the honest
 --    "not computable yet" state, distinct from a genuine zero-value
 --    roll-up.
+--
+-- Follow-up (not this migration): a deal already booked in the
+-- workspace's own base currency never needs an FX rate at all, so this
+-- view could serve it live instead of waiting on fx_rate_to_base — e.g.
+-- summing COALESCE(amount_minor_base, amount_minor) WHERE currency =
+-- <workspace base_currency>. Left for a later pass; today's view treats
+-- every open deal identically regardless of its native currency.
 ALTER TABLE deal ADD COLUMN amount_minor_base bigint
   GENERATED ALWAYS AS (round(amount_minor * fx_rate_to_base)::bigint) STORED;
 

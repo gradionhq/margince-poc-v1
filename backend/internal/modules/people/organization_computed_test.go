@@ -60,7 +60,7 @@ func TestComputedFieldsVisible_SystemPrincipalTrusted(t *testing.T) {
 // not_yet_built.
 func TestOrganizationComputedFields_FiveRowsExactShape(t *testing.T) {
 	minor := int64(125000)
-	rows := organizationComputedFields(&minor)
+	rows := organizationComputedFields(&minor, 1)
 	if len(rows) != 5 {
 		t.Fatalf("want exactly 5 display rows, got %d", len(rows))
 	}
@@ -109,16 +109,43 @@ func TestOrganizationComputedFields_FiveRowsExactShape(t *testing.T) {
 	}
 }
 
-// The no-open-deals case (nil minorBase from the reader, meaning "no view
-// row at all") floors open_pipeline to a real 0 — the poc-1-tested
-// behaviour: a record-page tile has no way to render "unknown", so 0 is
-// the honest lower bound of what CAN be priced.
-func TestOrganizationComputedFields_NilMinorFloorsToZero(t *testing.T) {
-	rows := organizationComputedFields(nil)
+// The no-open-deals case (nil minorBase and dealCount==0, meaning "no
+// view row at all") floors open_pipeline to a real 0 — the
+// poc-1-tested behaviour: a record-page tile has no way to render
+// "unknown", so 0 is the honest lower bound of what CAN be priced.
+func TestOrganizationComputedFields_NoOpenDeals_FloorsToZero(t *testing.T) {
+	rows := organizationComputedFields(nil, 0)
 	if rows[0].ValueMinor == nil || *rows[0].ValueMinor != 0 {
 		t.Fatalf("open_pipeline.value_minor = %v, want 0", rows[0].ValueMinor)
 	}
 	if !rows[0].Computable {
 		t.Fatal("the zero floor is still computable=true — a real (zero) sum, not a missing one")
+	}
+	if rows[0].Reason != nil {
+		t.Fatalf("open_pipeline.reason = %v, want nil for the genuine-zero case", rows[0].Reason)
+	}
+}
+
+// The OTHER honest "not computable yet" state 0065 documents: the view
+// row EXISTS (open deals reference this org, dealCount > 0) but its
+// aggregate is itself NULL because every one of those deals is still
+// missing fx_rate_to_base. Flooring this to 0 would be dishonest — a
+// non-zero weighted_pipeline sitting beside a fabricated zero — so it
+// must floor to computable:false, reason:"awaiting_fx" instead, with no
+// value_minor on the wire.
+func TestOrganizationComputedFields_NullAggregateWithOpenDeals_AwaitingFX(t *testing.T) {
+	rows := organizationComputedFields(nil, 2)
+	open := rows[0]
+	if open.Computable {
+		t.Fatalf("open_pipeline must be computable=false when the aggregate is NULL but open deals exist, got %+v", open)
+	}
+	if open.Reason == nil || *open.Reason != awaitingFXReason {
+		t.Fatalf("open_pipeline.reason = %v, want %q", open.Reason, awaitingFXReason)
+	}
+	if open.ValueMinor != nil {
+		t.Fatalf("open_pipeline.value_minor = %v, want nil (awaiting_fx carries no value)", open.ValueMinor)
+	}
+	if open.FormulaSql == "" {
+		t.Fatal("open_pipeline.formula_sql must stay populated: the formula exists, only its FX input doesn't yet")
 	}
 }

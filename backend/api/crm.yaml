@@ -5370,7 +5370,7 @@ components:
         computable: { type: boolean }
         reason:
           type: [string, 'null']
-          description: Set (non-null) iff computable=false, e.g. "not_yet_built".
+          description: Set (non-null) iff computable=false, e.g. "not_yet_built", "awaiting_fx".
 
     Organization:
       type: object
