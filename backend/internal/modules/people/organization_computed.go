@@ -79,25 +79,25 @@ func computedFieldsVisible(ctx context.Context) bool {
 //
 // No row (an organization with no open deals at all) is the honest
 // "nothing to sum" case: (nil, 0, nil), never an error.
-func openPipelineRollup(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (minorBase *int64, dealCount int, err error) {
+func openPipelineRollup(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (minorBase *int64, err error) {
+	var dealCount int // scanned from the view but unused for display: the schema carries
+	// it for future rows; no consumer today per RD-T08 (rule T8).
 	err = tx.QueryRow(ctx,
 		`SELECT open_pipeline_minor_base, open_deal_count
 		 FROM organization_open_pipeline_rollup WHERE organization_id = $1`,
 		orgID).Scan(&minorBase, &dealCount)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, 0, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	return minorBase, dealCount, nil
+	return minorBase, nil
 }
 
 // organizationComputedFields assembles the 5 display rows RD-T08 names.
-// It takes only the aggregate figure — openPipelineRollup's dealCount
-// return has no display row today (the ComputedField schema names no
-// count field for open_pipeline), so the wiring call site drops it
-// rather than threading an unused value through here.
+// It takes only the aggregate figure; the count from the view (rule T8:
+// no dead returns) stays at the SQL layer until a consumer claims it.
 //
 // A NULL aggregate (open deals exist but every one is still missing its
 // FX input, so amount_minor_base is itself NULL — 0065's documented
