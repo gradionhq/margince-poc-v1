@@ -36,14 +36,7 @@ runtime from day one:
 
 ## Changing the surface
 
-The order is always: spec/contract first, then code.
-
-1. Contract changes originate in the spec repo; `crm.yaml` here follows
-   it. Discrepancies you find while building are filed in `feedback/`,
-   not patched silently into the code.
-2. Regenerate (`make gen`) — new operations appear as 501 stubs and the
-   agent-policy lint tells you if a mutation lacks an autonomy tier.
-3. Implement the handler in the owning module and register it in
-   `internal/compose`, shadowing the stub.
-4. `make check` proves the contract, the generated artifacts, and the
-   implementation agree.
+The order is always **contract first, then code**: edit `crm.yaml`, regenerate (`make gen`), implement
+the handler in the owning module shadowing the generated stub, and let `make check` prove the contract,
+the generated artifacts, and the implementation agree. The step-by-step checklist is a how-to:
+**[how-to/add-an-endpoint.md](../how-to/add-an-endpoint.md)**.

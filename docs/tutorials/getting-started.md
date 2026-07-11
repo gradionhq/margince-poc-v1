@@ -50,12 +50,23 @@ Open <http://localhost:8080> — the embedded web UI. The first screen
 lets you bootstrap a workspace (name, slug, your admin user). After
 login you have people, leads, the deal board, and the activity timeline.
 
-Prefer the API? The same bootstrap is `POST /v1/workspaces`. Local API
-calls need the workspace header (production uses the subdomain):
+Prefer the API? The same bootstrap is `POST /v1/workspaces`. For a ready-made demo workspace and admin,
+run `make seed-dev` (creates `demo-workspace` with `admin@demo.test` / `demo-password-123`).
+
+Then log in over the API and reuse the session. The `crm_session` cookie is `Secure`, so pull it out of
+the login response rather than relying on curl's jar; local calls also need the `X-Workspace-Slug`
+header (production resolves the workspace from the subdomain):
 
 ```sh
-curl http://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=<token>'
+SESSION=$(curl -sS -D - -o /dev/null http://localhost:8080/v1/auth/login \
+  -H 'X-Workspace-Slug: demo-workspace' -H 'Content-Type: application/json' \
+  -d '{"email":"admin@demo.test","password":"demo-password-123"}' \
+  | sed -n 's/^[Ss]et-[Cc]ookie: crm_session=\([^;]*\).*/\1/p' | tr -d '\r')
+
+curl http://localhost:8080/v1/me -H 'X-Workspace-Slug: demo-workspace' --cookie "crm_session=$SESSION"
 ```
+
+(An agent uses a passport instead of a session — see [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).)
 
 ## 5. Verify your setup
 
@@ -76,6 +87,9 @@ missing — it never skips.
 
 ## Where next
 
+- **Contributing to the backend? Start here:**
+  [explanation/backend-onboarding.md](../explanation/backend-onboarding.md) — the orientation hub (map,
+  reading order, how to add an endpoint or a migration).
 - Connect an AI agent: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md),
   then [how-to/run-the-mcp-server.md](../how-to/run-the-mcp-server.md).
 - Every flag and environment variable: [reference/configuration.md](../reference/configuration.md).

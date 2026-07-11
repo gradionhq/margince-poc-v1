@@ -1,8 +1,8 @@
 # Architecture
 
-The normative blueprint lives in the spec repo
-(`../margince/specs/spec/architecture/`); this page is the condensed
-map of how this codebase realizes it.
+The condensed map of how this codebase is shaped. New backend contributors
+should start at [backend-onboarding.md](backend-onboarding.md) — the
+orientation hub — and read this for the *why* behind the structure.
 
 ## The triad DAG
 
@@ -17,7 +17,8 @@ shared  →  platform  →  modules  →  compose  →  cmd
 - **`internal/shared/`** — Tier-0 leaves, stdlib-only:
   `kernel/{ids,events,provenance,principal}`, `apperrors` (the fixed
   error-sentinel registry), and `ports/` (the frozen seam interfaces:
-  datasource, mcp, connector, workflow, model, retrieval, jurisdiction).
+  authz, datasource, mcp, connector, workflow, model, retrieval,
+  jurisdiction).
 - **`internal/platform/`** — technical plumbing that owns no domain:
   `database` (pool + the RLS workspace-transaction contract) and
   `database/storekit` (the one spelling of the write shape), `auth` (the
@@ -40,7 +41,8 @@ shared  →  platform  →  modules  →  compose  →  cmd
   orchestration groups live in subpackages under the same growth policy
   (`compose/briefs`), and the cross-module integration suites live in
   `compose/integration`; compose subpackages coordinate modules and
-  never durably own a business entity.
+  never durably own a business entity. How it boots and where every
+  cross-module edge is wired: [composition-layer.md](composition-layer.md).
 - **`cmd/{api,worker,migrate,mcp}`** — thin process roles.
 
 The DAG is enforced three ways, and deliberately mechanically: depguard
@@ -72,7 +74,9 @@ the relay ships committed rows to Redis Streams; no domain code touches
 the bus directly — and consumers wrap handlers in `events.Dedupe`
 because the bus is at-least-once. Every store entry point is RBAC-gated:
 object denial answers 403, a row-scope miss answers 404
-(existence-hiding).
+(existence-hiding). The full mechanism — `audit_log`, the outbox
+envelope, the relay, dedupe — is detailed in
+[write-backbone.md](write-backbone.md).
 
 ## Tenancy as structure
 

@@ -44,17 +44,19 @@ work breakdown) lives in a separate spec repo at `../margince/specs/`.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
-Contributing: start with [CONTRIBUTING.md](CONTRIBUTING.md) (how the
-gates, DCO sign-off, and AI-disclosure work). Progress and the pickup
-point live in **[STATUS.md](STATUS.md)**; the binding engineering rules
-in [AGENTS.md](AGENTS.md). User and
-operator documentation lives under [docs/](docs/):
-[getting started](docs/tutorials/getting-started.md) ·
-[how-to guides](docs/how-to/) (MCP server, passports, migrations) ·
-[reference](docs/reference/) (every flag/env, make targets) ·
-[explanation](docs/explanation/) (architecture, contract-first).
-Vulnerabilities: see [SECURITY.md](SECURITY.md) — private reporting via
-GitHub Security Advisories. Changes: [CHANGELOG.md](CHANGELOG.md).
+**Start here:**
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — the gates, DCO sign-off, and AI-disclosure rules.
+- **[docs/explanation/backend-onboarding.md](docs/explanation/backend-onboarding.md)** — the backend
+  contributor hub: the codebase map, reading order, and how to add a feature.
+- **[docs/README.md](docs/README.md)** — the full documentation index (tutorials, how-to, reference,
+  explanation).
+
+Also: [STATUS.md](STATUS.md) — progress and session pickup point ·
+[AGENTS.md](AGENTS.md) — binding engineering rules ·
+[SECURITY.md](SECURITY.md) — vulnerability reporting (private, via GitHub Security Advisories) ·
+[CHANGELOG.md](CHANGELOG.md).
+
 Everything below this line is for people (and agents) working on the code.
 
 ## Quick start
@@ -146,9 +148,10 @@ per-client throttling at the proxy.
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
-  (plumbing, owns no domain), twelve `modules/` (identity, people,
+  (plumbing, owns no domain), fourteen `modules/` (identity, people,
   deals, activities, approvals, agents, ai, search, capture, consent,
-  collections, and the `de` jurisdiction pack — no sibling imports),
+  privacy, collections, signals, and the `de` jurisdiction pack — no
+  sibling imports),
   `internal/compose` (the one composition seam), and four process-role
   binaries
   `cmd/{api,worker,migrate,mcp}`. The DAG is enforced three ways

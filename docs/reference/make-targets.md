@@ -20,7 +20,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 
 | Target | What it does |
 |---|---|
-| `check` | **The merge gate**: build + vet + lint + arch-lint + test + drift |
+| `check` | **The merge gate.** Backend `make check` = build + vet + lint + arch-lint + test + drift. Root `make check` runs that **plus** craft-drift, image pins, contract breaking-change (`oasdiff`), test-lane hygiene, and the file-length ratchet |
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture) run uncached |

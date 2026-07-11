@@ -87,7 +87,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `internal/shared/` — Tier-0 leaves, stdlib-only (test-enforced):
   `kernel/{ids,events,provenance,principal}`, `apperrors` (the fixed
   sentinel registry — extend only with the spec's interfaces.md §0), and
-  `ports/{datasource,mcp,connector,workflow,model,retrieval,jurisdiction}`
+  `ports/{authz,datasource,mcp,connector,workflow,model,retrieval,jurisdiction}`
   (the frozen seam interfaces + additive provider mechanics).
 - `internal/platform/` — technical plumbing, owns no domain:
   `database` (pg pool + the RLS `WithWorkspaceTx` GUC contract) +
