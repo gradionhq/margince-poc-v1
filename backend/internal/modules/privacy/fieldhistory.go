@@ -4,12 +4,22 @@
 package privacy
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // FieldHistoryFilter carries the validated query surface of
@@ -164,4 +174,177 @@ func applyFieldMask(data map[string]any, mask entityFieldMask) map[string]any {
 		}
 	}
 	return out
+}
+
+const (
+	fieldHistoryScanBatch   = 100
+	fieldHistoryMaxScanRows = 2000
+)
+
+// ListFieldHistory reads one record's per-field change timeline,
+// projected inside a single workspace tx from the audit spine. The gate
+// is threefold: a human session (the agent gate only fronts mutating
+// routes, so the human-only rule binds here), object-level read on the
+// entity type, and the row-scope visibility check — out of scope reads
+// as not-found, indistinguishable from not-there.
+//
+// The page limit counts ENTRIES, but one audit row can yield several;
+// a row's entries never split across pages, so a page may overflow the
+// limit by the tail row's width. When a page fills exactly on a row
+// boundary, a cheap existence probe decides has_more — the row that
+// filled the page may have been the true last one.
+func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFilter) (FieldHistoryPage, error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.Type != principal.PrincipalHuman {
+		return FieldHistoryPage{}, apperrors.ErrPermissionDenied
+	}
+	if !fieldHistoryEntityTypes[f.EntityType] {
+		return FieldHistoryPage{}, fmt.Errorf("field-history entity %q: %w", f.EntityType, apperrors.ErrNotFound)
+	}
+	if err := auth.Require(ctx, f.EntityType, principal.ActionRead); err != nil {
+		return FieldHistoryPage{}, err
+	}
+
+	limit := storekit.ClampLimit(f.Limit)
+	var cursorTime time.Time
+	var cursorID ids.UUID
+	useCursor := false
+	if f.Cursor != nil && *f.Cursor != "" {
+		c, err := storekit.DecodeCursor(*f.Cursor)
+		if err != nil {
+			return FieldHistoryPage{}, err
+		}
+		cursorTime, cursorID, useCursor = c.CreatedAt, c.ID, true
+	}
+	mask := defaultFieldMasks[f.EntityType]
+
+	var page FieldHistoryPage
+	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		if err := auth.EnsureVisible(ctx, tx, f.EntityType, f.EntityID); err != nil {
+			return err
+		}
+		scanned := 0
+		for {
+			rows, batch, err := queryFieldHistoryBatch(ctx, tx, f, cursorTime, cursorID, useCursor)
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				scanned++
+				cursorTime, cursorID, useCursor = row.occurredAt, row.id, true
+				if f.ActorType != nil && row.actorType != *f.ActorType {
+					continue
+				}
+				page.Entries = append(page.Entries, diffAuditRowFields(row, mask, f.Field)...)
+				if len(page.Entries) >= limit {
+					break
+				}
+			}
+			switch {
+			case scanned >= fieldHistoryMaxScanRows:
+				// The scan cap keeps a filter that skips most rows from
+				// walking the whole spine in one call; more MAY match, and
+				// claiming so is the honest side to err on.
+				page.NextCursor = storekit.EncodeCursor(cursorTime, cursorID)
+				page.HasMore = true
+				return nil
+			case len(page.Entries) >= limit:
+				more, err := hasFollowingAuditRow(ctx, tx, f, cursorTime, cursorID)
+				if err != nil {
+					return err
+				}
+				if more {
+					page.NextCursor = storekit.EncodeCursor(cursorTime, cursorID)
+					page.HasMore = true
+				}
+				return nil
+			case batch < fieldHistoryScanBatch:
+				return nil // spine exhausted
+			}
+		}
+	})
+	if err != nil {
+		return FieldHistoryPage{}, err
+	}
+	if page.Entries == nil {
+		page.Entries = []FieldHistoryEntry{}
+	}
+	return page, nil
+}
+
+// queryFieldHistoryBatch fetches the next window of audit rows for the
+// record, newest first, decoding the jsonb sides eagerly so a corrupt
+// payload surfaces as an error, never as a silently empty diff.
+func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
+	cursorTime time.Time, cursorID ids.UUID, useCursor bool) ([]auditDiffRow, int, error) {
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if useCursor {
+		rows, err = tx.Query(ctx, `
+			SELECT id, actor_type, actor_id, passport_id, evidence, occurred_at, before, after
+			FROM audit_log
+			WHERE entity_type = $1 AND entity_id = $2
+			  AND (occurred_at, id) < ($3, $4)
+			ORDER BY occurred_at DESC, id DESC
+			LIMIT $5`,
+			f.EntityType, f.EntityID, cursorTime, cursorID, fieldHistoryScanBatch)
+	} else {
+		rows, err = tx.Query(ctx, `
+			SELECT id, actor_type, actor_id, passport_id, evidence, occurred_at, before, after
+			FROM audit_log
+			WHERE entity_type = $1 AND entity_id = $2
+			ORDER BY occurred_at DESC, id DESC
+			LIMIT $3`,
+			f.EntityType, f.EntityID, fieldHistoryScanBatch)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var out []auditDiffRow
+	for rows.Next() {
+		var r auditDiffRow
+		var evidenceJSON, beforeJSON, afterJSON []byte
+		if err := rows.Scan(&r.id, &r.actorType, &r.actorID, &r.passportID,
+			&evidenceJSON, &r.occurredAt, &beforeJSON, &afterJSON); err != nil {
+			return nil, 0, err
+		}
+		r.entityType, r.entityID = f.EntityType, f.EntityID
+		if err := unmarshalJSONBMap(evidenceJSON, &r.evidence); err != nil {
+			return nil, 0, fmt.Errorf("audit row %s evidence: %w", r.id, err)
+		}
+		if err := unmarshalJSONBMap(beforeJSON, &r.before); err != nil {
+			return nil, 0, fmt.Errorf("audit row %s before: %w", r.id, err)
+		}
+		if err := unmarshalJSONBMap(afterJSON, &r.after); err != nil {
+			return nil, 0, fmt.Errorf("audit row %s after: %w", r.id, err)
+		}
+		out = append(out, r)
+	}
+	return out, len(out), rows.Err()
+}
+
+func unmarshalJSONBMap(raw []byte, dst *map[string]any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, dst)
+}
+
+// hasFollowingAuditRow answers whether any audit row for the record
+// precedes the cursor position. It deliberately ignores the actor
+// filter: the rare cost is one extra empty page, never a false "done".
+func hasFollowingAuditRow(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
+	cursorTime time.Time, cursorID ids.UUID) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM audit_log
+			WHERE entity_type = $1 AND entity_id = $2
+			  AND (occurred_at, id) < ($3, $4))`,
+		f.EntityType, f.EntityID, cursorTime, cursorID).Scan(&exists)
+	return exists, err
 }
