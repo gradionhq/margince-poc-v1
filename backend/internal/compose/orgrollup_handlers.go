@@ -27,6 +27,12 @@ import (
 // stub over the gated read.
 type orgRollupHandlers struct {
 	pool *pgxpool.Pool
+	// now is the read's clock (newServer defaults it to time.Now); the HTTP
+	// surface never overrides it, but threading it as a real field — rather
+	// than the read calling time.Now() internally — keeps the handler's
+	// dependency honest and matches the house shape (deals.CloseDateCorrector,
+	// approvals.Service).
+	now func() time.Time
 }
 
 // GetOrganizationHierarchyRollup implements (GET
@@ -39,7 +45,7 @@ func (h orgRollupHandlers) GetOrganizationHierarchyRollup(w http.ResponseWriter,
 		scope = string(*params.Scope)
 	}
 
-	result, err := OrgHierarchyRollup(r.Context(), h.pool, ids.UUID(id), scope)
+	result, err := OrgHierarchyRollup(r.Context(), h.pool, ids.UUID(id), scope, h.now)
 	if err != nil {
 		var fxErr *FXRateUnavailableError
 		if errors.As(err, &fxErr) {

@@ -96,12 +96,20 @@ func currentQuarterBounds(now time.Time, loc *time.Location) (start, end time.Ti
 }
 
 // weightedValue rounds baseMinor × winProbability/100 half away from
-// zero, done in integer arithmetic (not float64) because baseMinor is
-// already a minor-unit money amount and winProbability a whole-number
-// percentage — the division is exact enough that float rounding error
-// has no business being introduced.
-func weightedValue(baseMinor int64, winProbability int) int64 {
-	return divRoundHalfAwayFromZero(baseMinor*int64(winProbability), 100)
+// zero, in EXACT big.Int arithmetic — never a native int64 multiply.
+// amount_minor is contract-unbounded, so baseMinor×winProbability can
+// exceed int64 before the division ever runs; a silent wraparound there
+// would put a wrong number in a money total. The overflow check mirrors
+// convertToBase's: a result outside int64's range refuses loudly rather
+// than truncating.
+func weightedValue(baseMinor int64, winProbability int) (int64, error) {
+	product := new(big.Int).Mul(big.NewInt(baseMinor), big.NewInt(int64(winProbability)))
+	rounded := bigDivRoundHalfAwayFromZero(product, big.NewInt(100))
+	if !rounded.IsInt64() {
+		return 0, fmt.Errorf("weighted pipeline value for a %d-minor-unit amount at %d%% exceeds the representable money range; correct the deal amount before retrying the rollup",
+			baseMinor, winProbability)
+	}
+	return rounded.Int64(), nil
 }
 
 // convertToBase rounds amountMinor × rate half away from zero, in EXACT
@@ -148,32 +156,6 @@ func bigDivRoundHalfAwayFromZero(numerator, denominator *big.Int) *big.Int {
 // magnitude, always small and never negative here.
 func pow10(exp int64) *big.Int {
 	return new(big.Int).Exp(big.NewInt(10), big.NewInt(exp), nil)
-}
-
-// divRoundHalfAwayFromZero divides two integers, rounding the quotient
-// half away from zero. denominator is always the positive divisor
-// (100, for both money-rounding call sites here).
-func divRoundHalfAwayFromZero(numerator, denominator int64) int64 {
-	quotient := numerator / denominator
-	remainder := numerator % denominator
-	if remainder == 0 {
-		return quotient
-	}
-	if absInt64(remainder)*2 >= denominator {
-		if numerator < 0 {
-			quotient--
-		} else {
-			quotient++
-		}
-	}
-	return quotient
-}
-
-func absInt64(v int64) int64 {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
 
 // FXRateUnavailableError reports that the rollup needed a stored FX

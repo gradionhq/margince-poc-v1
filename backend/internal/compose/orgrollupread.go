@@ -66,7 +66,13 @@ type OrgRollupResult struct {
 // itself stays ORG-scoped: within a readable organization, per-deal and
 // per-activity row visibility is deliberately not consulted, so account
 // totals stay whole (the contract's description states the same policy).
-func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID, scope string) (OrgRollupResult, error) {
+//
+// now is the read's injected clock (house shape: deals.CloseDateCorrector,
+// approvals.Service, ai.meter) — the HTTP handler defaults it to time.Now
+// at server construction, and a test pins a fixed instant so a quarter or
+// 30-day window boundary can never flake between when it seeds and when
+// the read evaluates "now".
+func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID, scope string, now func() time.Time) (OrgRollupResult, error) {
 	for _, object := range []datasource.EntityType{datasource.EntityOrganization, datasource.EntityDeal, datasource.EntityActivity} {
 		if err := auth.Require(ctx, string(object), principal.ActionRead); err != nil {
 			// Permission refusal precedes input validation: a caller missing
@@ -84,7 +90,7 @@ func OrgHierarchyRollup(ctx context.Context, pool *pgxpool.Pool, rootID ids.UUID
 			fmt.Sprintf("scope must be %q or %q", orgRollupScopeTree, orgRollupScopeSelf))
 	}
 
-	asOf := time.Now().UTC()
+	asOf := now().UTC()
 	result := OrgRollupResult{RootID: rootID, Scope: scope, RestrictedExcluded: []restrictedNode{}, ComputedAt: asOf}
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "organization", rootID); err != nil {
@@ -191,7 +197,8 @@ func loadOrgTree(ctx context.Context, tx pgx.Tx, rootID ids.UUID) ([]orgTreeNode
 		if depth >= orgRollupMaxDepth {
 			return nil, fmt.Errorf(
 				"organization tree under %s exceeds the supported depth of %d; roll up from a lower node or flatten the hierarchy",
-				rootID, orgRollupMaxDepth)
+				rootID, orgRollupMaxDepth,
+			)
 		}
 		nodes = append(nodes, n)
 	}
@@ -352,7 +359,11 @@ func weightedPipelineMinor(ctx context.Context, tx pgx.Tx, included []ids.UUID, 
 		if err != nil {
 			return 0, err
 		}
-		total += weightedValue(baseMinor, d.winProbability)
+		weighted, err := weightedValue(baseMinor, d.winProbability)
+		if err != nil {
+			return 0, err
+		}
+		total += weighted
 	}
 	return total, nil
 }

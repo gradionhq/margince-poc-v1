@@ -114,6 +114,16 @@ func rollupOrgReadPerms(scope principal.RowScope) principal.Permissions {
 
 func int64Ptr(v int64) *int64 { return &v }
 
+// fixedClock pins OrgHierarchyRollup's injected clock to instant, so a
+// test that seeds rows relative to a captured "now" reads at that exact
+// same instant rather than racing a fresh time.Now() call inside the
+// read — the gap between the two is normally sub-millisecond, but a
+// quarter or calendar-day window boundary crossed in that gap would
+// otherwise flake the assertion.
+func fixedClock(instant time.Time) func() time.Time {
+	return func() time.Time { return instant }
+}
+
 // TestOrgRollupReconcilesTreeToSelves is the reconciliation invariant:
 // the tree total equals the sum of every included node's scope=self
 // figures, an empty node contributes a real 0 (and still counts in
@@ -140,7 +150,7 @@ func TestOrgRollupReconcilesTreeToSelves(t *testing.T) {
 	seedRollupOrgActivity(t, e, childA, now.Add(-40*24*time.Hour)) // outside the 30d window
 	seedRollupOrgActivity(t, e, root, now.Add(24*time.Hour))       // future-dated: never counts
 
-	tree, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree")
+	tree, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree", fixedClock(now))
 	if err != nil {
 		t.Fatalf("tree rollup: %v", err)
 	}
@@ -171,7 +181,7 @@ func TestOrgRollupReconcilesTreeToSelves(t *testing.T) {
 	var sumWeighted, sumWon int64
 	var sumActivity, sumNodes int
 	for _, node := range []ids.UUID{root, childA, childB, grandchild} {
-		self, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, node, "self")
+		self, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, node, "self", fixedClock(now))
 		if err != nil {
 			t.Fatalf("self rollup of %v: %v", node, err)
 		}
@@ -210,7 +220,7 @@ func TestOrgRollupRestrictedNodeDisclosedAndGrantRestores(t *testing.T) {
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, rollupOrgReadPerms(principal.RowScopeOwn))
-	pre, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "tree")
+	pre, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "tree", time.Now)
 	if err != nil {
 		t.Fatalf("pre-grant rollup: %v", err)
 	}
@@ -230,7 +240,7 @@ func TestOrgRollupRestrictedNodeDisclosedAndGrantRestores(t *testing.T) {
 		VALUES ($1, 'organization', $2, 'user', $3, 'read', $3)`,
 		e.WS, child, e.Rep1)
 
-	post, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "tree")
+	post, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "tree", time.Now)
 	if err != nil {
 		t.Fatalf("post-grant rollup: %v", err)
 	}
@@ -257,7 +267,7 @@ func TestOrgRollupWeightedPipelineSurvivesStageArchival(t *testing.T) {
 	seedRollupOpenDeal(t, e, st, root, int64Ptr(10_000), strPtr("EUR"))
 	e.WsExec(t, `UPDATE stage SET archived_at = now() WHERE id = $1`, st.open)
 
-	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree")
+	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree", time.Now)
 	if err != nil {
 		t.Fatalf("rollup: %v", err)
 	}
@@ -276,7 +286,7 @@ func TestOrgRollupFXRateUnavailableFailsWholeRead(t *testing.T) {
 	seedRollupOpenDeal(t, e, st, root, int64Ptr(100_000), strPtr("EUR"))
 	seedRollupOpenDeal(t, e, st, root, int64Ptr(10_000), strPtr("USD")) // no USD→EUR rate seeded
 
-	_, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree")
+	_, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree", time.Now)
 	var fxErr *compose.FXRateUnavailableError
 	if !errors.As(err, &fxErr) {
 		t.Fatalf("err = %v, want a typed FX-rate-unavailable failure", err)
@@ -290,17 +300,25 @@ func TestOrgRollupFXRateUnavailableFailsWholeRead(t *testing.T) {
 // whose closed_at falls in the current workspace-timezone quarter
 // [start, end), converted at each deal's FROZEN rate — no fx_rate row
 // exists here, so a live-rate lookup would fail the read instead.
+//
+// asOf is pinned to a fixed mid-quarter instant (not time.Now()): the
+// workspace's reporting timezone defaults to UTC, so an asOf resolved a
+// hair after the seeded "in-quarter" deal's closed_at could otherwise
+// cross a real quarter boundary right as the suite runs near one, and
+// the -100-day deal would then land in a different (but still
+// out-of-window) quarter — pinning removes the wall-clock dependency
+// entirely rather than merely making it a rare flake.
 func TestOrgRollupClosedWonQuarterWindow(t *testing.T) {
 	e := Setup(t)
 	st := seedRollupStages(t, e)
 	root := seedRollupOrg(t, e, "Root Co", nil, nil)
-	now := time.Now().UTC()
-	seedRollupWonDeal(t, e, st, root, 10_000, "USD", "0.5", now)
-	// 100 days back is outside any calendar quarter containing now (a
-	// quarter spans at most 92 days), whatever today's date is.
-	seedRollupWonDeal(t, e, st, root, 99_999, "USD", "1.0", now.AddDate(0, 0, -100))
+	asOf := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
+	seedRollupWonDeal(t, e, st, root, 10_000, "USD", "0.5", asOf)
+	// 100 days back is outside any calendar quarter containing asOf (a
+	// quarter spans at most 92 days), whatever asOf itself resolves to.
+	seedRollupWonDeal(t, e, st, root, 99_999, "USD", "1.0", asOf.AddDate(0, 0, -100))
 
-	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree")
+	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, root, "tree", fixedClock(asOf))
 	if err != nil {
 		t.Fatalf("rollup: %v", err)
 	}
@@ -323,20 +341,20 @@ func TestOrgRollupRootGates(t *testing.T) {
 	// Nonexistent root, unbounded admin: the tree walk itself must
 	// answer not-found (the visibility gate has nothing to probe for an
 	// unbounded caller).
-	if _, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, ids.NewV7(), "tree"); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, ids.NewV7(), "tree", time.Now); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("nonexistent root: err = %v, want not found", err)
 	}
 
 	// Rep1 sits in Team1; the root's owner Rep3 does not — out of scope
 	// reads as not-there, never as an empty rollup.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, rollupOrgReadPerms(principal.RowScopeTeam))
-	if _, err := compose.OrgHierarchyRollup(rep, e.Pool, foreign, "tree"); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := compose.OrgHierarchyRollup(rep, e.Pool, foreign, "tree", time.Now); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("out-of-scope root: err = %v, want not found", err)
 	}
 
 	// RepPerms grants person/deal/pipeline but not organization: 403.
 	noPerm := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
-	if _, err := compose.OrgHierarchyRollup(noPerm, e.Pool, foreign, "tree"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := compose.OrgHierarchyRollup(noPerm, e.Pool, foreign, "tree", time.Now); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("no organization:read: err = %v, want permission denied", err)
 	}
 
@@ -360,7 +378,7 @@ func TestOrgRollupRootGates(t *testing.T) {
 		},
 	} {
 		caller := e.As(e.Rep1, []ids.UUID{e.Team1}, perms)
-		if _, err := compose.OrgHierarchyRollup(caller, e.Pool, foreign, "tree"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		if _, err := compose.OrgHierarchyRollup(caller, e.Pool, foreign, "tree", time.Now); !errors.Is(err, apperrors.ErrPermissionDenied) {
 			t.Errorf("missing %s:read: err = %v, want permission denied", missing, err)
 		}
 	}
@@ -368,12 +386,12 @@ func TestOrgRollupRootGates(t *testing.T) {
 	// Permission refusal precedes input validation: a caller without
 	// organization:read gets 403 even for a scope outside the vocabulary
 	// — the bogus scope must never be judged before the grant is.
-	if _, err := compose.OrgHierarchyRollup(noPerm, e.Pool, foreign, "subtree"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := compose.OrgHierarchyRollup(noPerm, e.Pool, foreign, "subtree", time.Now); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("no organization:read + bogus scope: err = %v, want permission denied", err)
 	}
 
 	// A scope outside {tree, self} is a refused input, not a default.
-	if _, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, foreign, "subtree"); err == nil {
+	if _, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, foreign, "subtree", time.Now); err == nil {
 		t.Error("invalid scope accepted — must be refused")
 	}
 }
@@ -390,7 +408,7 @@ func TestOrgRollupSelfScopeSkipsPruning(t *testing.T) {
 	seedRollupOpenDeal(t, e, st, child, int64Ptr(50_000), strPtr("EUR"))
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, rollupOrgReadPerms(principal.RowScopeOwn))
-	res, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "self")
+	res, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "self", time.Now)
 	if err != nil {
 		t.Fatalf("self rollup: %v", err)
 	}

@@ -311,7 +311,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 			writer:      NewFilteredExportWriter(pool),
 			collections: collections.NewStore(pool),
 		},
-		orgRollupHandlers: orgRollupHandlers{pool: pool},
+		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
 		log:               log,
 	}
 }
@@ -363,7 +363,8 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// binds a confined system principal. The preference edge wraps the
 	// booking edge — each passes a non-matching path straight through.
 	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api))
+		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api),
+	)
 	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(publicEdge))))
 	// The A2 authorization server (ADR-0013): AS endpoints live outside
 	// the generated resource surface but behind the same workspace and

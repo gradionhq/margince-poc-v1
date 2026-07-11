@@ -92,15 +92,47 @@ func TestWeightedValue(t *testing.T) {
 		{name: "0% probability is a real zero", baseMinor: 123456, winPercent: 0, want: 0},
 		{name: "100% probability passes the amount through", baseMinor: 123456, winPercent: 100, want: 123456},
 		{name: "zero amount stays zero at any probability", baseMinor: 0, winPercent: 75, want: 0},
+		{
+			// amount_minor is a bigint column: baseMinor can sit at the very
+			// top of int64's range. A native int64 multiply
+			// (baseMinor*winProbability, BEFORE the ÷100) wraps here — the old
+			// implementation returned -1 for this exact input — even though
+			// the true weighted value is representable (100% is an exact
+			// passthrough). The fix must compute the correct answer via
+			// big.Int, not merely avoid a crash.
+			name:      "MaxInt64 amount at 100% survives the intermediate without wrapping",
+			baseMinor: math.MaxInt64, winPercent: 100, want: math.MaxInt64,
+		},
+		{
+			name:      "MinInt64 amount at 100% survives the intermediate without wrapping",
+			baseMinor: math.MinInt64, winPercent: 100, want: math.MinInt64,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := weightedValue(tc.baseMinor, tc.winPercent)
+			got, err := weightedValue(tc.baseMinor, tc.winPercent)
+			if err != nil {
+				t.Fatalf("weightedValue(%d, %d): %v", tc.baseMinor, tc.winPercent, err)
+			}
 			if got != tc.want {
 				t.Errorf("weightedValue(%d, %d) = %d, want %d", tc.baseMinor, tc.winPercent, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestWeightedValueRefusesOverflow: win_probability is DB-CHECKed to
+// [0,100] (migrations/core/0006_deals.up.sql), so a valid call can never
+// actually produce an unrepresentable result once baseMinor already fits
+// int64 (guaranteed by convertToBase) — 100% of a fitting amount always
+// fits. This drives winProbability past that domain on purpose: the
+// arithmetic itself, not the caller's discipline, must be what keeps a
+// money total honest, the same belt-and-suspenders posture
+// convertToBase takes for a rate that "should never" be non-finite.
+func TestWeightedValueRefusesOverflow(t *testing.T) {
+	if _, err := weightedValue(math.MaxInt64, 300); err == nil {
+		t.Error("overflowing weighted value returned no error — must refuse, a wrapped total would be a lie about money")
 	}
 }
 
