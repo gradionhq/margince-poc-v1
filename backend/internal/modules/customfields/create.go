@@ -220,6 +220,13 @@ func refuseTakenColumn(ctx context.Context, tx pgx.Tx, wsID ids.UUID, object, co
 // connection reverts to the owner role at COMMIT/ROLLBACK. The role name
 // is the scripts/db-init.sql runtime role, the same one the app pool's
 // DSN connects as.
+//
+// This is the arc's privilege boundary, and privilege_boundary_test.go
+// pins both call sites (here and in options.go's setOptionsInTx):
+// deleting either one leaves the transaction on the owner role for the
+// catalog/audit write and every other test still passes, because the
+// schema pool's role is superuser in dev — FORCE RLS doesn't bite
+// behaviorally there.
 func downgradeToAppRole(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE margince_app`); err != nil {
 		return fmt.Errorf("customfields: downgrading to the app role: %w", err)
