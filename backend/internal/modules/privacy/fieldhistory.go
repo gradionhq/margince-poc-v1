@@ -286,7 +286,7 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 		if visErr != nil {
 			return visErr
 		}
-		boundary, err := latestScrubTombstone(ctx, tx, f)
+		boundary, err := latestScrubTombstone(ctx, tx, f.EntityType, f.EntityID)
 		if err != nil {
 			return err
 		}
@@ -390,16 +390,18 @@ func (b scrubBoundary) exists() bool { return !b.occurredAt.IsZero() }
 // fieldHistoryScrubActions); the zero boundary when the record was never
 // scrubbed. Everything at or before that position is exactly the PII the
 // scrub removed from the live row — the append-only spine still holds
-// those field images, so the read must refuse them; the tombstone's own
-// payload (suppression tallies) is withheld with them.
-func latestScrubTombstone(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter) (scrubBoundary, error) {
+// those field images, so a read must refuse them. The two spine reads
+// apply the boundary differently: field-history withholds the tombstone
+// row too (its diff would fabricate entries), record-history serves it as
+// its own honest line — see each read's WHERE assembly.
+func latestScrubTombstone(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID) (scrubBoundary, error) {
 	var b scrubBoundary
 	err := tx.QueryRow(ctx, `
 		SELECT occurred_at, id FROM audit_log
 		WHERE entity_type = $1 AND entity_id = $2 AND action = ANY($3)
 		ORDER BY occurred_at DESC, id DESC
 		LIMIT 1`,
-		f.EntityType, f.EntityID, fieldHistoryScrubActions).Scan(&b.occurredAt, &b.id)
+		entityType, entityID, fieldHistoryScrubActions).Scan(&b.occurredAt, &b.id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return scrubBoundary{}, nil
 	}

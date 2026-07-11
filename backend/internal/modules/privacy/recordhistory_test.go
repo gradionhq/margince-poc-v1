@@ -135,6 +135,41 @@ func verbsFromCheckConstraint(t *testing.T) []string {
 	return verbs
 }
 
+func TestRecordHistoryEntryMasksBothPayloadSidesByOmission(t *testing.T) {
+	row := recordAuditRow{
+		actorType: "human", actorID: "human:x", action: "update",
+		before: map[string]any{"email": "old@x.com", "iban": "DE01"},
+		after:  map[string]any{"email": "new@x.com", "iban": "DE02"},
+	}
+
+	entry := recordHistoryEntry(row, entityFieldMask{"iban": {}})
+	for side, payload := range map[string]map[string]any{"before": entry.Before, "after": entry.After} {
+		if _, leaked := payload["iban"]; leaked {
+			t.Errorf("masked field leaked through %s: %v", side, payload)
+		}
+		if payload["email"] == nil {
+			t.Errorf("unmasked field withheld from %s: %v", side, payload)
+		}
+	}
+
+	// The default mask is empty: the payload passes through whole.
+	entry = recordHistoryEntry(row, defaultFieldMasks["person"])
+	if entry.Before["iban"] != "DE01" || entry.After["iban"] != "DE02" {
+		t.Errorf("empty default mask must pass the payload through: before %v after %v", entry.Before, entry.After)
+	}
+}
+
+func TestRecordHistoryEntryActorDisplayFallsBackToRawActorID(t *testing.T) {
+	row := recordAuditRow{actorType: "human", actorID: "human:1a2b", action: "update"}
+	if got := recordHistoryEntry(row, nil).Summary; got != "human:1a2b updated the record" {
+		t.Errorf("unresolved actor summary = %q, want the raw actor_id, never an invented name", got)
+	}
+	row.actorDisplayName = strPtr("Uma Underwriter")
+	if got := recordHistoryEntry(row, nil).Summary; got != "Uma Underwriter updated the record" {
+		t.Errorf("resolved actor summary = %q", got)
+	}
+}
+
 func TestRecordHistoryVerbsCoverTheAuditCheckVocabulary(t *testing.T) {
 	verbs := verbsFromCheckConstraint(t)
 	if len(verbs) < 25 {
