@@ -70,13 +70,17 @@ wait_ready() { # url timeout_s — any HTTP response (even 401) means the port i
 
 case "$cmd" in
 up)
-  # Refuse if the derived api port is already bound — otherwise a second `up` for
+  # Refuse if either derived port is already bound — otherwise a second `up` for
   # a still-running slug would fail to bind silently and wait_ready would get a
-  # false "ready" from the OLD server. Stop it first.
-  if lsof -ti "tcp:${api_port}" >/dev/null 2>&1; then
-    echo "FAIL: api port :${api_port} already in use — is env '$slug' already running? (make uat_env_stop UAT_SLUG=$slug)" >&2
-    exit 1
-  fi
+  # false "ready" from the OLD server. (Vite in particular would auto-increment
+  # off a taken port without --strictPort, landing on a port we never poll.)
+  # Stop it first.
+  for _p in "$api_port" "$fe_port"; do
+    if lsof -ti "tcp:${_p}" >/dev/null 2>&1; then
+      echo "FAIL: port :${_p} already in use — is env '$slug' already running? (make uat_env_stop UAT_SLUG=$slug)" >&2
+      exit 1
+    fi
+  done
   # The FE runs via `pnpm exec vite`, which needs node_modules.
   if [[ ! -d frontend/node_modules ]]; then
     echo "FAIL: frontend/node_modules missing — run 'cd frontend && pnpm install' before 'make uat_env'." >&2
@@ -114,7 +118,7 @@ up)
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
   # (a `(cd … & )` subshell would capture the subshell, not the server).
-  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" >>"$log" 2>&1 &
+  BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort >>"$log" 2>&1 &
   fe_pid=$!
 
   printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nLOG=%s\n' \

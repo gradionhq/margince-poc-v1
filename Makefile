@@ -269,7 +269,7 @@ uat_env:
 ## uat_env_stop — stop a UAT env: make uat_env_stop UAT_SLUG=<slug> [DROP=1 also
 ## drops margince_uat_<slug>].
 uat_env_stop:
-	@bash scripts/uat-env.sh stop "$(UAT_SLUG)" $(if $(DROP),--drop,)
+	@bash scripts/uat-env.sh stop "$(UAT_SLUG)" $(if $(filter 1,$(DROP)),--drop,)
 
 ## hooks — install the repo's git hooks (the pre-push craft-static gate).
 ## Run once after cloning.

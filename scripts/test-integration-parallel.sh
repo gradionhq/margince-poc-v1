@@ -112,11 +112,25 @@ nl -ba -w1 -s'|' "$WORK" \
 
 # Aggregate: print every log in package (idx) order, then enforce the teeth.
 fail=0
-for base in $(cd "$OUTDIR" && ls -1 -- *.log | sort -n); do
+ran=0
+for base in $(cd "$OUTDIR" && ls -1 -- *.log 2>/dev/null | sort -n); do
   log="$OUTDIR/$base"
   cat "$log"
+  ran=$((ran + 1))
   grep -q "^EXIT 0$" "$log" || fail=1
 done
+
+# Reconcile against discovery: a green run must have executed every package we
+# found. NPKGS=0 (a go:build-integration selector regression that matches
+# nothing) or a missing log (a worker that never wrote its EXIT line) must read
+# as red — otherwise the "0 skips" sentinel below is a false green.
+if [[ "$NPKGS" -eq 0 ]]; then
+  echo "FAIL: no integration packages discovered — the 'go:build integration' selector matched nothing (regression?)"
+  fail=1
+elif [[ "$ran" -ne "$NPKGS" ]]; then
+  echo "FAIL: ran $ran package log(s) but discovered $NPKGS — a worker did not report; treating as red"
+  fail=1
+fi
 
 if grep -rq -- '--- SKIP' "$OUTDIR"; then
   echo "FAIL: integration tests must not skip — provision the env/service, do not skip:"
