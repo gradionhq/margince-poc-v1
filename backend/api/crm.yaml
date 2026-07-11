@@ -3017,6 +3017,44 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /records/{entity_type}/{id}/history:
+    parameters:
+      - name: entity_type
+        in: path
+        required: true
+        schema: { type: string, enum: [person, organization, deal, lead, activity] }
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Compliance]
+      operationId: getRecordHistory
+      security: [ { cookieAuth: [] } ]   # human session only
+      x-agent-access: human-only
+      summary: Full audit history for one record, rendered as plain-language lines.
+      description: |
+        Every audit_log row for the record, rendered as a plain-language `summary` line
+        naming the actor and, for agent actions, the granting human (`on_behalf_of_name`).
+        Chronological oldest-first (`occurred_at` ASC, `id` tiebreak) with keyset pagination.
+        `before`/`after` are masked to the viewer's readable fields by omission — a field the
+        caller cannot see is absent from the object, never present as `null`. The projection
+        stops at the record's newest erasure scrub: rows at-or-before that tombstone are
+        withheld while the tombstone's own line remains, so the read never resurfaces
+        pre-erasure PII. A visible record with no history answers `200 {data: []}` — an empty
+        history is honest, not a gap. A record outside the caller's row scope answers 404
+        (existence-hiding), like every single-record read.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of rendered history lines, oldest first (empty when none).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditHistoryListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /field-history:
     get:
       tags: [Compliance]
@@ -5985,6 +6023,34 @@ components:
       required: [data, page]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/FieldHistoryEntry' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    AuditHistoryEntry:
+      type: object
+      description: |
+        One rendered history line for a record mutation. `before`/`after` are
+        masked to the viewer's readable fields — an absent key was hidden, not null.
+        `summary` is server-composed plain language; field-level detail lives in
+        before/after for the client to render.
+      required: [id, actor_type, actor_id, action, occurred_at, summary]
+      properties:
+        id: { type: string, format: uuid }
+        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_id: { type: string }
+        on_behalf_of: { type: [string, 'null'], format: uuid, description: Granting human's user id for agent actions. }
+        on_behalf_of_name: { type: [string, 'null'], description: Resolved display name for on_behalf_of. }
+        action: { type: string }
+        occurred_at: { type: string, format: date-time }
+        authorization_rule: { type: [string, 'null'] }
+        before: { type: [object, 'null'], additionalProperties: true }
+        after: { type: [object, 'null'], additionalProperties: true }
+        summary: { type: string }
+
+    AuditHistoryListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AuditHistoryEntry' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- Reports ----

@@ -276,6 +276,30 @@ func (e AttachmentEntityType) Valid() bool {
 	}
 }
 
+// Defines values for AuditHistoryEntryActorType.
+const (
+	AuditHistoryEntryActorTypeAgent     AuditHistoryEntryActorType = "agent"
+	AuditHistoryEntryActorTypeConnector AuditHistoryEntryActorType = "connector"
+	AuditHistoryEntryActorTypeHuman     AuditHistoryEntryActorType = "human"
+	AuditHistoryEntryActorTypeSystem    AuditHistoryEntryActorType = "system"
+)
+
+// Valid indicates whether the value is a known member of the AuditHistoryEntryActorType enum.
+func (e AuditHistoryEntryActorType) Valid() bool {
+	switch e {
+	case AuditHistoryEntryActorTypeAgent:
+		return true
+	case AuditHistoryEntryActorTypeConnector:
+		return true
+	case AuditHistoryEntryActorTypeHuman:
+		return true
+	case AuditHistoryEntryActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AuditLogEntryAction.
 const (
 	ActivityRelink  AuditLogEntryAction = "activity_relink"
@@ -3251,22 +3275,22 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 
 // Defines values for GetFieldHistoryParamsActorType.
 const (
-	GetFieldHistoryParamsActorTypeAgent     GetFieldHistoryParamsActorType = "agent"
-	GetFieldHistoryParamsActorTypeConnector GetFieldHistoryParamsActorType = "connector"
-	GetFieldHistoryParamsActorTypeHuman     GetFieldHistoryParamsActorType = "human"
-	GetFieldHistoryParamsActorTypeSystem    GetFieldHistoryParamsActorType = "system"
+	Agent     GetFieldHistoryParamsActorType = "agent"
+	Connector GetFieldHistoryParamsActorType = "connector"
+	Human     GetFieldHistoryParamsActorType = "human"
+	System    GetFieldHistoryParamsActorType = "system"
 )
 
 // Valid indicates whether the value is a known member of the GetFieldHistoryParamsActorType enum.
 func (e GetFieldHistoryParamsActorType) Valid() bool {
 	switch e {
-	case GetFieldHistoryParamsActorTypeAgent:
+	case Agent:
 		return true
-	case GetFieldHistoryParamsActorTypeConnector:
+	case Connector:
 		return true
-	case GetFieldHistoryParamsActorTypeHuman:
+	case Human:
 		return true
-	case GetFieldHistoryParamsActorTypeSystem:
+	case System:
 		return true
 	default:
 		return false
@@ -3839,6 +3863,37 @@ type AttachmentEntityType string
 type AttachmentListResponse struct {
 	Data []Attachment `json:"data"`
 	Page PageInfo     `json:"page"`
+}
+
+// AuditHistoryEntry One rendered history line for a record mutation. `before`/`after` are
+// masked to the viewer's readable fields — an absent key was hidden, not null.
+// `summary` is server-composed plain language; field-level detail lives in
+// before/after for the client to render.
+type AuditHistoryEntry struct {
+	Action            string                     `json:"action"`
+	ActorId           string                     `json:"actor_id"`
+	ActorType         AuditHistoryEntryActorType `json:"actor_type"`
+	After             *map[string]interface{}    `json:"after,omitempty"`
+	AuthorizationRule *string                    `json:"authorization_rule,omitempty"`
+	Before            *map[string]interface{}    `json:"before,omitempty"`
+	Id                openapi_types.UUID         `json:"id"`
+	OccurredAt        time.Time                  `json:"occurred_at"`
+
+	// OnBehalfOf Granting human's user id for agent actions.
+	OnBehalfOf *openapi_types.UUID `json:"on_behalf_of,omitempty"`
+
+	// OnBehalfOfName Resolved display name for on_behalf_of.
+	OnBehalfOfName *string `json:"on_behalf_of_name,omitempty"`
+	Summary        string  `json:"summary"`
+}
+
+// AuditHistoryEntryActorType defines model for AuditHistoryEntry.ActorType.
+type AuditHistoryEntryActorType string
+
+// AuditHistoryListResponse defines model for AuditHistoryListResponse.
+type AuditHistoryListResponse struct {
+	Data []AuditHistoryEntry `json:"data"`
+	Page PageInfo            `json:"page"`
 }
 
 // AuditLogEntry An append-only audit row. Mirrors the `audit_log` table.
@@ -7515,6 +7570,20 @@ type RevokeRecordGrantParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// GetRecordHistoryParams defines parameters for GetRecordHistory.
+type GetRecordHistoryParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` and `filter` of the originating request plus the last row's keyset
+	// (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+	// inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+	// or filter that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListRelationshipsParams defines parameters for ListRelationships.
@@ -12216,6 +12285,9 @@ type ServerInterface interface {
 	// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
 	// (DELETE /record-grants/{id})
 	RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams)
+	// Full audit history for one record, rendered as plain-language lines.
+	// (GET /records/{entity_type}/{id}/history)
+	GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams)
 	// List relationships (employment, deal_stakeholder, or partner edges).
 	// (GET /relationships)
 	ListRelationships(w http.ResponseWriter, r *http.Request, params ListRelationshipsParams)
@@ -13020,6 +13092,12 @@ func (_ Unimplemented) CreateRecordGrant(w http.ResponseWriter, r *http.Request,
 // Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
 // (DELETE /record-grants/{id})
 func (_ Unimplemented) RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Full audit history for one record, rendered as plain-language lines.
+// (GET /records/{entity_type}/{id}/history)
+func (_ Unimplemented) GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -19298,6 +19376,76 @@ func (siw *ServerInterfaceWrapper) RevokeRecordGrant(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// GetRecordHistory operation middleware
+func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_type" -------------
+	var entityType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_type", chi.URLParam(r, "entity_type"), &entityType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRecordHistoryParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecordHistory(w, r, entityType, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRelationships operation middleware
 func (siw *ServerInterfaceWrapper) ListRelationships(w http.ResponseWriter, r *http.Request) {
 
@@ -21432,6 +21580,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/record-grants/{id}", wrapper.RevokeRecordGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/records/{entity_type}/{id}/history", wrapper.GetRecordHistory)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/relationships", wrapper.ListRelationships)
