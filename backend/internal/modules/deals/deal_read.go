@@ -129,20 +129,7 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 		}
 		defer rows.Close()
 		var cursorKeys []*string
-		for rows.Next() {
-			var key *string
-			extra := []any{}
-			if sorted != nil {
-				extra = append(extra, &key)
-			}
-			d, err := scanDeal(rows, active, extra...)
-			if err != nil {
-				return err
-			}
-			deals = append(deals, d)
-			cursorKeys = append(cursorKeys, key)
-		}
-		if err := rows.Err(); err != nil {
+		if deals, cursorKeys, err = scanDealPage(rows, active, sorted); err != nil {
 			return err
 		}
 		if len(deals) > limit {
@@ -156,6 +143,31 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 		deals = []crmcontracts.Deal{}
 	}
 	return deals, page, err
+}
+
+// scanDealPage drains one list query's rows: each deal plus, under a
+// non-default sort, the row's cursor key (the trailing __cursor_key
+// column CursorKeySuffix appended).
+func scanDealPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Deal, []*string, error) {
+	var deals []crmcontracts.Deal
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		d, err := scanDeal(rows, active, extra...)
+		if err != nil {
+			return nil, nil, err
+		}
+		deals = append(deals, d)
+		cursorKeys = append(cursorKeys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return deals, cursorKeys, nil
 }
 
 // appendDealFilters translates the caller's list filters — archived

@@ -241,23 +241,9 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		defer rows.Close()
 
 		var cursorKeys []*string
-		for rows.Next() {
-			var key *string
-			extra := []any{}
-			if sorted != nil {
-				extra = append(extra, &key)
-			}
-			p, err := scanPerson(rows, active, extra...)
-			if err != nil {
-				return err
-			}
-			people = append(people, p)
-			cursorKeys = append(cursorKeys, key)
-		}
-		if err := rows.Err(); err != nil {
+		if people, cursorKeys, err = scanPersonPage(rows, active, sorted); err != nil {
 			return err
 		}
-
 		if len(people) > limit {
 			people = people[:limit]
 			last := people[len(people)-1]
@@ -269,6 +255,31 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		people = []crmcontracts.Person{}
 	}
 	return people, page, err
+}
+
+// scanPersonPage drains one list query's rows: each person plus, under a
+// non-default sort, the row's cursor key (the trailing __cursor_key
+// column CursorKeySuffix appended).
+func scanPersonPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Person, []*string, error) {
+	var people []crmcontracts.Person
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		p, err := scanPerson(rows, active, extra...)
+		if err != nil {
+			return nil, nil, err
+		}
+		people = append(people, p)
+		cursorKeys = append(cursorKeys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return people, cursorKeys, nil
 }
 
 type UpdatePersonInput struct {

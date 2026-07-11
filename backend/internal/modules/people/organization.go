@@ -216,20 +216,7 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		}
 		defer rows.Close()
 		var cursorKeys []*string
-		for rows.Next() {
-			var key *string
-			extra := []any{}
-			if sorted != nil {
-				extra = append(extra, &key)
-			}
-			o, err := scanOrganization(rows, active, extra...)
-			if err != nil {
-				return err
-			}
-			orgs = append(orgs, o)
-			cursorKeys = append(cursorKeys, key)
-		}
-		if err := rows.Err(); err != nil {
+		if orgs, cursorKeys, err = scanOrganizationPage(rows, active, sorted); err != nil {
 			return err
 		}
 		if len(orgs) > limit {
@@ -243,6 +230,31 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		orgs = []crmcontracts.Organization{}
 	}
 	return orgs, page, err
+}
+
+// scanOrganizationPage drains one list query's rows: each organization
+// plus, under a non-default sort, the row's cursor key (the trailing
+// __cursor_key column CursorKeySuffix appended).
+func scanOrganizationPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Organization, []*string, error) {
+	var orgs []crmcontracts.Organization
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		o, err := scanOrganization(rows, active, extra...)
+		if err != nil {
+			return nil, nil, err
+		}
+		orgs = append(orgs, o)
+		cursorKeys = append(cursorKeys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return orgs, cursorKeys, nil
 }
 
 type UpdateOrganizationInput struct {
