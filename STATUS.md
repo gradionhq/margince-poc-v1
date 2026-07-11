@@ -92,6 +92,18 @@ Merged so far:
   tombstone's own line served); third audit-spine read in the privacy
   module; the erase tombstones now carry their tallies on the evidence
   channel. Arc 1c — closes Wave 1 of the poc-1 delta port.
+- **Custom-fields catalog + governed schema-change engine** —
+  workspace-defined scalar fields on core objects (create 🟡/rename
+  🟢/retire 🟡/picklist options 🟡), a new `modules/customfields` service
+  running the one sanctioned runtime ALTER through a dedicated
+  boot-optional owner pool (`--schema-dsn`/`MARGINCE_SCHEMA_DSN`, unwired
+  ⇒ 501 — see
+  [docs/reference/configuration.md](docs/reference/configuration.md))
+  with the DDL-first-then-SET-ROLE single-tx dance, cross-workspace
+  column-collision 409s, and an AST fitness gate pinning the privilege
+  downgrade (decisions/0024). Values-on-records parity — reading and
+  writing the new fields through the record surface — is the follow-on
+  arc, arc 2a-i.
 
 ## Pick up here
 
