@@ -226,8 +226,21 @@ jobs:
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
             minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
             server /data
-      - name: Integration lane
+      # The same lane, with coverage: COVER_OUT switches the parallel runner
+      # into per-package covdata + a merged text profile. Uploaded as an
+      # artifact the sonarcloud job consumes — so the scan is NOT a second
+      # Postgres/Redis/MinIO stack running the whole lane a second time.
+      - name: Integration lane (+ coverage)
+        env:
+          COVER_OUT: backend/coverage.out
         run: make test-integration
+      - name: Upload Go coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+          if-no-files-found: ignore
+          retention-days: 1
 
   vuln:
     name: govulncheck
@@ -254,24 +267,31 @@ jobs:
   # truth). This job is deliberately NOT gated by the `changes` path filter: the
   # "SonarCloud Code Analysis" context is a required check, so it must post on
   # every ready PR — a path-skipped job never reports and would block doc-only
-  # PRs forever. It re-runs the integration + FE suites WITH coverage because it
-  # must be self-contained (the integration/frontend jobs it would otherwise
-  # borrow coverage from are themselves conditionally skipped by the filter).
+  # PRs forever. It does NOT re-run the suites: it downloads the coverage
+  # artifacts the integration (Go) and frontend (lcov) jobs already produced and
+  # runs only the scanner, so there is no second Postgres/Redis/MinIO stack and
+  # no duplicated test run.
   sonarcloud:
     name: sonarcloud (scan reads sonar-project.properties)
-    # Runs LAST and only when the cheap gates have cleared: this is the most
-    # expensive job (it re-runs the full integration + FE suites with coverage),
-    # so gating it on the fast gates means a broken build or a lint failure aborts
-    # it before it burns ~5 minutes of runner time. The condition admits
-    # success OR skipped (not failure) for each gate, because the gates are
-    # area-scoped: a frontend-only PR legitimately skips deterministic-gates yet
-    # SonarCloud must still post its required "SonarCloud Code Analysis" check.
-    # When a gate actually FAILS the job is skipped — the PR is already red, so
-    # not posting the scan blocks nothing that wasn't already blocked.
-    needs: [deterministic-gates, frontend]
+    # Runs LAST, after the jobs whose coverage it consumes. The condition admits
+    # success OR skipped (not failure) for each, because the gates are
+    # area-scoped: a frontend-only PR legitimately skips deterministic-gates +
+    # integration (and a backend-only PR skips frontend) yet SonarCloud must
+    # still post its required "SonarCloud Code Analysis" check. A skipped
+    # upstream just means that area produced no coverage artifact — the scan
+    # proceeds without it (that area has no new code to measure).
+    #
+    # deterministic-gates stays in the gate on purpose: when the build/lint
+    # actually FAILS, integration is skipped (a needed job failed), which reads
+    # the same as an area-skip through `result`. Gating on deterministic-gates
+    # too means a real failure (result == 'failure') skips the scan — so it
+    # never posts a green check over a broken build; the PR is already red, so
+    # nothing that wasn't already blocked is blocked.
+    needs: [deterministic-gates, integration, frontend]
     if: >-
       !cancelled()
       && (needs.deterministic-gates.result == 'success' || needs.deterministic-gates.result == 'skipped')
+      && (needs.integration.result == 'success' || needs.integration.result == 'skipped')
       && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -281,94 +301,28 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: https://sonarcloud.io
-    # The Go coverage handed to the scan runs the FULL test story — unit AND
-    # the integration lane — so code proven by real-Postgres suites (stores,
-    # cross-module orchestration like compose/briefs) reports its true
-    # coverage instead of a false 0%. Hence the same PG/Redis services the
-    # integration job uses.
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
-        env:
-          POSTGRES_USER: margince_owner
-          POSTGRES_PASSWORD: dev
-          POSTGRES_DB: margince
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U margince_owner"
-          --health-interval 2s --health-timeout 5s --health-retries 15
-      redis:
-        image: redis:7@sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50
-        ports:
-          - 56379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 2s --health-timeout 5s --health-retries 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # Full history so SonarCloud can attribute blame / compute new code.
           fetch-depth: 0
-      # The quality gate requires coverage on new code, so the scan must be
-      # handed real coverage reports — both lanes run their unit tests here
-      # with coverage enabled (paths declared in sonar-project.properties).
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        if: ${{ env.SONAR_TOKEN != '' }}
+      # Coverage the integration + frontend jobs already produced. Each download
+      # is guarded on its producer having run (a skipped area uploaded nothing);
+      # if-no-files-found tolerates the gap so the scan still posts. The paths
+      # match sonar-project.properties (backend/coverage.out,
+      # frontend/coverage/lcov.info).
+      - name: Download Go coverage
+        if: ${{ env.SONAR_TOKEN != '' && needs.integration.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
-        if: ${{ env.SONAR_TOKEN != '' }}
+          name: go-coverage
+          path: backend
+      - name: Download FE coverage
+        if: ${{ env.SONAR_TOKEN != '' && needs.frontend.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          version: 11
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        if: ${{ env.SONAR_TOKEN != '' }}
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-      - name: Create the non-owner app role
-        if: ${{ env.SONAR_TOKEN != '' }}
-        run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f scripts/db-init.sql
-      # Same MinIO the integration job runs — the coverage run drives the
-      # blobstore integration lane too (decisions/0022).
-      - name: Start MinIO (blobstore)
-        if: ${{ env.SONAR_TOKEN != '' }}
-        run: |
-          docker run -d --name minio -p 59000:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
-            server /data
-      # Go coverage over the parallel integration lane (not a serial
-      # `-p 1 ./...`): the runner gives each package its own clone db and emits
-      # per-package binary coverage, then merges to one text profile with
-      # go tool covdata. -coverpkg=./... (set inside the runner) attributes
-      # cross-package exercise — the compose e2e suites cover the briefs
-      # transport, module helpers, etc.; without it a package proven only by
-      # another package's suite reads as a false 0%. COVER_OUT is the profile
-      # SonarCloud reads (sonar.go.coverage.reportPaths=backend/coverage.out).
-      - name: Go coverage (parallel integration lane)
-        if: ${{ env.SONAR_TOKEN != '' }}
-        env:
-          MARGINCE_TEST_DSN: postgres://margince_owner:dev@localhost:55432/margince
-          MARGINCE_TEST_APP_DSN: postgres://margince_app:margince_app_dev@localhost:55432/margince
-          MARGINCE_TEST_REDIS: localhost:56379
-          MARGINCE_TEST_BLOBSTORE_ENDPOINT: localhost:59000
-          MARGINCE_TEST_BLOBSTORE_ACCESS_KEY: minioadmin
-          MARGINCE_TEST_BLOBSTORE_SECRET_KEY: minioadmin
-          MARGINCE_TEST_BLOBSTORE_BUCKET: margince-test
-          COVER_OUT: backend/coverage.out
-        run: bash scripts/test-integration-parallel.sh
-      - name: Frontend unit coverage
-        if: ${{ env.SONAR_TOKEN != '' }}
-        working-directory: frontend
-        # --ignore-scripts (githubactions:S6505): no lifecycle scripts run at
-        # install; esbuild ships prebuilt platform binaries as optional deps,
-        # so vitest works without its validating postinstall.
-        run: |
-          pnpm install --frozen-lockfile --ignore-scripts
-          pnpm exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov
+          name: fe-coverage
+          path: frontend/coverage
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5.3.2
@@ -448,6 +402,18 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: make frontend-check
+      # Emit lcov from the same suite so the sonarcloud job consumes it as an
+      # artifact instead of re-installing + re-running vitest itself.
+      - name: Frontend coverage (lcov)
+        working-directory: frontend
+        run: pnpm exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov
+      - name: Upload FE coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fe-coverage
+          path: frontend/coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 1
       # The Storybook catalog must build — a story that fails to compile or
       # register is caught deterministically here. The change-scoped render
       # capture (make fe-uat) stays a coordinator lane, not a required gate.
