@@ -55,6 +55,30 @@ func TestValidate_PicklistRequiresNonEmptyOptions(t *testing.T) {
 	}
 }
 
+func TestValidate_PicklistOptionWithNULByteRejected(t *testing.T) {
+	// The DDL is Sprintf'd into a raw wire message where NUL terminates the
+	// string — an option carrying one must never reach BuildOptionsDDL/
+	// BuildDDL undetected, matching the identifier path's posture (pgx's
+	// Identifier.Sanitize already strips NULs).
+	errs := Validate(FieldSpec{
+		Object: "deal", Label: "Route", Type: TypePicklist,
+		Options: []string{"a\x00b"}, Source: "ui",
+	})
+	if !hasFieldError(errs, "options", "invalid_characters") {
+		t.Fatalf("expected options/invalid_characters, got %+v", errs)
+	}
+}
+
+func TestValidate_PicklistOptionWithInvalidUTF8Rejected(t *testing.T) {
+	errs := Validate(FieldSpec{
+		Object: "deal", Label: "Route", Type: TypePicklist,
+		Options: []string{"a\xffb"}, Source: "ui",
+	})
+	if !hasFieldError(errs, "options", "invalid_characters") {
+		t.Fatalf("expected options/invalid_characters, got %+v", errs)
+	}
+}
+
 func TestValidate_RequiresSource(t *testing.T) {
 	errs := Validate(FieldSpec{Object: "deal", Label: "X", Type: TypeText})
 	if !hasFieldError(errs, "source", "required") {
@@ -223,6 +247,36 @@ func TestBuildOptionsDDL_RegeneratesCheckFromNewOptions(t *testing.T) {
 	if !strings.Contains(ddl, "ADD CONSTRAINT") || !strings.Contains(ddl, "'direct'") ||
 		!strings.Contains(ddl, "'marketplace'") || strings.Contains(ddl, "'reseller'") {
 		t.Fatalf("expected the regenerated CHECK to list only the new options, got: %s", ddl)
+	}
+}
+
+func TestBuildDDL_RejectsPicklistOptionWithNULByte(t *testing.T) {
+	// Defense in depth: even if an unvalidated option reaches BuildDDL, a NUL
+	// byte must never be spliced into the generated DDL string — NUL
+	// terminates a wire-protocol string, so a NUL-carrying "literal" would
+	// silently truncate the statement rather than error loudly.
+	spec := FieldSpec{Object: "deal", Label: "Route", Type: TypePicklist, Options: []string{"a\x00b"}}
+	if ddl, err := BuildDDL("deal", "cf_route", spec); err == nil {
+		t.Fatalf("expected an error for a NUL-carrying option, got DDL: %s", ddl)
+	}
+}
+
+func TestBuildDDL_RejectsPicklistOptionWithInvalidUTF8(t *testing.T) {
+	spec := FieldSpec{Object: "deal", Label: "Route", Type: TypePicklist, Options: []string{"a\xffb"}}
+	if ddl, err := BuildDDL("deal", "cf_route", spec); err == nil {
+		t.Fatalf("expected an error for an invalid-UTF-8 option, got DDL: %s", ddl)
+	}
+}
+
+func TestBuildOptionsDDL_RejectsPicklistOptionWithNULByte(t *testing.T) {
+	if ddl, err := BuildOptionsDDL("deal", "cf_route", []string{"a\x00b"}); err == nil {
+		t.Fatalf("expected an error for a NUL-carrying option, got DDL: %s", ddl)
+	}
+}
+
+func TestBuildOptionsDDL_RejectsPicklistOptionWithInvalidUTF8(t *testing.T) {
+	if ddl, err := BuildOptionsDDL("deal", "cf_route", []string{"a\xffb"}); err == nil {
+		t.Fatalf("expected an error for an invalid-UTF-8 option, got DDL: %s", ddl)
 	}
 }
 

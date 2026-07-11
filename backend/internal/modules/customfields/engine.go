@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -88,7 +89,26 @@ const (
 	fieldOptions  = "options"
 	fieldSource   = "source"
 	codeRequired  = "required"
+
+	// codeInvalidCharacters flags a picklist option carrying a NUL byte or
+	// invalid UTF-8 — the same class of malformed input the identifier path
+	// already refuses (pgx.Identifier.Sanitize strips NULs). An option value
+	// has no such protection: it is Sprintf'd raw into generated DDL, so it
+	// must be refused at the request boundary rather than forwarded.
+	codeInvalidCharacters = "invalid_characters"
 )
+
+// validOptionText reports whether a picklist option is safe to carry into
+// generated DDL and, downstream, onto the wire: valid UTF-8 with no
+// embedded NUL byte. NUL terminates a wire-protocol string, so a
+// NUL-carrying option would silently truncate whatever message the DDL
+// ends up embedded in rather than fail loudly — this is the request-side
+// half of the same defense quoteLiteral applies again at the DDL boundary
+// (checkConstraintClause), matching this package's belt-and-suspenders
+// posture for identifiers.
+func validOptionText(s string) bool {
+	return utf8.ValidString(s) && !strings.Contains(s, "\x00")
+}
 
 // Validate checks spec against the closed type/object sets and the
 // conditional-required rules (currency required iff type=currency, options
@@ -111,6 +131,14 @@ func Validate(spec FieldSpec) []FieldError {
 	}
 	if spec.Type == TypePicklist && len(spec.Options) == 0 {
 		errs = append(errs, FieldError{Field: fieldOptions, Code: "required_for_type_picklist"})
+	}
+	if spec.Type == TypePicklist {
+		for _, o := range spec.Options {
+			if !validOptionText(o) {
+				errs = append(errs, FieldError{Field: fieldOptions, Code: codeInvalidCharacters})
+				break
+			}
+		}
 	}
 	if strings.TrimSpace(spec.Source) == "" {
 		errs = append(errs, FieldError{Field: fieldSource, Code: codeRequired})
@@ -221,13 +249,24 @@ func quoteIdentifier(name string) string {
 // so behaviour stays correct even if a session ever overrides that
 // default — mirroring libpq's PQescapeStringInternal, which lib/pq's
 // QuoteLiteral (this package's poc-1 predecessor) also follows.
-func quoteLiteral(s string) string {
+//
+// Rejects an embedded NUL byte even though every caller is expected to have
+// already run validOptionText: NUL terminates a wire-protocol string, and
+// this literal is Sprintf'd raw into a DDL string headed for exactly such a
+// message, so a NUL that slipped past validation must fail loudly here
+// rather than silently truncate the statement downstream — the identifier
+// path gets the equivalent guarantee for free from pgx.Identifier.Sanitize,
+// which strips NULs; a plain string literal has no such built-in escape.
+func quoteLiteral(s string) (string, error) {
+	if strings.Contains(s, "\x00") {
+		return "", fmt.Errorf("customfields: option literal contains a NUL byte")
+	}
 	s = strings.ReplaceAll(s, `'`, `''`)
 	if strings.Contains(s, `\`) {
 		s = strings.ReplaceAll(s, `\`, `\\`)
-		return `E'` + s + `'`
+		return `E'` + s + `'`, nil
 	}
-	return `'` + s + `'`
+	return `'` + s + `'`, nil
 }
 
 // BuildDDL returns the ALTER TABLE statement adding the validated field's
@@ -266,6 +305,12 @@ func BuildDDL(object, columnName string, spec FieldSpec) (string, error) {
 // CHECK after an options edit (BuildOptionsDDL) — extracted so the quoting
 // logic lives in exactly one place (CUSTOM-FIELDS-PARAM-5). Every token is
 // quoted; never raw text (CUSTOM-FIELDS-AC-12).
+//
+// Re-validates each option with validOptionText even though Validate is
+// expected to have already run: BuildDDL/BuildOptionsDDL are this
+// package's DDL-generation boundary, not just its request-validation
+// boundary, so they carry the same defense-in-depth check rather than
+// trust an upstream caller.
 func checkConstraintClause(columnName string, options []string) (checkName, clause string, err error) {
 	checkName = columnName + "_check"
 	if !validIdentifier(checkName) {
@@ -274,7 +319,14 @@ func checkConstraintClause(columnName string, options []string) (checkName, clau
 	quotedCol := quoteIdentifier(columnName)
 	quotedOpts := make([]string, len(options))
 	for i, o := range options {
-		quotedOpts[i] = quoteLiteral(o)
+		if !validOptionText(o) {
+			return "", "", fmt.Errorf("customfields: picklist option contains a NUL byte or invalid UTF-8")
+		}
+		lit, err := quoteLiteral(o)
+		if err != nil {
+			return "", "", fmt.Errorf("customfields: %w", err)
+		}
+		quotedOpts[i] = lit
 	}
 	clause = fmt.Sprintf("CHECK (%s IS NULL OR %s IN (%s))", quotedCol, quotedCol, strings.Join(quotedOpts, ", "))
 	return checkName, clause, nil
