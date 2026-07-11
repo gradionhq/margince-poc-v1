@@ -34,7 +34,8 @@ import (
 // accept a bare map[string]any for a jsonb column without a registered
 // type, the same reason storekit.Audit marshals before binding.
 func seedAuditDiffRow(t *testing.T, e *Env, entityType string, entityID ids.UUID,
-	actorType string, before, after map[string]any, occurredAt time.Time) ids.UUID {
+	actorType string, before, after map[string]any, occurredAt time.Time,
+) ids.UUID {
 	t.Helper()
 	beforeJSON, err := json.Marshal(before)
 	if err != nil {

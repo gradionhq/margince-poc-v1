@@ -71,6 +71,13 @@ Merged so far:
   (`MARGINCE_KEYVAULT_ROOT_KEY`, base64 32-byte). The connector port is
   unchanged — capture resolves the ref and still hands the connector its
   `Auth` (decisions/0023).
+- **Field-history read** — `GET /field-history`: a per-field change
+  timeline projected read-time from the audit spine's before/after
+  diffs, homed in the privacy module beside the audit-log read. Gated
+  exactly like every other record read (human-only + object-read +
+  row-scope, activities dispatching through the link-walk); no new
+  table or migration — the projection runs entirely off `audit_log`.
+  First arc of the poc-1 feature-delta port.
 
 ## Pick up here
 

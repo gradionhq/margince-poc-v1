@@ -58,10 +58,16 @@ type FieldHistoryPage struct {
 	HasMore    bool
 }
 
+// entityTypeActivity names the one record kind whose row-scope check
+// dispatches differently below (activity carries no owner_id, so its
+// visibility rides the link-walk) — named once so the map literal and
+// the dispatch both read from the same word.
+const entityTypeActivity = "activity"
+
 // The record kinds whose field history is readable — the audit spine's
 // entity_type is free text, so the surface pins the vocabulary.
 var fieldHistoryEntityTypes = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true, "activity": true,
+	"person": true, "organization": true, "deal": true, "lead": true, entityTypeActivity: true,
 }
 
 var fieldHistoryActorTypes = map[string]bool{
@@ -226,7 +232,7 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 		// type in fieldHistoryEntityTypes is owner-scoped and goes
 		// through the generic EnsureVisible.
 		var visErr error
-		if f.EntityType == "activity" {
+		if f.EntityType == entityTypeActivity {
 			visErr = auth.EnsureActivityVisible(ctx, tx, f.EntityID)
 		} else {
 			visErr = auth.EnsureVisible(ctx, tx, f.EntityType, f.EntityID)
@@ -234,45 +240,9 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 		if visErr != nil {
 			return visErr
 		}
-		scanned := 0
-		for {
-			rows, batch, err := queryFieldHistoryBatch(ctx, tx, f, cursorTime, cursorID, useCursor)
-			if err != nil {
-				return err
-			}
-			for _, row := range rows {
-				scanned++
-				cursorTime, cursorID, useCursor = row.occurredAt, row.id, true
-				if f.ActorType != nil && row.actorType != *f.ActorType {
-					continue
-				}
-				page.Entries = append(page.Entries, diffAuditRowFields(row, mask, f.Field)...)
-				if len(page.Entries) >= limit {
-					break
-				}
-			}
-			switch {
-			case scanned >= fieldHistoryMaxScanRows:
-				// The scan cap keeps a filter that skips most rows from
-				// walking the whole spine in one call; more MAY match, and
-				// claiming so is the honest side to err on.
-				page.NextCursor = storekit.EncodeCursor(cursorTime, cursorID)
-				page.HasMore = true
-				return nil
-			case len(page.Entries) >= limit:
-				more, err := hasFollowingAuditRow(ctx, tx, f, cursorTime, cursorID)
-				if err != nil {
-					return err
-				}
-				if more {
-					page.NextCursor = storekit.EncodeCursor(cursorTime, cursorID)
-					page.HasMore = true
-				}
-				return nil
-			case batch < fieldHistoryScanBatch:
-				return nil // spine exhausted
-			}
-		}
+		var scanErr error
+		page, scanErr = scanFieldHistorySpine(ctx, tx, f, mask, limit, cursorTime, cursorID, useCursor)
+		return scanErr
 	})
 	if err != nil {
 		return FieldHistoryPage{}, err
@@ -283,11 +253,83 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 	return page, nil
 }
 
+// scanFieldHistorySpine walks the audit spine in batches from the given
+// cursor position, newest-first, accumulating diffed entries up to limit.
+// It runs entirely inside the caller's workspace tx (the visibility check
+// already passed), and is the one place that decides has_more: the scan
+// cap, the limit, and true spine exhaustion are three distinct reasons to
+// stop, and only the first two ever set a next cursor.
+func scanFieldHistorySpine(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter, mask entityFieldMask,
+	limit int, cursorTime time.Time, cursorID ids.UUID, useCursor bool,
+) (FieldHistoryPage, error) {
+	var page FieldHistoryPage
+	scanned := 0
+	for {
+		rows, batch, err := queryFieldHistoryBatch(ctx, tx, f, cursorTime, cursorID, useCursor)
+		if err != nil {
+			return FieldHistoryPage{}, err
+		}
+		var batchScanned int
+		page.Entries, cursorTime, cursorID, batchScanned = scanFieldHistoryBatch(page.Entries, rows, f, mask, limit, cursorTime, cursorID)
+		if batchScanned > 0 {
+			useCursor = true
+		}
+		scanned += batchScanned
+		switch {
+		case scanned >= fieldHistoryMaxScanRows:
+			// The scan cap keeps a filter that skips most rows from
+			// walking the whole spine in one call; more MAY match, and
+			// claiming so is the honest side to err on.
+			page.NextCursor = storekit.EncodeCursor(cursorTime, cursorID)
+			page.HasMore = true
+			return page, nil
+		case len(page.Entries) >= limit:
+			more, err := hasFollowingAuditRow(ctx, tx, f, cursorTime, cursorID)
+			if err != nil {
+				return FieldHistoryPage{}, err
+			}
+			if more {
+				page.NextCursor = storekit.EncodeCursor(cursorTime, cursorID)
+				page.HasMore = true
+			}
+			return page, nil
+		case batch < fieldHistoryScanBatch:
+			return page, nil // spine exhausted
+		}
+	}
+}
+
+// scanFieldHistoryBatch diffs and appends one fetched batch's rows into the
+// accumulating entry list, newest first, advancing the cursor to the last
+// row scanned so a following batch (or a next-page cursor) resumes exactly
+// there. It stops early once the entry limit is hit — a row's own diff
+// entries never split across the return and a following page — and leaves
+// cursorTime/cursorID untouched when the batch is empty, so an exhausted
+// scan can never clobber a caller's valid cursor.
+func scanFieldHistoryBatch(entries []FieldHistoryEntry, rows []auditDiffRow, f FieldHistoryFilter,
+	mask entityFieldMask, limit int, cursorTime time.Time, cursorID ids.UUID,
+) ([]FieldHistoryEntry, time.Time, ids.UUID, int) {
+	scanned := 0
+	for _, row := range rows {
+		scanned++
+		cursorTime, cursorID = row.occurredAt, row.id
+		if f.ActorType != nil && row.actorType != *f.ActorType {
+			continue
+		}
+		entries = append(entries, diffAuditRowFields(row, mask, f.Field)...)
+		if len(entries) >= limit {
+			break
+		}
+	}
+	return entries, cursorTime, cursorID, scanned
+}
+
 // queryFieldHistoryBatch fetches the next window of audit rows for the
 // record, newest first, decoding the jsonb sides eagerly so a corrupt
 // payload surfaces as an error, never as a silently empty diff.
 func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
-	cursorTime time.Time, cursorID ids.UUID, useCursor bool) ([]auditDiffRow, int, error) {
+	cursorTime time.Time, cursorID ids.UUID, useCursor bool,
+) ([]auditDiffRow, int, error) {
 	var (
 		rows pgx.Rows
 		err  error
@@ -349,7 +391,8 @@ func unmarshalJSONBMap(raw []byte, dst *map[string]any) error {
 // precedes the cursor position. It deliberately ignores the actor
 // filter: the rare cost is one extra empty page, never a false "done".
 func hasFollowingAuditRow(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter,
-	cursorTime time.Time, cursorID ids.UUID) (bool, error) {
+	cursorTime time.Time, cursorID ids.UUID,
+) (bool, error) {
 	var exists bool
 	err := tx.QueryRow(ctx, `
 		SELECT EXISTS(
