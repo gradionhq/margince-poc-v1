@@ -220,8 +220,19 @@ func ListFieldHistory(ctx context.Context, pool *pgxpool.Pool, f FieldHistoryFil
 
 	var page FieldHistoryPage
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, f.EntityType, f.EntityID); err != nil {
-			return err
+		// activity carries no owner_id — it row-scopes through its
+		// links (the entities it is attached to), so its visibility
+		// check dispatches to EnsureActivityVisible; every other entity
+		// type in fieldHistoryEntityTypes is owner-scoped and goes
+		// through the generic EnsureVisible.
+		var visErr error
+		if f.EntityType == "activity" {
+			visErr = auth.EnsureActivityVisible(ctx, tx, f.EntityID)
+		} else {
+			visErr = auth.EnsureVisible(ctx, tx, f.EntityType, f.EntityID)
+		}
+		if visErr != nil {
+			return visErr
 		}
 		scanned := 0
 		for {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -234,6 +235,63 @@ func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 	}
 	if page3.HasMore || page3.NextCursor != "" {
 		t.Error("page3 is genuine exhaustion — has_more must not lie at the true end")
+	}
+}
+
+// TestFieldHistoryForActivityDispatchesToLinkWalkVisibility covers
+// entity_type=activity specifically: activity carries no owner_id, so its
+// row-scope goes through the link-walk (auth.EnsureActivityVisible), never
+// the generic owner-scoped auth.EnsureVisible, which does not even know
+// the "activity" table.
+func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
+	e := Setup(t)
+	// Owned by Rep1 (Team1): the activity's own visibility rides its
+	// link to this person, so a real owner is needed to exclude the
+	// Team2-only caller below.
+	myPerson := e.SeedPerson(t, "Field History Subject", &e.Rep1)
+	admin := e.Admin()
+
+	activity, _, err := e.Activities.LogActivity(admin, activities.LogActivityInput{
+		Kind: "note", Subject: strPtr("Pricing call"), Source: "manual",
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: myPerson}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activityID := ids.UUID(activity.Id)
+
+	occurredAt := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+	seedAuditDiffRow(t, e, "activity", activityID, "human",
+		map[string]any{"subject": "Pricing call"},
+		map[string]any{"subject": "Pricing call (updated)"}, occurredAt)
+
+	// Rep1 shares Team1 with the linked person's owner: in scope, sees
+	// the diff.
+	inScope := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithActivity())
+	page, err := privacy.ListFieldHistory(inScope, e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "activity", EntityID: activityID,
+	})
+	if err != nil {
+		t.Fatalf("in-scope activity field-history: %v", err)
+	}
+	var sawSubject bool
+	for _, en := range page.Entries {
+		if en.Field == "subject" {
+			sawSubject = true
+		}
+	}
+	if !sawSubject {
+		t.Fatalf("in-scope caller did not see the subject diff: %+v", page.Entries)
+	}
+
+	// Rep3 sits only in Team2, which shares no membership with the
+	// linked person's owner: 404, existence-hiding like every other
+	// row-scope miss.
+	outOfScope := e.As(e.Rep3, []ids.UUID{e.Team2}, repPermsWithActivity())
+	if _, err := privacy.ListFieldHistory(outOfScope, e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "activity", EntityID: activityID,
+	}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("out-of-scope activity field-history: err = %v, want not found", err)
 	}
 }
 
