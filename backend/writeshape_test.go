@@ -107,7 +107,7 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 					}
 					if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "storekit" {
 						switch sel.Sel.Name {
-						case "Audit":
+						case "Audit", "AuditWithEvidence":
 							audits = true
 						case "Emit":
 							emits = true

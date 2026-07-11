@@ -85,6 +85,13 @@ Merged so far:
   missing rate, never a silent rate=1). Compose-homed — the read spans
   organization, deal, stage, activity, and fx_rate — with no new table.
   Arc 1b of the poc-1 feature-delta port.
+- **Record history read** — `GET /records/{entity_type}/{id}/history`:
+  chronological plain-language history lines with actor + agent-authority
+  attribution, viewer-masked before/after (by omission), keyset
+  pagination, and the erasure boundary (pre-scrub rows withheld, the
+  tombstone's own line served); third audit-spine read in the privacy
+  module; the erase tombstones now carry their tallies on the evidence
+  channel. Arc 1c — closes Wave 1 of the poc-1 delta port.
 
 ## Pick up here
 

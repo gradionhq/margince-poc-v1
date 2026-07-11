@@ -1567,6 +1567,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/records/{entity_type}/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Full audit history for one record, rendered as plain-language lines.
+         * @description Every audit_log row for the record, rendered as a plain-language `summary` line
+         *     naming the actor and, for agent actions, the granting human (`on_behalf_of_name`).
+         *     Chronological oldest-first (`occurred_at` ASC, `id` tiebreak) with keyset pagination.
+         *     `before`/`after` are masked to the viewer's readable fields by omission — a field the
+         *     caller cannot see is absent from the object, never present as `null`. The projection
+         *     stops at the record's newest erasure scrub: rows at-or-before that tombstone are
+         *     withheld while the tombstone's own line remains, so the read never resurfaces
+         *     pre-erasure PII. A visible record with no history answers `200 {data: []}` — an empty
+         *     history is honest, not a gap. A record outside the caller's row scope answers 404
+         *     (existence-hiding), like every single-record read.
+         */
+        get: operations["getRecordHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/field-history": {
         parameters: {
             query?: never;
@@ -3962,6 +3995,41 @@ export interface components {
         };
         FieldHistoryListResponse: {
             data: components["schemas"]["FieldHistoryEntry"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description One rendered history line for a record mutation. `before`/`after` are
+         *     masked to the viewer's readable fields — an absent key was hidden, not null.
+         *     `summary` is server-composed plain language; field-level detail lives in
+         *     before/after for the client to render.
+         */
+        AuditHistoryEntry: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            actor_type: "human" | "agent" | "system" | "connector";
+            actor_id: string;
+            /**
+             * Format: uuid
+             * @description Granting human's user id for agent actions.
+             */
+            on_behalf_of?: string | null;
+            /** @description Resolved display name for on_behalf_of. */
+            on_behalf_of_name?: string | null;
+            action: string;
+            /** Format: date-time */
+            occurred_at: string;
+            authorization_rule?: string | null;
+            before?: {
+                [key: string]: unknown;
+            } | null;
+            after?: {
+                [key: string]: unknown;
+            } | null;
+            summary: string;
+        };
+        AuditHistoryListResponse: {
+            data: components["schemas"]["AuditHistoryEntry"][];
             page: components["schemas"]["PageInfo"];
         };
         /**
@@ -8977,6 +9045,46 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getRecordHistory: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
+                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
+                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
+                 *     or filter that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of rendered history lines, oldest first (empty when none). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditHistoryListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getFieldHistory: {

@@ -70,9 +70,10 @@ func TestDiffRemovedFieldEmitsNilNewValue(t *testing.T) {
 }
 
 func TestDiffErasureTombstoneEmitsNothing(t *testing.T) {
-	// The real tombstone shape (erasure.go): action=erase, before=nil,
-	// after carrying the suppression tallies — proof of the scrub, not
-	// field images. None of its keys may surface as field changes.
+	// The real tombstone (erasure.go) carries nil images with its
+	// suppression tallies in evidence; this pins the belt-and-braces
+	// guard for the mis-written shape — a tombstone whose tallies landed
+	// in after must STILL project nothing, on the action alone.
 	row := fhRow("system", nil, map[string]any{
 		"reason": "dsr", "emails_suppressed": 2.0, "raw_rows_purged": 1.0, "activities_redacted": 3.0,
 	})

@@ -128,8 +128,12 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		}
 
 		// The tombstone: action=erase with counts only — proof without
-		// PII. The paired event tells consumers the subject is gone.
-		auditID, err := storekit.Audit(ctx, tx, actionErase, "person", subject.UUID, nil, map[string]any{
+		// PII. The counts are evidence ABOUT the scrub, so they ride the
+		// evidence column; before/after stay empty — they are reserved for
+		// field images, and the record-history read serves a tombstone's
+		// images verbatim. The paired event tells consumers the subject is
+		// gone.
+		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
 			"activities_redacted": len(activitiesRedacted),
 		})
@@ -261,14 +265,16 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 // person's tombstone cannot bound a lead twin's or an activity's spine,
 // so without these the scrubbed records' historical audit images (a lead
 // create's email, an activity create's subject line) would project the
-// erased PII straight back out. The payload is meta-only, like the
-// person tombstone: it must never re-store what it certifies gone. No
+// erased PII straight back out. The scrub context rides evidence, like
+// the person tombstone's counts — before/after stay empty, because a
+// tombstone must never re-store what it certifies gone and its images
+// are served verbatim by the record-history read. No
 // paired outbox event on purpose: the erasure's single retention.applied
 // on the person is the bus-visible fact, and the collateral scrubs have
 // never announced themselves per record.
 func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string, records []ids.UUID, reason string) error {
 	for _, id := range records {
-		if _, err := storekit.Audit(ctx, tx, actionErase, entityType, id, nil, map[string]any{
+		if _, err := storekit.AuditWithEvidence(ctx, tx, actionErase, entityType, id, nil, nil, map[string]any{
 			"reason": reason, "cause": "person_erasure",
 		}); err != nil {
 			return fmt.Errorf("tombstoning scrubbed %s: %w", entityType, err)

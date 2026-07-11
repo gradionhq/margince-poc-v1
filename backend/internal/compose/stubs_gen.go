@@ -480,6 +480,10 @@ func (stubs) RevokeRecordGrant(w nethttp.ResponseWriter, r *nethttp.Request, id 
 	httperr.NotImplemented(w, r, "RevokeRecordGrant")
 }
 
+func (stubs) GetRecordHistory(w nethttp.ResponseWriter, r *nethttp.Request, entityType string, id crmcontracts.Id, params crmcontracts.GetRecordHistoryParams) {
+	httperr.NotImplemented(w, r, "GetRecordHistory")
+}
+
 func (stubs) ListRelationships(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRelationshipsParams) {
 	httperr.NotImplemented(w, r, "ListRelationships")
 }
