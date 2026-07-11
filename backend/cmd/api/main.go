@@ -112,29 +112,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
-	var opts []compose.Option
-	if cfg.publicBaseURL != "" {
-		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
-	}
-
-	blobOpts, err := blobstoreOptions(ctx, stdout)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, blobOpts...)
-
-	kvOpts, err := keyvaultOptions(pool, stdout)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, kvOpts...)
-
-	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
+	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, pool, stdout)
 	if err != nil {
 		return err
 	}
 	defer closeSchemaPool()
-	opts = append(opts, schemaOpts...)
 
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
@@ -187,6 +169,40 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	case <-ctx.Done():
 		return stopAll(stopHTTP())
 	}
+}
+
+// baseComposeOptions assembles the boot-optional compose.Options that
+// don't depend on the inline relay's lifecycle (public base URL,
+// blobstore, keyvault, the customfields schema pool) — split out of run()
+// so that function stays inside the file's long-func budget. The
+// returned close func releases whatever this stage opened (currently
+// only the schema pool) and is always safe to call, even when nothing
+// was opened.
+func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, stdout io.Writer) ([]compose.Option, func(), error) {
+	var opts []compose.Option
+	if cfg.publicBaseURL != "" {
+		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
+	}
+
+	blobOpts, err := blobstoreOptions(ctx, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, blobOpts...)
+
+	kvOpts, err := keyvaultOptions(pool, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, kvOpts...)
+
+	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, schemaOpts...)
+
+	return opts, closeSchemaPool, nil
 }
 
 // blobstoreOptions wires the attachment endpoints (and their /readyz probe +
