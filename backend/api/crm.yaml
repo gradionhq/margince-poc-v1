@@ -3143,6 +3143,7 @@ paths:
               schema: { $ref: '#/components/schemas/CustomFieldListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
     post:
       tags: [CustomFields]
       operationId: createCustomField
@@ -3267,6 +3268,21 @@ paths:
                     detail: This looks like a new object, relationship, or logic — not a scalar attribute on an existing object. Runtime custom fields only add bounded scalar columns; a structural change ships as a reviewed source change instead.
                     details:
                       route: source_development_path
+        '501':
+          description: >-
+            Schema changes are not enabled on this deployment — the schema-change pool
+            (--schema-dsn) is not mounted.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                schemaPoolUnmounted:
+                  value:
+                    type: 'https://errors.gradion.com/not_implemented'
+                    title: Not Implemented
+                    status: 501
+                    code: not_implemented
+                    detail: operation custom-field schema changes is specified but not yet implemented
 
   /custom-fields/{id}:
     parameters:
@@ -3440,6 +3456,21 @@ paths:
                     details:
                       errors:
                         - { field: options, code: min_one_required }
+        '501':
+          description: >-
+            Schema changes are not enabled on this deployment — the schema-change pool
+            (--schema-dsn) is not mounted.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                schemaPoolUnmounted:
+                  value:
+                    type: 'https://errors.gradion.com/not_implemented'
+                    title: Not Implemented
+                    status: 501
+                    code: not_implemented
+                    detail: operation custom-field schema changes is specified but not yet implemented
 
   /consent-purposes:
     get:

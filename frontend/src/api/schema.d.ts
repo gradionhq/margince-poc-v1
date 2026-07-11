@@ -9379,6 +9379,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     createCustomField: {
@@ -9445,6 +9446,15 @@ export interface operations {
             };
             /** @description Field definition failed validation, or is judged structural (`structural_change_refused`). */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Schema changes are not enabled on this deployment — the schema-change pool (--schema-dsn) is not mounted. */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9628,6 +9638,15 @@ export interface operations {
             };
             /** @description The field is not a picklist, or the edit would remove every option. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Schema changes are not enabled on this deployment — the schema-change pool (--schema-dsn) is not mounted. */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

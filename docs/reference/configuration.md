@@ -111,8 +111,10 @@ work. When set, the api opens a **second** pgxpool sized to `pool_max_conns=3`
 (unless the DSN already sets `pool_max_conns` itself, matching
 `database.NewPool`'s DSN-wins-over-default rule): every schema change is
 serialized behind a transaction-scoped advisory lock keyed on the target
-table, so this pool never runs more than one `ALTER` at a time — a small,
-deliberate footprint next to the app pool's `MaxConns=16` default. The
+table, so this pool never runs more than one `ALTER` against the same
+table at a time — concurrent `ALTER`s against different tables are not
+serialized against each other, just against races on their own table — a
+small, deliberate footprint next to the app pool's `MaxConns=16` default. The
 transaction runs the DDL as the owner role, then downgrades itself
 (`SET LOCAL ROLE margince_app`) before the catalog/audit write, so the
 credential this DSN names must be the same owner role `cmd/migrate` uses.

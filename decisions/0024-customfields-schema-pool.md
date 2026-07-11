@@ -126,7 +126,11 @@ values ride record payloads).
 - **Blast radius contained:** one new module + a compose option + one
   additive migration for the catalog table; no change to the app pool's
   grants, RLS policies, or the storekit write shape — the catalog INSERT
-  uses the same audit+outbox spelling as every other mutation.
+  is audit-only (one audit row, no bus event, per the spec's
+  custom-fields.md §Events ratification; see "Resolved with it — the
+  write shape's event half" below), one of the four ratified
+  audit-only waivers `backend/writeshape_test.go` records for this
+  module (`createInTx`, `Rename`, `Retire`, `setOptionsInTx`).
 - **Ops posture:** the schema DSN is the owner credential — operators hold
   it like a migration credential, because that is what it is; the engine is
   the only consumer.

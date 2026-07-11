@@ -103,7 +103,7 @@ Merged so far:
   column-collision 409s, and an AST fitness gate pinning the privilege
   downgrade (decisions/0024). Values-on-records parity — reading and
   writing the new fields through the record surface — is the follow-on
-  arc, arc 2a-i.
+  arc, arc 2a-ii.
 
 ## Pick up here
 
