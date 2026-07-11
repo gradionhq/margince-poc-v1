@@ -39,7 +39,21 @@ type env struct {
 	owner  *pgx.Conn
 }
 
+// setup boots the default harness server — no schema pool, so the
+// customfields runtime-DDL operations answer their generated 501
+// (decisions/0024's unwired-by-default posture). Suites that need the
+// schema pool wired (customfields_http_integration_test.go) call
+// setupWithOptions directly with compose.WithSchemaPool(SchemaPool(t)).
 func setup(t *testing.T) *env {
+	t.Helper()
+	return setupWithOptions(t)
+}
+
+// setupWithOptions is setup's body, parameterized over extra compose
+// options so a suite that needs a boot-optional seam (e.g. the
+// customfields schema pool) can wire it without duplicating the
+// migrate-and-boot ceremony every other suite in this package shares.
+func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
@@ -79,8 +93,8 @@ func setup(t *testing.T) *env {
 	}
 	t.Cleanup(pool.Close)
 
-	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)),
-		compose.WithPublicBaseURL("https://mail.example.test")))
+	allOpts := append([]compose.Option{compose.WithPublicBaseURL("https://mail.example.test")}, opts...)
+	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...))
 	t.Cleanup(ts.Close)
 
 	jar, err := cookiejar.New(nil)
