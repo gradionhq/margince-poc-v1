@@ -5,11 +5,9 @@ package compose
 
 // The contract HTTP surface: module transport handlers, aggregated by
 // embedding (the Server struct below is the inventory), together cover
-// every operation crmcontracts.ServerInterface declares — there is no
-// generated-stub fallback left; a module gap now fails the build's
-// `var _ crmcontracts.ServerInterface = Server{}` assertion rather than
-// answering a silent 501. The chassis (headers, correlation, panic
-// recovery) is platform/httpserver; what lives here is the wiring.
+// every operation crmcontracts.ServerInterface declares. The chassis
+// (headers, correlation, panic recovery) is platform/httpserver; what
+// lives here is the wiring.
 
 import (
 	"context"
@@ -29,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -48,24 +47,24 @@ import (
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
 type (
-	authHandlers        = identity.Handlers
-	peopleHandlers      = people.Handlers
-	dealsHandlers       = deals.Handlers
-	activitiesHandlers  = activities.Handlers
-	approvalsHandlers   = approvals.Handlers
-	searchHandlers      = search.Handlers
-	consentHandlers     = consent.Handlers
-	collectionsHandlers = collections.Handlers
-	signalsHandlers     = signals.Handlers
-	privacyHandlers     = privacy.Handlers
-	agentsHandlers      = agents.Handlers
-	voiceHandlers       = ai.Handlers
+	authHandlers         = identity.Handlers
+	peopleHandlers       = people.Handlers
+	dealsHandlers        = deals.Handlers
+	activitiesHandlers   = activities.Handlers
+	approvalsHandlers    = approvals.Handlers
+	searchHandlers       = search.Handlers
+	consentHandlers      = consent.Handlers
+	collectionsHandlers  = collections.Handlers
+	signalsHandlers      = signals.Handlers
+	privacyHandlers      = privacy.Handlers
+	agentsHandlers       = agents.Handlers
+	voiceHandlers        = ai.Handlers
+	customfieldsHandlers = customfields.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: every
-// operation the contract declares resolves to exactly one of these
-// handler sets' methods — a module gap is a compile error, not a
-// runtime 501.
+// module transport handler set together covers the full contract
+// surface, so there is no residual stub embed left to shadow.
 type Server struct {
 	authHandlers
 	peopleHandlers
@@ -86,6 +85,7 @@ type Server struct {
 	imapConnectHandlers
 	filteredExportHandlers
 	orgRollupHandlers
+	customfieldsHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -101,6 +101,13 @@ type Server struct {
 	// it feeds a /readyz probe and backs the capture connector-credential
 	// path; nil means a role that resolves no stored connector credentials.
 	vault keyvault.Vault
+
+	// schemaPoolReady is the /readyz schema-pool probe, injected only by
+	// WithSchemaPool — a role that never mounted --schema-dsn declares
+	// that by omission (customfields.Create/SetOptions stay their
+	// generated 501, decisions/0024) rather than probing a pool it
+	// doesn't have.
+	schemaPoolReady func(context.Context) error
 
 	// log is the process logger, shared with the optional engines an
 	// option wires (e.g. the brief L2 ranker's degradation warnings).
@@ -150,10 +157,11 @@ func WithKeyvault(vault keyvault.Vault) Option {
 }
 
 // readinessChecks assembles the /readyz dependency probes for this role.
-// Postgres is always probed; the bus, the object store, and the secret vault
-// are probed only when this role wired them, so a split deployment answers
-// ready on exactly what it depends on. A wedged dependency must fail
-// readiness — a probe is never dropped to keep the pod in rotation.
+// Postgres is always probed; the bus, the object store, the secret vault,
+// and the schema pool are probed only when this role wired them, so a
+// split deployment answers ready on exactly what it depends on. A wedged
+// dependency must fail readiness — a probe is never dropped to keep the
+// pod in rotation.
 func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserver.ReadyCheck {
 	checks := []httpserver.ReadyCheck{{Name: "postgres", Check: pgPing}}
 	if s.busReady != nil {
@@ -165,7 +173,25 @@ func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserve
 	if s.vault != nil {
 		checks = append(checks, httpserver.ReadyCheck{Name: "keyvault", Check: s.vault.Health})
 	}
+	if s.schemaPoolReady != nil {
+		checks = append(checks, httpserver.ReadyCheck{Name: "customfields-schema-pool", Check: s.schemaPoolReady})
+	}
 	return checks
+}
+
+// WithSchemaPool wires the owner-privileged schema-change pool the
+// customfields engine's two runtime-DDL paths (Create, SetOptions) need
+// (decisions/0024: --schema-dsn / MARGINCE_SCHEMA_DSN). It feeds the
+// /readyz probe and rebuilds the customfields handlers over the real
+// pool; without it those two operations stay their generated 501
+// (ErrSchemaChangesUnavailable) rather than nil-derefing a pool that was
+// never mounted — a role that runs no runtime DDL declares that by
+// omission, the same posture as WithBlobstore/WithKeyvault.
+func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)
+		s.schemaPoolReady = schemaPool.Ping
+	}
 }
 
 // WithPublicBaseURL sets the canonical scheme+host the buyer-facing
@@ -312,7 +338,11 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 			collections: collections.NewStore(pool),
 		},
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
-		log:               log,
+		// The schema-change pool is boot-optional (decisions/0024); nil
+		// here means Create/SetOptions stay their generated 501 until the
+		// api role's WithSchemaPool rebuilds this over the real pool.
+		customfieldsHandlers: customfields.NewHandlers(pool, nil),
+		log:                  log,
 	}
 }
 

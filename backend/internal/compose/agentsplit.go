@@ -33,12 +33,19 @@ import (
 // call runs 🟢 by design (an op absent here gets the full split; the
 // deliberate inclusion is upsertPartner, which the resolver maps
 // partner→organization so its patch IS a field patch on that org).
+// renameCustomField is here for a different reason: its target is a
+// catalog CONFIG row, not record data — §2.1 human-edit precedence
+// protects human-typed record values from agent overwrite, while a
+// catalog label rename is the action the contract deliberately pins 🟢;
+// left to the split, the creating admin's audit trail would mark `label`
+// human-owned and silently convert every agent rename into a 🟡 staging.
 var actionShapedUpdateOps = map[string]bool{
 	"applyTag":            true,
 	"addListMember":       true,
 	"addOfferLineItem":    true,
 	"updateOfferLineItem": true,
 	"removeOfferLineItem": true,
+	"renameCustomField":   true,
 }
 
 // splitOrRedeemUpdate is the per-field human-edit-precedence split

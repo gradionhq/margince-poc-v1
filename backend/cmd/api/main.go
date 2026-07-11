@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -54,6 +55,7 @@ func main() {
 // apiConfig is the parsed boot configuration of the api process.
 type apiConfig struct {
 	dsn           string
+	schemaDSN     string
 	addr          string
 	redisAddr     string
 	inlineRelay   bool
@@ -70,6 +72,8 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs := flag.NewFlagSet("api", flag.ContinueOnError)
 	var cfg apiConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	fs.StringVar(&cfg.schemaDSN, "schema-dsn", os.Getenv("MARGINCE_SCHEMA_DSN"),
+		"Postgres DSN (owner role) for the customfields runtime-DDL pool; unset = the two schema-change operations answer 501 (decisions/0024)")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.BoolVar(&cfg.inlineRelay, "inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
@@ -108,22 +112,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
-	var opts []compose.Option
-	if cfg.publicBaseURL != "" {
-		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
-	}
-
-	blobOpts, err := blobstoreOptions(ctx, stdout)
+	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, pool, stdout)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, blobOpts...)
-
-	kvOpts, err := keyvaultOptions(pool, stdout)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, kvOpts...)
+	defer closeSchemaPool()
 
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
@@ -178,6 +171,40 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 }
 
+// baseComposeOptions assembles the boot-optional compose.Options that
+// don't depend on the inline relay's lifecycle (public base URL,
+// blobstore, keyvault, the customfields schema pool) — split out of run()
+// so that function stays inside the file's long-func budget. The
+// returned close func releases whatever this stage opened (currently
+// only the schema pool) and is always safe to call, even when nothing
+// was opened.
+func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, stdout io.Writer) ([]compose.Option, func(), error) {
+	var opts []compose.Option
+	if cfg.publicBaseURL != "" {
+		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
+	}
+
+	blobOpts, err := blobstoreOptions(ctx, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, blobOpts...)
+
+	kvOpts, err := keyvaultOptions(pool, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, kvOpts...)
+
+	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, schemaOpts...)
+
+	return opts, closeSchemaPool, nil
+}
+
 // blobstoreOptions wires the attachment endpoints (and their /readyz probe +
 // erase-path object purge) only when an object store is configured; without
 // one the endpoints answer 501 rather than nil-deref at request time.
@@ -210,6 +237,49 @@ func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer) ([]compose.Option, er
 	}
 	_, _ = fmt.Fprintln(stdout, "api connector-credential vault enabled (keyvault configured)")
 	return []compose.Option{compose.WithKeyvault(vault)}, nil
+}
+
+// schemaPoolOptions wires the customfields engine's owner-privileged
+// schema-change pool (decisions/0024) — the second pgxpool the two
+// runtime-DDL operations (createCustomField, updateCustomFieldOptions)
+// need — only when --schema-dsn/MARGINCE_SCHEMA_DSN is set. Without one
+// those two operations stay their generated 501 (ErrSchemaChangesUnavailable);
+// the close func is a no-op in that case, so run() can always defer it
+// unconditionally.
+func schemaPoolOptions(ctx context.Context, schemaDSN string, stdout io.Writer) ([]compose.Option, func(), error) {
+	if schemaDSN == "" {
+		return nil, func() {}, nil
+	}
+	// The engine serializes every ALTER on a table behind a transaction-scoped
+	// advisory lock (customfields.beginSchemaChange), so this pool never runs
+	// more than one DDL statement per table at a time; a handful of
+	// connections is a deliberately small footprint for a rare admin path,
+	// next to the app pool's MaxConns=16 default (database.NewPool).
+	pool, err := database.NewPool(ctx, withPoolMaxConns(schemaDSN, 3))
+	if err != nil {
+		return nil, nil, fmt.Errorf("api: schema pool: %w", err)
+	}
+	_, _ = fmt.Fprintln(stdout, "api custom-field schema changes enabled (schema pool configured)")
+	return []compose.Option{compose.WithSchemaPool(pool)}, pool.Close, nil
+}
+
+// withPoolMaxConns appends a pool_max_conns limit to dsn unless the
+// operator already sized the pool themselves (database.NewPool's own
+// DSN-wins-over-default rule) — the URL and keyword/value DSN forms take
+// the query-parameter and space-separated keyword spellings respectively.
+func withPoolMaxConns(dsn string, n int) string {
+	if strings.Contains(dsn, "pool_max_conns") {
+		return dsn
+	}
+	param := fmt.Sprintf("pool_max_conns=%d", n)
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		return dsn + sep + param
+	}
+	return dsn + " " + param
 }
 
 // startInlineRelay boots the in-process outbox relay. The bus is not
