@@ -35,6 +35,7 @@ var decisionGrants = map[string][]struct {
 	"merge_records":  {}, // resolved from the target's entity type below
 	"share_record":   {}, // resolved from the target's entity type below
 	"update_record":  {}, // resolved from the target's entity type below (human-edit-precedence stagings)
+	"create_record":  {}, // resolved from the target's entity type below (🟡 creates staged at the transport gate, e.g. createCustomField)
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
@@ -118,6 +119,19 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 			return false, err
 		}
 		return exists, nil
+	case "custom_field":
+		// The field catalog is workspace-shared admin config with no row
+		// scope (the product posture): the decision-grant check above is
+		// the authority question, existence is the floor. No archived_at
+		// predicate — retire is a status flip that keeps the row live, and
+		// a staged edit against a retired field stays decidable.
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
+			*a.TargetID).Scan(&exists); err != nil {
+			return false, err
+		}
+		return exists, nil
 	case "signal":
 		// A signal has no owner_id — it is visible when its SUBJECT entity
 		// is (the same scope the signals store applies), so a staged
@@ -193,6 +207,18 @@ func requireDecisionGrants(p principal.Principal, a row) error {
 			Object string
 			Action principal.Action
 		}{*a.TargetType, principal.ActionUpdate})
+	}
+	// A staged 🟡 create (a schema change like createCustomField) releases
+	// a new record of the target type — approving needs the create grant
+	// the write itself would need.
+	if a.Kind == "create_record" {
+		if a.TargetType == nil {
+			return errors.New("crmapprovals: create_record staged without a target type")
+		}
+		grants = append(grants, struct {
+			Object string
+			Action principal.Action
+		}{*a.TargetType, principal.ActionCreate})
 	}
 	for _, g := range grants {
 		if !p.Permissions.Allows(g.Object, g.Action) {
