@@ -21,7 +21,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -50,16 +50,17 @@ var (
 
 // defaults are the seeded system-role policies (decisions/0006 records
 // the choices: reps work team-scoped without delete; managers are
-// team-scoped with delete; pipeline AND automation config are
-// admin/ops-owned — both reshape what the system does on everyone's
-// records).
+// team-scoped with delete; pipeline, automation AND custom-field config
+// are admin/ops-owned — each reshapes what the system does (or stores)
+// on everyone's records, so they follow the pipeline-config posture:
+// everyone reads the catalog, only admin/ops change it).
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -89,32 +90,33 @@ var defaults = map[string]Document{
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
 			grant{Create: true, Read: true, Update: true},
-			crud),
+			crud,
+			readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView grant) map[string]grant {
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
 		"list": list, "tag": tag, "relationship": relationship, "partner": partner,
 		"automation": automation, "voice_profile": voiceProfile,
 		"product": product, "offer": offer, "signal": signal,
-		"saved_view": savedView,
+		"saved_view": savedView, "custom_field": customField,
 	}
 }
 
