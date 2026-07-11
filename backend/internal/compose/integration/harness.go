@@ -186,6 +186,11 @@ var (
 			"lead":         {Create: true, Read: true, Update: true, Delete: true},
 			"activity":     {Create: true, Read: true, Update: true, Delete: true},
 			"pipeline":     {Create: true, Read: true, Update: true, Delete: true},
+			// computed_field is read-only for every system role, admin
+			// included (RD-AC-7: no runtime formula-authoring surface
+			// exists) — identity/internal/policy.go's real seed, mirrored
+			// here so the harness's admin fixture matches production.
+			"computed_field": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
@@ -249,6 +254,19 @@ func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 	org, err := e.People.CreateOrganization(e.Admin(), people.CreateOrganizationInput{
 		DisplayName: name, OwnerID: userIDPtr(owner),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ids.UUID(org.Id)
+}
+
+// SeedOrgAs creates an ownerless organization under the caller's own
+// context — unlike SeedOrg (always e.Admin(), the harness's one primary
+// workspace), this lets a cross-tenant suite seed a fixture in a SECOND
+// workspace's own context.
+func (e *Env) SeedOrgAs(ctx context.Context, t *testing.T, name string) ids.UUID {
+	t.Helper()
+	org, err := e.People.CreateOrganization(ctx, people.CreateOrganizationInput{DisplayName: name})
 	if err != nil {
 		t.Fatal(err)
 	}

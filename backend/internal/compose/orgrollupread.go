@@ -369,16 +369,19 @@ func weightedPipelineMinor(ctx context.Context, tx pgx.Tx, included []ids.UUID, 
 }
 
 // closedWonMinorThisQuarter sums won deals closed in the current
-// workspace-timezone quarter [start, end), converted at each deal's
-// FROZEN close-time rate — never a live lookup. No FX failure can arise
+// workspace-timezone quarter [start, end). amount_minor_base (0065) IS
+// round(amount_minor * fx_rate_to_base)::bigint, computed once at write
+// time from each deal's FROZEN close-time rate — never a live lookup;
+// reading the GENERATED column here is the same figure as recomputing
+// the product, just not re-derived per read. No FX failure can arise
 // here: the deal_closed_fx CHECK guarantees fx_rate_to_base for every
 // closed deal that has an amount, and an amountless won deal's NULL
-// product is skipped by SUM — an honest 0, not an invented rate.
+// amount_minor_base is skipped by SUM — an honest 0, not an invented rate.
 func closedWonMinorThisQuarter(ctx context.Context, tx pgx.Tx, included []ids.UUID, asOf time.Time, loc *time.Location) (int64, error) {
 	start, end := currentQuarterBounds(asOf, loc)
 	var total int64
 	err := tx.QueryRow(ctx, `
-		SELECT COALESCE(SUM(ROUND(d.amount_minor * d.fx_rate_to_base)), 0)::bigint
+		SELECT COALESCE(SUM(d.amount_minor_base), 0)::bigint
 		FROM deal d
 		WHERE d.organization_id = ANY($1) AND d.status = 'won' AND d.archived_at IS NULL
 		  AND d.closed_at >= $2 AND d.closed_at < $3`,

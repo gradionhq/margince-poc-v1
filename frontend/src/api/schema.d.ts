@@ -2813,6 +2813,31 @@ export interface components {
             /** Format: date-time */
             archived_at?: string | null;
         };
+        /**
+         * @description S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
+         *     database-computed value, never a runtime-authored expression. `computable: false` +
+         *     `reason` is the honest floor for a field with no backend data model yet — the row is
+         *     still returned, never omitted or fabricated.
+         */
+        ComputedField: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            kind: "currency_minor" | "count" | "duration_months" | "percent";
+            /**
+             * Format: int64
+             * @description Present (and non-null) only when kind=currency_minor and computable=true.
+             */
+            value_minor?: number | null;
+            /** @description Present (and non-null) only when kind is count/duration_months/percent and computable=true. */
+            value?: number | null;
+            /** @description The literal GENERATED-column/view SQL definition; empty string when computable=false. */
+            formula_sql: string;
+            dependencies: string[];
+            computable: boolean;
+            /** @description Set (non-null) iff computable=false, e.g. "not_yet_built", "awaiting_fx". */
+            reason?: string | null;
+        };
         /** @description A company. Mirrors the `organization` table. */
         Organization: {
             /** Format: uuid */
@@ -2834,6 +2859,12 @@ export interface components {
             parent_org_id?: string | null;
             /** Format: uuid */
             merged_into_id?: string | null;
+            /**
+             * @description S-E15.8c formula-field display rows (RD-AC-6/RD-AC-7/RD-AC-N-1). Populated on
+             *     `getOrganization` only; the key is absent entirely (not an empty array) when the
+             *     viewer's role lacks computed_field:read visibility (STATE-4).
+             */
+            readonly computed_fields?: components["schemas"]["ComputedField"][];
             domains?: components["schemas"]["OrganizationDomain"][];
             /**
              * @description An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.

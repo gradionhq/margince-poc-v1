@@ -77,15 +77,17 @@ func (e *BriefEngine) WithL2Ranker(brain briefBrain, log *slog.Logger) *BriefEng
 
 // briefBaseValueSQL renders the §6 base-currency value of d (joined to
 // its workspace w): native amount when already in base currency, the
-// frozen rate for closed deals, the latest daily rate on or before the
-// as-of date for open ones. A missing rate yields NULL — the revenue
-// factor floors rather than guessing (a wrong number is worse than a
-// missing one). asOfPos is the bind position of the as-of date.
+// frozen amount_minor_base (0065's GENERATED column — round(amount_minor
+// x fx_rate_to_base) computed once at write time) for closed deals, the
+// latest daily rate on or before the as-of date for open ones. A missing
+// rate yields NULL — the revenue factor floors rather than guessing (a
+// wrong number is worse than a missing one). asOfPos is the bind position
+// of the as-of date.
 func briefBaseValueSQL(asOfPos int) string {
 	return fmt.Sprintf(`CASE
 		WHEN d.amount_minor IS NULL THEN NULL
 		WHEN d.currency IS NULL OR d.currency = w.base_currency THEN d.amount_minor
-		WHEN d.fx_rate_to_base IS NOT NULL THEN round(d.amount_minor * d.fx_rate_to_base)::bigint
+		WHEN d.fx_rate_to_base IS NOT NULL THEN d.amount_minor_base
 		ELSE (SELECT round(d.amount_minor * fr.rate)::bigint FROM fx_rate fr
 		      WHERE fr.from_currency = d.currency AND fr.to_currency = w.base_currency
 		        AND fr.rate_date <= $%d::date

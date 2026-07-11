@@ -5340,6 +5340,38 @@ components:
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
 
+    ComputedField:
+      type: object
+      description: |
+        S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
+        database-computed value, never a runtime-authored expression. `computable: false` +
+        `reason` is the honest floor for a field with no backend data model yet — the row is
+        still returned, never omitted or fabricated.
+      required: [key, label, kind, formula_sql, dependencies, computable]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        kind:
+          type: string
+          enum: [currency_minor, count, duration_months, percent]
+        value_minor:
+          type: [integer, 'null']
+          format: int64
+          description: Present (and non-null) only when kind=currency_minor and computable=true.
+        value:
+          type: [number, 'null']
+          description: Present (and non-null) only when kind is count/duration_months/percent and computable=true.
+        formula_sql:
+          type: string
+          description: The literal GENERATED-column/view SQL definition; empty string when computable=false.
+        dependencies:
+          type: array
+          items: { type: string }
+        computable: { type: boolean }
+        reason:
+          type: [string, 'null']
+          description: Set (non-null) iff computable=false, e.g. "not_yet_built", "awaiting_fx".
+
     Organization:
       type: object
       description: A company. Mirrors the `organization` table.
@@ -5357,6 +5389,14 @@ components:
         owner_id: { type: [string, 'null'], format: uuid }
         parent_org_id: { type: [string, 'null'], format: uuid, description: Single-level hierarchy FK; no cycles. }
         merged_into_id: { type: [string, 'null'], format: uuid }
+        computed_fields:
+          type: array
+          readOnly: true
+          description: |
+            S-E15.8c formula-field display rows (RD-AC-6/RD-AC-7/RD-AC-N-1). Populated on
+            `getOrganization` only; the key is absent entirely (not an empty array) when the
+            viewer's role lacks computed_field:read visibility (STATE-4).
+          items: { $ref: '#/components/schemas/ComputedField' }
         domains:
           type: array
           items: { $ref: '#/components/schemas/OrganizationDomain' }
