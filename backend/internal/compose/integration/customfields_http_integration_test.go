@@ -154,6 +154,14 @@ func TestCustomFieldsHTTP(t *testing.T) {
 		assertRetire(t, e)
 	})
 
+	t.Run("409 rename and options on a retired field", func(t *testing.T) {
+		assertRetiredFieldFrozen(t, e)
+	})
+
+	t.Run("422 unknown key on create", func(t *testing.T) {
+		assertUnknownCreateKey(t, e)
+	})
+
 	t.Run("options add/remove and last-option 422", func(t *testing.T) {
 		assertOptionsLifecycle(t, e)
 	})

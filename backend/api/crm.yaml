@@ -3208,6 +3208,39 @@ paths:
                     status: 403
                     code: approval_required
                     detail: Adding a custom field is a schema change and is confirm-first; supply an approval token.
+        '409':
+          description: >-
+            The slug already exists in this workspace, the derived column name is taken
+            platform-wide (the physical column namespace on a shared core table is global),
+            or the target table is busy with concurrent activity — the last is retryable.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                duplicateSlug:
+                  summary: The same (object, slug) already exists in this workspace
+                  value:
+                    type: 'https://errors.gradion.com/conflict'
+                    title: Conflict
+                    status: 409
+                    code: conflict
+                    detail: 'a custom field named "renewal_date" already exists on deal in this workspace: conflict'
+                columnTaken:
+                  summary: Another workspace holds the derived column name
+                  value:
+                    type: 'https://errors.gradion.com/conflict'
+                    title: Conflict
+                    status: 409
+                    code: conflict
+                    detail: custom-field column "cf_renewal_date" is taken platform-wide; choose another label
+                tableBusy:
+                  summary: The bounded lock wait fired — retry the schema change
+                  value:
+                    type: 'https://errors.gradion.com/conflict'
+                    title: Conflict
+                    status: 409
+                    code: conflict
+                    detail: 'the target table is busy with concurrent activity; retry the schema change: conflict'
         '422':
           description: Field definition failed validation, or is judged structural (`structural_change_refused`).
           content:
@@ -3246,6 +3279,8 @@ paths:
         CUSTOM-FIELDS-WIRE-3. Audited catalog `label` update only; `column_name` never
         moves — the physical column identity is stable across rename. Merge-PATCH:
         `column_name`, `object`, and `type` are absent from the request schema entirely.
+        A retired field refuses rename with a 409 `conflict` — retirement is terminal,
+        so its label is frozen.
       x-mcp-tool: { verb: update_record, record_type: custom_field, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -3323,7 +3358,10 @@ paths:
         one DDL path rename/retire never touch). Removing every option is refused (422,
         detail "A picklist needs at least one option") — a picklist always keeps at least
         one allowed value. 🟡 like `retireCustomField`: this mutates a schema-adjacent CHECK
-        constraint, so an agent caller must supply `X-Approval-Token`.
+        constraint, so an agent caller must supply `X-Approval-Token`. A retired field
+        refuses the edit with a 409 `conflict` — retirement is terminal, so its options
+        are frozen; removing an option that stored values still use is also a 409
+        (`ADD CONSTRAINT` validates existing rows — migrate the values first).
       x-mcp-tool: { verb: update_record, record_type: custom_field, tier: yellow }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -3354,6 +3392,31 @@ paths:
                     code: approval_required
                     detail: Editing a picklist's options changes a schema-adjacent CHECK constraint and is confirm-first; supply an approval token.
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            Stored values still use a removed option, the field is retired (options are
+            frozen — retirement is terminal), or the target table is busy with concurrent
+            activity — the last is retryable.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                removedOptionInUse:
+                  summary: Records still carry an option the edit removes
+                  value:
+                    type: 'https://errors.gradion.com/conflict'
+                    title: Conflict
+                    status: 409
+                    code: conflict
+                    detail: 'existing deal values still use a removed option; migrate them first: conflict'
+                fieldRetired:
+                  summary: The field is retired — its options are frozen
+                  value:
+                    type: 'https://errors.gradion.com/conflict'
+                    title: Conflict
+                    status: 409
+                    code: conflict
+                    detail: 'the field is retired; a retired field cannot be renamed or have its options edited: conflict'
         '422':
           description: The field is not a picklist, or the edit would remove every option.
           content:
@@ -3362,7 +3425,7 @@ paths:
               examples:
                 notPicklist:
                   value:
-                    type: 'https://errors.gradion.com/validation_error'
+                    type: 'https://errors.gradion.com/not_picklist'
                     title: Validation failed
                     status: 422
                     code: not_picklist
@@ -6380,7 +6443,10 @@ components:
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         options: { type: [array, 'null'], items: { type: string } }
         source: { type: string }
-      additionalProperties: true
+      # Deliberately NOT additionalProperties: true — the x-extension
+      # catch-all convention is for record schemas (data-model §9); on this
+      # admin request an unknown key is a typo and answers the unknown_field
+      # 422, never a silent drop.
 
     RenameCustomFieldRequest:
       type: object

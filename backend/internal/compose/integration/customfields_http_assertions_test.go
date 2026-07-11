@@ -256,6 +256,61 @@ func assertRetire(t *testing.T, e *env) {
 	}
 }
 
+// assertRetiredFieldFrozen proves retirement is terminal on the wire: a
+// retired field refuses rename and options edits with the contract's 409
+// conflict, while a repeat retire stays the 200 no-op.
+func assertRetiredFieldFrozen(t *testing.T, e *env) {
+	t.Helper()
+	status, field, problem := createCustomField(t, e, anyMap{
+		"object": "deal", "label": "Frozen Route", "type": "picklist",
+		"options": []string{"direct", "reseller"}, "source": "ui",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201: %+v", status, problem)
+	}
+	var retired customFieldWire
+	if s := e.call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &retired); s != http.StatusOK {
+		t.Fatalf("retire status = %d, want 200: %+v", s, retired)
+	}
+
+	var renameProblem customFieldProblem
+	renameStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID,
+		anyMap{"label": "Thawed Route"}, nil, &renameProblem)
+	if renameStatus != http.StatusConflict || renameProblem.Code != "conflict" {
+		t.Fatalf("rename on retired = %d/%q, want 409/conflict: %+v", renameStatus, renameProblem.Code, renameProblem)
+	}
+
+	var optionsProblem customFieldProblem
+	optionsStatus := e.call(t, "PATCH", "/v1/custom-fields/"+field.ID+"/options",
+		anyMap{"options": []string{"direct"}}, nil, &optionsProblem)
+	if optionsStatus != http.StatusConflict || optionsProblem.Code != "conflict" {
+		t.Fatalf("options on retired = %d/%q, want 409/conflict: %+v", optionsStatus, optionsProblem.Code, optionsProblem)
+	}
+
+	var again customFieldWire
+	if s := e.call(t, "POST", "/v1/custom-fields/"+field.ID+"/retire", nil, nil, &again); s != http.StatusOK {
+		t.Fatalf("repeat retire status = %d, want the 200 no-op: %+v", s, again)
+	}
+}
+
+// assertUnknownCreateKey proves a typo'd request key answers the
+// unknown_field 422 instead of being silently dropped — the create
+// request schema deliberately has no additionalProperties catch-all.
+func assertUnknownCreateKey(t *testing.T, e *env) {
+	t.Helper()
+	status, _, problem := createCustomField(t, e, anyMap{
+		"object": "deal", "label": "Typo Subject", "type": "currency",
+		"curency": "USD", "source": "ui",
+	})
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422: %+v", status, problem)
+	}
+	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "body" ||
+		problem.Details.Errors[0].Code != "unknown_field" {
+		t.Fatalf("details.errors = %+v, want exactly [{body unknown_field}]", problem.Details.Errors)
+	}
+}
+
 // assertOptionsLifecycle proves CUSTOM-FIELDS-PARAM-5: an options edit
 // replaces the set and regenerates the CHECK, and emptying the set is
 // refused with the contract's exact lastOption shape.

@@ -96,6 +96,15 @@ func TestCustomFieldRetire_PreservesColumnAndValues(t *testing.T) {
 	if *again.Version != *retired.Version {
 		t.Fatal("an idempotent retire must not bump the version")
 	}
+
+	// Retirement is terminal: the label is frozen, and the refusal writes
+	// nothing — the audit trail still carries only the one retire.
+	if _, err := svc.Rename(ctx, ids.UUID(created.Id), "Reopened greeting", nil); !errors.Is(err, customfields.ErrFieldRetired) {
+		t.Fatalf("renaming a retired field must refuse with ErrFieldRetired, got %v", err)
+	}
+	if !errors.Is(customfields.ErrFieldRetired, apperrors.ErrConflict) {
+		t.Fatal("ErrFieldRetired must read as the 409 conflict sentinel")
+	}
 	if n := e.WsCount(t,
 		`SELECT count(*) FROM audit_log WHERE entity_type = 'custom_field' AND entity_id = $1 AND action = 'update'`,
 		ids.UUID(created.Id)); n != 1 {
@@ -177,6 +186,14 @@ func TestCustomFieldSetOptions_Refusals(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM person WHERE cf_procurement_route = 'reseller'`); n != 1 {
 		t.Fatal("the refused edit must leave stored values untouched")
+	}
+
+	// A retired picklist's options are frozen: retirement is terminal.
+	if _, err := svc.Retire(ctx, ids.UUID(picklist.Id)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetOptions(ctx, ids.UUID(picklist.Id), []string{"direct", "reseller"}); !errors.Is(err, customfields.ErrFieldRetired) {
+		t.Fatalf("options on a retired field must refuse with ErrFieldRetired, got %v", err)
 	}
 }
 

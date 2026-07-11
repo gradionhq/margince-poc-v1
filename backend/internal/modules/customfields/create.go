@@ -26,6 +26,18 @@ import (
 // added outside the engine (a fork migration racing a create).
 const pgDuplicateColumn = "42701"
 
+// pgLockNotAvailable is SQLSTATE 55P03: a lock wait exceeded the
+// transaction's SET LOCAL lock_timeout — the retryable ErrTableBusy
+// answer, never a 500.
+const pgLockNotAvailable = "55P03"
+
+// lockTimedOut reports whether err is the bounded lock wait firing
+// (SQLSTATE 55P03).
+func lockTimedOut(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgLockNotAvailable
+}
+
 // Create is the single chokepoint allowed to run a runtime ALTER TABLE
 // (custom-fields.md "one chokepoint"): it validates spec, refuses a
 // structural request, derives slug/column_name, and then commits the
@@ -101,11 +113,15 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, spec FieldSpec, wsI
 	// The one privileged statement: the ALTER runs as the schema pool's
 	// owner role. 42701 can still fire despite the pre-check when the
 	// column arrived outside the engine's serialization (a fork
-	// migration) — the same honest answer applies.
+	// migration) — the same honest answer applies. 55P03 is the bounded
+	// lock wait firing: the table is busy, the caller retries.
 	if _, err := tx.Exec(ctx, ddl); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgDuplicateColumn {
 			return crmcontracts.CustomField{}, &ColumnTakenError{Column: column}
+		}
+		if lockTimedOut(err) {
+			return crmcontracts.CustomField{}, ErrTableBusy
 		}
 		return crmcontracts.CustomField{}, fmt.Errorf("customfields: adding column: %w", err)
 	}
@@ -163,17 +179,41 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, spec FieldSpec, wsI
 // beginSchemaChange arms the transaction for a governed DDL step: it
 // binds the workspace GUC (the WithWorkspaceTx spelling — parameterized
 // set_config, never string-built SET LOCAL) so every catalog read and
-// write in this transaction is workspace-scoped, then serializes with a
-// transaction-scoped advisory lock keyed on the target table. The lock
-// removes the 42701 race window between concurrent ADD COLUMNs on the
-// same shared table: whoever holds it sees the loser's committed column
-// in the pre-check instead of colliding mid-ALTER; auto-released at
-// COMMIT/ROLLBACK.
+// write in this transaction is workspace-scoped, then bounds the lock
+// waits and serializes with the per-table advisory lock
+// (serializeSchemaChange).
 func beginSchemaChange(ctx context.Context, tx pgx.Tx, wsID ids.UUID, object string) error {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
 		return fmt.Errorf("customfields: binding workspace GUC: %w", err)
 	}
+	return serializeSchemaChange(ctx, tx, object)
+}
+
+// serializeSchemaChange is the shared arming step of both DDL paths
+// (Create's beginSchemaChange, SetOptions' setOptionsInTx):
+//
+// SET LOCAL lock_timeout bounds every lock wait in this transaction —
+// the ALTER TABLE ahead needs ACCESS EXCLUSIVE, and unbounded, a single
+// long-running reader queues that request while EVERY subsequent DML on
+// the shared core table queues behind it: a platform-wide stall from one
+// admin call. Timing out (SQLSTATE 55P03) answers the retryable
+// ErrTableBusy instead; transaction-local, so the pooled connection
+// reverts at COMMIT/ROLLBACK.
+//
+// The transaction-scoped advisory lock, keyed on the target table,
+// removes the 42701 race window between concurrent ADD COLUMNs on the
+// same shared table: whoever holds it sees the loser's committed column
+// in the pre-check instead of colliding mid-ALTER; auto-released at
+// COMMIT/ROLLBACK. lock_timeout bounds this wait too — a peer stuck
+// mid-DDL answers the same busy signal.
+func serializeSchemaChange(ctx context.Context, tx pgx.Tx, object string) error {
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '2s'`); err != nil {
+		return fmt.Errorf("customfields: bounding lock waits: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('customfields:' || $1, 0))`, object); err != nil {
+		if lockTimedOut(err) {
+			return ErrTableBusy
+		}
 		return fmt.Errorf("customfields: serializing schema change: %w", err)
 	}
 	return nil

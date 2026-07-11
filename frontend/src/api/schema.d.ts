@@ -1689,6 +1689,8 @@ export interface paths {
          * @description CUSTOM-FIELDS-WIRE-3. Audited catalog `label` update only; `column_name` never
          *     moves — the physical column identity is stable across rename. Merge-PATCH:
          *     `column_name`, `object`, and `type` are absent from the request schema entirely.
+         *     A retired field refuses rename with a 409 `conflict` — retirement is terminal,
+         *     so its label is frozen.
          */
         patch: operations["renameCustomField"];
         trace?: never;
@@ -1746,7 +1748,10 @@ export interface paths {
          *     one DDL path rename/retire never touch). Removing every option is refused (422,
          *     detail "A picklist needs at least one option") — a picklist always keeps at least
          *     one allowed value. 🟡 like `retireCustomField`: this mutates a schema-adjacent CHECK
-         *     constraint, so an agent caller must supply `X-Approval-Token`.
+         *     constraint, so an agent caller must supply `X-Approval-Token`. A retired field
+         *     refuses the edit with a 409 `conflict` — retirement is terminal, so its options
+         *     are frozen; removing an option that stored values still use is also a 409
+         *     (`ADD CONSTRAINT` validates existing rows — migrate the values first).
          */
         patch: operations["updateCustomFieldOptions"];
         trace?: never;
@@ -4189,8 +4194,6 @@ export interface components {
             currency?: string | null;
             options?: string[] | null;
             source: string;
-        } & {
-            [key: string]: unknown;
         };
         /** @description Merge-PATCH; `label` only — `column_name`, `object`, and `type` are absent from this request schema entirely (immutable, not just ignored if sent). */
         RenameCustomFieldRequest: {
@@ -9431,6 +9434,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description The slug already exists in this workspace, the derived column name is taken platform-wide (the physical column namespace on a shared core table is global), or the target table is busy with concurrent activity — the last is retryable. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Field definition failed validation, or is judged structural (`structural_change_refused`). */
             422: {
                 headers: {
@@ -9605,6 +9617,15 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            /** @description Stored values still use a removed option, the field is retired (options are frozen — retirement is terminal), or the target table is busy with concurrent activity — the last is retryable. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description The field is not a picklist, or the edit would remove every option. */
             422: {
                 headers: {

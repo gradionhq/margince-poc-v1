@@ -72,6 +72,22 @@ var ErrSchemaChangesUnavailable = errors.New("customfields: no schema-change poo
 // picklist — only a picklist has an options-derived CHECK to regenerate.
 var ErrNotPicklist = errors.New("customfields: only a picklist field's options can be edited")
 
+// ErrFieldRetired refuses rename and options edits on a retired field:
+// retirement is the terminal lifecycle state — the row stays fetchable
+// and re-retiring stays a no-op, but label and options are frozen. Wraps
+// the conflict sentinel so both transports answer the ordinary 409; the
+// message is the wire detail, so no package prefix.
+var ErrFieldRetired = fmt.Errorf("the field is retired; a retired field cannot be renamed or have its options edited: %w", apperrors.ErrConflict)
+
+// ErrTableBusy reports that a schema-change transaction hit its bounded
+// lock wait (SQLSTATE 55P03 under the SET LOCAL lock_timeout) instead of
+// queueing an ACCESS EXCLUSIVE request behind a long-running reader — a
+// retryable condition, not a fault. Wraps the conflict sentinel (409);
+// the message is the wire detail, so no package prefix. Deliberately
+// does NOT wrap the pg error: httperr scrubs a sentinel whose chain
+// carries an infrastructure cause, and this detail must stay actionable.
+var ErrTableBusy = fmt.Errorf("the target table is busy with concurrent activity; retry the schema change: %w", apperrors.ErrConflict)
+
 // ErrLastOption refuses an empty replacement option set — a picklist
 // always keeps at least one allowed value.
 var ErrLastOption = errors.New("customfields: a picklist needs at least one option")

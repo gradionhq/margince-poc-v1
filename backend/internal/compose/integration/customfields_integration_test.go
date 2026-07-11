@@ -225,6 +225,86 @@ func TestCustomFieldCreate_RefusalsWriteNothing(t *testing.T) {
 	}
 }
 
+// TestCustomFieldCreate_BusyTableAnswersRetryableConflict proves the
+// bounded-lock-wait guard: the ALTER TABLE needs ACCESS EXCLUSIVE, so a
+// transaction that merely read the target table (ACCESS SHARE, held to
+// transaction end) blocks it — the SET LOCAL lock_timeout must then fire
+// SQLSTATE 55P03 and answer the retryable conflict instead of queueing
+// platform-wide DML behind the waiting ALTER. The two-second stall is
+// Postgres's own server-side lock wait, not a test sleep, and the retry
+// after the blocker releases proves the answer means what it says.
+func TestCustomFieldCreate_BusyTableAnswersRetryableConflict(t *testing.T) {
+	e := Setup(t)
+	svc := customfields.NewService(e.Pool, SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+
+	blocker := OwnerConn(t)
+	blockTx, err := blocker.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := blockTx.QueryRow(context.Background(), `SELECT count(*) FROM organization`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := customfields.FieldSpec{Object: "organization", Label: "Region", Type: customfields.TypeText, Source: "ui"}
+	_, err = svc.Create(ctx, spec)
+	if !errors.Is(err, customfields.ErrTableBusy) {
+		t.Fatalf("a busy table must answer ErrTableBusy, got %v", err)
+	}
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatal("ErrTableBusy must read as the 409 conflict sentinel")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM custom_field`); n != 0 {
+		t.Fatalf("the timed-out create must write no catalog row, got %d", n)
+	}
+
+	if err := blockTx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Create(ctx, spec); err != nil {
+		t.Fatalf("the retry after the blocker released must succeed, got %v", err)
+	}
+}
+
+// TestCustomFieldSetOptions_BusyTableAnswersRetryableConflict pins the
+// same 55P03 answer on the second DDL path: the CHECK regeneration's
+// ALTER hits the same bounded lock wait when a reader holds the table.
+func TestCustomFieldSetOptions_BusyTableAnswersRetryableConflict(t *testing.T) {
+	e := Setup(t)
+	svc := customfields.NewService(e.Pool, SchemaPool(t))
+	ctx := e.As(e.Rep1, nil, cfAdminPerms)
+
+	created, err := svc.Create(ctx, customfields.FieldSpec{
+		Object: "person", Label: "Procurement route", Type: customfields.TypePicklist,
+		Options: []string{"direct", "reseller"}, Source: "ui",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blocker := OwnerConn(t)
+	blockTx, err := blocker.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := blockTx.QueryRow(context.Background(), `SELECT count(*) FROM person`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.SetOptions(ctx, ids.UUID(created.Id), []string{"direct"}); !errors.Is(err, customfields.ErrTableBusy) {
+		t.Fatalf("a busy table must answer ErrTableBusy on the options path too, got %v", err)
+	}
+	if err := blockTx.Rollback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetOptions(ctx, ids.UUID(created.Id), []string{"direct"}); err != nil {
+		t.Fatalf("the retry after the blocker released must succeed, got %v", err)
+	}
+}
+
 func TestCustomFieldCreate_UnwiredSchemaPool_Answers501Sentinel(t *testing.T) {
 	e := Setup(t)
 	svc := customfields.NewService(e.Pool, nil)

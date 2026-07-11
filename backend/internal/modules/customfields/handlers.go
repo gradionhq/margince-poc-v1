@@ -148,8 +148,9 @@ func (h Handlers) UpdateCustomFieldOptions(w http.ResponseWriter, r *http.Reques
 // shapes the contract names, then falls through to httperr.Write's
 // sentinel registry — which already resolves apperrors.ErrNotFound (a
 // missing/out-of-workspace row), apperrors.ErrVersionSkew (a stale
-// If-Match), and apperrors.ErrConflict for both a wrapped duplicate-slug
-// conflict and *ColumnTakenError (its Is method maps it to ErrConflict),
+// If-Match), apperrors.ErrConflict for every conflict spelling (the
+// wrapped duplicate-slug conflict, *ColumnTakenError via its Is method,
+// ErrFieldRetired, and the retryable ErrTableBusy lock-timeout answer),
 // and apperrors.ErrPermissionDenied for every RBAC deny — customfields
 // adds no branch for any of those.
 func writeCustomFieldErr(w http.ResponseWriter, r *http.Request, err error) {

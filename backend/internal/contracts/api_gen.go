@@ -4418,13 +4418,12 @@ type CreateConsentPurposeRequest struct {
 // plus a 422 on mismatch is sufficient, matching how Offer/Product money fields are
 // documented elsewhere in this contract.
 type CreateCustomFieldRequest struct {
-	Currency             *string                        `json:"currency,omitempty"`
-	Label                string                         `json:"label"`
-	Object               CreateCustomFieldRequestObject `json:"object"`
-	Options              *[]string                      `json:"options,omitempty"`
-	Source               string                         `json:"source"`
-	Type                 CreateCustomFieldRequestType   `json:"type"`
-	AdditionalProperties map[string]interface{}         `json:"-"`
+	Currency *string                        `json:"currency,omitempty"`
+	Label    string                         `json:"label"`
+	Object   CreateCustomFieldRequestObject `json:"object"`
+	Options  *[]string                      `json:"options,omitempty"`
+	Source   string                         `json:"source"`
+	Type     CreateCustomFieldRequestType   `json:"type"`
 }
 
 // CreateCustomFieldRequestObject defines model for CreateCustomFieldRequest.Object.
@@ -8537,141 +8536,6 @@ func (a Address) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'region': %w", err)
 		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for CreateCustomFieldRequest. Returns the specified
-// element and whether it was found
-func (a CreateCustomFieldRequest) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for CreateCustomFieldRequest
-func (a *CreateCustomFieldRequest) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for CreateCustomFieldRequest to handle AdditionalProperties
-func (a *CreateCustomFieldRequest) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["currency"]; found {
-		err = json.Unmarshal(raw, &a.Currency)
-		if err != nil {
-			return fmt.Errorf("error reading 'currency': %w", err)
-		}
-		delete(object, "currency")
-	}
-
-	if raw, found := object["label"]; found {
-		err = json.Unmarshal(raw, &a.Label)
-		if err != nil {
-			return fmt.Errorf("error reading 'label': %w", err)
-		}
-		delete(object, "label")
-	}
-
-	if raw, found := object["object"]; found {
-		err = json.Unmarshal(raw, &a.Object)
-		if err != nil {
-			return fmt.Errorf("error reading 'object': %w", err)
-		}
-		delete(object, "object")
-	}
-
-	if raw, found := object["options"]; found {
-		err = json.Unmarshal(raw, &a.Options)
-		if err != nil {
-			return fmt.Errorf("error reading 'options': %w", err)
-		}
-		delete(object, "options")
-	}
-
-	if raw, found := object["source"]; found {
-		err = json.Unmarshal(raw, &a.Source)
-		if err != nil {
-			return fmt.Errorf("error reading 'source': %w", err)
-		}
-		delete(object, "source")
-	}
-
-	if raw, found := object["type"]; found {
-		err = json.Unmarshal(raw, &a.Type)
-		if err != nil {
-			return fmt.Errorf("error reading 'type': %w", err)
-		}
-		delete(object, "type")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for CreateCustomFieldRequest to handle AdditionalProperties
-func (a CreateCustomFieldRequest) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Currency != nil {
-		object["currency"], err = json.Marshal(a.Currency)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'currency': %w", err)
-		}
-	}
-
-	object["label"], err = json.Marshal(a.Label)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'label': %w", err)
-	}
-
-	object["object"], err = json.Marshal(a.Object)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'object': %w", err)
-	}
-
-	if a.Options != nil {
-		object["options"], err = json.Marshal(a.Options)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'options': %w", err)
-		}
-	}
-
-	object["source"], err = json.Marshal(a.Source)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'source': %w", err)
-	}
-
-	object["type"], err = json.Marshal(a.Type)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'type': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

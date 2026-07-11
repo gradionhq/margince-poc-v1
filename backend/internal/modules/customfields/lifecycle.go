@@ -38,6 +38,19 @@ type lockedField struct {
 	Version    int64
 }
 
+// mutable is the status gate on the two catalog mutations a retired
+// field no longer accepts — rename (Rename, after lockField) and the
+// options edit (lockPicklistField): retirement is terminal, so label and
+// options are frozen while the row stays fetchable and a repeat retire
+// stays a no-op (which is why the gate is not inside lockField itself —
+// Retire needs the retired row to answer it unchanged).
+func (f lockedField) mutable() error {
+	if f.Status == statusRetired {
+		return ErrFieldRetired
+	}
+	return nil
+}
+
 // lockField takes FOR UPDATE on one catalog row. The custom_field
 // catalog is workspace-shared admin config with no owner_id — the object
 // grant is the whole authority question (the pipeline precedent,
@@ -71,7 +84,8 @@ func readField(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.Custom
 
 // Rename updates the catalog label ONLY (CUSTOM-FIELDS-WIRE-3): slug,
 // column_name, object and type never move — the physical column identity
-// is stable across rename. If-Match is the contract's optional CAS: a
+// is stable across rename. A retired field refuses rename (ErrFieldRetired,
+// 409): retirement is terminal. If-Match is the contract's optional CAS: a
 // stale version answers ErrVersionSkew; without one the held row lock
 // still serializes concurrent writers.
 func (s *Service) Rename(ctx context.Context, id ids.UUID, label string, ifVersion *int64) (crmcontracts.CustomField, error) {
@@ -86,6 +100,9 @@ func (s *Service) Rename(ctx context.Context, id ids.UUID, label string, ifVersi
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		f, err := lockField(ctx, tx, id)
 		if err != nil {
+			return err
+		}
+		if err := f.mutable(); err != nil {
 			return err
 		}
 		if ifVersion != nil && *ifVersion != f.Version {

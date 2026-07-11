@@ -66,10 +66,12 @@ func (s *Service) SetOptions(ctx context.Context, id ids.UUID, options []string)
 }
 
 // lockPicklistField binds the workspace GUC, takes FOR UPDATE on the
-// catalog row, and refuses a non-picklist target. The GUC binds first so
-// the read is workspace-scoped even where the owner role is subject to
-// the catalog's FORCE RLS; the explicit workspace predicate keeps it
-// correct where it is not (a superuser owner in dev).
+// catalog row, and refuses a non-picklist or retired target. The GUC
+// binds first so the read is workspace-scoped even where the owner role
+// is subject to the catalog's FORCE RLS; the explicit workspace
+// predicate keeps it correct where it is not (a superuser owner in dev).
+// The type check answers first — type is the operation's precondition;
+// the status gate then freezes a retired field's options (mutable).
 func lockPicklistField(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUID) (lockedField, error) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
 		return lockedField{}, fmt.Errorf("customfields: binding workspace GUC: %w", err)
@@ -88,6 +90,9 @@ func lockPicklistField(ctx context.Context, tx pgx.Tx, wsID ids.UUID, id ids.UUI
 	if f.Type != TypePicklist {
 		return lockedField{}, ErrNotPicklist
 	}
+	if err := f.mutable(); err != nil {
+		return lockedField{}, err
+	}
 	return f, nil
 }
 
@@ -104,11 +109,11 @@ func (s *Service) setOptionsInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 		return crmcontracts.CustomField{}, err
 	}
 
-	// Same serialization as Create: one ALTER per core table at a time.
-	// Lock order is row-then-advisory in every flow that holds both, so
-	// the two DDL paths cannot deadlock each other.
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('customfields:' || $1, 0))`, f.Object); err != nil {
-		return crmcontracts.CustomField{}, fmt.Errorf("customfields: serializing schema change: %w", err)
+	// Same arming as Create (bounded lock waits + one ALTER per core
+	// table at a time). Lock order is row-then-advisory in every flow
+	// that holds both, so the two DDL paths cannot deadlock each other.
+	if err := serializeSchemaChange(ctx, tx, f.Object); err != nil {
+		return crmcontracts.CustomField{}, err
 	}
 	if _, err := tx.Exec(ctx, ddl); err != nil {
 		if _, ok := storekit.CheckViolation(err); ok {
@@ -117,6 +122,9 @@ func (s *Service) setOptionsInTx(ctx context.Context, tx pgx.Tx, wsID ids.UUID, 
 			// data outside its own CHECK.
 			return crmcontracts.CustomField{}, fmt.Errorf(
 				"existing %s values still use a removed option; migrate them first: %w", f.Object, apperrors.ErrConflict)
+		}
+		if lockTimedOut(err) {
+			return crmcontracts.CustomField{}, ErrTableBusy
 		}
 		return crmcontracts.CustomField{}, fmt.Errorf("customfields: regenerating options CHECK: %w", err)
 	}
