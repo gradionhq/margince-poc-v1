@@ -116,6 +116,8 @@ var tableOwners = map[string]string{
 	// privacy (the erasure suppression list is the module's own state;
 	// its other writes are ratified waivers below)
 	"erasure_suppression": "internal/modules/privacy",
+	// customfields (the governed add-field engine's catalog, decisions/0024)
+	"custom_field": "internal/modules/customfields",
 	// compose (HTTP replay protection is transport plumbing, not domain;
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)

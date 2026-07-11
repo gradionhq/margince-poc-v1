@@ -131,15 +131,64 @@ values ride record payloads).
   it like a migration credential, because that is what it is; the engine is
   the only consumer.
 
-## Open item — global column-namespace collision across workspaces
+## Resolved (2026-07-11, the engine task) — global column-namespace collision across workspaces
 
 The unique indexes are **per-workspace**, but the physical column namespace
 on the shared table is **global**: two workspaces deriving the same slug
 (e.g. both add "Renewal date" on deal) collide on the second
 `ADD COLUMN cf_renewal_date` with `42701 duplicate_column` — a case poc-1
-never resolved. Candidate answers: per-workspace column names
-(`cf_<wsprefix>_<slug>`, deviating from the tickets' naming), sharing the
-physical column across workspaces when type matches (RLS already isolates
-the values), or catching 42701 and surfacing an honest 409. **Flagged for
-resolution in the engine task with evidence; the chosen answer will be
-appended to this record.**
+never resolved.
+
+**Decision: keep the tickets' global `cf_<slug>` names and surface the
+collision as an honest 409.** Inside the engine's transaction, BEFORE the
+ALTER, the create pre-checks `information_schema.columns` for the derived
+column on the target table:
+
+- column exists **and this workspace holds a catalog row** for it → the
+  ordinary per-workspace duplicate-slug conflict (409, "already exists on
+  <object> in this workspace") — the same answer the unique index gives.
+- column exists **with no catalog row here** → another workspace claimed
+  the name: a typed `ColumnTakenError` → 409 with the actionable remedy
+  ("this field name is taken platform-wide; choose another label"). The
+  response discloses only that a bare column NAME is in use — not which
+  tenant holds it or what it contains.
+- `42701` from the ALTER itself is caught as the same `ColumnTakenError`
+  (belt for columns added outside the engine, e.g. a fork's `x_`-adjacent
+  migration racing a create).
+
+Concurrent creates are serialized by a `pg_advisory_xact_lock` keyed on
+the target table (`hashtextextended('customfields:' || object)`), taken
+before the pre-check: the loser of a race sees the winner's committed
+column in the pre-check instead of colliding mid-ALTER, so the 42701 path
+is a defensive branch, not the mechanism. The lock is transaction-scoped
+and auto-releases at COMMIT/ROLLBACK; SetOptions takes the same lock
+(row-lock-then-advisory in every flow that holds both, so the two DDL
+paths cannot deadlock each other).
+
+This is an **honest limitation of the shared-table model**: tenant A
+claiming `cf_renewal_date` on `deal` blocks tenant B's identical label
+platform-wide (B picks another label; the per-workspace catalog stays
+authoritative for what B actually has). Rejected alternatives:
+
+- **Per-workspace column prefixes (`cf_<wsprefix>_<slug>`)** — removes
+  the cross-tenant collision but breaks the tickets' `cf_<slug>` naming
+  contract (CUSTOM-FIELDS-PARAM-3/SCHEMA-2: column_name derives from the
+  slug alone), and leaks a workspace identifier into every physical
+  column name.
+- **Sharing the physical column across workspaces when the type matches**
+  — RLS would isolate the values, but the column's lifecycle (retire,
+  options CHECK regeneration) is per-workspace catalog state: one
+  tenant's options edit would rewrite a CHECK constraint that other
+  tenants' values must then satisfy — cross-tenant blast radius through
+  DDL, disqualifying.
+
+### Resolved with it — the write shape's event half
+
+The catalog mutations are **audit-only by ratification**: the closed
+event catalog (events.md §5) defines no `custom_field.*` type, and the
+spec's custom-fields.md §Events pins the add/rename/retire trail to the
+audit entry ("not a bus event"). A cross-object catalog change also has
+no single family stream to ride (the same reasoning as attachments).
+Ratified in `backend/writeshape_test.go`'s `auditOnlyWrites`; custom-field
+*value* changes on records will ride the owning entity's `*.updated`
+delta events when values land (arc 2a-ii).

@@ -8,9 +8,9 @@
 // from the validated spec (never raw user text), and detects a structural
 // request so a caller can refuse it. This file is the pure engine core —
 // no DB handle, no HTTP — so the DDL strings it returns can be exercised
-// without a database in the unit-test lane; a later ticket wires the
-// transaction that runs them (ALTER TABLE + custom_field catalog INSERT +
-// one audit_log row, atomically, per the module's write-shape rule).
+// without a database in the unit-test lane; the Service (service.go)
+// wires the schema-pool transaction that runs them (ALTER TABLE +
+// custom_field catalog INSERT + one audit_log row, atomically).
 package customfields
 
 import (
@@ -88,6 +88,7 @@ const (
 	fieldCurrency = "currency"
 	fieldOptions  = "options"
 	fieldSource   = "source"
+	fieldStatus   = "status"
 	codeRequired  = "required"
 
 	// codeInvalidCharacters flags a picklist option carrying a NUL byte or

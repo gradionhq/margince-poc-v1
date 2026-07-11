@@ -120,6 +120,24 @@ func Setup(t *testing.T) *Env {
 	return e
 }
 
+// SchemaPool opens the owner-privileged schema-change pool the
+// customfields engine's DDL transaction rides (decisions/0024) — the
+// integration stand-in for a mounted MARGINCE_SCHEMA_DSN, built from the
+// same owner DSN the migration step uses.
+func SchemaPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := os.Getenv("MARGINCE_TEST_DSN")
+	if dsn == "" {
+		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	pool, err := database.NewPool(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
 // OwnerConn opens the schema-owner connection tests use to shift
 // timestamps the app role's RLS-bound path could never touch.
 func OwnerConn(t *testing.T) *pgx.Conn {
