@@ -5567,21 +5567,26 @@ export interface components {
         Id: string;
         /**
          * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-         *     effective `sort` and `filter` of the originating request plus the last row's keyset
-         *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-         *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-         *     or filter that differs from the one the cursor was minted under returns
-         *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+         *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+         *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+         *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+         *     together with a `sort` that differs from the one the cursor was minted under returns
+         *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+         *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+         *     remaining pages see, so re-issue the query without the cursor when changing filters.
          */
         Cursor: string;
         /** @description Max items in the page. */
         Limit: number;
         /**
-         * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-         *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-         *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-         *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-         *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+         * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+         *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+         *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+         *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+         *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+         *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+         *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+         *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
          */
         Sort: string;
         /** @description Include soft-deleted (archived) rows. Default false. */
@@ -5821,21 +5826,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -6080,21 +6090,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -6467,21 +6482,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 partner_role?: "hosting" | "consulting" | "strategic";
@@ -6512,21 +6532,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -7059,21 +7084,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -7729,11 +7759,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -7902,11 +7934,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -7943,21 +7977,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -8212,11 +8251,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -8439,11 +8480,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -8856,11 +8899,13 @@ export interface operations {
                 types?: ("person" | "organization" | "deal" | "activity" | "lead")[];
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -8967,11 +9012,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9117,11 +9164,13 @@ export interface operations {
                 status?: "open" | "in_progress" | "fulfilled" | "rejected";
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9213,11 +9262,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9258,11 +9309,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9298,11 +9351,13 @@ export interface operations {
             query: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9340,21 +9395,26 @@ export interface operations {
             query: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Target core object (CUSTOM-FIELDS-PARAM-2). */
@@ -9661,11 +9721,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9834,11 +9896,13 @@ export interface operations {
                 subject_id?: string;
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -9974,11 +10038,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -10214,21 +10280,26 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
                 /**
-                 * @description Sort spec: comma-separated fields, `-` prefix = descending (e.g. `-updated_at,full_name`).
-                 *     `id` is always appended as the final tie-breaker so ordering is total and the keyset cursor
-                 *     is deterministic. **Allowed sort fields per resource** are the indexed columns enumerated in
-                 *     data-model.md §13 (Sort/filter vocabulary); the default sort when omitted is `-created_at,id`.
-                 *     An out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
@@ -10388,11 +10459,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -10810,11 +10883,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
@@ -11292,11 +11367,13 @@ export interface operations {
             query: {
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` and `filter` of the originating request plus the last row's keyset
-                 *     (sort-key tuple + `id` tie-breaker). **Stability:** results are stable under concurrent
-                 *     inserts/updates (keyset pagination, not offset). Supplying `cursor` together with a `sort`
-                 *     or filter that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor.
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
                  */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */

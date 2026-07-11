@@ -79,6 +79,30 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
+	// A cursor that decodes but was minted under a different sort carries
+	// the contract's dedicated code — the caller re-issues the query
+	// without the cursor (or under the sort it was minted with).
+	var cursorMismatch *storekit.CursorSortMismatchError
+	if errors.As(err, &cursorMismatch) {
+		Write(w, r, Validation("cursor", "cursor_param_mismatch",
+			"cursor was minted under a different sort; re-issue the query without the cursor"))
+		return
+	}
+
+	// The list vocabularies' typed refusals (data-model §13.5): a sort
+	// spec or filter leaf outside the resource's closed vocabulary carries
+	// its own field and machine code — one wire mapping, like the cursor's.
+	var badSort *storekit.SortError
+	if errors.As(err, &badSort) {
+		Write(w, r, Validation("sort", badSort.Code, badSort.Message))
+		return
+	}
+	var badPredicate *storekit.PredicateError
+	if errors.As(err, &badPredicate) {
+		Write(w, r, Validation(badPredicate.Field, badPredicate.Code, badPredicate.Message))
+		return
+	}
+
 	// A value object refused to parse: client input in the wrong format,
 	// carrying its own field and machine code — the parse-don't-validate
 	// seam's single wire mapping.

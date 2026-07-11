@@ -56,31 +56,27 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	active, err := s.activeColumns(ctx)
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
 
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
-		current, err := readDeal(ctx, tx, id, storekit.LiveOnly)
+		// A decision read (stage/amount snapshot for the transition patch
+		// and history row) — advance touches no custom columns, so the
+		// pre-image needs none; the wire-returning read below carries them.
+		current, err := readDeal(ctx, tx, id, storekit.LiveOnly, nil)
 		if err != nil {
 			return fmt.Errorf("read deal before advance: %w", err)
 		}
 
-		var semantic string
-		var stagePipeline ids.PipelineID
-		var winProbability int
-		err = tx.QueryRow(ctx,
-			`SELECT semantic, pipeline_id, win_probability FROM stage WHERE id = $1 AND archived_at IS NULL`,
-			in.ToStageID).Scan(&semantic, &stagePipeline, &winProbability)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
+		semantic, winProbability, err := resolveAdvanceTarget(ctx, tx, in.ToStageID, current)
 		if err != nil {
-			return fmt.Errorf("resolve target stage: %w", err)
-		}
-		if stagePipeline.UUID != ids.UUID(current.PipelineId) {
-			return &StagePipelineMismatchError{StageID: in.ToStageID}
+			return err
 		}
 
 		p, status, err := stageTransitionPatch(ctx, tx, current, in, semantic)
@@ -122,12 +118,32 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		}); err != nil {
 			return fmt.Errorf("emit deal.stage_changed: %w", err)
 		}
-		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced deal: %w", err)
 		}
 		return nil
 	})
 	return out, err
+}
+
+// resolveAdvanceTarget reads the target stage's semantic and win
+// probability and enforces that it belongs to the deal's own pipeline —
+// a stage from another pipeline is a 422, a missing/archived stage a 404.
+func resolveAdvanceTarget(ctx context.Context, tx pgx.Tx, toStage ids.StageID, current crmcontracts.Deal) (semantic string, winProbability int, err error) {
+	var stagePipeline ids.PipelineID
+	err = tx.QueryRow(ctx,
+		`SELECT semantic, pipeline_id, win_probability FROM stage WHERE id = $1 AND archived_at IS NULL`,
+		toStage).Scan(&semantic, &stagePipeline, &winProbability)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", 0, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("resolve target stage: %w", err)
+	}
+	if stagePipeline.UUID != ids.UUID(current.PipelineId) {
+		return "", 0, &StagePipelineMismatchError{StageID: toStage}
+	}
+	return semantic, winProbability, nil
 }
 
 // stageTransitionPatch derives the row changes one stage move implies

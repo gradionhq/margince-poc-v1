@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // addressColumns destructures the contract's Address into the six
@@ -159,13 +160,16 @@ const personColumns = `id, workspace_id, full_name, first_name, last_name, title
 	merged_into_id, converted_from_lead_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
-func readPerson(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storekit.ArchivedFilter) (crmcontracts.Person, error) {
-	q := `SELECT ` + personColumns + ` FROM person WHERE id = $1`
+// readPerson resolves one person row; active names the custom-field
+// columns to carry alongside the core ones — nil for internal decision
+// reads whose result never reaches the wire.
+func readPerson(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Person, error) {
+	q := `SELECT ` + personColumns + storekit.SelectSuffix(active) + ` FROM person WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
 	row := tx.QueryRow(ctx, q, id)
-	p, err := scanPerson(row)
+	p, err := scanPerson(row, active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Person{}, apperrors.ErrNotFound
 	}
@@ -180,19 +184,28 @@ func readPerson(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storek
 	return people[0], nil
 }
 
-func scanPerson(row pgx.Row) (crmcontracts.Person, error) {
+// scanPerson scans core + active custom columns; extra receives any
+// trailing expressions the caller's SELECT appended (the sorted list's
+// cursor key).
+func scanPerson(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Person, error) {
 	var p crmcontracts.Person
 	var id, wsID ids.UUID
 	var ownerID, mergedInto, fromLead *ids.UUID
 	var addr crmcontracts.Address
 	var version int64
 
-	err := row.Scan(&id, &wsID, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
+	dests := []any{
+		&id, &wsID, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&mergedInto, &fromLead, &p.Source, &p.CapturedBy,
-		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
-	if err != nil {
+		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt,
+	}
+	cf := storekit.ScanDests(active)
+	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return p, err
+	}
+	if values := storekit.ExtractValues(active, cf); len(values) > 0 {
+		p.AdditionalProperties = values
 	}
 
 	p.Id = openapi_types.UUID(id)

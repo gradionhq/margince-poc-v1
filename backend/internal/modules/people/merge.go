@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // The §1.3 two-record merge (features/01, data-model §3.2): A→B relinks
@@ -90,10 +91,14 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.PersonID
 		return crmcontracts.Person{}, &MergeSelfError{}
 	}
 
+	active, err := s.activeColumns(ctx, "person")
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	var out crmcontracts.Person
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = s.mergePersonTx(ctx, tx, sourceID, targetID)
+		out, err = s.mergePersonTx(ctx, tx, sourceID, targetID, active)
 		return err
 	})
 	return out, err
@@ -105,7 +110,7 @@ func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.PersonID
 // is what makes the target check hold until commit: without it a
 // concurrent merge(target→elsewhere) could archive the survivor
 // mid-merge, leaving relinked children pointing at a dead record.
-func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
+func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.PersonID, active []fieldcatalog.Column) (crmcontracts.Person, error) {
 	_, tgtLock, err := storekit.LockPair(ctx, tx, "person", sourceID.UUID, targetID.UUID)
 	if err != nil {
 		return crmcontracts.Person{}, err
@@ -142,7 +147,7 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 	}); err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("emit person.merged: %w", err)
 	}
-	out, err := readPerson(ctx, tx, targetID, storekit.LiveOnly)
+	out, err := readPerson(ctx, tx, targetID, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("read surviving person: %w", err)
 	}
@@ -247,7 +252,9 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 // it was plain-archived, not merged). readOrgMergeState (merge_organization.go)
 // is its organization twin.
 func readPersonMergeState(ctx context.Context, tx pgx.Tx, id ids.PersonID) (crmcontracts.Person, *ids.UUID, error) {
-	p, err := readPerson(ctx, tx, id, storekit.IncludeArchived)
+	// A merge-state read feeds the resolution decision, never the wire —
+	// core columns suffice.
+	p, err := readPerson(ctx, tx, id, storekit.IncludeArchived, nil)
 	if err != nil {
 		return crmcontracts.Person{}, nil, err
 	}

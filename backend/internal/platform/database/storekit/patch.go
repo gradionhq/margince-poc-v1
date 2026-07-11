@@ -53,6 +53,21 @@ func (p *Patch) Set(column string, oldVal, newVal any) {
 	p.after[column] = newVal
 }
 
+// setQuoted records one changed column whose SQL identifier is quoted in
+// the SET fragment while the audit diff keeps the bare name. Core columns
+// stay on Set (their names are fixed literals in each store's SQL);
+// catalog-derived cf_ columns come through here (SetCustomFieldPatch) so
+// a column name never reaches the UPDATE text unquoted, and
+// audit_log.before/after keys stay wire names, not SQL identifiers.
+//
+//craft:ignore naked-any same column-value contract as Set
+func (p *Patch) setQuoted(column string, oldVal, newVal any) {
+	p.args = append(p.args, newVal)
+	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", quoteColumnIdentifier(column), len(p.args)))
+	p.before[column] = oldVal
+	p.after[column] = newVal
+}
+
 func (p *Patch) Empty() bool { return len(p.sets) == 0 }
 
 // Before and After expose the audit diff the accumulated Set calls built.

@@ -20,22 +20,47 @@ type Page struct {
 
 // Cursor is the opaque keyset token: the last row's (created_at, id)
 // under the default -created_at,id sort. Keyset, never offset (CAP-PAGE).
+// A non-default sort (listquery.go) extends the tuple with the sort
+// field, its direction, and the last row's key in Postgres text form
+// (nil = the row sits in the NULL tail), so a token can only continue
+// the ordering it was minted under.
 type Cursor struct {
 	CreatedAt time.Time `json:"t"`
 	ID        ids.UUID  `json:"id"`
+	SortField string    `json:"s,omitempty"`
+	SortDesc  bool      `json:"d,omitempty"`
+	SortKey   *string   `json:"v,omitempty"`
 }
 
 func EncodeCursor(createdAt time.Time, id ids.UUID) string {
-	raw, _ := json.Marshal(Cursor{CreatedAt: createdAt, ID: id})
+	return mintCursorToken(Cursor{CreatedAt: createdAt, ID: id})
+}
+
+func mintCursorToken(c Cursor) string {
+	//craft:ignore swallowed-errors Cursor is plain data (time, uuid, string fields) — json.Marshal cannot fail on it, and a token mint has no error channel to a caller mid-page
+	raw, _ := json.Marshal(c)
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
 // MalformedCursorError is a client fault: the opaque keyset token is
-// client-supplied input, so failing to decode it maps to a 4xx at the
+// client-supplied input, so failing to decode it — or a decoded sort key
+// that does not parse as the sort column's kind — maps to a 4xx at the
 // transport (httperr), never a 500.
 type MalformedCursorError struct{}
 
 func (*MalformedCursorError) Error() string { return "store: malformed cursor" }
+
+// CursorSortMismatchError is the other cursor client fault: the token
+// decodes fine but was minted under a different sort (field or
+// direction), so its keyset tuple cannot continue this list. Distinct
+// from MalformedCursorError because the contract's Cursor parameter
+// promises its own code (422 cursor_param_mismatch) for exactly this
+// case — the caller drops the cursor or restores the original sort.
+type CursorSortMismatchError struct{}
+
+func (*CursorSortMismatchError) Error() string {
+	return "store: cursor was minted under a different sort"
+}
 
 func DecodeCursor(token string) (Cursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(token)

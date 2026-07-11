@@ -35,6 +35,8 @@ func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, para
 		Limit:           params.Limit,
 		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		Sort:            params.Sort,
+		CustomFilters:   httperr.CustomFieldFilters(r),
 	}
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 

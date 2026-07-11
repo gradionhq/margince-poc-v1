@@ -244,7 +244,10 @@ func WithBrief(brain runner.Brain) Option {
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
-	dealsH := deals.NewHandlers(pool)
+	// The fieldcatalog seam for deals (the peopleHandlers wiring in
+	// newServer carries the full note): active cf_* deal columns ride
+	// deal payloads on both surfaces.
+	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
 	// On workspace bootstrap, deals seeds its per-workspace defaults
 	// (the default pipeline) — composed here so neither module imports
 	// the other.
@@ -295,8 +298,12 @@ func workspaceSeed(dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
 // is injected HERE, never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
 	return Server{
-		authHandlers:   authH,
-		peopleHandlers: people.NewHandlers(pool),
+		authHandlers: authH,
+		// The fieldcatalog seam: customfields' catalog read makes the
+		// workspace's active cf_* columns ride person/organization
+		// payloads (values only — the schema-change engine stays behind
+		// WithSchemaPool; ActiveColumns needs none of it).
+		peopleHandlers: people.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		dealsHandlers:  dealsH,
 		activitiesHandlers: activities.NewHandlers(pool).
 			WithConsent(consent.NewGate(consent.NewStore(pool))).

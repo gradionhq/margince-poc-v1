@@ -13,6 +13,7 @@ package privacy
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -76,6 +77,9 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 			return apperrors.ErrNotFound
 		}
 		pkg.Subject = subject[0]
+		if err := appendSubjectCustomValues(ctx, tx, personID, pkg.Subject); err != nil {
+			return err
+		}
 
 		for _, section := range sections {
 			rows, err := rowMaps(ctx, tx, section.query, personID)
@@ -91,6 +95,29 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 		return err
 	})
 	return pkg, err
+}
+
+// appendSubjectCustomValues merges the subject's stored cf_ values into
+// the export's subject map, keyed by column name. The column set comes
+// from the catalog with ANY status (see subjectcolumns.go): Art. 15 owes
+// the subject everything HELD, and a retired field's column still stores
+// its values. Extraction rides the same storekit mechanics the record
+// surface reads with, so each value exports in its documented wire shape;
+// a NULL column stays absent, like every other empty section detail.
+func appendSubjectCustomValues(ctx context.Context, tx pgx.Tx, personID ids.PersonID, subject map[string]any) error {
+	columns, err := subjectCustomColumns(ctx, tx, "person")
+	if err != nil || len(columns) == 0 {
+		return err
+	}
+	dests := storekit.ScanDests(columns)
+	query := `SELECT ` + strings.TrimPrefix(storekit.SelectSuffix(columns), ", ") + ` FROM person WHERE id = $1`
+	if err := tx.QueryRow(ctx, query, personID).Scan(dests...); err != nil {
+		return err
+	}
+	for name, value := range storekit.ExtractValues(columns, dests) {
+		subject[name] = value
+	}
+	return nil
 }
 
 // sarSection pairs a destination package section with the query that fills

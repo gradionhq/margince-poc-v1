@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -69,6 +70,26 @@ func WriteJSON(w http.ResponseWriter, status int, body any) {
 	w.WriteHeader(status)
 	//craft:ignore swallowed-errors WriteHeader already committed the response — nothing can report an encode failure to the client anymore
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// CustomFieldFilters collects a list request's cf_* query parameters —
+// the custom-column equality filters (data-model §13.5 / CF-T05). They
+// are dynamic per workspace, so the OpenAPI contract cannot declare them
+// as typed parameters; the store validates each against the ACTIVE
+// column catalog (422 on an unknown/retired name or a malformed value).
+// nil when the request carries none, so the zero request costs nothing.
+func CustomFieldFilters(r *http.Request) map[string]string {
+	var filters map[string]string
+	for key, values := range r.URL.Query() {
+		if !strings.HasPrefix(key, "cf_") || len(values) == 0 {
+			continue
+		}
+		if filters == nil {
+			filters = make(map[string]string)
+		}
+		filters[key] = values[0]
+	}
+	return filters
 }
 
 // IfMatchVersion reads the optional If-Match row version (data-model

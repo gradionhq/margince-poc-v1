@@ -198,16 +198,23 @@ func (e *Eraser) eraseAttachments(ctx context.Context, tx pgx.Tx, where string, 
 // reference it), the email/phone child rows delete outright, the
 // SEGREGATED lead twin — the lead they were promoted from, and any lead
 // row carrying one of their addresses — anonymizes the same way, and
-// the subject's own embeddings drop. It returns the wiped lead ids so
-// the caller can tombstone each twin's own audit spine.
+// the subject's own embeddings drop. Both anonymizing UPDATEs also NULL
+// every catalog-defined cf_ column, retired included — a custom column
+// holds subject data exactly like a core one (see subjectcolumns.go).
+// It returns the wiped lead ids so the caller can tombstone each twin's
+// own audit spine.
 func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]ids.UUID, error) {
-	if _, err := tx.Exec(ctx, `
+	personCustom, err := subjectCustomColumns(ctx, tx, "person")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
 		  title = NULL, raw = NULL,
 		  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
 		  address_region = NULL, address_postal_code = NULL, address_country = NULL,
-		  archived_at = coalesce(archived_at, now())
-		WHERE id = $1`, personID, erasedName); err != nil {
+		  archived_at = coalesce(archived_at, now())%s
+		WHERE id = $1`, nullColumnAssignments(personCustom)), personID, erasedName); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
@@ -226,11 +233,15 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	// feeds the touched lead ids to the DELETE, so the email match still
 	// sees the pre-anonymize addresses; the same ids flow back out for
 	// the per-twin tombstones.
-	rows, err := tx.Query(ctx, `
+	leadCustom, err := subjectCustomColumns(ctx, tx, "lead")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH wiped AS (
 		  UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,
 		    company_name = NULL, candidate_org_key = NULL, raw = NULL,
-		    archived_at = coalesce(archived_at, now())
+		    archived_at = coalesce(archived_at, now())%s
 		  WHERE promoted_person_id = $1
 		     OR id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
 		     OR (email IS NOT NULL AND lower(email) = ANY($2))
@@ -239,7 +250,7 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		  DELETE FROM field_provenance
 		  WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)
 		)
-		SELECT id FROM wiped`,
+		SELECT id FROM wiped`, nullColumnAssignments(leadCustom)),
 		personID, lowercased(emails))
 	if err != nil {
 		return nil, err

@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type Handlers struct {
@@ -26,6 +27,14 @@ type Handlers struct {
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
 	return Handlers{store: NewStore(pool)}
+}
+
+// WithFieldCatalog wires the workspace custom-field catalog into the
+// transport's store (see Store.WithFieldCatalog); compose injects
+// modules/customfields' Service here.
+func (h Handlers) WithFieldCatalog(catalog fieldcatalog.Reader) Handlers {
+	h.store = h.store.WithFieldCatalog(catalog)
+	return h
 }
 
 // duplicateID renders a duplicate error's existing-row pointer for the

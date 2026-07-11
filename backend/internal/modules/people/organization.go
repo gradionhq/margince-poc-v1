@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type CreateOrganizationInput struct {
@@ -32,6 +33,10 @@ type CreateOrganizationInput struct {
 	Address     *crmcontracts.Address
 	Domains     []OrgDomainInput
 	Source      string
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (customfields.go).
+	CustomFields map[string]any
 }
 
 func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInput) (crmcontracts.Organization, error) {
@@ -42,6 +47,10 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		return crmcontracts.Organization{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	active, err := s.activeColumns(ctx, "organization")
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
@@ -66,14 +75,18 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 
 		id := ids.New[ids.OrganizationKind]()
 		addr := addressColumns(in.Address)
+		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
+		args := []any{
+			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID,
+			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
+			in.Source, by,
+		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id,
 			                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-			                           source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID,
-			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
-			in.Source, by)
+			                           source, captured_by`+cfCols+`)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
+			append(args, cfArgs...)...)
 		if err != nil {
 			return fmt.Errorf("insert organization: %w", err)
 		}
@@ -89,7 +102,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id.UUID, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return fmt.Errorf("emit organization.created: %w", err)
 		}
-		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read created organization: %w", err)
 		}
 		return nil
@@ -101,12 +114,16 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, arch
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
 	var out crmcontracts.Organization
-	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+	err = s.tx(ctx, func(tx pgx.Tx) (err error) {
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, archived)
+		out, err = readOrganization(ctx, tx, id, archived, active)
 		return err
 	})
 	return out, err
@@ -119,10 +136,34 @@ type ListOrganizationsInput struct {
 	OwnerID         *ids.UserID
 	Classification  *string
 	IncludeArchived bool
+	// Sort is the contract's sort spec, validated against the core
+	// vocabulary below plus the workspace's active cf_ columns.
+	Sort *string
+	// CustomFilters carries the request's cf_* query parameters —
+	// equality matches against active custom columns (storekit listquery).
+	CustomFilters map[string]string
+}
+
+// organizationListFields is the organization list's core sortable
+// vocabulary — exactly the data-model §13.5 DM-VOCAB-2 set; active cf_
+// columns join it per request.
+var organizationListFields = map[string]string{
+	"created_at":   storekit.KindTimestamp,
+	"updated_at":   storekit.KindTimestamp,
+	"display_name": fieldcatalog.TypeText,
+	ownerIDColumn:  storekit.KindUUID,
 }
 
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(organizationListFields, active))
+	if err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
@@ -151,39 +192,39 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 	if in.Query != nil && *in.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*in.Query), "display_name"))
 	}
+	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	where = append(where, cfClauses...)
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
+		clause, err := sorted.KeysetClause(*in.Cursor, arg)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, clause)
 	}
 
 	var orgs []crmcontracts.Organization
 	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+orgColumns+` FROM organization WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+			`SELECT `+orgColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
+				` FROM organization WHERE `+strings.Join(where, " AND ")+
+				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			o, err := scanOrganization(rows)
-			if err != nil {
-				return err
-			}
-			orgs = append(orgs, o)
-		}
-		if err := rows.Err(); err != nil {
+		var cursorKeys []*string
+		if orgs, cursorKeys, err = scanOrganizationPage(rows, active, sorted); err != nil {
 			return err
 		}
 		if len(orgs) > limit {
 			orgs = orgs[:limit]
 			last := orgs[len(orgs)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return attachOrgDomains(ctx, tx, orgs)
 	})
@@ -191,6 +232,31 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		orgs = []crmcontracts.Organization{}
 	}
 	return orgs, page, err
+}
+
+// scanOrganizationPage drains one list query's rows: each organization
+// plus, under a non-default sort, the row's cursor key (the trailing
+// __cursor_key column CursorKeySuffix appended).
+func scanOrganizationPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Organization, []*string, error) {
+	var orgs []crmcontracts.Organization
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		o, err := scanOrganization(rows, active, extra...)
+		if err != nil {
+			return nil, nil, err
+		}
+		orgs = append(orgs, o)
+		cursorKeys = append(cursorKeys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return orgs, cursorKeys, nil
 }
 
 type UpdateOrganizationInput struct {
@@ -202,18 +268,26 @@ type UpdateOrganizationInput struct {
 	ParentOrgID *ids.OrganizationID
 	Address     *crmcontracts.Address
 	IfVersion   *int64
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (customfields.go).
+	CustomFields map[string]any
 }
 
 func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, in UpdateOrganizationInput) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
 	var out crmcontracts.Organization
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
-		current, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
+		current, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active)
 		if err != nil {
 			return fmt.Errorf("read organization before update: %w", err)
 		}
@@ -221,11 +295,12 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err != nil {
 			return err
 		}
+		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 		if p.Empty() {
 			out = current
 			return nil
 		}
-		out, err = writeOrganizationUpdate(ctx, tx, id, in.IfVersion, p)
+		out, err = writeOrganizationUpdate(ctx, tx, id, in.IfVersion, p, active)
 		return err
 	})
 	return out, err
@@ -249,7 +324,7 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		p.Set("size_band", current.SizeBand, *in.SizeBand)
 	}
 	if in.OwnerID != nil {
-		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+		p.Set(ownerIDColumn, current.OwnerId, *in.OwnerID)
 	}
 	if in.ParentOrgID != nil {
 		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {
@@ -272,7 +347,7 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 // writeOrganizationUpdate lands the patch on the write shape — domain row,
 // audit row, and organization.updated event in the one transaction — and
 // returns the reloaded survivor.
-func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, ifVersion *int64, p *storekit.Patch) (crmcontracts.Organization, error) {
+func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, ifVersion *int64, p *storekit.Patch, active []fieldcatalog.Column) (crmcontracts.Organization, error) {
 	if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, ifVersion); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("apply organization patch: %w", err)
 	}
@@ -283,7 +358,7 @@ func writeOrganizationUpdate(ctx context.Context, tx pgx.Tx, id ids.Organization
 	if err := storekit.Emit(ctx, tx, auditID, "organization.updated", "organization", id.UUID, p.After()); err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("emit organization.updated: %w", err)
 	}
-	out, err := readOrganization(ctx, tx, id, storekit.LiveOnly)
+	out, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("read updated organization: %w", err)
 	}
@@ -294,12 +369,16 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
 	var out crmcontracts.Organization
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
-		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return err
 		}
 
@@ -329,7 +408,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 		if err := storekit.Emit(ctx, tx, auditID, "organization.archived", "organization", id.UUID, nil); err != nil {
 			return err
 		}
-		out, err = readOrganization(ctx, tx, id, storekit.IncludeArchived)
+		out, err = readOrganization(ctx, tx, id, storekit.IncludeArchived, active)
 		return err
 	})
 	return out, err
@@ -340,12 +419,15 @@ const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_b
 	classification, relevance, parent_org_id, merged_into_id, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
-func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
-	q := `SELECT ` + orgColumns + ` FROM organization WHERE id = $1`
+// readOrganization resolves one organization row; active names the
+// custom-field columns to carry alongside the core ones — nil for
+// internal decision reads whose result never reaches the wire.
+func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Organization, error) {
+	q := `SELECT ` + orgColumns + storekit.SelectSuffix(active) + ` FROM organization WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
-	o, err := scanOrganization(tx.QueryRow(ctx, q, id))
+	o, err := scanOrganization(tx.QueryRow(ctx, q, id), active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Organization{}, apperrors.ErrNotFound
 	}
@@ -359,7 +441,10 @@ func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, arc
 	return orgs[0], nil
 }
 
-func scanOrganization(row pgx.Row) (crmcontracts.Organization, error) {
+// scanOrganization scans core + active custom columns; extra receives
+// any trailing expressions the caller's SELECT appended (the sorted
+// list's cursor key).
+func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Organization, error) {
 	var o crmcontracts.Organization
 	var id, wsID ids.UUID
 	var ownerID, parentID, mergedInto *ids.UUID
@@ -368,12 +453,18 @@ func scanOrganization(row pgx.Row) (crmcontracts.Organization, error) {
 	var addr crmcontracts.Address
 	var version int64
 
-	err := row.Scan(&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
+	dests := []any{
+		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&classification, &relevance, &parentID, &mergedInto, &o.Source, &o.CapturedBy,
-		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt)
-	if err != nil {
+		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt,
+	}
+	cf := storekit.ScanDests(active)
+	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return o, err
+	}
+	if values := storekit.ExtractValues(active, cf); len(values) > 0 {
+		o.AdditionalProperties = values
 	}
 
 	o.Id = openapi_types.UUID(id)

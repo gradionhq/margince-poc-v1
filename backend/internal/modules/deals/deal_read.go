@@ -21,18 +21,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 func (s *Store) GetDeal(ctx context.Context, id ids.DealID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	active, err := s.activeColumns(ctx)
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
 	var out crmcontracts.Deal
-	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+	err = s.tx(ctx, func(tx pgx.Tx) (err error) {
 		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
-		out, err = readDeal(ctx, tx, id, archived)
+		out, err = readDeal(ctx, tx, id, archived, active)
 		return err
 	})
 	return out, err
@@ -51,10 +56,40 @@ type ListDealsInput struct {
 	Status          *string
 	Stalled         *bool
 	IncludeArchived bool
+	// Sort is the contract's sort spec, validated against the core
+	// vocabulary below plus the workspace's active cf_ columns.
+	Sort *string
+	// CustomFilters carries the request's cf_* query parameters —
+	// equality matches against active custom columns (storekit listquery).
+	CustomFilters map[string]string
+}
+
+// dealNameColumn is the deal's display-name column, the quick-find
+// match expression. Deliberately NOT in the sortable vocabulary: the
+// data-model §13.5 DM-VOCAB-3 set does not list it.
+const dealNameColumn = "name"
+
+// dealListFields is the deal list's core sortable vocabulary — exactly
+// the data-model §13.5 DM-VOCAB-3 set; active cf_ columns join it per
+// request.
+var dealListFields = map[string]string{
+	"created_at":          storekit.KindTimestamp,
+	"updated_at":          storekit.KindTimestamp,
+	"last_activity_at":    storekit.KindTimestamp,
+	"amount_minor":        fieldcatalog.TypeCurrency,
+	"expected_close_date": fieldcatalog.TypeDate,
 }
 
 func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontracts.Deal, storekit.Page, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	active, err := s.activeColumns(ctx)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(dealListFields, active))
+	if err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
@@ -71,36 +106,40 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 		where = append(where, scope)
 	}
 
-	where, err = appendDealFilters(where, in, arg)
+	where = appendDealFilters(where, in, arg)
+	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
 	if err != nil {
 		return nil, storekit.Page{}, err
+	}
+	where = append(where, cfClauses...)
+	if in.Cursor != nil && *in.Cursor != "" {
+		clause, err := sorted.KeysetClause(*in.Cursor, arg)
+		if err != nil {
+			return nil, storekit.Page{}, err
+		}
+		where = append(where, clause)
 	}
 
 	var deals []crmcontracts.Deal
 	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+dealColumns+` FROM deal WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+			`SELECT `+dealColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
+				` FROM deal WHERE `+strings.Join(where, " AND ")+
+				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			d, err := scanDeal(rows)
-			if err != nil {
-				return err
-			}
-			deals = append(deals, d)
-		}
-		if err := rows.Err(); err != nil {
+		var cursorKeys []*string
+		if deals, cursorKeys, err = scanDealPage(rows, active, sorted); err != nil {
 			return err
 		}
 		if len(deals) > limit {
 			deals = deals[:limit]
 			last := deals[len(deals)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return nil
 	})
@@ -110,15 +149,41 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	return deals, page, err
 }
 
+// scanDealPage drains one list query's rows: each deal plus, under a
+// non-default sort, the row's cursor key (the trailing __cursor_key
+// column CursorKeySuffix appended).
+func scanDealPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Deal, []*string, error) {
+	var deals []crmcontracts.Deal
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		d, err := scanDeal(rows, active, extra...)
+		if err != nil {
+			return nil, nil, err
+		}
+		deals = append(deals, d)
+		cursorKeys = append(cursorKeys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return deals, cursorKeys, nil
+}
+
 // appendDealFilters translates the caller's list filters — archived
-// visibility, full-text query, the column equality filters, the stalled
-// predicate, and the keyset cursor — into WHERE clauses.
-func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) ([]string, error) {
+// visibility, full-text query, the column equality filters, and the
+// stalled predicate — into WHERE clauses (the cf_ filters and the keyset
+// cursor, which depends on the validated sort, stay in ListDeals).
+func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []string {
 	if !in.IncludeArchived {
 		where = append(where, "archived_at IS NULL")
 	}
 	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.QuickFindClause(arg(*in.Query), "name"))
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), dealNameColumn))
 	}
 	if in.PipelineID != nil {
 		where = append(where, storekit.SQLf("pipeline_id = $%d", arg(*in.PipelineID)))
@@ -154,14 +219,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) ([]
 			where = append(where, "NOT "+stalledSQL)
 		}
 	}
-	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
-		if err != nil {
-			return nil, err
-		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
-	}
-	return where, nil
+	return where
 }
 
 const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
@@ -169,19 +227,25 @@ const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
-func readDeal(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.ArchivedFilter) (crmcontracts.Deal, error) {
-	q := `SELECT ` + dealColumns + ` FROM deal WHERE id = $1`
+// readDeal resolves one deal row; active names the custom-field columns
+// to carry alongside the core ones — nil for internal decision reads
+// whose result never reaches the wire.
+func readDeal(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
+	q := `SELECT ` + dealColumns + storekit.SelectSuffix(active) + ` FROM deal WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
-	d, err := scanDeal(tx.QueryRow(ctx, q, id))
+	d, err := scanDeal(tx.QueryRow(ctx, q, id), active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Deal{}, apperrors.ErrNotFound
 	}
 	return d, err
 }
 
-func scanDeal(row pgx.Row) (crmcontracts.Deal, error) {
+// scanDeal scans core + active custom columns; extra receives any
+// trailing expressions the caller's SELECT appended (the sorted list's
+// cursor key).
+func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Deal, error) {
 	var d crmcontracts.Deal
 	var id, wsID, pipelineID, stageID ids.UUID
 	var orgID, ownerID, partnerID *ids.UUID
@@ -191,12 +255,18 @@ func scanDeal(row pgx.Row) (crmcontracts.Deal, error) {
 	var closeDateProvisional bool
 	var version int64
 
-	err := row.Scan(&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
+	dests := []any{
+		&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
 		&orgID, &ownerID, &partnerID, &status, &d.LostReason,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
-		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt)
-	if err != nil {
+		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,
+	}
+	cf := storekit.ScanDests(active)
+	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
 		return d, err
+	}
+	if values := storekit.ExtractValues(active, cf); len(values) > 0 {
+		d.AdditionalProperties = values
 	}
 	if forecastCat != nil {
 		cat := crmcontracts.DealForecastCategory(*forecastCat)
