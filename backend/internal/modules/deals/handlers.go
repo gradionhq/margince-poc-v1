@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
@@ -26,6 +27,12 @@ import (
 
 type Handlers struct {
 	store *Store
+	// blob backs the renderOffer endpoint's PDF write; nil means this
+	// role answers RenderOffer 501 (WithBlobstore opts a role in). Unlike
+	// activities' attachment store, the blob write lives here in
+	// transport, not the store — OfferStore's PrepareRender/
+	// SetPdfAssetRef seams (offer_render.go) stay blobstore-free.
+	blob blobstore.Store
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
@@ -37,6 +44,14 @@ func NewHandlers(pool *pgxpool.Pool) Handlers {
 // modules/customfields' Service here.
 func (h Handlers) WithFieldCatalog(catalog fieldcatalog.Reader) Handlers {
 	h.store = h.store.WithFieldCatalog(catalog)
+	return h
+}
+
+// WithBlobstore returns handlers whose renderOffer endpoint is backed by
+// the given object store; without it renderOffer answers 501 (the
+// attachments precedent, activities.Handlers.WithBlobstore).
+func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
+	h.blob = blob
 	return h
 }
 

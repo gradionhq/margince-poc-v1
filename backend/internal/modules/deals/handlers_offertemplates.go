@@ -4,6 +4,8 @@
 package deals
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -118,13 +120,41 @@ func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, i
 	httperr.WriteJSON(w, http.StatusOK, template)
 }
 
-// RenderOffer stays the explicit-501 shape until T4 wires the PDF
-// renderer + blobstore seam (offers-depth arc 4a) — this is the one
-// method compose/offertemplates.go's temporary scaffold covered that
-// this task does not implement; it moves here (rather than staying in
-// compose) so that scaffold file — and its now-redundant Server embed —
-// can be deleted outright once deals.Handlers covers the whole
-// six-operation surface the contract declared ahead of the module.
-func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id, _ crmcontracts.RenderOfferParams) {
-	httperr.NotImplemented(w, r, "RenderOffer")
+// RenderOffer builds the offer's branded PDF (offer_pdf.go) over
+// PrepareRender's resolved inputs, writes it to the object store at a
+// per-revision key, and persists the resulting ref via SetPdfAssetRef.
+// Without a wired blobstore (WithBlobstore) this stays an explicit 501 —
+// the same unwired-by-omission posture as activities' attachment
+// endpoints — rather than nil-derefing h.blob.
+func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.RenderOfferParams) {
+	if h.blob == nil {
+		httperr.NotImplemented(w, r, "RenderOffer")
+		return
+	}
+	offerID := pathID[ids.OfferKind](id)
+	ingredients, err := h.store.PrepareRender(r.Context(), offerID)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	pdfBytes, err := RenderOfferPDF(ingredients.Offer, ingredients.LineItems, ingredients.BuyerBlock, ingredients.IssuerName, ingredients.Locale)
+	if err != nil {
+		httperr.Write(w, r, fmt.Errorf("render offer pdf: %w", err))
+		return
+	}
+	revision := 0
+	if ingredients.Offer.Revision != nil {
+		revision = *ingredients.Offer.Revision
+	}
+	key := fmt.Sprintf("offers/%s/%s/%d.pdf", storekit.MustWorkspace(r.Context()), ids.UUID(id), revision)
+	if err := h.blob.Put(r.Context(), key, bytes.NewReader(pdfBytes), int64(len(pdfBytes)), "application/pdf"); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	updated, err := h.store.SetPdfAssetRef(r.Context(), offerID, key)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, updated)
 }

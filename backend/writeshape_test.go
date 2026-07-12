@@ -57,6 +57,7 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/deals:ArchiveProduct":              "the rate-card is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no product.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/deals:UpdateOffer":                 "draft-offer edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types (created/sent/accepted/rejected/superseded), no offer.updated",
 	"internal/modules/deals:ArchiveOffer":                "offer archive is ratified audit-only \u2014 events.md \u00a75.3 defines no offer.archived type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/deals:SetPdfAssetRef":              "persisting the rendered PDF's blob ref is ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.rendered, and the closed-verb law forbids inventing one build-side",
 	"internal/modules/deals:AddOfferLineItem":            "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",
 	"internal/modules/deals:UpdateOfferLineItem":         "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",
 	"internal/modules/deals:RemoveOfferLineItem":         "draft line edits are ratified audit-only \u2014 events.md \u00a75.3 defines only lifecycle offer.* types, no offer.updated",

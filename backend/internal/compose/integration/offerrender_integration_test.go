@@ -1,0 +1,264 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package integration
+
+// The offer render seam's store-level coverage (offers-depth arc 4a T4,
+// OFFER-AC-12/12a): PrepareRender gathers the PDF renderer's inputs
+// without ever opening blob storage — the buyer legal block mirrors
+// SendOffer's own snapshot rule (the frozen buyer_snapshot once sent, the
+// LIVE organization while still draft, nil when there is no buyer org at
+// all), the locale resolves through offer.template_id → offer_template.
+// locale with a de-DE fallback, and the issuer name prefers the frozen
+// issuer_snapshot the same way. SetPdfAssetRef is the standard
+// audited-update write shape. The HTTP-level render round trip (real blob
+// write, 501 when unwired) lives in the sibling
+// offerrender_http_integration_test.go.
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// offerRenderDeskPerms is the deal-desk grant this suite drives the offer
+// render seam under; offer_template is needed only for the locale test's
+// CreateOfferTemplate call.
+var offerRenderDeskPerms = principal.Permissions{
+	RoleKeys: []string{"deal_desk"},
+	Objects: map[string]principal.ObjectGrant{
+		"deal":           {Create: true, Read: true, Update: true},
+		"offer":          {Create: true, Read: true, Update: true},
+		"offer_template": {Create: true, Read: true},
+	},
+	RowScope: principal.RowScopeAll,
+}
+
+// renderOneLineOffer creates a one-line draft EUR offer on dealID (EUR
+// matches the harness workspace's base_currency, so Send never needs a
+// seeded FX rate).
+func renderOneLineOffer(ctx context.Context, t *testing.T, e *Env, dealID ids.UUID, in deals.CreateOfferInput) crmcontracts.Offer {
+	t.Helper()
+	if in.Currency == "" {
+		in.Currency = "EUR"
+	}
+	if in.Source == "" {
+		in.Source = "manual"
+	}
+	if in.LineItems == nil {
+		desc, price := "Retainer", int64(50000)
+		in.LineItems = []deals.OfferLineInputRow{{Description: &desc, Quantity: "1", UnitPriceMinor: &price}}
+	}
+	created, err := e.Deals.CreateOffer(ctx, ids.From[ids.DealKind](dealID), in)
+	if err != nil {
+		t.Fatalf("create offer: %v", err)
+	}
+	return created
+}
+
+func TestOfferRenderPrepareRender_DraftNoBuyerOrg_DefaultsLocaleAndOmitsBuyerBlock(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render fixture deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	ing, err := e.Deals.PrepareRender(ctx, offerID)
+	if err != nil {
+		t.Fatalf("prepare render: %v", err)
+	}
+	if ing.BuyerBlock != nil {
+		t.Fatalf("a buyer-org-less draft must render with a nil buyer block, got %+v", ing.BuyerBlock)
+	}
+	if ing.Locale != "de-DE" {
+		t.Fatalf("an offer with no template must default to locale de-DE, got %q", ing.Locale)
+	}
+	if ing.IssuerName == "" {
+		t.Fatal("PrepareRender must resolve a non-empty live issuer name")
+	}
+	if len(ing.LineItems) != 1 {
+		t.Fatalf("PrepareRender must carry the offer's line items, got %d", len(ing.LineItems))
+	}
+	if ing.Offer.NetMinor == nil || *ing.Offer.NetMinor != *created.NetMinor {
+		t.Fatalf("PrepareRender's offer must carry the same server-computed totals GetOffer shows, got %+v want %d", ing.Offer.NetMinor, *created.NetMinor)
+	}
+}
+
+func TestOfferRenderPrepareRender_DraftWithBuyerOrg_UsesLiveOrgNotAFrozenSnapshot(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render live-org deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	org, err := e.People.CreateOrganization(e.Admin(), people.CreateOrganizationInput{DisplayName: "Acme GmbH"})
+	if err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{BuyerOrgID: &orgID})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	ing, err := e.Deals.PrepareRender(ctx, offerID)
+	if err != nil {
+		t.Fatalf("prepare render: %v", err)
+	}
+	if ing.BuyerBlock == nil || ing.BuyerBlock["display_name"] != "Acme GmbH" {
+		t.Fatalf("a draft with a buyer org must render the live org's display_name, got %+v", ing.BuyerBlock)
+	}
+
+	// Renaming the org must show up on the NEXT render — while still
+	// draft, the block is the live org, never a frozen copy.
+	renamed := "Acme Renamed GmbH"
+	if _, err := e.People.UpdateOrganization(e.Admin(), orgID, people.UpdateOrganizationInput{DisplayName: &renamed}); err != nil {
+		t.Fatalf("rename organization: %v", err)
+	}
+	after, err := e.Deals.PrepareRender(ctx, offerID)
+	if err != nil {
+		t.Fatalf("prepare render after rename: %v", err)
+	}
+	if after.BuyerBlock["display_name"] != renamed {
+		t.Fatalf("a still-draft offer must reflect the org's LIVE name, got %+v", after.BuyerBlock)
+	}
+}
+
+func TestOfferRenderPrepareRender_Sent_UsesFrozenBuyerAndIssuerSnapshot(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render sent deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	org, err := e.People.CreateOrganization(e.Admin(), people.CreateOrganizationInput{DisplayName: "Frozen Co"})
+	if err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{BuyerOrgID: &orgID})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	if _, err := e.Deals.SendOffer(ctx, offerID, nil); err != nil {
+		t.Fatalf("send offer: %v", err)
+	}
+
+	// Renaming the org AFTER send must not move the sent offer's block:
+	// the frozen buyer_snapshot is the legal record from here on.
+	renamed := "Renamed After Send"
+	if _, err := e.People.UpdateOrganization(e.Admin(), orgID, people.UpdateOrganizationInput{DisplayName: &renamed}); err != nil {
+		t.Fatalf("rename organization: %v", err)
+	}
+
+	ing, err := e.Deals.PrepareRender(ctx, offerID)
+	if err != nil {
+		t.Fatalf("prepare render: %v", err)
+	}
+	if ing.BuyerBlock == nil || ing.BuyerBlock["display_name"] != "Frozen Co" {
+		t.Fatalf("a sent offer must render the FROZEN buyer name, got %+v", ing.BuyerBlock)
+	}
+}
+
+func TestOfferRenderPrepareRender_TemplateLocaleResolvesFromOfferTemplate(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render locale deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	tmpl, err := e.Deals.CreateOfferTemplate(ctx, deals.CreateOfferTemplateInput{
+		Name: "English Standard", Locale: "en-US", Layout: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("create offer template: %v", err)
+	}
+	templateID := ids.From[ids.OfferTemplateKind](ids.UUID(tmpl.Id))
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{TemplateID: &templateID})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+	if created.TemplateId == nil || ids.UUID(*created.TemplateId) != templateID.UUID {
+		t.Fatalf("the created offer must echo template_id, got %+v", created.TemplateId)
+	}
+
+	ing, err := e.Deals.PrepareRender(ctx, offerID)
+	if err != nil {
+		t.Fatalf("prepare render: %v", err)
+	}
+	if ing.Locale != "en-US" {
+		t.Fatalf("PrepareRender must resolve locale via the offer's template, got %q want en-US", ing.Locale)
+	}
+
+	// An unknown template_id is refused up front — never a raw FK 500.
+	bogus := ids.New[ids.OfferTemplateKind]()
+	if _, err := e.Deals.CreateOffer(ctx, ids.From[ids.DealKind](dealID), deals.CreateOfferInput{
+		Currency: "EUR", Source: "manual", TemplateID: &bogus,
+	}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("create offer with an unknown template_id = %v, want ErrNotFound", err)
+	}
+}
+
+func TestOfferRenderSetPdfAssetRef_PersistsAndAuditsExactlyOnce(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render asset-ref deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	before := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type = 'offer' AND action = 'update'`)
+
+	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1.pdf"
+	updated, err := e.Deals.SetPdfAssetRef(ctx, offerID, ref)
+	if err != nil {
+		t.Fatalf("set pdf asset ref: %v", err)
+	}
+	if updated.PdfAssetRef == nil || *updated.PdfAssetRef != ref {
+		t.Fatalf("SetPdfAssetRef must persist the given ref, got %+v want %q", updated.PdfAssetRef, ref)
+	}
+	if updated.Version == nil || *updated.Version != *created.Version+1 {
+		t.Fatalf("SetPdfAssetRef must bump version like every other offer update, got %+v", updated.Version)
+	}
+	after := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type = 'offer' AND action = 'update'`)
+	if after != before+1 {
+		t.Fatalf("SetPdfAssetRef must write exactly one audit row, before=%d after=%d", before, after)
+	}
+
+	got, err := e.Deals.GetOffer(ctx, offerID, storekit.LiveOnly)
+	if err != nil || got.PdfAssetRef == nil || *got.PdfAssetRef != ref {
+		t.Fatalf("the persisted pdf_asset_ref must survive a fresh read, got %+v, %v", got.PdfAssetRef, err)
+	}
+}
+
+func TestOfferRenderPrepareRender_RBACDeniedAndCrossTenantNotFound(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render rbac deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	noOfferGrant := principal.Permissions{
+		RoleKeys: []string{"no_offer"},
+		Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+		RowScope: principal.RowScopeAll,
+	}
+	denied := e.As(e.Rep2, []ids.UUID{e.Team1}, noOfferGrant)
+	if _, err := e.Deals.PrepareRender(denied, offerID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("PrepareRender without the offer read grant = %v, want ErrPermissionDenied", err)
+	}
+
+	if _, err := e.Deals.PrepareRender(ctx, ids.From[ids.OfferKind](ids.NewV7())); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("PrepareRender of an unknown offer id = %v, want ErrNotFound", err)
+	}
+}
