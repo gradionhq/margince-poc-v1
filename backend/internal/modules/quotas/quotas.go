@@ -27,11 +27,21 @@ import (
 // mutation rides the storekit audit shape in one transaction.
 type Store struct {
 	pool *pgxpool.Pool
+	// now is the store's clock: the attainment read's as-of instant,
+	// pace window, and FX as-of day all evaluate at it, so a pinned test
+	// reads the same moment it seeded against.
+	now func() time.Time
 }
 
 // NewStore wires the store over the RLS-bound app pool.
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return NewStoreWithClock(pool, time.Now)
+}
+
+// NewStoreWithClock is NewStore with an explicit clock (the
+// ratelimit.NewWithClock precedent) — the attainment suites pin it.
+func NewStoreWithClock(pool *pgxpool.Pool, now func() time.Time) *Store {
+	return &Store{pool: pool, now: now}
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
