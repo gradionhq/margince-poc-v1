@@ -42,11 +42,22 @@ type RenderIngredients struct {
 // PrepareRender resolves the render inputs for one offer: the caller must
 // hold offer read and be able to see the offer's deal (visibleOffer's
 // usual row-scope gate; a miss on either answers 404, existence-hiding).
+// It ALSO requires offer-update up front, even though this call itself
+// only reads: RenderOffer's overall operation ends in a write
+// (SetPdfAssetRef persists pdf_asset_ref), so gating on read alone would
+// let a read-only-role caller trigger a full PDF render and an object-store
+// Put before ever hitting the update check that used to live only in
+// SetPdfAssetRef — an orphan blob write ahead of the 403 it was always
+// going to get. Requiring both here, before the transaction even opens,
+// means a denied caller never reaches the render or the blob store at all.
 // It runs a single read-only transaction and never opens the blob store —
 // the caller (the render handler) writes the PDF bytes afterward and
 // commits the resulting ref through the separate SetPdfAssetRef call.
 func (s *Store) PrepareRender(ctx context.Context, id ids.OfferID) (RenderIngredients, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionRead); err != nil {
+		return RenderIngredients{}, err
+	}
+	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return RenderIngredients{}, err
 	}
 	var out RenderIngredients
@@ -159,7 +170,11 @@ func resolveRenderLocale(ctx context.Context, tx pgx.Tx, templateID *openapi_typ
 // and audits it as a standard offer update. PrepareRender's read and this
 // write are deliberately separate transactions — the blob.Put in between
 // cannot ride inside either one — so this step re-locks and re-verifies
-// visibility fresh rather than trusting the caller's earlier read.
+// visibility fresh rather than trusting the caller's earlier read. The
+// offer-update requirement below is a belt-and-braces repeat of
+// PrepareRender's own — the real admission gate for the whole render
+// operation lives there, before the render or the blob write, precisely so
+// a denied caller never reaches this far.
 func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err

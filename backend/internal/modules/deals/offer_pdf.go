@@ -81,11 +81,19 @@ func pdfBuyerBlockString(buyerBlock map[string]any, key string) string {
 	return v
 }
 
+// pdfTranslator converts a UTF-8 Go string to the byte sequence the core
+// Helvetica font's built-in cp1252 encoding expects, so Cell/MultiCell
+// render diacritics correctly instead of the raw UTF-8 bytes' mojibake
+// (e.g. "ö" as two separate cp1252 code points, "Ã¶"). Every function in
+// this file threads it through and applies it to every string it hands
+// to Cell — labels included, since translating plain ASCII is a no-op.
+type pdfTranslator func(string) string
+
 // writeOfferPDFHeader writes the title/revision/issuer block and, when
 // buyerBlock is non-nil, the buyer legal block underneath it. A nil
 // buyerBlock (an unsent draft with no buyer org) omits the section
 // entirely rather than printing an empty heading.
-func writeOfferPDFHeader(pdf *fpdf.Fpdf, o crmcontracts.Offer, buyerBlock map[string]any, issuerName string, labels pdfLabels) {
+func writeOfferPDFHeader(pdf *fpdf.Fpdf, tr pdfTranslator, o crmcontracts.Offer, buyerBlock map[string]any, issuerName string, labels pdfLabels) {
 	number := ""
 	if o.OfferNumber != nil {
 		number = *o.OfferNumber
@@ -96,31 +104,31 @@ func writeOfferPDFHeader(pdf *fpdf.Fpdf, o crmcontracts.Offer, buyerBlock map[st
 	}
 
 	pdf.SetFont("Helvetica", "B", 18)
-	pdf.Cell(0, 8, labels.title+" "+number)
+	pdf.Cell(0, 8, tr(labels.title+" "+number))
 	pdf.Ln(10)
 	pdf.SetFont("Helvetica", "", 11)
-	pdf.Cell(0, 6, "Revision "+strconv.Itoa(revision))
+	pdf.Cell(0, 6, tr("Revision "+strconv.Itoa(revision)))
 	pdf.Ln(7)
-	pdf.Cell(0, 6, "Issuer: "+issuerName)
+	pdf.Cell(0, 6, tr("Issuer: "+issuerName))
 	pdf.Ln(10)
 
 	if buyerBlock == nil {
 		return
 	}
 	pdf.SetFont("Helvetica", "B", 12)
-	pdf.Cell(0, 6, labels.buyer)
+	pdf.Cell(0, 6, tr(labels.buyer))
 	pdf.Ln(7)
 	pdf.SetFont("Helvetica", "", 11)
 	if id := pdfBuyerBlockString(buyerBlock, "organization_id"); id != "" {
-		pdf.Cell(0, 6, "Organization ID: "+id)
+		pdf.Cell(0, 6, tr("Organization ID: "+id))
 		pdf.Ln(6)
 	}
 	if displayName := pdfBuyerBlockString(buyerBlock, "display_name"); displayName != "" {
-		pdf.Cell(0, 6, displayName)
+		pdf.Cell(0, 6, tr(displayName))
 		pdf.Ln(6)
 	}
 	if legalName := pdfBuyerBlockString(buyerBlock, "legal_name"); legalName != "" {
-		pdf.Cell(0, 6, legalName)
+		pdf.Cell(0, 6, tr(legalName))
 		pdf.Ln(6)
 	}
 	pdf.Ln(4)
@@ -129,15 +137,15 @@ func writeOfferPDFHeader(pdf *fpdf.Fpdf, o crmcontracts.Offer, buyerBlock map[st
 // writeOfferPDFLineItems writes the line-items section. Each line's
 // displayed unit price is its own persisted snapshot (offer_lines.go);
 // this function shows it verbatim, deriving nothing.
-func writeOfferPDFLineItems(pdf *fpdf.Fpdf, lines []crmcontracts.OfferLineItem, currency string, labels pdfLabels) {
+func writeOfferPDFLineItems(pdf *fpdf.Fpdf, tr pdfTranslator, lines []crmcontracts.OfferLineItem, currency string, labels pdfLabels) {
 	pdf.SetFont("Helvetica", "B", 12)
-	pdf.Cell(0, 6, labels.lineItems)
+	pdf.Cell(0, 6, tr(labels.lineItems))
 	pdf.Ln(7)
 	pdf.SetFont("Helvetica", "", 10)
 	for _, li := range lines {
-		pdf.Cell(0, 5, fmt.Sprintf("%d. %s", li.Position, li.Description))
+		pdf.Cell(0, 5, tr(fmt.Sprintf("%d. %s", li.Position, li.Description)))
 		pdf.Ln(5)
-		pdf.Cell(0, 5, fmt.Sprintf("%s x %s", pdfFormatQuantity(li.Quantity), pdfFormatMinor(li.UnitPriceMinor, currency)))
+		pdf.Cell(0, 5, tr(fmt.Sprintf("%s x %s", pdfFormatQuantity(li.Quantity), pdfFormatMinor(li.UnitPriceMinor, currency))))
 		pdf.Ln(5)
 	}
 	pdf.Ln(2)
@@ -146,7 +154,7 @@ func writeOfferPDFLineItems(pdf *fpdf.Fpdf, lines []crmcontracts.OfferLineItem, 
 // writeOfferPDFTotals writes the money summary straight off o's already-
 // persisted Net/Tax/GrossMinor — the ONE totals figure this function (or
 // any part of this renderer) ever shows; nothing here re-sums the lines.
-func writeOfferPDFTotals(pdf *fpdf.Fpdf, o crmcontracts.Offer, labels pdfLabels) {
+func writeOfferPDFTotals(pdf *fpdf.Fpdf, tr pdfTranslator, o crmcontracts.Offer, labels pdfLabels) {
 	var net, tax, gross int64
 	if o.NetMinor != nil {
 		net = *o.NetMinor
@@ -158,14 +166,14 @@ func writeOfferPDFTotals(pdf *fpdf.Fpdf, o crmcontracts.Offer, labels pdfLabels)
 		gross = *o.GrossMinor
 	}
 	pdf.SetFont("Helvetica", "B", 12)
-	pdf.Cell(0, 6, "Totals")
+	pdf.Cell(0, 6, tr("Totals"))
 	pdf.Ln(7)
 	pdf.SetFont("Helvetica", "", 11)
-	pdf.Cell(0, 6, labels.net+": "+pdfFormatMinor(net, o.Currency))
+	pdf.Cell(0, 6, tr(labels.net+": "+pdfFormatMinor(net, o.Currency)))
 	pdf.Ln(6)
-	pdf.Cell(0, 6, labels.tax+": "+pdfFormatMinor(tax, o.Currency))
+	pdf.Cell(0, 6, tr(labels.tax+": "+pdfFormatMinor(tax, o.Currency)))
 	pdf.Ln(6)
-	pdf.Cell(0, 6, labels.gross+": "+pdfFormatMinor(gross, o.Currency))
+	pdf.Cell(0, 6, tr(labels.gross+": "+pdfFormatMinor(gross, o.Currency)))
 	pdf.Ln(6)
 }
 
@@ -189,15 +197,24 @@ func RenderOfferPDF(o crmcontracts.Offer, lines []crmcontracts.OfferLineItem, bu
 	pdf.SetCompression(false)
 	pdf.SetMargins(16, 16, 16)
 	pdf.SetAutoPageBreak(true, 16)
-	pdf.SetTitle(labels.title+" "+number, false)
-	pdf.SetCreator("margince", false)
-	pdf.SetAuthor(issuerName, false)
-	pdf.SetSubject(labels.title+" PDF", false)
+	// tr maps a UTF-8 string onto core Helvetica's built-in cp1252
+	// encoding — the launch DE/EN locale pair's Latin diacritics (ö, ü,
+	// ß, é, …) all round-trip through cp1252; a non-Latin locale (e.g.
+	// Cyrillic, CJK) would need an embedded TTF font instead, not
+	// attempted here since only DE/EN ship at launch.
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
+	// The isUTF8=true argument (unlike Cell's cp1252 byte stream) tells
+	// fpdf to UTF-16BE-encode the metadata itself, so the document
+	// properties survive a non-ASCII issuer/title too.
+	pdf.SetTitle(labels.title+" "+number, true)
+	pdf.SetCreator("margince", true)
+	pdf.SetAuthor(issuerName, true)
+	pdf.SetSubject(labels.title+" PDF", true)
 	pdf.AddPage()
 
-	writeOfferPDFHeader(pdf, o, buyerBlock, issuerName, labels)
-	writeOfferPDFLineItems(pdf, lines, o.Currency, labels)
-	writeOfferPDFTotals(pdf, o, labels)
+	writeOfferPDFHeader(pdf, tr, o, buyerBlock, issuerName, labels)
+	writeOfferPDFLineItems(pdf, tr, lines, o.Currency, labels)
+	writeOfferPDFTotals(pdf, tr, o, labels)
 
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {

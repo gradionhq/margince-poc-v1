@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/go-pdf/fpdf"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
@@ -106,6 +108,49 @@ func TestRenderOfferPDF_UsesStoredTotalsNeverRecomputes(t *testing.T) {
 	}
 	if bytes.Contains(pdf, []byte("1234.56 EUR")) {
 		t.Fatalf("PDF must NOT contain a freshly re-derived total from the lines (1234.56 EUR); it must use the stored figure only:\n%s", pdf)
+	}
+}
+
+// TestRenderOfferPDF_GermanDiacriticsRenderCorrectlyNotAsMojibake is the
+// non-ASCII proof the DE label suite's ASCII needles can never catch: a
+// buyer legal name, a line description and the issuer name all carry
+// real German diacritics (ö/ü/ß). Core Helvetica has no native UTF-8
+// support, so a renderer that fed these strings to Cell unconverted
+// would leave their raw UTF-8 bytes in the content stream — which a
+// cp1252-expecting viewer displays as mojibake ("ö" -> "Ã¶"). This test
+// asserts the OPPOSITE of that: the correctly cp1252-transcoded bytes
+// are present, and the raw-UTF-8 (mojibake-precursor) bytes are absent.
+func TestRenderOfferPDF_GermanDiacriticsRenderCorrectlyNotAsMojibake(t *testing.T) {
+	o := testRenderOffer(100000, 19000, 119000)
+	lines := []crmcontracts.OfferLineItem{
+		{Position: 1, Description: "Prüfgebühr Größe", Quantity: 1, UnitPriceMinor: 100000},
+	}
+	buyerBlock := map[string]any{"display_name": "Müller GmbH", "legal_name": "Müller Größe & Prüfung GmbH"}
+	issuerName := "Straße Verträge GmbH"
+
+	pdf, err := RenderOfferPDF(o, lines, buyerBlock, issuerName, "de-DE")
+	if err != nil {
+		t.Fatalf("RenderOfferPDF() error = %v", err)
+	}
+
+	// The SAME translator RenderOfferPDF uses (built the same way, over a
+	// throwaway document — UnicodeTranslatorFromDescriptor needs an
+	// *Fpdf receiver but no page/content of its own) gives the expected
+	// cp1252 byte form, so this test never hand-derives the encoding.
+	tr := fpdf.New("P", "mm", "A4", "").UnicodeTranslatorFromDescriptor("")
+	for _, want := range []string{"Prüfgebühr Größe", "Müller GmbH", "Müller Größe & Prüfung GmbH", "Straße Verträge GmbH"} {
+		if !bytes.Contains(pdf, []byte(tr(want))) {
+			t.Fatalf("PDF must contain the cp1252-transcoded form of %q", want)
+		}
+	}
+
+	// The raw UTF-8 bytes of any diacritic (what an untranslated Cell
+	// call would have left behind, and what renders as "Ã¶"-style
+	// mojibake in a cp1252 viewer) must never appear.
+	for _, mojibakeSeed := range []string{"ö", "ü", "ß"} {
+		if bytes.Contains(pdf, []byte(mojibakeSeed)) {
+			t.Fatalf("PDF must not contain the raw UTF-8 bytes of %q — that is the un-transcoded mojibake source", mojibakeSeed)
+		}
 	}
 }
 

@@ -20,11 +20,16 @@ package integration
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -42,6 +47,32 @@ var offerRenderDeskPerms = principal.Permissions{
 		"offer_template": {Create: true, Read: true},
 	},
 	RowScope: principal.RowScopeAll,
+}
+
+// offerRenderReadOnlyPerms mirrors the 0072 read_only grant applied to
+// the offer object specifically: read, never update. RenderOffer's write
+// (it persists pdf_asset_ref) must be gated on offer-update, not merely
+// offer-read, before it does any render/blob work.
+var offerRenderReadOnlyPerms = principal.Permissions{
+	RoleKeys: []string{"read_only"},
+	Objects: map[string]principal.ObjectGrant{
+		"deal":  {Read: true},
+		"offer": {Read: true},
+	},
+	RowScope: principal.RowScopeAll,
+}
+
+// spyBlobStore wraps a real blobstore.Store and records whether Put was
+// ever invoked — the test's proof that a denied render performs ZERO
+// blob work, not merely that the HTTP response was a 403.
+type spyBlobStore struct {
+	blobstore.Store
+	putCalled bool
+}
+
+func (s *spyBlobStore) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
+	s.putCalled = true
+	return s.Store.Put(ctx, key, r, size, contentType)
 }
 
 // renderOneLineOffer creates a one-line draft EUR offer on dealID (EUR
@@ -260,5 +291,61 @@ func TestOfferRenderPrepareRender_RBACDeniedAndCrossTenantNotFound(t *testing.T)
 
 	if _, err := e.Deals.PrepareRender(ctx, ids.From[ids.OfferKind](ids.NewV7())); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("PrepareRender of an unknown offer id = %v, want ErrNotFound", err)
+	}
+}
+
+// TestOfferRenderPrepareRender_ReadOnlyOfferGrantDenied is the store-level
+// half of the read-only-role proof: RenderOffer's write (it persists
+// pdf_asset_ref) is gated on offer-UPDATE from the very first line of
+// PrepareRender, not only in the later SetPdfAssetRef call — a principal
+// holding offer-read but not offer-update must never get past PrepareRender
+// at all, so the render handler never reaches RenderOfferPDF or the blob
+// store for such a caller.
+func TestOfferRenderPrepareRender_ReadOnlyOfferGrantDenied(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render read-only deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
+	if _, err := e.Deals.PrepareRender(readOnly, offerID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("PrepareRender with offer read but not update = %v, want ErrPermissionDenied", err)
+	}
+}
+
+// TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite drives
+// the actual HTTP handler (deals.Handlers.RenderOffer, the code the finding
+// named) for a read-only-offer-grant principal: the 403 must land BEFORE
+// the PDF is rendered and BEFORE anything reaches the blob store — a
+// read-only role must never cause an orphan blob write just to be told no.
+func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render read-only handler deal", pipeline, open, &e.Rep1)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderDeskPerms)
+
+	created := renderOneLineOffer(ctx, t, e, dealID, deals.CreateOfferInput{})
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	blob := &spyBlobStore{Store: blobstore.NewMemory()}
+	h := deals.NewHandlers(e.Pool).WithBlobstore(blob)
+
+	readOnly := e.As(e.Rep2, []ids.UUID{e.Team1}, offerRenderReadOnlyPerms)
+	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(readOnly)
+	rec := httptest.NewRecorder()
+	h.RenderOffer(rec, req, created.Id, crmcontracts.RenderOfferParams{})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("render as a read-only offer grant = %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if blob.putCalled {
+		t.Fatal("a denied render must never reach the blob write — that is the whole point of gating update up front")
+	}
+	key := fmt.Sprintf("offers/%s/%s/%d.pdf", e.WS, offerID.UUID, *created.Revision)
+	if _, _, err := blob.Get(context.Background(), key); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Fatalf("the render key must carry no object after a denied render, got err=%v", err)
 	}
 }
