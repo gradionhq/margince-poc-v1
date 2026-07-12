@@ -140,6 +140,15 @@ Merged so far:
   compose-orchestrated `extraction:accept` writing an allowlisted set of
   grounded fields onto the deal with per-field audited provenance
   (human-only V1). Closes Wave 3 of the poc-1 delta port.
+- **DE/EN offer templates + branded PDF render (offers-depth arc 4a)** —
+  the `offer_template` catalog (workspace config, one default per locale,
+  name-unique, the two named 409s) with CRUD gated by the new
+  `offer_template` RBAC object, and `POST /offers/{id}/render` producing
+  a go-pdf/fpdf branded DE/EN PDF (labels driven by the offer's template
+  locale) stored to the blobstore as `pdf_asset_ref` — render totals
+  equal the server-computed totals exactly (no drift). poc-v1's offer
+  lifecycle (send/accept/reject/FX-freeze/totals) is untouched. First
+  half of Wave 4; AI-drafted regeneration (delta 1) is arc 4b.
 
 ## Pick up here
 
