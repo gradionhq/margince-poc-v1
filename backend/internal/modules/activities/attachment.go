@@ -158,22 +158,23 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 // fetches storage_key/scan_status in the same round trip so its scan-gate
 // check reads a single consistent snapshot, rather than opening a second
 // query (and a TOCTOU gap) against the row it just gated.
-func resolveVisibleAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID, action principal.Action) (entityType string, entityID ids.UUID, err error) {
+func resolveVisibleAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID, action principal.Action) (entityType string, err error) {
+	var entityID ids.UUID
 	row := tx.QueryRow(ctx,
 		`SELECT entity_type, entity_id FROM attachment WHERE id = $1 AND archived_at IS NULL`, id)
 	switch scanErr := row.Scan(&entityType, &entityID); {
 	case errors.Is(scanErr, pgx.ErrNoRows):
-		return "", ids.UUID{}, apperrors.ErrNotFound
+		return "", apperrors.ErrNotFound
 	case scanErr != nil:
-		return "", ids.UUID{}, scanErr
+		return "", scanErr
 	}
 	if err := requireParentOrHide(ctx, entityType, action); err != nil {
-		return "", ids.UUID{}, err
+		return "", err
 	}
 	if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
-		return "", ids.UUID{}, err
+		return "", err
 	}
-	return entityType, entityID, nil
+	return entityType, nil
 }
 
 // OpenAttachment resolves a live attachment (row-scoped through its parent)
@@ -241,7 +242,7 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 func (s *Store) GetAttachmentMeta(ctx context.Context, id ids.UUID) (crmcontracts.Attachment, error) {
 	var out crmcontracts.Attachment
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, _, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionRead); err != nil {
+		if _, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionRead); err != nil {
 			return err
 		}
 		att, err := readAttachment(ctx, tx, id)
@@ -261,7 +262,7 @@ func (s *Store) GetAttachmentMeta(ctx context.Context, id ids.UUID) (crmcontract
 // scope). Archived/invisible reads as ErrNotFound.
 func (s *Store) ArchiveAttachment(ctx context.Context, id ids.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		entityType, _, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionUpdate)
+		entityType, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionUpdate)
 		if err != nil {
 			return err
 		}
