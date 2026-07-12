@@ -121,6 +121,47 @@ func TestQuotaCreate_XORRefusedBeforeInsert(t *testing.T) {
 	}
 }
 
+func TestQuotaWrite_NegativeTargetRefused(t *testing.T) {
+	e := Setup(t)
+	store := quotas.NewStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	// The contract's target_minor minimum (0) holds at the store for BOTH
+	// write paths — the generated decode enforces no numeric bounds, so
+	// create and the update's merged state carry the same typed refusal,
+	// before anything (row, audit) is written.
+	var negative *quotas.NegativeTargetError
+	if _, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, -1)); !errors.As(err, &negative) {
+		t.Fatalf("a negative target on create must answer NegativeTargetError, got %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM quota`); n != 0 {
+		t.Fatalf("a refused create must write no quota row, found %d", n)
+	}
+
+	created, err := store.CreateQuota(ctx, ownerQuotaInput(e.Rep1, 1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	minus := int64(-1)
+	if _, err := store.UpdateQuota(ctx, ids.UUID(created.Id), quotas.UpdateQuotaInput{TargetMinor: &minus}); !errors.As(err, &negative) {
+		t.Fatalf("patching target_minor negative must answer NegativeTargetError, got %v", err)
+	}
+	got, err := store.GetQuota(ctx, ids.UUID(created.Id), storekit.LiveOnly)
+	if err != nil || got.TargetMinor != 1000 {
+		t.Fatalf("a refused patch must leave the stored target untouched, got %+v, %v", got, err)
+	}
+
+	// The 0067 CHECK is the schema-level backstop behind the store gate:
+	// a write path that bypasses the store still cannot land a negative
+	// target.
+	_, err = OwnerConn(t).Exec(context.Background(),
+		`INSERT INTO quota (workspace_id, owner_id, period_start, period_end, target_minor, currency)
+		 VALUES ($1, $2, $3, $4, -1, 'EUR')`, e.WS, e.Rep1, q1Start, q1End)
+	if constraint, ok := storekit.CheckViolation(err); !ok || constraint != "quota_target_nonneg" {
+		t.Fatalf("a direct negative-target insert must violate quota_target_nonneg, got %v", err)
+	}
+}
+
 func TestQuotaCreate_UnknownOwnerOrTeamAnswersNotFound(t *testing.T) {
 	e := Setup(t)
 	store := quotas.NewStore(e.Pool)

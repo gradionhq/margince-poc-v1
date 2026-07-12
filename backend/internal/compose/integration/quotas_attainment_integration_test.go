@@ -217,6 +217,36 @@ func TestQuotaAttainment_CrossCurrencyTargetConvertsToBase(t *testing.T) {
 	}
 }
 
+func TestQuotaAttainment_ConvertedTargetZeroRefused(t *testing.T) {
+	e := Setup(t)
+	st := seedRollupStages(t, e)
+	store := attainmentStore(e)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	// A 1-minor-unit USD target at a 0.4 USD→EUR rate rounds to ZERO base
+	// minor units: the EFFECTIVE denominator is zero even though the
+	// stored target_minor is not, so the computation carries the same
+	// zero-target refusal — never an Inf/NaN attainment.
+	seedRollupFxRate(t, e, "USD", "0.4000000000", attainmentClock.AddDate(0, 0, -1))
+	in := ownerQuotaInput(e.Rep1, 1)
+	in.Currency = "USD"
+	created, err := store.CreateQuota(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A won deal that WOULD contribute: the refusal must not leak partial
+	// figures alongside the error.
+	seedWonDeal(t, e, st, e.Rep1, 5000000, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC))
+
+	att, err := store.QuotaAttainment(ctx, ids.UUID(created.Id))
+	if !errors.Is(err, quotas.ErrAttainmentTargetZero) {
+		t.Fatalf("a target that converts to zero base minor units must answer ErrAttainmentTargetZero, got %v", err)
+	}
+	if att.ClosedWonMinor != 0 || len(att.ContributingDeals) != 0 {
+		t.Errorf("the refusal must carry no contributing data, got %+v", att)
+	}
+}
+
 func TestQuotaAttainment_TeamQuotaSumsMembersDeals(t *testing.T) {
 	e := Setup(t)
 	st := seedRollupStages(t, e)

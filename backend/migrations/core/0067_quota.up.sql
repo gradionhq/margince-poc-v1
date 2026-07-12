@@ -38,6 +38,7 @@ CREATE TABLE quota (
 
   CONSTRAINT quota_owner_xor_team CHECK ((owner_id IS NOT NULL) <> (team_id IS NOT NULL)),
   CONSTRAINT quota_period_valid   CHECK (period_end >= period_start),
+  CONSTRAINT quota_target_nonneg  CHECK (target_minor >= 0),
   CONSTRAINT quota_owner_id_fkey FOREIGN KEY (workspace_id, owner_id)
     REFERENCES app_user (workspace_id, id) ON DELETE SET NULL (owner_id),
   CONSTRAINT quota_team_id_fkey FOREIGN KEY (workspace_id, team_id)

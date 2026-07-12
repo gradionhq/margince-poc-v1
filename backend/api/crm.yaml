@@ -4673,6 +4673,7 @@ paths:
               schema: { $ref: '#/components/schemas/QuotaListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
     post:
       tags: [Quotas]
       operationId: createQuota
@@ -7845,7 +7846,7 @@ components:
         team_id: { type: [string, 'null'], format: uuid }
         period_start: { type: string, format: date }
         period_end: { type: string, format: date }
-        target_minor: { type: integer, format: int64 }
+        target_minor: { type: integer, format: int64, minimum: 0 }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
 
     UpdateQuotaRequest:
@@ -7862,7 +7863,7 @@ components:
         team_id: { type: [string, 'null'], format: uuid }
         period_start: { type: string, format: date }
         period_end: { type: string, format: date }
-        target_minor: { type: integer, format: int64 }
+        target_minor: { type: integer, format: int64, minimum: 0 }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
 
     QuotaAttainment:
@@ -7888,8 +7889,17 @@ components:
         target_minor:
           type: integer
           format: int64
-          description: The flagged human-set target this attainment is measured against (echoes Quota.target_minor).
-        currency: { type: string, pattern: '^[A-Z]{3}$' }
+          description: >-
+            The BASE-CONVERTED target this attainment is measured against — Quota.target_minor
+            converted into the workspace base currency at the as_of_date FX rate. It equals
+            Quota.target_minor only when the quota is set in the base currency; a cross-currency
+            quota's echo differs, so gap arithmetic never mixes currencies.
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: >-
+            The workspace base currency — every money figure here (closed_won_minor,
+            target_minor, gap_minor) is denominated in it, NOT in Quota.currency.
         attainment_pct:
           type: number
           description: >-

@@ -66,6 +66,18 @@ func ownerXorTeam(owner, team *ids.UUID) bool {
 	return (owner != nil) != (team != nil)
 }
 
+// NegativeTargetError is the contract's target_minor minimum (0) refused
+// in Go — the generated decode enforces no numeric bounds, so create and
+// the update's merged state carry the check here, mirroring the
+// quota_target_nonneg CHECK (0067) the same way ownerXorTeam mirrors its
+// constraint. The transport maps it to a 422 validation_error on
+// target_minor.
+type NegativeTargetError struct{}
+
+func (*NegativeTargetError) Error() string {
+	return "target_minor must be at least 0"
+}
+
 // CreateQuotaInput is a new quota: exactly one of OwnerID/TeamID names
 // the measured subject, and TargetMinor is always the human's number
 // (RD-PARAM-3 — the transport never defaults or derives it).
@@ -87,6 +99,9 @@ func (s *Store) CreateQuota(ctx context.Context, in CreateQuotaInput) (crmcontra
 	}
 	if !ownerXorTeam(in.OwnerID, in.TeamID) {
 		return crmcontracts.Quota{}, &OwnerXorTeamError{}
+	}
+	if in.TargetMinor < 0 {
+		return crmcontracts.Quota{}, &NegativeTargetError{}
 	}
 	var out crmcontracts.Quota
 	err := s.tx(ctx, func(tx pgx.Tx) error {
@@ -157,11 +172,18 @@ func (s *Store) UpdateQuota(ctx context.Context, id ids.UUID, in UpdateQuotaInpu
 		if err != nil {
 			return err
 		}
-		// The XOR contract holds on what the row WOULD carry after the
-		// merge, not on the patch body — patching a team onto an
-		// owner-quota (or vice versa) is a refusal, same 422 as create.
+		// The XOR and minimum contracts hold on what the row WOULD carry
+		// after the merge, not on the patch body — patching a team onto
+		// an owner-quota (or a negative target over a valid one) is a
+		// refusal, same 422 as create.
 		if !ownerXorTeam(mergedRef(in.OwnerID, current.OwnerId), mergedRef(in.TeamID, current.TeamId)) {
 			return &OwnerXorTeamError{}
+		}
+		// The stored side of the merge is non-negative already (the create
+		// gate + quota_target_nonneg), so the merged target is negative
+		// exactly when the patch sets it negative.
+		if in.TargetMinor != nil && *in.TargetMinor < 0 {
+			return &NegativeTargetError{}
 		}
 		p := buildQuotaPatch(current, in)
 		if p.Empty() {

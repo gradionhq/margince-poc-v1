@@ -174,6 +174,9 @@ func TestQuotasHTTP(t *testing.T) {
 	t.Run("200 archive returns the full entity, stays gettable", func(t *testing.T) {
 		assertQuotaArchive(t, e, adminID)
 	})
+	t.Run("422 negative target on create and patch", func(t *testing.T) {
+		assertQuotaNegativeTarget(t, e, adminID)
+	})
 	t.Run("422 invalid currency (CHECK violation)", func(t *testing.T) {
 		assertQuotaInvalidCurrency(t, e, adminID)
 	})
@@ -383,6 +386,44 @@ func assertQuotaArchive(t *testing.T, e *env, ownerID string) {
 // the (nonexistent) request-schema validation into the quota_currency_check
 // CHECK constraint — the defense-in-depth net writeQuotaErr shares with
 // deals/handlers.go.
+// assertQuotaNegativeTarget drives a below-minimum target_minor into
+// both write paths: the contract's minimum (0) is enforced by neither
+// the generated decode nor merge-PATCH, so the store's refusal is what
+// keeps a negative revenue target out — on create and on the patched
+// merged state alike.
+func assertQuotaNegativeTarget(t *testing.T, e *env, ownerID string) {
+	t.Helper()
+	assertNegativeTarget422 := func(status int, problem quotaProblem, path string) {
+		t.Helper()
+		if status != http.StatusUnprocessableEntity || problem.Code != "validation_error" {
+			t.Fatalf("negative target on %s = %d %+v, want 422 validation_error", path, status, problem)
+		}
+		if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "target_minor" ||
+			problem.Details.Errors[0].Code != "minimum" {
+			t.Fatalf("details.errors = %+v, want [{target_minor minimum}]", problem.Details.Errors)
+		}
+	}
+
+	var problem quotaProblem
+	status := e.call(t, "POST", "/v1/quotas", anyMap{
+		"owner_id": ownerID, "period_start": "2026-01-01", "period_end": "2026-03-31",
+		"target_minor": -1, "currency": "EUR",
+	}, nil, &problem)
+	assertNegativeTarget422(status, problem, "create")
+
+	var created anyMap
+	if status := e.call(t, "POST", "/v1/quotas", anyMap{
+		"owner_id": ownerID, "period_start": "2027-01-01", "period_end": "2027-03-31",
+		"target_minor": 1000, "currency": "EUR",
+	}, nil, &created); status != http.StatusCreated {
+		t.Fatalf("seed quota for the patch scenario = %d %+v", status, created)
+	}
+	var patched quotaProblem
+	status = e.call(t, "PATCH", "/v1/quotas/"+created["id"].(string), anyMap{"target_minor": -1},
+		map[string]string{"If-Match": "1"}, &patched)
+	assertNegativeTarget422(status, patched, "patch")
+}
+
 func assertQuotaInvalidCurrency(t *testing.T, e *env, ownerID string) {
 	t.Helper()
 	var problem quotaProblem

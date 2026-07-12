@@ -62,6 +62,23 @@ type Attainment struct {
 // transport maps it to the contract's 422 attainment_target_zero.
 var ErrAttainmentTargetZero = errors.New("quota target_minor is zero; attainment is refused rather than computed against a zero denominator")
 
+// ConvertedTargetZeroError is the same zero-denominator refusal reached
+// through FX: a tiny cross-currency target can round to zero base minor
+// units (round(1 × 0.4) = 0), and dividing by the EFFECTIVE target would
+// answer Inf/NaN. Unwrap returns ErrAttainmentTargetZero — one invariant
+// (a zero denominator refuses), so callers branch on the sentinel; the
+// typed detail names the conversion because the stored target_minor
+// itself is NOT zero.
+type ConvertedTargetZeroError struct {
+	From, To string
+}
+
+func (e *ConvertedTargetZeroError) Error() string {
+	return fmt.Sprintf("quota target converts from %s to zero %s minor units at the stored fx rate; attainment is refused rather than computed against a zero denominator", e.From, e.To)
+}
+
+func (*ConvertedTargetZeroError) Unwrap() error { return ErrAttainmentTargetZero }
+
 // ErrAttainmentComputationFailed is the honest "cannot compute" answer
 // (e.g. no stored FX rate for the target's currency): the cause rides
 // the wrapping message for the log, and the transport maps the sentinel
@@ -195,6 +212,9 @@ func targetInBase(ctx context.Context, tx pgx.Tx, q crmcontracts.Quota, asOf tim
 	}
 	if err != nil {
 		return 0, "", fmt.Errorf("convert quota target from %s to %s: %w", q.Currency, base, err)
+	}
+	if converted == 0 {
+		return 0, "", &ConvertedTargetZeroError{From: q.Currency, To: base}
 	}
 	return converted, base, nil
 }

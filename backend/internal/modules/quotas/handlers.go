@@ -204,6 +204,23 @@ func writeQuotaErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation("owner_id", "owner_xor_team_required", xor.Error()))
 		return
 	}
+	var negative *NegativeTargetError
+	if errors.As(err, &negative) {
+		httperr.Write(w, r, httperr.Validation("target_minor", "minimum", negative.Error()))
+		return
+	}
+	// One attainment_target_zero code, two causes: the converted case's
+	// detail names the conversion (the stored target_minor is NOT zero —
+	// telling the caller it is would point them at the wrong remedy).
+	var convertedZero *ConvertedTargetZeroError
+	if errors.As(err, &convertedZero) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "attainment_target_zero",
+			Detail: "This quota's target converts to zero " + convertedZero.To + " minor units at the stored fx rate; attainment is refused rather than computed against a zero denominator.",
+		})
+		return
+	}
 	if errors.Is(err, ErrAttainmentTargetZero) {
 		// Detail text matches the crm.yaml targetZero example verbatim — a
 		// zero-target refusal, never a division-by-zero 500.

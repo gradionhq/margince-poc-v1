@@ -5988,7 +5988,9 @@ type QuotaAttainment struct {
 
 	// ContributingDeals Per-deal decomposition for "Explain This Number"; sums to closed_won_minor.
 	ContributingDeals []QuotaAttainmentDeal `json:"contributing_deals"`
-	Currency          string                `json:"currency"`
+
+	// Currency The workspace base currency — every money figure here (closed_won_minor, target_minor, gap_minor) is denominated in it, NOT in Quota.currency.
+	Currency string `json:"currency"`
 
 	// GapMinor Signed gap to target — closed_won_minor minus target_minor (RD-FORM-2's worked example: +33.872,00 EUR once closed-won exceeds target); positive once attainment exceeds 100%, negative while short of target.
 	GapMinor int64 `json:"gap_minor"`
@@ -5997,7 +5999,7 @@ type QuotaAttainment struct {
 	PacePct float32            `json:"pace_pct"`
 	QuotaId openapi_types.UUID `json:"quota_id"`
 
-	// TargetMinor The flagged human-set target this attainment is measured against (echoes Quota.target_minor).
+	// TargetMinor The BASE-CONVERTED target this attainment is measured against — Quota.target_minor converted into the workspace base currency at the as_of_date FX rate. It equals Quota.target_minor only when the quota is set in the base currency; a cross-currency quota's echo differs, so gap arithmetic never mixes currencies.
 	TargetMinor int64 `json:"target_minor"`
 }
 

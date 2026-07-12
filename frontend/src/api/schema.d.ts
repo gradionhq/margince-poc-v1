@@ -5692,9 +5692,10 @@ export interface components {
             closed_won_minor: number;
             /**
              * Format: int64
-             * @description The flagged human-set target this attainment is measured against (echoes Quota.target_minor).
+             * @description The BASE-CONVERTED target this attainment is measured against — Quota.target_minor converted into the workspace base currency at the as_of_date FX rate. It equals Quota.target_minor only when the quota is set in the base currency; a cross-currency quota's echo differs, so gap arithmetic never mixes currencies.
              */
             target_minor: number;
+            /** @description The workspace base currency — every money figure here (closed_won_minor, target_minor, gap_minor) is denominated in it, NOT in Quota.currency. */
             currency: string;
             /** @description closed_won_minor ÷ target_minor × 100 (RD-FORM-2). Uncapped raw value — e.g. 113 for the worked example — display capping (the ring visual stops at a full circle) is a RD-PARAM-4 UI concern, not this field's. */
             attainment_pct: number;
@@ -11679,6 +11680,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     createQuota: {
