@@ -124,6 +124,14 @@ Merged so far:
   RBAC object); the hierarchy-rollup closed-won and brief SQL adopt the
   column; schema-proof + no-runtime-authoring fitness tests stand guard.
   Closes Wave 2 of the poc-1 delta port.
+- **Quotas & attainment (RD-T06)** — the `quota` aggregate (owner XOR
+  team, explicit period, human-set target; workspace-shared config
+  gated by the new `quota` RBAC object) with full CRUD and the
+  server-computed attainment read: Σ closed-won `amount_minor_base` ÷
+  base-converted target, decomposed per contributing deal
+  (golden-number reconciliation), honest 422s for zero targets and
+  missing FX, pace/band derivations on an injected clock. Wave 3 opener
+  of the poc-1 delta port.
 
 ## Pick up here
 

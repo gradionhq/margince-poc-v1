@@ -154,10 +154,10 @@ func TestQuotasHTTP(t *testing.T) {
 		ownerQuotaID, teamQuotaID = assertQuotaCreate201(t, e, adminID, teamID)
 	})
 	t.Run("422 owner_xor_team both set", func(t *testing.T) {
-		assertQuotaXOR422(t, e, adminID, teamID, true, true)
+		assertQuotaXOR422(t, e, &adminID, &teamID)
 	})
 	t.Run("422 owner_xor_team neither set", func(t *testing.T) {
-		assertQuotaXOR422(t, e, adminID, teamID, false, false)
+		assertQuotaXOR422(t, e, nil, nil)
 	})
 	t.Run("200 get quota, 404 unknown id", func(t *testing.T) {
 		assertQuotaGet(t, e, ownerQuotaID)
@@ -225,17 +225,18 @@ func assertQuotaCreate201(t *testing.T, e *env, ownerID, teamID string) (ownerQu
 	return owned["id"].(string), team["id"].(string)
 }
 
-// assertQuotaXOR422 drives createQuota with both or neither of
-// owner_id/team_id set and checks the contract's exact
-// owner_xor_team_required details.errors shape.
-func assertQuotaXOR422(t *testing.T, e *env, ownerID, teamID string, setOwner, setTeam bool) {
+// assertQuotaXOR422 drives createQuota with the given owner_id/team_id
+// request-body values — nil omits the key entirely — and checks the
+// contract's exact owner_xor_team_required details.errors shape for both
+// the both-set and neither-set violations.
+func assertQuotaXOR422(t *testing.T, e *env, ownerID, teamID *string) {
 	t.Helper()
 	body := anyMap{"period_start": "2026-01-01", "period_end": "2026-03-31", "target_minor": 1000, "currency": "EUR"}
-	if setOwner {
-		body["owner_id"] = ownerID
+	if ownerID != nil {
+		body["owner_id"] = *ownerID
 	}
-	if setTeam {
-		body["team_id"] = teamID
+	if teamID != nil {
+		body["team_id"] = *teamID
 	}
 	var problem quotaProblem
 	status := e.call(t, "POST", "/v1/quotas", body, nil, &problem)
