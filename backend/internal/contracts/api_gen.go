@@ -21,6 +21,24 @@ const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
+// Defines values for AcceptedExtractionFieldProvenance.
+const (
+	AcceptedExtractionFieldProvenanceAiExtracted AcceptedExtractionFieldProvenance = "ai-extracted"
+	AcceptedExtractionFieldProvenanceHuman       AcceptedExtractionFieldProvenance = "human"
+)
+
+// Valid indicates whether the value is a known member of the AcceptedExtractionFieldProvenance enum.
+func (e AcceptedExtractionFieldProvenance) Valid() bool {
+	switch e {
+	case AcceptedExtractionFieldProvenanceAiExtracted:
+		return true
+	case AcceptedExtractionFieldProvenanceHuman:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityDirection.
 const (
 	ActivityDirectionInbound     ActivityDirection = "inbound"
@@ -270,6 +288,27 @@ func (e AttachmentEntityType) Valid() bool {
 	case AttachmentEntityTypeOrganization:
 		return true
 	case AttachmentEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AttachmentScanStatus.
+const (
+	AttachmentScanStatusBlocked  AttachmentScanStatus = "blocked"
+	AttachmentScanStatusClean    AttachmentScanStatus = "clean"
+	AttachmentScanStatusScanning AttachmentScanStatus = "scanning"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentScanStatus enum.
+func (e AttachmentScanStatus) Valid() bool {
+	switch e {
+	case AttachmentScanStatusBlocked:
+		return true
+	case AttachmentScanStatusClean:
+		return true
+	case AttachmentScanStatusScanning:
 		return true
 	default:
 		return false
@@ -1431,6 +1470,24 @@ func (e EnrichmentProposalStatus) Valid() bool {
 	}
 }
 
+// Defines values for ExtractedFieldConfidence.
+const (
+	High   ExtractedFieldConfidence = "high"
+	Medium ExtractedFieldConfidence = "medium"
+)
+
+// Valid indicates whether the value is a known member of the ExtractedFieldConfidence enum.
+func (e ExtractedFieldConfidence) Valid() bool {
+	switch e {
+	case High:
+		return true
+	case Medium:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FieldHistoryEntryActorType.
 const (
 	FieldHistoryEntryActorTypeAgent     FieldHistoryEntryActorType = "agent"
@@ -1800,6 +1857,21 @@ func (e OfferStatus) Valid() bool {
 	case OfferStatusSent:
 		return true
 	case OfferStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OmittedExtractionFieldReason.
+const (
+	NotStatedInFile OmittedExtractionFieldReason = "not_stated_in_file"
+)
+
+// Valid indicates whether the value is a known member of the OmittedExtractionFieldReason enum.
+func (e OmittedExtractionFieldReason) Valid() bool {
+	switch e {
+	case NotStatedInFile:
 		return true
 	default:
 		return false
@@ -3299,25 +3371,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
-	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
-	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
-	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
+	Blocked           ListAutomationRunsParamsOutcome = "blocked"
+	Failed            ListAutomationRunsParamsOutcome = "failed"
+	Fired             ListAutomationRunsParamsOutcome = "fired"
+	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	Skipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case ListAutomationRunsParamsOutcomeBlocked:
+	case Blocked:
 		return true
-	case ListAutomationRunsParamsOutcomeFailed:
+	case Failed:
 		return true
-	case ListAutomationRunsParamsOutcomeFired:
+	case Fired:
 		return true
-	case ListAutomationRunsParamsOutcomeQueuedForApproval:
+	case QueuedForApproval:
 		return true
-	case ListAutomationRunsParamsOutcomeSkipped:
+	case Skipped:
 		return true
 	default:
 		return false
@@ -3497,22 +3569,22 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 
 // Defines values for GetFieldHistoryParamsActorType.
 const (
-	Agent     GetFieldHistoryParamsActorType = "agent"
-	Connector GetFieldHistoryParamsActorType = "connector"
-	Human     GetFieldHistoryParamsActorType = "human"
-	System    GetFieldHistoryParamsActorType = "system"
+	GetFieldHistoryParamsActorTypeAgent     GetFieldHistoryParamsActorType = "agent"
+	GetFieldHistoryParamsActorTypeConnector GetFieldHistoryParamsActorType = "connector"
+	GetFieldHistoryParamsActorTypeHuman     GetFieldHistoryParamsActorType = "human"
+	GetFieldHistoryParamsActorTypeSystem    GetFieldHistoryParamsActorType = "system"
 )
 
 // Valid indicates whether the value is a known member of the GetFieldHistoryParamsActorType enum.
 func (e GetFieldHistoryParamsActorType) Valid() bool {
 	switch e {
-	case Agent:
+	case GetFieldHistoryParamsActorTypeAgent:
 		return true
-	case Connector:
+	case GetFieldHistoryParamsActorTypeConnector:
 		return true
-	case Human:
+	case GetFieldHistoryParamsActorTypeHuman:
 		return true
-	case System:
+	case GetFieldHistoryParamsActorTypeSystem:
 		return true
 	default:
 		return false
@@ -3849,6 +3921,26 @@ func (e ListSavedViewsParamsResource) Valid() bool {
 	}
 }
 
+// AcceptExtractionRequest defines model for AcceptExtractionRequest.
+type AcceptExtractionRequest struct {
+	// Edits field -> edited value, for fields the user typed over before accepting. A key
+	// present here flips that field's audit provenance from `ai-extracted` to `human`.
+	Edits *map[string]interface{} `json:"edits,omitempty"`
+
+	// FieldKeys Field names to accept onto the deal; each is checked against the deal-update allowlist.
+	FieldKeys []string `json:"field_keys"`
+}
+
+// AcceptedExtractionField defines model for AcceptedExtractionField.
+type AcceptedExtractionField struct {
+	Field      string                            `json:"field"`
+	Provenance AcceptedExtractionFieldProvenance `json:"provenance"`
+	Value      string                            `json:"value"`
+}
+
+// AcceptedExtractionFieldProvenance defines model for AcceptedExtractionField.Provenance.
+type AcceptedExtractionFieldProvenance string
+
 // Activity A polymorphic timeline item. Mirrors the `activity` table + `activity_link`.
 // **Per-kind field constraints** (enforced server-side to match the DB `activity_task_fields`
 // CHECK; the OpenAPI cannot express these conditionally): `due_at`/`assignee_id`/`is_done`/
@@ -4074,12 +4166,40 @@ type Attachment struct {
 	EntityType  AttachmentEntityType `json:"entity_type"`
 	Filename    string               `json:"filename"`
 	Id          openapi_types.UUID   `json:"id"`
-	Source      string               `json:"source"`
-	WorkspaceId openapi_types.UUID   `json:"workspace_id"`
+
+	// ScanStatus Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
+	// byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
+	// (retryable — scan still running) while `scanning`, and 409
+	// `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
+	// row itself is always disclosed regardless of scan_status; only the download
+	// stream is withheld.
+	ScanStatus  *AttachmentScanStatus `json:"scan_status,omitempty"`
+	Source      string                `json:"source"`
+	WorkspaceId openapi_types.UUID    `json:"workspace_id"`
 }
 
 // AttachmentEntityType defines model for Attachment.EntityType.
 type AttachmentEntityType string
+
+// AttachmentScanStatus Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
+// byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
+// (retryable — scan still running) while `scanning`, and 409
+// `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
+// row itself is always disclosed regardless of scan_status; only the download
+// stream is withheld.
+type AttachmentScanStatus string
+
+// AttachmentExtraction The staged extraction for one attachment — grounded fields plus what was honestly omitted.
+type AttachmentExtraction struct {
+	Fields  []ExtractedField         `json:"fields"`
+	Omitted []OmittedExtractionField `json:"omitted"`
+}
+
+// AttachmentExtractionAcceptResponse defines model for AttachmentExtractionAcceptResponse.
+type AttachmentExtractionAcceptResponse struct {
+	Accepted []AcceptedExtractionField `json:"accepted"`
+	DealId   openapi_types.UUID        `json:"deal_id"`
+}
 
 // AttachmentListResponse defines model for AttachmentListResponse.
 type AttachmentListResponse struct {
@@ -4972,6 +5092,20 @@ type EnrichmentProposal struct {
 // EnrichmentProposalStatus Always staged — accept via the approval inbox.
 type EnrichmentProposalStatus string
 
+// ExtractedField One attempted grounded field from the staged AI-extraction read (RD-T10).
+type ExtractedField struct {
+	Confidence    ExtractedFieldConfidence `json:"confidence"`
+	Field         string                   `json:"field"`
+	PageOrSection string                   `json:"page_or_section"`
+
+	// SourceQuote Verbatim text the value was read from — never a paraphrase.
+	SourceQuote string `json:"source_quote"`
+	Value       string `json:"value"`
+}
+
+// ExtractedFieldConfidence defines model for ExtractedField.Confidence.
+type ExtractedFieldConfidence string
+
 // FieldHistoryEntry One per-field change, projected read-only from a single audit_log row's before/after
 // diff — not a stored history row. `id` is the source audit_log row's id, so entries from
 // the same mutation share it. `old_value`/`new_value` are display-form strings; null means
@@ -5478,6 +5612,15 @@ type OfferListResponse struct {
 	Data []Offer  `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// OmittedExtractionField A field the extractor could not ground in the document text (evidence-or-omit; never guessed).
+type OmittedExtractionField struct {
+	Field  string                       `json:"field"`
+	Reason OmittedExtractionFieldReason `json:"reason"`
+}
+
+// OmittedExtractionFieldReason defines model for OmittedExtractionField.Reason.
+type OmittedExtractionFieldReason string
 
 // Organization A company. Mirrors the `organization` table.
 type Organization struct {
@@ -6190,6 +6333,11 @@ type ReportResult struct {
 	// Rows Aggregate rows; each carries its own `derivation_url` handle for the exact cell (group keys bound to the row's values).
 	Rows      []map[string]interface{} `json:"rows"`
 	TotalRows *int                     `json:"total_rows,omitempty"`
+}
+
+// RequestAccessResponse defines model for RequestAccessResponse.
+type RequestAccessResponse struct {
+	Requested bool `json:"requested"`
 }
 
 // RowVersion Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
@@ -8545,6 +8693,9 @@ type RejectApprovalJSONRequestBody RejectApprovalJSONBody
 
 // UploadAttachmentMultipartRequestBody defines body for UploadAttachment for multipart/form-data ContentType.
 type UploadAttachmentMultipartRequestBody UploadAttachmentMultipartBody
+
+// AcceptAttachmentExtractionJSONRequestBody defines body for AcceptAttachmentExtraction for application/json ContentType.
+type AcceptAttachmentExtractionJSONRequestBody = AcceptExtractionRequest
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
@@ -12733,6 +12884,15 @@ type ServerInterface interface {
 	// Download an attachment's file bytes.
 	// (GET /attachments/{id})
 	DownloadAttachment(w http.ResponseWriter, r *http.Request, id Id)
+	// Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+	// (GET /attachments/{id}/extraction)
+	GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id)
+	// Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
+	// (POST /attachments/{id}/extraction:accept)
+	AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id)
+	// Request access to a restricted attachment (audit row only — no notification system).
+	// (POST /attachments/{id}/request-access)
+	RequestAttachmentAccess(w http.ResponseWriter, r *http.Request, id Id)
 	// Read the human+agent-attributable audit log (Settings governance view).
 	// (GET /audit-log)
 	ListAuditLog(w http.ResponseWriter, r *http.Request, params ListAuditLogParams)
@@ -13276,6 +13436,24 @@ func (_ Unimplemented) DeleteAttachment(w http.ResponseWriter, r *http.Request, 
 // Download an attachment's file bytes.
 // (GET /attachments/{id})
 func (_ Unimplemented) DownloadAttachment(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+// (GET /attachments/{id}/extraction)
+func (_ Unimplemented) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
+// (POST /attachments/{id}/extraction:accept)
+func (_ Unimplemented) AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Request access to a restricted attachment (audit row only — no notification system).
+// (POST /attachments/{id}/request-access)
+func (_ Unimplemented) RequestAttachmentAccess(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -15039,6 +15217,102 @@ func (siw *ServerInterfaceWrapper) DownloadAttachment(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DownloadAttachment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAttachmentExtraction operation middleware
+func (siw *ServerInterfaceWrapper) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAttachmentExtraction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptAttachmentExtraction operation middleware
+func (siw *ServerInterfaceWrapper) AcceptAttachmentExtraction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptAttachmentExtraction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestAttachmentAccess operation middleware
+func (siw *ServerInterfaceWrapper) RequestAttachmentAccess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestAttachmentAccess(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -22847,6 +23121,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/attachments/{id}", wrapper.DownloadAttachment)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/attachments/{id}/extraction", wrapper.GetAttachmentExtraction)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/attachments/{id}/extraction:accept", wrapper.AcceptAttachmentExtraction)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/attachments/{id}/request-access", wrapper.RequestAttachmentAccess)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/audit-log", wrapper.ListAuditLog)

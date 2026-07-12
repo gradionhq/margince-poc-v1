@@ -137,6 +137,19 @@ func (h Handlers) DeleteAttachment(w http.ResponseWriter, r *http.Request, id cr
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GetAttachmentExtraction stays an explicit 501 until the `shared/ports/extraction`
+// seam is wired into this handler set (RD-T10) — the contract and the
+// Tier-0 Extractor port land first.
+func (h Handlers) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetAttachmentExtraction")
+}
+
+// RequestAttachmentAccess stays an explicit 501 until the audit-note write
+// lands with the extraction seam (RD-T10).
+func (h Handlers) RequestAttachmentAccess(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RequestAttachmentAccess")
+}
+
 // writeAttachmentErr maps a role that wired no object store to a 501, and
 // otherwise defers to the module's shared store-error mapping.
 func writeAttachmentErr(w http.ResponseWriter, r *http.Request, err error) {

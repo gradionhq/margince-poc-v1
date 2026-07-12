@@ -84,6 +84,18 @@ func (stubs) DownloadAttachment(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "DownloadAttachment")
 }
 
+func (stubs) GetAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetAttachmentExtraction")
+}
+
+func (stubs) AcceptAttachmentExtraction(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "AcceptAttachmentExtraction")
+}
+
+func (stubs) RequestAttachmentAccess(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RequestAttachmentAccess")
+}
+
 func (stubs) ListAuditLog(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAuditLogParams) {
 	httperr.NotImplemented(w, r, "ListAuditLog")
 }

@@ -63,6 +63,8 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/approvals/{id}/approve":                  {Op: "approveApproval", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/approvals/{id}/reject":                   {Op: "rejectApproval", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/attachments":                             {Op: "uploadAttachment", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/attachments/{id}/extraction:accept":      {Op: "acceptAttachmentExtraction", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/attachments/{id}/request-access":         {Op: "requestAttachmentAccess", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/login":                              {Op: "login", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/auth/logout":                             {Op: "logout", Access: "auth-bootstrap", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/automations":                             {Op: "createAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

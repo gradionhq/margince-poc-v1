@@ -89,6 +89,7 @@ type Server struct {
 	orgRollupHandlers
 	customfieldsHandlers
 	quotasHandlers
+	attachmentExtractionHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
