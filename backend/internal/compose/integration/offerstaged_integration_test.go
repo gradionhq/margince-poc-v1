@@ -219,6 +219,61 @@ func TestAddStagedOfferLinesUngroundedPriceIsTheHonestZeroSentinel(t *testing.T)
 	}
 }
 
+// TestOfferRegenerateCopiesPriceGroundedForwardUnchanged is the
+// regression for the mint's INSERT...SELECT into offer_line_item
+// (copyOfferIntoRevision, offer_lifecycle.go): proposal_state already
+// travels forward so a still-staged line doesn't silently start counting
+// toward totals, but price_grounded was missing from that same column
+// list, so every copied line defaulted to the column's DB default
+// (true) regardless of its source value. An ungrounded staged line
+// (price_grounded=false, unit_price_minor=0 — the honest zero sentinel)
+// would relabel itself grounded on the next regenerate while its price
+// stayed 0 — the flag lying about a line whose price nobody ever
+// grounded. This proves the flag now round-trips both ways: false stays
+// false, true stays true.
+func TestOfferRegenerateCopiesPriceGroundedForwardUnchanged(t *testing.T) {
+	e := Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDeskPerms)
+	offerID := baseDraftOffer(ctx, t, e, "Regen-price-grounded deal")
+
+	staged := []deals.StagedOfferLineInput{
+		{
+			Description: "Grounded add-on", Quantity: "1", UnitPriceMinor: 15000, TaxRate: "19.00",
+			Evidence:      deals.StagedOfferLineEvidence{Snippet: `"we'll also take the add-on"`, SourceID: "activity-5"},
+			PriceGrounded: true,
+		},
+		{
+			Description: "Ungrounded custom work", Quantity: "1", UnitPriceMinor: 0, TaxRate: "0.00",
+			Evidence:      deals.StagedOfferLineEvidence{Snippet: `"something custom, TBD"`, SourceID: "activity-6"},
+			PriceGrounded: false,
+		},
+	}
+	if _, err := e.Deals.AddStagedOfferLines(agentOfferDraftCtx(e), offerID, staged); err != nil {
+		t.Fatalf("add staged offer lines: %v", err)
+	}
+
+	if _, err := e.Deals.SendOffer(ctx, offerID, nil); err != nil {
+		t.Fatalf("send offer before regenerate: %v", err)
+	}
+	regenerated, err := e.Deals.RegenerateOffer(ctx, offerID)
+	if err != nil {
+		t.Fatalf("regenerate offer: %v", err)
+	}
+	newOfferID := ids.UUID(regenerated.Id)
+
+	if n := e.WsCount(t, `SELECT count(*) FROM offer_line_item WHERE offer_id = $1`, newOfferID); n != 3 {
+		t.Fatalf("copied revision has %d lines, want 3 (1 human + 2 staged)", n)
+	}
+	want := map[string]bool{"Retainer": true, "Grounded add-on": true, "Ungrounded custom work": false}
+	for description, wantGrounded := range want {
+		if n := e.WsCount(t,
+			`SELECT count(*) FROM offer_line_item WHERE offer_id = $1 AND description = $2 AND price_grounded = $3`,
+			newOfferID, description, wantGrounded); n != 1 {
+			t.Fatalf("copied line %q price_grounded != %v (the copy must carry the flag forward unchanged)", description, wantGrounded)
+		}
+	}
+}
+
 func TestAddStagedOfferLinesDeniesWithoutOfferUpdateGrant(t *testing.T) {
 	e := Setup(t)
 	admin := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDeskPerms)

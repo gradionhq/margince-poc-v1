@@ -383,9 +383,9 @@ func copyOfferIntoRevision(ctx context.Context, tx pgx.Tx, fromID, newID ids.Off
 	// just because the offer grew a revision.
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
-		                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state)
+		                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state, price_grounded)
 		 SELECT uuidv7(), workspace_id, $2, position, product_id, description,
-		        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state
+		        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state, price_grounded
 		 FROM offer_line_item WHERE offer_id = $1`,
 		fromID, newID); err != nil {
 		return fmt.Errorf("copy lines into new revision: %w", err)
