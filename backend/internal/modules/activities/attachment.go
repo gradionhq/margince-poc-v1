@@ -209,11 +209,8 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 		// gates (an invisible row stays a 404, never a scan-state leak)
 		// and before any object-store access. Only the stream is withheld;
 		// the metadata surfaces keep disclosing the row.
-		switch scanStatus {
-		case scanStatusScanning:
-			return ErrScanPending
-		case scanStatusBlocked:
-			return ErrAttachmentBlocked
+		if err := scanGateErr(scanStatus); err != nil {
+			return err
 		}
 		att, err := readAttachment(ctx, tx, id)
 		if err != nil {

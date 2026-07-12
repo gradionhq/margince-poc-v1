@@ -56,6 +56,17 @@ func uploadScanTestAttachment(ctx context.Context, t *testing.T, h activities.Ha
 	return att
 }
 
+// markAttachmentClean drives a clean verdict through the real scan-gate
+// seam (Store.MarkScanResult) so a test can exercise a path that gate
+// would otherwise block — the extraction read and the accept-write now
+// share it with the raw-byte download (defense-in-depth, RD-T05).
+func markAttachmentClean(ctx context.Context, t *testing.T, e *Env, id ids.UUID) {
+	t.Helper()
+	if _, err := e.Activities.MarkScanResult(ctx, id, activities.FakeScanner{Result: "clean"}); err != nil {
+		t.Fatalf("MarkScanResult(clean): %v", err)
+	}
+}
+
 func TestAttachmentScanGateOverHTTP(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())

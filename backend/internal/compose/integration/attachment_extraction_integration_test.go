@@ -9,10 +9,12 @@ package integration
 // surface, gated identically to every other attachment op (parent
 // invisible/missing → 404). The extraction read is a pure evidence-or-omit
 // projection over the injected extraction.Extractor seam — honestly empty
-// when none is wired, never gated on scan_status (only the raw-byte
-// download is scan-gated). Request-access is a courtesy audit note: poc-v1
-// has no restricted-but-disclosed attachment state, so a caller who can see
-// the row already has the only "access" that exists here.
+// when none is wired — and now shares the raw-byte download's scan gate
+// (defense-in-depth, RD-T05): 'scanning'/'blocked' refuse with the same
+// typed 409s, before the extractor ever sees the bytes. Request-access is
+// a courtesy audit note: poc-v1 has no restricted-but-disclosed attachment
+// state, so a caller who can see the row already has the only "access"
+// that exists here.
 
 import (
 	"context"
@@ -33,8 +35,7 @@ import (
 
 // TestGetAttachmentExtractionDefaultsToHonestlyEmpty proves the production
 // default (no WithExtractor call) answers a valid empty extraction — never
-// a 501 — for an attachment still mid-scan (extraction never gates on
-// scan_status).
+// a 501 — once the attachment clears the scan gate.
 func TestGetAttachmentExtractionDefaultsToHonestlyEmpty(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
@@ -44,6 +45,7 @@ func TestGetAttachmentExtractionDefaultsToHonestlyEmpty(t *testing.T) {
 	if att.ScanStatus == nil || *att.ScanStatus != crmcontracts.AttachmentScanStatusScanning {
 		t.Fatalf("precondition: fresh upload scan_status = %v, want scanning", att.ScanStatus)
 	}
+	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
@@ -73,6 +75,7 @@ func TestGetAttachmentExtractionPartitionsFixtureEvidence(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Fixture Deal", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(ctx, t, base, deal, "quote.pdf", []byte("quote bytes"))
+	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
 
 	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{
 		att.Id.String(): {
@@ -116,12 +119,68 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	ctx := e.Admin()
 	org := e.SeedOrg(t, "Non-Deal Parent", &e.Rep1)
 	att := uploadScanTestAttachmentForOrg(ctx, t, h, org, "notes.txt", []byte("org notes"))
+	markAttachmentClean(ctx, t, e, ids.UUID(att.Id))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
 	h.GetAttachmentExtraction(rec, req, att.Id)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("non-deal attachment extraction read: status %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+}
+
+// TestGetAttachmentExtractionRefusesWhileScanning proves the extraction
+// read's defense-in-depth scan gate (RD-T05): a fresh upload defaults to
+// 'scanning' (0070), and the read must refuse it with the same typed 409
+// the raw-byte download answers — before the extractor ever sees the
+// bytes. Inert today under the NoOp/Fixture seams; essential the moment a
+// real extractor reads unvetted content.
+func TestGetAttachmentExtractionRefusesWhileScanning(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	ctx := e.Admin()
+	person := e.SeedPerson(t, "Extraction Scan Gate", &e.Rep1)
+	att := uploadScanTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
+	h.GetAttachmentExtraction(rec, req, att.Id)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("extraction read while scanning: status %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	var p scanProblem
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("decode scan_pending problem: %v", err)
+	}
+	if p.Code != "scan_pending" {
+		t.Errorf("code = %q, want scan_pending", p.Code)
+	}
+}
+
+// TestGetAttachmentExtractionRefusesWhenBlocked mirrors the scanning case
+// for a quarantined verdict — terminal, never read.
+func TestGetAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	ctx := e.Admin()
+	person := e.SeedPerson(t, "Extraction Blocked Gate", &e.Rep1)
+	att := uploadScanTestAttachment(ctx, t, h, person, "malware.bin", []byte("EVIL"))
+	if _, err := e.Activities.MarkScanResult(ctx, ids.UUID(att.Id), activities.FakeScanner{Result: "blocked"}); err != nil {
+		t.Fatalf("MarkScanResult(blocked): %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/attachments/"+att.Id.String()+"/extraction", nil).WithContext(ctx)
+	h.GetAttachmentExtraction(rec, req, att.Id)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("extraction read while blocked: status %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	var p scanProblem
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+		t.Fatalf("decode attachment_blocked problem: %v", err)
+	}
+	if p.Code != "attachment_blocked" {
+		t.Errorf("code = %q, want attachment_blocked", p.Code)
 	}
 }
 

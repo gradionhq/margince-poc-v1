@@ -24,12 +24,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -67,6 +69,7 @@ const acceptDealEntity = "deal"
 // extractor the read staged against, validate the whole request, write
 // the deal once, then audit per field.
 type ExtractionAccept struct {
+	pool        *pgxpool.Pool
 	attachments *activities.Store
 	deals       *deals.Store
 	extractor   extraction.Extractor
@@ -81,22 +84,23 @@ func NewExtractionAccept(pool *pgxpool.Pool, extractor extraction.Extractor) *Ex
 		extractor = extraction.NoOpExtractor{}
 	}
 	return &ExtractionAccept{
+		pool:        pool,
 		attachments: activities.NewStore(pool),
 		deals:       deals.NewStore(pool),
 		extractor:   extractor,
 	}
 }
 
-// Accept runs the full gate stack and the two-step write. The deal write
-// and the notes cannot share one transaction from here — neither store
-// exposes a tx-taking variant of these paths — so the deal update commits
-// first and a note failure surfaces with that update already durable
-// (stop-at-first-failure; the error says so). Every failure BEFORE the
-// deal write is side-effect free. The notes carry no capture natural key,
-// so re-driving the request after a mid-notes failure re-applies the deal
-// update (last-write-wins, harmless) but DUPLICATES the already-written
-// notes — the deal's own audit_log row is intact either way, so nothing
-// is lost, only repeated.
+// Accept runs the full gate stack, then the write phase: the deal update
+// and every per-field audit note commit inside ONE transaction
+// (database.WithWorkspaceTx, driven here via deals.Store.UpdateDealTx and
+// activities.Store.LogActivityTx — the C5 shared-tx shape
+// SeedWorkspaceDefaultsTx pioneered for the identity/deals workspace-seed
+// path). A note failure therefore rolls the deal update back too: there is
+// no window where the deal carries an accepted value with no matching
+// timeline evidence, or vice versa. Every failure before this point (the
+// gate stack, the extractor call, patch validation) is side-effect free,
+// so the whole flow is either fully applied or leaves nothing behind.
 func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, req crmcontracts.AcceptExtractionRequest) (crmcontracts.AttachmentExtractionAcceptResponse, error) {
 	var zero crmcontracts.AttachmentExtractionAcceptResponse
 
@@ -125,6 +129,13 @@ func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, re
 			return zero, err
 		}
 	}
+	// Defense-in-depth (RD-T05): the same scan gate the raw download and
+	// the extraction read answer, BEFORE the extractor ever sees the
+	// bytes — inert today under the NoOp/Fixture seams, essential the
+	// moment a real extractor lands.
+	if err := activities.EnsureAttachmentScanClean(att.ScanStatus); err != nil {
+		return zero, err
+	}
 
 	extracted, err := a.extractor.Extract(ctx, att.Id.String())
 	if err != nil {
@@ -141,12 +152,15 @@ func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, re
 	// house spelling of poc-1's "version 0". The store re-checks
 	// visibility and every deal invariant (money pair, INV-CLOSE-PAST)
 	// inside its transaction; a refusal there rolls the whole write back
-	// before any note exists.
+	// (deal AND notes — same tx) before any note exists.
 	dealID := ids.From[ids.DealKind](ids.UUID(att.EntityId))
-	if _, err := a.deals.UpdateDeal(ctx, dealID, patch); err != nil {
-		return zero, err
-	}
-	if err := a.auditAcceptedFields(ctx, ids.UUID(att.EntityId), accepted); err != nil {
+	err = database.WithWorkspaceTx(ctx, a.pool, func(tx pgx.Tx) error {
+		if _, err := a.deals.UpdateDealTx(ctx, tx, dealID, patch); err != nil {
+			return err
+		}
+		return a.auditAcceptedFieldsTx(ctx, tx, ids.UUID(att.EntityId), accepted)
+	})
+	if err != nil {
 		return zero, err
 	}
 
@@ -164,15 +178,17 @@ func (a *ExtractionAccept) Accept(ctx context.Context, attachmentID ids.UUID, re
 	return out, nil
 }
 
-// auditAcceptedFields writes one timeline note per accepted field, linked
-// to the deal: subject names the field, body is the verbatim source quote
-// the value was grounded in — the evidence stays on the timeline whoever
-// typed the final value. Provenance rides captured_by, the way every
-// write in this system carries it: an unedited field executes as the
-// extractor (PrincipalSystem, agent:attachment-extractor, on behalf of
-// the accepting human), an edited one is the human's own write under the
-// request principal.
-func (a *ExtractionAccept) auditAcceptedFields(ctx context.Context, dealID ids.UUID, accepted []acceptedExtractionField) error {
+// auditAcceptedFieldsTx writes one timeline note per accepted field inside
+// the caller's already-open transaction (the same one the deal update just
+// ran in — a note failure rolls that update back), linked to the deal:
+// subject names the field, body is the verbatim source quote the value
+// was grounded in — the evidence stays on the timeline whoever typed the
+// final value. Provenance rides captured_by, the way every write in this
+// system carries it: an unedited field executes as the extractor
+// (PrincipalSystem, agent:attachment-extractor, on behalf of the accepting
+// human), an edited one is the human's own write under the request
+// principal.
+func (a *ExtractionAccept) auditAcceptedFieldsTx(ctx context.Context, tx pgx.Tx, dealID ids.UUID, accepted []acceptedExtractionField) error {
 	human, ok := principal.Actor(ctx)
 	if !ok {
 		return errors.New("compose: extraction accept reached the audit step without an acting principal")
@@ -190,7 +206,7 @@ func (a *ExtractionAccept) auditAcceptedFields(ctx context.Context, dealID ids.U
 		}
 		subject := "Extraction accepted: " + f.Field
 		body := f.SourceQuote
-		_, _, err := a.attachments.LogActivity(noteCtx, activities.LogActivityInput{
+		_, _, err := a.attachments.LogActivityTx(noteCtx, tx, activities.LogActivityInput{
 			Kind:    string(crmcontracts.ActivityKindNote),
 			Subject: &subject,
 			Body:    &body,
@@ -198,7 +214,7 @@ func (a *ExtractionAccept) auditAcceptedFields(ctx context.Context, dealID ids.U
 			Source:  extractionAcceptSource,
 		})
 		if err != nil {
-			return fmt.Errorf("audit note for accepted field %s (the deal update itself is committed): %w", f.Field, err)
+			return fmt.Errorf("audit note for accepted field %s: %w", f.Field, err)
 		}
 	}
 	return nil
@@ -406,6 +422,12 @@ func (h attachmentExtractionHandlers) AcceptAttachmentExtraction(w http.Response
 // this flow can trip (the resulting-row money pair, INV-CLOSE-PAST, the
 // CHECK-constraint net), then falls through to the sentinel registry.
 func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error) {
+	// The same typed 409 the raw download and the extraction read answer —
+	// reused via activities.ScanGateHTTPError rather than re-typed here.
+	if detail, ok := activities.ScanGateHTTPError(err); ok {
+		httperr.Write(w, r, detail)
+		return
+	}
 	var unsupported *UnsupportedEntityTypeError
 	if errors.As(err, &unsupported) {
 		httperr.Write(w, r, &httperr.DetailedError{

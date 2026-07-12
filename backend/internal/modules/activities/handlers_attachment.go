@@ -137,6 +137,32 @@ func (h Handlers) DeleteAttachment(w http.ResponseWriter, r *http.Request, id cr
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ScanGateHTTPError translates ErrScanPending/ErrAttachmentBlocked into the
+// contract's two typed 409s — the ONE spelling of both wire codes, shared
+// by every transport that gates on scan_status before touching an
+// attachment's bytes (the raw download here, and the extraction read and
+// compose's accept-write, which invoke an extractor over the same bytes).
+// ok is false for any other error, so a caller falls through to its own
+// mapping.
+func ScanGateHTTPError(err error) (detail *httperr.DetailedError, ok bool) {
+	switch {
+	case errors.Is(err, ErrScanPending):
+		return &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "scan_pending",
+			Detail: "This file is still being scanned; retry the download shortly.",
+		}, true
+	case errors.Is(err, ErrAttachmentBlocked):
+		return &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "attachment_blocked",
+			Detail: "This file was quarantined by the virus scan and cannot be downloaded.",
+		}, true
+	default:
+		return nil, false
+	}
+}
+
 // writeAttachmentErr maps a role that wired no object store to a 501 and
 // the scan gate's refusals to the contract's typed 409s, and otherwise
 // defers to the module's shared store-error mapping.
@@ -145,20 +171,8 @@ func writeAttachmentErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.NotImplemented(w, r, "attachments")
 		return
 	}
-	if errors.Is(err, ErrScanPending) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusConflict,
-			Code:   "scan_pending",
-			Detail: "This file is still being scanned; retry the download shortly.",
-		})
-		return
-	}
-	if errors.Is(err, ErrAttachmentBlocked) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusConflict,
-			Code:   "attachment_blocked",
-			Detail: "This file was quarantined by the virus scan and cannot be downloaded.",
-		})
+	if detail, ok := ScanGateHTTPError(err); ok {
+		httperr.Write(w, r, detail)
 		return
 	}
 	writeStoreErr(w, r, err)

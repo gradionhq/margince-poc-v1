@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // The scan gate's wire shape is contract-fixed (crm.yaml, downloadAttachment
@@ -56,6 +59,56 @@ func TestScanGateErrorsMapToTheContractProblems(t *testing.T) {
 				t.Errorf("problem = %+v, want status 409 code %q detail %q", p, tc.wantCode, tc.wantDetail)
 			}
 		})
+	}
+}
+
+// EnsureAttachmentScanClean is the meta-row gate GetAttachmentExtraction
+// and compose's accept-write share (defense-in-depth, RD-T05): the same
+// scan_status vocabulary OpenAttachment gates live, answered from an
+// already-fetched Attachment.ScanStatus instead of a second query.
+func TestEnsureAttachmentScanCleanGatesOnStatus(t *testing.T) {
+	clean := crmcontracts.AttachmentScanStatusClean
+	scanning := crmcontracts.AttachmentScanStatusScanning
+	blocked := crmcontracts.AttachmentScanStatusBlocked
+	cases := map[string]struct {
+		status  *crmcontracts.AttachmentScanStatus
+		wantErr error
+	}{
+		"nil status reads clean (never a spurious refusal)": {status: nil, wantErr: nil},
+		"clean passes":               {status: &clean, wantErr: nil},
+		"scanning refuses retryably": {status: &scanning, wantErr: ErrScanPending},
+		"blocked refuses terminally": {status: &blocked, wantErr: ErrAttachmentBlocked},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := EnsureAttachmentScanClean(tc.status)
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err != tc.wantErr {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// ScanGateHTTPError only matches the two scan sentinels — every other
+// error must fall through to the caller's own mapping, never mistaken for
+// a scan refusal.
+func TestScanGateHTTPErrorOnlyMatchesScanSentinels(t *testing.T) {
+	if _, ok := ScanGateHTTPError(apperrors.ErrNotFound); ok {
+		t.Error("ScanGateHTTPError matched an unrelated sentinel")
+	}
+	detail, ok := ScanGateHTTPError(ErrScanPending)
+	if !ok || detail.Code != "scan_pending" || detail.Status != http.StatusConflict {
+		t.Errorf("ScanGateHTTPError(ErrScanPending) = %+v/%v, want 409 scan_pending/true", detail, ok)
+	}
+	detail, ok = ScanGateHTTPError(ErrAttachmentBlocked)
+	if !ok || detail.Code != "attachment_blocked" || detail.Status != http.StatusConflict {
+		t.Errorf("ScanGateHTTPError(ErrAttachmentBlocked) = %+v/%v, want 409 attachment_blocked/true", detail, ok)
 	}
 }
 

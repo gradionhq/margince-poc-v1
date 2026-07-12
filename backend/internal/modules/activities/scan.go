@@ -38,6 +38,36 @@ var ErrAttachmentBlocked = errors.New("activities: attachment is blocked by the 
 // the verdict vocabulary; the row is left unchanged.
 var ErrInvalidScanVerdict = errors.New("activities: a scan verdict must be clean or blocked")
 
+// scanGateErr is the ONE spelling of "refuse a non-clean scan_status":
+// every path that touches an attachment's bytes — the raw download
+// (OpenAttachment, reading the live row inside its own transaction) and
+// the AI-extraction paths that invoke an extractor over those same bytes
+// (GetAttachmentExtraction, the compose accept-write, both gating on an
+// already-fetched meta row) — shares this switch rather than re-typing
+// the two sentinels at each call site.
+func scanGateErr(status string) error {
+	switch status {
+	case scanStatusScanning:
+		return ErrScanPending
+	case scanStatusBlocked:
+		return ErrAttachmentBlocked
+	}
+	return nil
+}
+
+// EnsureAttachmentScanClean refuses ErrScanPending/ErrAttachmentBlocked for
+// a fetched attachment's scan_status — the meta-row gate GetAttachmentMeta
+// callers use before invoking an extractor over the attachment's bytes,
+// exactly as OpenAttachment gates the raw download. A nil status reads
+// clean: the column carries a NOT NULL default, so nil only arises from a
+// caller that never populated it, which must not become a spurious refusal.
+func EnsureAttachmentScanClean(status *crmcontracts.AttachmentScanStatus) error {
+	if status == nil {
+		return nil
+	}
+	return scanGateErr(string(*status))
+}
+
 // Scanner is the injectable virus-scan seam (RD-T05). Scan inspects the
 // object at storageKey and returns "clean" or "blocked" — never "scanning",
 // which is the row's own pre-verdict default. No real scanning product is

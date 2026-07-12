@@ -154,9 +154,14 @@ Open work, roughly in priority order:
 - **The RD-AC-2 "every download audited" clause is NOT ported** — poc-v1
   audits only attachment create/archive (decisions/0022); a deliberate
   delta from the spec, not an oversight.
-- **`extraction:accept`'s write is not atomic across the deal update and
-  its per-field notes, and carries no idempotency key** — a client retry
-  on a dropped response duplicates the provenance notes.
+- **`extraction:accept` carries no idempotency key on its notes** — the
+  deal update and its per-field notes now commit atomically (one shared
+  `database.WithWorkspaceTx`, driven via `deals.Store.UpdateDealTx` +
+  `activities.Store.LogActivityTx`: a note failure rolls the deal update
+  back too), but a client retry on a dropped response still re-applies the
+  deal update (last-write-wins, harmless) and duplicates the provenance
+  notes — there is no natural key on a note the way capture's
+  `(source_system, source_id)` gives `LogActivity` its own idempotency.
 - **The 🟡 agent-staged accept path (approvals effect) is deferred** —
   V1 ships human-only; an agent cannot currently propose an
   extraction-accept for confirm-first approval.
@@ -164,13 +169,12 @@ Open work, roughly in priority order:
   no restricted-but-disclosed state to actually gate on; the note is the
   entire effect. The final review ruled it a keep (honestly labelled,
   contract parity), not a defect.
-- **Extraction reads (and the accept-write) bypass the scan gate** —
-  `GetAttachmentExtraction`/`extraction:accept` read the persisted bytes
-  regardless of `scan_status`. Inert today (the extractor is NoOp/Fixture,
-  no real product wired). When a real extractor lands (riding
-  `modules/ai`), a `blocked`/quarantined attachment's content could still
-  flow onto the deal + timeline via accept — scan-gate the extraction
-  path at that point, or record why containment does not extend to it.
+- **The extraction read and the accept-write share the raw download's
+  scan gate** — `GetAttachmentExtraction`/`extraction:accept` now refuse
+  a `scanning`/`blocked` attachment with the same typed 409s before the
+  extractor ever sees the bytes (defense-in-depth, RD-T05). Inert today
+  under the NoOp/Fixture seams; essential the moment a real extractor
+  (riding `modules/ai`) reads unvetted content.
 - **§0 baseline ratification** (founder decision): confirm this repo as
   the OSS baseline and reconcile the foundation spec tree with this
   repo's actual architecture. Until it lands, the spec-path references in

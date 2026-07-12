@@ -18,10 +18,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
@@ -52,6 +56,13 @@ type acceptEnv struct {
 	engine *compose.ExtractionAccept
 }
 
+// setupExtractionAccept seeds a deal-scoped attachment and marks it clean:
+// a fresh upload defaults to 'scanning' (0070), and the accept-write now
+// scan-gates like every other path that touches an attachment's bytes
+// (TestAcceptAttachmentExtractionRefusesWhileScanning/WhenBlocked pin that
+// gate directly) — every OTHER test in this file is exercising grants,
+// row scope, and field validation, so its fixture attachment must already
+// be past the gate.
 func setupExtractionAccept(t *testing.T) acceptEnv {
 	t.Helper()
 	e := Setup(t)
@@ -59,6 +70,7 @@ func setupExtractionAccept(t *testing.T) acceptEnv {
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
+	markAttachmentClean(e.Admin(), t, e, ids.UUID(att.Id))
 	return acceptEnv{
 		Env:    e,
 		deal:   deal,
@@ -325,3 +337,97 @@ func TestAcceptAttachmentExtractionEmptySeamGroundsNothing(t *testing.T) {
 	}
 	a.requireUntouchedDeal(t)
 }
+
+// TestAcceptAttachmentExtractionRefusesWhileScanning proves the
+// accept-write's defense-in-depth scan gate (RD-T05): a fresh upload
+// defaults to 'scanning' (0070) and the accept must refuse it — the same
+// sentinel the raw-byte download and the extraction read answer — BEFORE
+// the extractor ever sees the bytes, with zero writes.
+func TestAcceptAttachmentExtractionRefusesWhileScanning(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	pipeline, open, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
+	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
+	// Left at the upload default ('scanning') — never marked clean.
+	engine := compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String()))
+
+	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
+		FieldKeys: []string{"amount_minor"},
+	})
+	if !errors.Is(err, activities.ErrScanPending) {
+		t.Fatalf("err = %v, want ErrScanPending", err)
+	}
+	acceptEnv{Env: e, deal: deal}.requireUntouchedDeal(t)
+}
+
+// TestAcceptAttachmentExtractionRefusesWhenBlocked mirrors the scanning
+// case for a quarantined verdict — terminal, never accepted.
+func TestAcceptAttachmentExtractionRefusesWhenBlocked(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.Pool).WithBlobstore(blobstore.NewMemory())
+	pipeline, open, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
+	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
+	if _, err := e.Activities.MarkScanResult(e.Admin(), ids.UUID(att.Id), activities.FakeScanner{Result: "blocked"}); err != nil {
+		t.Fatalf("MarkScanResult(blocked): %v", err)
+	}
+	engine := compose.NewExtractionAccept(e.Pool, acceptExtractionFixture(att.Id.String()))
+
+	_, err := engine.Accept(e.Admin(), ids.UUID(att.Id), crmcontracts.AcceptExtractionRequest{
+		FieldKeys: []string{"amount_minor"},
+	})
+	if !errors.Is(err, activities.ErrAttachmentBlocked) {
+		t.Fatalf("err = %v, want ErrAttachmentBlocked", err)
+	}
+	acceptEnv{Env: e, deal: deal}.requireUntouchedDeal(t)
+}
+
+// TestExtractionAcceptDealUpdateAndNotesShareOneTransaction pins the
+// accept-write's atomicity (the non-atomic write was the second finding
+// this suite closes): UpdateDealTx and LogActivityTx must run INSIDE the
+// caller's own transaction, not open (and durably commit) transactions of
+// their own. It drives the exact write phase Accept() runs — a deal
+// update followed by one note — through one database.WithWorkspaceTx,
+// then forces that shared transaction to roll back. If either Tx-suffixed
+// method still opened its own transaction under the hood (the pre-fix
+// shape, where the deal update committed before the notes ran), the
+// forced rollback below would arrive too late — both rows would already
+// be durable. Neither is: the rollback discards both.
+func TestExtractionAcceptDealUpdateAndNotesShareOneTransaction(t *testing.T) {
+	a := setupExtractionAccept(t)
+	ctx := a.As(a.Rep1, []ids.UUID{a.Team1}, AdminPerms)
+
+	forced := errors.New("forced rollback to prove the shared transaction")
+	err := database.WithWorkspaceTx(ctx, a.Pool, func(tx pgx.Tx) error {
+		if _, err := a.Deals.UpdateDealTx(ctx, tx, ids.From[ids.DealKind](a.deal), deals.UpdateDealInput{
+			Name: strPtr("Rolled Back Name"),
+		}); err != nil {
+			return err
+		}
+		if _, _, err := a.Activities.LogActivityTx(ctx, tx, activities.LogActivityInput{
+			Kind:   string(crmcontracts.ActivityKindNote),
+			Body:   strPtr("should never persist past the rollback"),
+			Links:  []activities.ActivityLinkInput{{EntityType: acceptDealEntityForTest, EntityID: a.deal}},
+			Source: "atomic_tx_probe",
+		}); err != nil {
+			return err
+		}
+		return forced
+	})
+	if !errors.Is(err, forced) {
+		t.Fatalf("err = %v, want the forced rollback error", err)
+	}
+
+	if n := a.WsCount(t, `SELECT count(*) FROM deal WHERE id = $1 AND name = 'Rolled Back Name'`, a.deal); n != 0 {
+		t.Error("the deal update persisted despite the shared transaction rolling back — UpdateDealTx is not honoring the caller's transaction")
+	}
+	if n := a.WsCount(t, `SELECT count(*) FROM activity WHERE source = 'atomic_tx_probe'`); n != 0 {
+		t.Error("the note persisted despite the shared transaction rolling back — LogActivityTx is not honoring the caller's transaction")
+	}
+}
+
+// acceptDealEntityForTest mirrors compose's unexported acceptDealEntity
+// ("deal") — this white-box probe lives in the integration package, not
+// compose itself, so it cannot reach that constant.
+const acceptDealEntityForTest = "deal"

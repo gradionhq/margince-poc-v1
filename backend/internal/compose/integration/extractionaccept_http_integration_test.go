@@ -12,6 +12,7 @@ package integration
 // (grants, row scope, provenance stamps) is extractionaccept_integration_test.go.
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -53,6 +54,39 @@ func (e *env) uploadAttachmentHTTP(t *testing.T, entityType, entityID, filename 
 		t.Fatalf("decoding upload response: %v", err)
 	}
 	return att.ID
+}
+
+// markAttachmentCleanHTTP flips one attachment's scan_status to 'clean'
+// directly through the owner connection — there is no scan-verdict HTTP
+// endpoint (MarkScanResult is administrative, never a public API) — inside
+// a workspace-bound transaction so RLS (FORCE) admits the UPDATE. Mirrors
+// setWorkspaceSeat's shape (e2e_integration_test.go). A fresh upload
+// defaults to 'scanning' (0070), and the accept-write now scan-gates like
+// every other path over an attachment's bytes, so any HTTP scenario that
+// expects the accept to actually run its extractor must clear the gate
+// first.
+func (e *env) markAttachmentCleanHTTP(t *testing.T, attID string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := e.owner.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(ctx) }()
+	var wsID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+		t.Fatalf("workspace lookup: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID); err != nil {
+		t.Fatalf("set guc: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE attachment SET scan_status = 'clean' WHERE id = $1`, attID); err != nil {
+		t.Fatalf("mark clean: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
 }
 
 // acceptProblemWire is the RFC 7807 slice these assertions read.
@@ -163,6 +197,11 @@ func TestAcceptAttachmentExtractionHTTP(t *testing.T) {
 		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: EUR 1,500.00", PageOrSection: "p.2", Confidence: "high"},
 		{Field: "currency", Value: "EUR", SourceQuote: "all amounts in EUR", PageOrSection: "p.2", Confidence: "medium"},
 	}
+	// This suite exercises the accept-write's own validation, not the scan
+	// gate (TestAcceptAttachmentExtractionScanGateHTTP owns that) — clear
+	// the upload default ('scanning') so every subtest below reaches the
+	// extractor.
+	e.markAttachmentCleanHTTP(t, attID)
 
 	t.Run("200 persists the fields and flips the edited provenance", func(t *testing.T) {
 		assertAcceptHTTPHappyPath(t, e, attID, dealID)
@@ -184,4 +223,46 @@ func TestAcceptAttachmentExtractionHTTP(t *testing.T) {
 			t.Errorf("missing attachment accept = %d, want 404", status)
 		}
 	})
+}
+
+// TestAcceptAttachmentExtractionScanGateHTTP proves the wire-level 409:
+// a fresh deal-scoped upload starts 'scanning' (0070), and POST
+// .../extraction:accept must refuse it with the exact contract problem the
+// raw-byte download answers — before the extractor runs and with the deal
+// left untouched — never a 200 that would let unvetted content reach a
+// deal field.
+func TestAcceptAttachmentExtractionScanGateHTTP(t *testing.T) {
+	fx := extraction.FixtureExtractor{Fields: map[string][]extraction.ExtractedField{}}
+	e := setupWithOptions(t, compose.WithExtractor(fx), compose.WithBlobstore(blobstore.NewMemory()))
+	e.bootstrapWorkspace(t)
+	stages := discoverSeededPipeline(t, e)
+
+	var deal anyMap
+	if status := e.call(t, "POST", "/v1/deals", anyMap{
+		"name": "Scan Gate Accept Deal", "pipeline_id": stages.pipelineID,
+		"stage_id": stages.open, "source": "ui",
+	}, nil, &deal); status != http.StatusCreated {
+		t.Fatalf("create deal = %d %v", status, deal)
+	}
+	dealID := deal["id"].(string)
+	attID := e.uploadAttachmentHTTP(t, "deal", dealID, "quote.pdf")
+	fx.Fields[attID] = []extraction.ExtractedField{
+		{Field: "amount_minor", Value: "150000", SourceQuote: "Total: EUR 1,500.00", PageOrSection: "p.2", Confidence: "high"},
+	}
+
+	var problem acceptProblemWire
+	status := e.call(t, "POST", "/v1/attachments/"+attID+"/extraction:accept", anyMap{
+		"field_keys": []string{"amount_minor"},
+	}, nil, &problem)
+	if status != http.StatusConflict || problem.Code != "scan_pending" {
+		t.Fatalf("accept while scanning = %d code %q, want 409 scan_pending", status, problem.Code)
+	}
+
+	var got anyMap
+	if status := e.call(t, "GET", "/v1/deals/"+dealID, nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("read back deal = %d", status)
+	}
+	if got["amount_minor"] != nil {
+		t.Errorf("deal after a scan-gated accept refusal carries amount_minor = %v, want untouched (nil)", got["amount_minor"])
+	}
 }

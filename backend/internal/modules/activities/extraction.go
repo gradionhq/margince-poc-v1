@@ -51,12 +51,19 @@ func (h Handlers) extractorOrNoOp() extraction.Extractor {
 // page_or_section / confidence) and honestly omitted[] fields — never a
 // guessed value (the evidence-or-omit invariant). Valid for ANY
 // entity_type: a non-deal attachment reads fine, since accepting fields
-// onto a deal (not this op) is what's deal-only. scan_status is
-// deliberately irrelevant here — only the raw-byte download is scan-gated.
+// onto a deal (not this op) is what's deal-only. scan_status DOES gate
+// here (defense-in-depth, RD-T05): a 'scanning' or 'blocked' row refuses
+// with the same typed 409 the raw-byte download answers, BEFORE the
+// extractor ever sees the bytes — inert today under the NoOp/Fixture
+// seams, essential the moment a real extractor reads unvetted content.
 func (h Handlers) GetAttachmentExtraction(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	att, err := h.store.GetAttachmentMeta(r.Context(), ids.UUID(id))
 	if err != nil {
 		writeStoreErr(w, r, err)
+		return
+	}
+	if err := EnsureAttachmentScanClean(att.ScanStatus); err != nil {
+		writeAttachmentErr(w, r, err)
 		return
 	}
 	fields, err := h.extractorOrNoOp().Extract(r.Context(), att.Id.String())
