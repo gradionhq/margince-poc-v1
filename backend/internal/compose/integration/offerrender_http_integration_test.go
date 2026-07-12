@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -132,6 +133,13 @@ type raceLineAdder struct {
 	// the offer's workspace/id/revision alone the way the shared
 	// per-revision key it replaced once allowed.
 	putKey string
+	// hookErr captures a failure from the injected call below. Put runs on
+	// the outer render request's own handler goroutine, so a t.Fatalf here
+	// would Goexit that goroutine before it writes the render's HTTP
+	// response — hanging the test goroutine's e.call for the render POST
+	// forever. Recording the failure and asserting it from the test
+	// goroutine, after the outer call returns, avoids that deadlock.
+	hookErr error
 }
 
 func (r *raceLineAdder) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
@@ -144,7 +152,7 @@ func (r *raceLineAdder) Put(ctx context.Context, key string, body io.Reader, siz
 		"description": "Concurrent Line", "quantity": 1.0, "unit_price_minor": 1000,
 	}, nil, &line)
 	if status != http.StatusCreated {
-		r.t.Fatalf("inject concurrent line edit between prepare and set = %d %v", status, line)
+		r.hookErr = fmt.Errorf("inject concurrent line edit between prepare and set = %d %v", status, line)
 	}
 	return nil
 }
@@ -181,6 +189,9 @@ func TestOfferRenderHTTP_ConcurrentLineEditBetweenPrepareAndSetRejectsWithVersio
 		Code string `json:"code"`
 	}
 	status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &problem)
+	if race.hookErr != nil {
+		t.Fatal(race.hookErr)
+	}
 	if status != http.StatusConflict || problem.Code != "version_skew" {
 		t.Fatalf("render racing a concurrent line edit = %d %+v, want 409 version_skew", status, problem)
 	}
@@ -222,6 +233,13 @@ type raceDoubleRenderer struct {
 	e       *env
 	offerID string
 	nested  bool
+	// hookErr captures a failure from the nested render below. Put runs on
+	// the outer render request's own handler goroutine, so a t.Fatalf here
+	// would Goexit that goroutine before it writes the outer render's HTTP
+	// response — hanging the test goroutine's e.call for the outer render
+	// POST forever. Recording the failure and asserting it from the test
+	// goroutine, after the outer call returns, avoids that deadlock.
+	hookErr error
 }
 
 func (r *raceDoubleRenderer) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
@@ -235,7 +253,7 @@ func (r *raceDoubleRenderer) Put(ctx context.Context, key string, body io.Reader
 	var winner renderedOffer
 	status := r.e.call(r.t, "POST", "/v1/offers/"+r.offerID+"/render", anyMap{}, nil, &winner)
 	if status != http.StatusOK {
-		r.t.Fatalf("nested concurrent render = %d %+v, want 200", status, winner)
+		r.hookErr = fmt.Errorf("nested concurrent render = %d %+v, want 200", status, winner)
 	}
 	return nil
 }
@@ -275,6 +293,9 @@ func TestOfferRenderHTTP_ConcurrentDoubleRenderLoserReclaimsOnlyItsOwnBlob(t *te
 		Code string `json:"code"`
 	}
 	status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &problem)
+	if race.hookErr != nil {
+		t.Fatal(race.hookErr)
+	}
 	if status != http.StatusConflict || problem.Code != "version_skew" {
 		t.Fatalf("outer render racing a nested concurrent render = %d %+v, want 409 version_skew", status, problem)
 	}

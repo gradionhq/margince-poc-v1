@@ -196,9 +196,8 @@ func TestOfferRenderPrepareRender_Sent_UsesFrozenBuyerAndIssuerSnapshot(t *testi
 
 	// Renaming the WORKSPACE (the issuer side) after send must equally
 	// not move — resolveRenderIssuerName's frozen issuer_snapshot is the
-	// legal record for a sent offer, the same rule as the buyer side
-	// above. This is the assertion the test's own name promises
-	// ("...AndIssuerSnapshot") and that was previously never checked.
+	// legal issuer of record for a sent offer, the same rule as the buyer
+	// side above.
 	renamedWorkspace := "Renamed Workspace After Send"
 	e.WsExec(t, `UPDATE workspace SET name = $1 WHERE id = $2`, renamedWorkspace, e.WS)
 
@@ -291,9 +290,9 @@ func TestOfferRenderSetPdfAssetRef_PersistsAndAuditsExactlyOnce(t *testing.T) {
 	}
 
 	// A second render's SetPdfAssetRef must report the just-superseded ref
-	// back — the render handler's signal to reclaim that now-orphaned
-	// blob (the fix for the dangling-ref regression: per-attempt keys mean
-	// this old ref is never the one another concurrent render committed).
+	// back — the render handler's signal to reclaim that now-orphaned blob.
+	// Per-attempt keys guarantee the reported ref is never one a concurrent
+	// render has itself just committed.
 	secondRef := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1/" + ids.NewV7().String() + ".pdf"
 	updatedAgain, oldRefAgain, err := e.Deals.SetPdfAssetRef(ctx, offerID, secondRef, *updated.Version)
 	if err != nil {
