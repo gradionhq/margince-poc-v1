@@ -378,7 +378,7 @@ func TestQuotaList_SortVocabulary(t *testing.T) {
 		t.Fatalf("sorted list = %d rows, want 3", len(sorted))
 	}
 	for i := 1; i < len(sorted); i++ {
-		if sorted[i].PeriodStart.Time.Before(sorted[i-1].PeriodStart.Time) {
+		if sorted[i].PeriodStart.Before(sorted[i-1].PeriodStart.Time) {
 			t.Fatalf("sort=period_start out of order at %d: %s after %s",
 				i, sorted[i].PeriodStart.Format(time.DateOnly), sorted[i-1].PeriodStart.Format(time.DateOnly))
 		}
@@ -406,7 +406,7 @@ func TestQuotaList_SortVocabulary(t *testing.T) {
 	if err != nil || len(page2) != 1 {
 		t.Fatalf("sorted page 2 = %d rows, %v — want the final row", len(page2), err)
 	}
-	if page2[0].PeriodStart.Time.Before(page1[1].PeriodStart.Time) {
+	if page2[0].PeriodStart.Before(page1[1].PeriodStart.Time) {
 		t.Fatalf("sorted keyset continuation broke the order: %s after %s",
 			page2[0].PeriodStart.Format(time.DateOnly), page1[1].PeriodStart.Format(time.DateOnly))
 	}

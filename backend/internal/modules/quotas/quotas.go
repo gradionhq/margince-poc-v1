@@ -323,20 +323,7 @@ func (s *Store) ListQuotas(ctx context.Context, in ListQuotasInput) ([]crmcontra
 		}
 		defer rows.Close()
 		var cursorKeys []*string
-		for rows.Next() {
-			var key *string
-			extra := []any{}
-			if sorted != nil {
-				extra = append(extra, &key)
-			}
-			q, err := scanQuota(rows, extra...)
-			if err != nil {
-				return err
-			}
-			out = append(out, q)
-			cursorKeys = append(cursorKeys, key)
-		}
-		if err := rows.Err(); err != nil {
+		if out, cursorKeys, err = scanQuotaPage(rows, sorted); err != nil {
 			return err
 		}
 		if len(out) > limit {
@@ -350,6 +337,31 @@ func (s *Store) ListQuotas(ctx context.Context, in ListQuotasInput) ([]crmcontra
 		out = []crmcontracts.Quota{}
 	}
 	return out, page, err
+}
+
+// scanQuotaPage drains one list query's rows: each quota plus, under a
+// non-default sort, the row's cursor key (the trailing __cursor_key
+// column CursorKeySuffix appended — the scanDealPage precedent).
+func scanQuotaPage(rows pgx.Rows, sorted *storekit.ListSort) ([]crmcontracts.Quota, []*string, error) {
+	var out []crmcontracts.Quota
+	var cursorKeys []*string
+	for rows.Next() {
+		var key *string
+		extra := []any{}
+		if sorted != nil {
+			extra = append(extra, &key)
+		}
+		q, err := scanQuota(rows, extra...)
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, q)
+		cursorKeys = append(cursorKeys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return out, cursorKeys, nil
 }
 
 // mapQuotaWriteError translates the database's refusals into sentinels:
@@ -389,8 +401,10 @@ func scanQuota(row pgx.Row, extra ...any) (crmcontracts.Quota, error) {
 	var periodStart, periodEnd time.Time
 	var version int64
 
-	dests := []any{&id, &wsID, &ownerID, &teamID, &periodStart, &periodEnd,
-		&q.TargetMinor, &q.Currency, &version, &q.CreatedAt, &q.UpdatedAt, &q.ArchivedAt}
+	dests := []any{
+		&id, &wsID, &ownerID, &teamID, &periodStart, &periodEnd,
+		&q.TargetMinor, &q.Currency, &version, &q.CreatedAt, &q.UpdatedAt, &q.ArchivedAt,
+	}
 	err := row.Scan(append(dests, extra...)...)
 	if err != nil {
 		return q, err
