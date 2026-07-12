@@ -54,8 +54,12 @@ const (
 )
 
 // DuplicateTemplateNameError reports a live-row name collision
-// (offer_template_name_unique), pre-checked ahead of INSERT/UPDATE so
-// the client never sees a raw constraint violation.
+// (offer_template_name_unique). The pre-check ahead of INSERT/UPDATE is
+// the clean common-case path and carries ExistingID cheaply; a
+// concurrent writer that also passes the pre-check under READ
+// COMMITTED is caught by the post-write unique-violation backstop
+// instead (offerTemplateUniqueViolation), which leaves ExistingID at
+// its zero value since the racing row's id isn't cheaply available there.
 type DuplicateTemplateNameError struct{ ExistingID ids.OfferTemplateID }
 
 func (e *DuplicateTemplateNameError) Error() string {
@@ -68,7 +72,9 @@ func (e *DuplicateTemplateNameError) Is(target error) bool { return target == ap
 
 // DefaultConflictError reports an existing is_default=true row for the
 // same (workspace, locale) — uq_offer_template_default. Pre-checked and
-// REJECTED, never auto-demoted (see the file doc comment).
+// REJECTED, never auto-demoted (see the file doc comment); the same
+// post-write backstop as DuplicateTemplateNameError catches the
+// concurrent-race case, again with ExistingID left zero-value.
 type DefaultConflictError struct {
 	ExistingID ids.OfferTemplateID
 	Locale     string
@@ -121,6 +127,30 @@ func (s *Store) checkTemplateDefaultConflict(ctx context.Context, tx pgx.Tx, exc
 	return &DefaultConflictError{ExistingID: existing, Locale: locale}
 }
 
+// offerTemplateUniqueViolation is the post-write race backstop for the
+// two pre-checks above: under READ COMMITTED, two concurrent
+// creates/updates can both pass checkTemplateNameConflict or
+// checkTemplateDefaultConflict before either write lands, so the
+// second write then hits the real constraint. Without this, that raw
+// 23505 would fall through to an unmapped 500 instead of the intended
+// 409 (the product.go/lead.go precedent for this exact shape). Returns
+// nil if err isn't one of the two named unique violations, so the
+// caller falls through to its generic wrap.
+func offerTemplateUniqueViolation(err error, locale string) error {
+	constraint, ok := storekit.UniqueViolation(err)
+	if !ok {
+		return nil
+	}
+	switch constraint {
+	case "offer_template_name_unique":
+		return &DuplicateTemplateNameError{}
+	case "uq_offer_template_default":
+		return &DefaultConflictError{Locale: locale}
+	default:
+		return nil
+	}
+}
+
 // CreateOfferTemplateInput is a new offer_template row; an empty Locale
 // resolves to de-DE.
 type CreateOfferTemplateInput struct {
@@ -164,6 +194,9 @@ func (s *Store) CreateOfferTemplate(ctx context.Context, in CreateOfferTemplateI
 			`INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout, version)
 			 VALUES ($1, $2, $3, $4, $5, $6, 1)`,
 			id, storekit.MustWorkspace(ctx), in.Name, locale, in.IsDefault, layout); err != nil {
+			if conflict := offerTemplateUniqueViolation(err, locale); conflict != nil {
+				return conflict
+			}
 			return fmt.Errorf("insert offer_template: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "create", "offer_template", id.UUID, nil, map[string]any{
@@ -315,6 +348,9 @@ func (s *Store) UpdateOfferTemplate(ctx context.Context, id ids.OfferTemplateID,
 		p.Set(offerTemplateIsDefaultField, current.IsDefault, in.IsDefault)
 		p.Set("layout", current.Layout, layout)
 		if err := p.ApplyGuarded(ctx, tx, "offer_template", id.UUID, in.IfVersion); err != nil {
+			if conflict := offerTemplateUniqueViolation(err, locale); conflict != nil {
+				return conflict
+			}
 			return fmt.Errorf("apply offer_template patch: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "offer_template", id.UUID, p.Before(), p.After()); err != nil {
