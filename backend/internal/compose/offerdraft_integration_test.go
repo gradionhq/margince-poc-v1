@@ -260,6 +260,93 @@ func TestDraftOfferLinesGroundsPriceOnTheRateCardWhenNoConversationPrice(t *test
 	}
 }
 
+// TestDraftOfferLinesNeverGroundsARateCardPriceInAMismatchedCurrency
+// guards OFFER-AC-14's currency rule: a same-id product match is not
+// enough to trust its price — a product priced in a DIFFERENT currency
+// than the offer must never be machine-labeled "grounded" with that
+// wrong-currency amount. The candidate's description/evidence still
+// grounds (that gate is currency-blind by design), only the price falls
+// through to the honest zero sentinel.
+func TestDraftOfferLinesNeverGroundsARateCardPriceInAMismatchedCurrency(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDraftPerms)
+	offerID, source := seedDraftOfferWithDealActivity(ctx, t, e, "Currency-mismatch-draft deal",
+		"The client wants ongoing onboarding support for their new hires.")
+
+	unit := "unit"
+	product, err := e.Deals.CreateProduct(ctx, deals.CreateProductInput{
+		// The offer is EUR (seedDraftOfferWithDealActivity's fixture); this
+		// rate-card product is priced in USD — same id space, different
+		// currency, so its unit_price_minor must never ground the EUR line.
+		Name: "Onboarding Support", Unit: &unit, UnitPriceMinor: 15000, Currency: "USD", Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("seed product: %v", err)
+	}
+
+	fake := ai.NewFakeClient().Script(`{"lines":[
+		{"description":"Onboarding support","quantity":"1","tax_rate":"19.00",
+		 "evidence_snippet":"ongoing onboarding support for their new hires","source_id":"` + source + `",
+		 "product_id":"` + product.Id.String() + `"}
+	]}`)
+	drafter := newOfferDrafterFixture(e, fake)
+
+	result, err := drafter.DraftOfferLines(ctx, offerID)
+	if err != nil {
+		t.Fatalf("draft offer lines: %v", err)
+	}
+	if !result.AIGenerated {
+		t.Fatalf("AIGenerated = false, want true — the description/evidence still grounds, only the price does not")
+	}
+	line := offerLineByDescription(t, result.Offer, "Onboarding support")
+	if line.PriceGrounded == nil || *line.PriceGrounded {
+		t.Fatalf("price_grounded = %v, want false — the matched product is priced in USD, the offer is EUR, never stamp that price grounded",
+			line.PriceGrounded)
+	}
+	if line.UnitPriceMinor != 0 {
+		t.Fatalf("unit_price_minor = %d, want the honest zero sentinel, never the USD product's 15000 mislabeled as EUR", line.UnitPriceMinor)
+	}
+}
+
+// TestGroundOfferLinesPropagatesANonNotFoundProductLookupError guards the
+// other half of resolvePrice's error handling: GetProduct failing for a
+// reason OTHER than "no such product" is a real fault, not a grounding
+// verdict, and must abort the draft rather than being silently relabeled
+// "ungrounded" (an infra/permission error must never masquerade as an
+// honest zero-priced line). A canceled context is the deterministic way
+// to force a genuine backend error out of a real Postgres-backed
+// GetProduct call without reaching for a mock seam the store has none
+// of: RBAC admission reads only the principal already bound to the
+// context (unaffected by cancellation), so the failure surfaces from the
+// transaction itself, not from apperrors.ErrNotFound.
+func TestGroundOfferLinesPropagatesANonNotFoundProductLookupError(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDraftPerms)
+
+	unit := "unit"
+	product, err := e.Deals.CreateProduct(ctx, deals.CreateProductInput{
+		Name: "Support Plan", Unit: &unit, UnitPriceMinor: 5000, Currency: "EUR", Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("seed product: %v", err)
+	}
+
+	drafter := offerDrafter{deals: e.Deals}
+	dealContext := []dealContextItem{{SourceID: "activity:1", Snippet: "Client wants the support plan."}}
+	candidates := []offerLineCandidate{{
+		Description: "Support plan", Quantity: "1", TaxRate: "19.00",
+		EvidenceSnippet: "wants the support plan", SourceID: "activity:1",
+		ProductID: product.Id.String(),
+	}}
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	if _, err := drafter.groundOfferLines(canceled, candidates, dealContext, "EUR"); err == nil {
+		t.Fatalf("groundOfferLines error = nil, want a propagated error — a failed product lookup must never be silently treated as ungrounded")
+	}
+}
+
 func TestDraftOfferLinesNeverGuessesAnUngroundedPrice(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDraftPerms)

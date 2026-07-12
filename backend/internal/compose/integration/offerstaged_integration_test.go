@@ -20,7 +20,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -216,6 +219,28 @@ func TestAddStagedOfferLinesUngroundedPriceIsTheHonestZeroSentinel(t *testing.T)
 	var mismatch *deals.UngroundedPriceNotZeroError
 	if _, err := e.Deals.AddStagedOfferLines(agentOfferDraftCtx(e), offerID, bogus); !errors.As(err, &mismatch) {
 		t.Fatalf("ungrounded+nonzero price = %v, want UngroundedPriceNotZeroError", err)
+	}
+
+	// Belt to the Go guard's suspenders: the invariant is also a DB CHECK
+	// (offer_line_item_ungrounded_price_zero, migrations/core/0073), so a
+	// writer that bypasses insertStagedOfferLine entirely — the
+	// revision-copy INSERT...SELECT, a future backfill, anything raw —
+	// is still bound. Insert straight past the Go store, at the SQL
+	// layer, to prove the database itself refuses the same bogus row.
+	rawCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	err = database.WithWorkspaceTx(rawCtx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(rawCtx,
+			`INSERT INTO offer_line_item
+			   (workspace_id, offer_id, position, description, quantity, unit_price_minor,
+			    tax_rate, price_grounded, proposal_state)
+			 VALUES ($1, $2,
+			         (SELECT COALESCE(MAX(position), 0) + 1 FROM offer_line_item WHERE offer_id = $2),
+			         'Bypassed bogus line', 1, 500, '0.00', false, 'staged')`,
+			e.WS, offerID.UUID)
+		return err
+	})
+	if _, ok := storekit.CheckViolation(err); !ok {
+		t.Fatalf("raw INSERT of an ungrounded+nonzero line = %v, want a CHECK violation on offer_line_item_ungrounded_price_zero", err)
 	}
 }
 

@@ -6,3 +6,15 @@
 -- the one writer that ever sets it false, and only paired with
 -- unit_price_minor = 0 — the invariant it enforces at insert time.
 ALTER TABLE offer_line_item ADD COLUMN price_grounded boolean NOT NULL DEFAULT true;
+
+-- The invariant above ("not grounded ⇒ zero price") is a DB CHECK, not
+-- just a Go-level guard at AddStagedOfferLines' one call site (repo rule:
+-- fix the invariant, not the call site) — every writer that ever lands a
+-- row here (the revision-copy INSERT...SELECT, a future backfill, or a
+-- second staging path) is bound by construction. Every existing row
+-- defaults price_grounded = true above, so this CHECK is trivially
+-- satisfied for all pre-existing data: only a FALSE row is constrained,
+-- and no row can be false before this statement runs.
+ALTER TABLE offer_line_item
+  ADD CONSTRAINT offer_line_item_ungrounded_price_zero
+  CHECK (price_grounded OR unit_price_minor = 0);

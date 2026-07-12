@@ -46,7 +46,10 @@ func TestGroundOfferLinesGroundsConversationPriceOnlyWhenTheAmountIsInTheCitedSn
 	unevidencedPrice := int64(20000)
 	unevidenced.ConversationPriceMinor = &unevidencedPrice
 
-	lines := d.groundOfferLines(context.Background(), []offerLineCandidate{evidenced, unevidenced}, dealContext, "EUR")
+	lines, err := d.groundOfferLines(context.Background(), []offerLineCandidate{evidenced, unevidenced}, dealContext, "EUR")
+	if err != nil {
+		t.Fatalf("groundOfferLines: %v", err)
+	}
 	if len(lines) != 2 {
 		t.Fatalf("staged lines = %d, want 2 (both cite real evidence; only the price grounding differs)", len(lines))
 	}
@@ -72,7 +75,10 @@ func TestGroundOfferLinesRecognizesTheMajorUnitFormOfAnEvidencedPrice(t *testing
 	price := int64(20000) // 20000 minor units == 200.00 EUR major units
 	c.ConversationPriceMinor = &price
 
-	lines := d.groundOfferLines(context.Background(), []offerLineCandidate{c}, dealContext, "EUR")
+	lines, err := d.groundOfferLines(context.Background(), []offerLineCandidate{c}, dealContext, "EUR")
+	if err != nil {
+		t.Fatalf("groundOfferLines: %v", err)
+	}
 	line := findStagedLine(t, lines, "Workshop")
 	if !line.PriceGrounded || line.UnitPriceMinor != 20000 {
 		t.Fatalf("price_grounded/unit_price = %v/%d, want true/20000 (major-unit form '200.00' evidences the same price)",
@@ -91,7 +97,10 @@ func TestGroundOfferLinesHonorsAZeroDecimalCurrencysMinorUnitScale(t *testing.T)
 	price := int64(20000)
 	c.ConversationPriceMinor = &price
 
-	lines := d.groundOfferLines(context.Background(), []offerLineCandidate{c}, dealContext, "JPY")
+	lines, err := d.groundOfferLines(context.Background(), []offerLineCandidate{c}, dealContext, "JPY")
+	if err != nil {
+		t.Fatalf("groundOfferLines: %v", err)
+	}
 	line := findStagedLine(t, lines, "Workshop")
 	if !line.PriceGrounded || line.UnitPriceMinor != 20000 {
 		t.Fatalf("price_grounded/unit_price = %v/%d, want true/20000 (JPY is zero-decimal; the minor integer IS the stated price)",
@@ -118,8 +127,10 @@ func TestGroundOfferLinesDropsStoreInvalidDecimalsWithoutErroringSiblingLines(t 
 	hexFloat.Quantity = "0x1p10"
 
 	candidates := []offerLineCandidate{good, scientific, notANumber, underscored, hexFloat}
-	lines := d.groundOfferLines(context.Background(), candidates, dealContext, "EUR")
-
+	lines, err := d.groundOfferLines(context.Background(), candidates, dealContext, "EUR")
+	if err != nil {
+		t.Fatalf("groundOfferLines: %v", err)
+	}
 	if len(lines) != 1 {
 		t.Fatalf("staged lines = %d, want exactly 1 (only the store-valid decimal survives; the batch itself never errors)", len(lines))
 	}
@@ -139,7 +150,10 @@ func TestGroundOfferLinesDropsZeroAndNegativeQuantity(t *testing.T) {
 	negative := candidate("Negative qty", "wants a workshop")
 	negative.Quantity = "-1"
 
-	lines := d.groundOfferLines(context.Background(), []offerLineCandidate{zero, zeroDecimal, negative}, dealContext, "EUR")
+	lines, err := d.groundOfferLines(context.Background(), []offerLineCandidate{zero, zeroDecimal, negative}, dealContext, "EUR")
+	if err != nil {
+		t.Fatalf("groundOfferLines: %v", err)
+	}
 	if len(lines) != 0 {
 		t.Fatalf("staged lines = %d, want 0 (zero/negative quantity must never stage)", len(lines))
 	}
