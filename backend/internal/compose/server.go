@@ -67,7 +67,10 @@ type (
 
 // Server satisfies crmcontracts.ServerInterface by embedding: every
 // module transport handler set together covers the full contract
-// surface, so there is no residual stub embed.
+// surface. offerTemplateHandlers (offertemplates.go) is the one
+// temporary exception — six operations the contract declares ahead of
+// their module implementation (offers-depth arc 4a); it goes away once
+// deals.Handlers implements them.
 type Server struct {
 	authHandlers
 	peopleHandlers
@@ -91,6 +94,7 @@ type Server struct {
 	customfieldsHandlers
 	quotasHandlers
 	attachmentExtractionHandlers
+	offerTemplateHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
