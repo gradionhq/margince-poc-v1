@@ -225,7 +225,7 @@ func scanOffer(row pgx.Row) (crmcontracts.Offer, error) {
 func readOfferLines(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) ([]crmcontracts.OfferLineItem, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, position, product_id, description, unit, quantity::text, unit_price_minor,
-		        discount_pct::text, tax_rate::text, evidence, version, created_at, updated_at
+		        discount_pct::text, tax_rate::text, evidence, price_grounded, version, created_at, updated_at
 		 FROM offer_line_item WHERE offer_id = $1 ORDER BY position, id`, offerID)
 	if err != nil {
 		return nil, fmt.Errorf("read offer lines: %w", err)
@@ -239,9 +239,10 @@ func readOfferLines(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) ([]crmc
 		var productID *ids.UUID
 		var quantity, discount, taxRate string
 		var evidence *map[string]interface{}
+		var priceGrounded bool
 		var version int64
 		if err := rows.Scan(&id, &l.Position, &productID, &l.Description, &l.Unit, &quantity,
-			&l.UnitPriceMinor, &discount, &taxRate, &evidence, &version, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			&l.UnitPriceMinor, &discount, &taxRate, &evidence, &priceGrounded, &version, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
 		}
 		fig, err := LineTotals(OfferLineInput{
@@ -253,6 +254,7 @@ func readOfferLines(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) ([]crmc
 		l.Id = openapi_types.UUID(id)
 		l.ProductId = uuidPtr(productID)
 		l.Evidence = evidence
+		l.PriceGrounded = &priceGrounded
 		l.Version = &version
 		l.LineNetMinor = &fig.NetMinor
 		l.LineTaxMinor = &fig.TaxMinor
