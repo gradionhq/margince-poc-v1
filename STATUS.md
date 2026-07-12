@@ -161,9 +161,16 @@ Open work, roughly in priority order:
   V1 ships human-only; an agent cannot currently propose an
   extraction-accept for confirm-first approval.
 - **`RequestAttachmentAccess` is a courtesy-audit-only op** — poc-v1 has
-  no restricted-but-disclosed state to actually gate on; its existence
-  in the contract is a final-review question rather than a settled
-  design.
+  no restricted-but-disclosed state to actually gate on; the note is the
+  entire effect. The final review ruled it a keep (honestly labelled,
+  contract parity), not a defect.
+- **Extraction reads (and the accept-write) bypass the scan gate** —
+  `GetAttachmentExtraction`/`extraction:accept` read the persisted bytes
+  regardless of `scan_status`. Inert today (the extractor is NoOp/Fixture,
+  no real product wired). When a real extractor lands (riding
+  `modules/ai`), a `blocked`/quarantined attachment's content could still
+  flow onto the deal + timeline via accept — scan-gate the extraction
+  path at that point, or record why containment does not extend to it.
 - **§0 baseline ratification** (founder decision): confirm this repo as
   the OSS baseline and reconcile the foundation spec tree with this
   repo's actual architecture. Until it lands, the spec-path references in
