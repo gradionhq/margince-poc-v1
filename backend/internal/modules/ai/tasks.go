@@ -20,6 +20,10 @@ const (
 	// TaskAgentLoop is the Surface-B reason-act-observe runner: judgment
 	// over tools and evidence, routed like the other reasoning tasks.
 	TaskAgentLoop Task = "agent_loop"
+	// TaskOfferDraft is the offer regenerate-from-signal drafting call: an
+	// evidence-grounded structured-output pass, routed like the other
+	// extraction tasks (cold-start, enrich).
+	TaskOfferDraft Task = "offer_draft"
 )
 
 // Tier is a capability tier (§1.1); ai-routing.yaml binds each to a
@@ -48,6 +52,7 @@ var taskLadders = map[Task][]Tier{
 	// (§1.2 RATIFY note): the genuinely multi-hop reasoning pass.
 	TaskBriefRanking: {TierPremium, TierCheapCloud},
 	TaskAgentLoop:    {TierCheapCloud, TierPremium},
+	TaskOfferDraft:   {TierCheapCloud, TierPremium},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%

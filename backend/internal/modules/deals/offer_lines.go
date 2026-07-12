@@ -173,11 +173,9 @@ func normalizeLineDefaults(unit, discountPct, taxRate *string) (unitVal, discoun
 func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, in OfferLineInputRow, line resolvedOfferLine) error {
 	position := in.Position
 	if position == nil {
-		var next int
-		if err := tx.QueryRow(ctx,
-			`SELECT COALESCE(MAX(position), 0) + 1 FROM offer_line_item WHERE offer_id = $1`, offerID).
-			Scan(&next); err != nil {
-			return fmt.Errorf("next line position: %w", err)
+		next, err := nextOfferLinePosition(ctx, tx, offerID)
+		if err != nil {
+			return err
 		}
 		position = &next
 	}
@@ -196,6 +194,21 @@ func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID i
 		return fmt.Errorf("insert offer line: %w", err)
 	}
 	return nil
+}
+
+// nextOfferLinePosition answers the next free display position on an
+// offer — shared by a human-authored line insert (which defaults to it
+// when the caller sends none, insertOfferLineRow above) and a staged
+// AI-drafted batch (AddStagedOfferLines in offer_staged.go), which always
+// appends after whatever lines already exist.
+func nextOfferLinePosition(ctx context.Context, tx pgx.Tx, offerID ids.OfferID) (int, error) {
+	var next int
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(MAX(position), 0) + 1 FROM offer_line_item WHERE offer_id = $1`, offerID).
+		Scan(&next); err != nil {
+		return 0, fmt.Errorf("next line position: %w", err)
+	}
+	return next, nil
 }
 
 func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.OfferID, in OfferLineInputRow) (crmcontracts.Offer, error) {

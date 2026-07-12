@@ -79,6 +79,17 @@ func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 	return info
 }
 
+// WriteOfferError maps a deals.Store error onto the wire the SAME way
+// every offer handler in this package does — exported so compose's
+// regenerateOffer shadow (arc 4b: it calls Store.RegenerateOffer directly
+// rather than this package's own HTTP handler, so it can layer the
+// AI-drafting orchestrator onto the freshly minted revision before the
+// response is written) shares the ONE mapping instead of hand-rolling a
+// second copy that could drift from this one as new typed errors join it.
+func WriteOfferError(w http.ResponseWriter, r *http.Request, err error) {
+	writeStoreErr(w, r, err)
+}
+
 // writeStoreErr maps this module's typed store errors onto the wire
 // codes the contract names, then falls through to the sentinel registry.
 func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {

@@ -68,6 +68,11 @@ type offerBody struct {
 	FxRate      string `json:"fx_rate_to_base"`
 	AcceptedAt  string `json:"accepted_at"`
 	Version     int64  `json:"version"`
+	// AiGenerated is set only by regenerateOffer (arc 4b) when an
+	// offerDrafter is wired AND at least one candidate grounds; every
+	// other read, and a regenerate with no offerDrafter wired at all,
+	// leaves it absent.
+	AiGenerated *bool `json:"ai_generated"`
 	LineItems   []struct {
 		ID             string  `json:"id"`
 		Position       int     `json:"position"`
@@ -306,6 +311,12 @@ func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 	}
 	if nextRev.Revision != 2 || nextRev.Status != "draft" || nextRev.OfferNumber != third.OfferNumber || len(nextRev.LineItems) != 1 {
 		t.Fatalf("regenerated = %+v, want draft revision 2 of %s with the copied line", nextRev, third.OfferNumber)
+	}
+	// This harness wires no offerDrafter at all (arc 4b's WithOfferDraft
+	// option is absent here) — the pre-4b mechanical-only behavior must be
+	// unchanged: no AI ran, so the response carries no ai_generated.
+	if nextRev.AiGenerated != nil {
+		t.Fatalf("ai_generated = %v, want absent with no offerDrafter wired", *nextRev.AiGenerated)
 	}
 	var prior offerBody
 	if status := e.call(t, "GET", "/v1/offers/"+third.ID, nil, nil, &prior); status != http.StatusOK || prior.Status != "superseded" {

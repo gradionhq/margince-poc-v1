@@ -35,6 +35,7 @@ import (
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
 	_ "github.com/gradionhq/margince/backend/internal/modules/de"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
@@ -135,6 +136,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, coldStart...)
+
+	offerDraft, err := offerDraftOptions(cfg.routingPath, cfg.fakeBrain, pool)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, offerDraft...)
 
 	srv := &http.Server{
 		Addr:              cfg.addr,
@@ -314,6 +321,20 @@ func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr string,
 	return busReady, stop, nil
 }
 
+// resolvedModelPath loads ai-routing.yaml and builds the process's
+// ModelPath over it — coldStartOptions and offerDraftOptions each call
+// this on the declared routing file so both stay a plain mirror of the
+// same three-way switch (declared routing / --ai-fake / neither) rather
+// than threading a pre-built ModelPath through run() as a fourth kind of
+// boot parameter.
+func resolvedModelPath(routingPath string, pool *pgxpool.Pool) (compose.ModelPath, error) {
+	cfg, err := ai.LoadRoutingFile(routingPath)
+	if err != nil {
+		return compose.ModelPath{}, err
+	}
+	return compose.NewModelPath(cfg, pool)
+}
+
 // coldStartOptions resolves the cold-start read-back's model wiring: a
 // declared routing file for real deployments, the offline fake behind an
 // explicit dev flag, or nothing — the operation then stays an explicit
@@ -321,11 +342,7 @@ func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr string,
 func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([]compose.Option, error) {
 	switch {
 	case routingPath != "":
-		cfg, err := ai.LoadRoutingFile(routingPath)
-		if err != nil {
-			return nil, err
-		}
-		modelPath, err := compose.NewModelPath(cfg, pool)
+		modelPath, err := resolvedModelPath(routingPath, pool)
 		if err != nil {
 			return nil, err
 		}
@@ -346,6 +363,32 @@ func coldStartOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([
 			compose.WithScrape(fetch, fake),
 			compose.WithBrief(fake),
 		}, nil
+	default:
+		return nil, nil
+	}
+}
+
+// offerDraftOptions resolves the AI-drafted offer regeneration's model +
+// retrieval wiring (arc 4b): the SAME declared-routing/--ai-fake/absent
+// three-way switch coldStartOptions runs, over the SAME two flags — a
+// role that lights up one AI surface lights up both rather than growing
+// a second pair of flags for what is, at boot time, one decision ("does
+// this role have a model?"). Absent either, regenerateOffer stays the
+// mechanical clone alone (offerregenerate.go's honest "offerDrafter
+// unwired" path) — never a silently different behavior.
+func offerDraftOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) ([]compose.Option, error) {
+	switch {
+	case routingPath != "":
+		modelPath, err := resolvedModelPath(routingPath, pool)
+		if err != nil {
+			return nil, err
+		}
+		retriever := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
+		return []compose.Option{compose.WithOfferDraft(modelPath.OfferDraft, retriever)}, nil
+	case fakeBrain:
+		fake := ai.NewFakeClient()
+		retriever := search.NewRetriever(search.NewStore(pool), nil)
+		return []compose.Option{compose.WithOfferDraft(fake, retriever)}, nil
 	default:
 		return nil, nil
 	}

@@ -149,6 +149,18 @@ Merged so far:
   equal the server-computed totals exactly (no drift). poc-v1's offer
   lifecycle (send/accept/reject/FX-freeze/totals) is untouched. First
   half of Wave 4; AI-drafted regeneration (delta 1) is arc 4b.
+- **AI-drafted offer regeneration (offers-depth arc 4b)** — a
+  compose-orchestrated evidence-gated AI draft: on regenerate, the
+  mechanical revision-mint runs first, then (when the OfferDraft model
+  lane is wired via `--ai-routing`/`--ai-fake`) the orchestrator calls
+  the model, keeps ONLY lines whose price + snippet are verbatim-grounded
+  in the deal's captured context (drops the rest, never fabricates;
+  blank price when ungrounded), stages them via the deals
+  `AddStagedOfferLines` seam (excluded from server-computed totals until
+  a human accepts), and returns the Art. 50 disclosure + a diff — all
+  transient. Secret-stripped model calls; totals never AI-computed; the
+  send/accept/reject/FX lifecycle untouched; unwired = mechanical-only.
+  This CLOSES Wave 4 and the entire poc-1 delta port.
 
 ## Pick up here
 
