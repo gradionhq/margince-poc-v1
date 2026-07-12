@@ -22,7 +22,7 @@ maps the codebase and links everything below.
 - [run-the-frontend.md](how-to/run-the-frontend.md) — run the SPA in dev.
 
 ### Reference — look it up
-- [modules.md](reference/modules.md) — the 14 modules: what each owns, its tables, its HTTP surface.
+- [modules.md](reference/modules.md) — the 16 modules: what each owns, its tables, its HTTP surface.
 - [platform-toolkit.md](reference/platform-toolkit.md) — the reusable `platform/*` + `shared/*` utilities.
 - [configuration.md](reference/configuration.md) — every binary flag and environment variable.
 - [make-targets.md](reference/make-targets.md) — every `make` target.

@@ -1,6 +1,6 @@
 # Module catalog
 
-The fourteen bounded capabilities under `backend/internal/modules/`. This is the "what owns what" map
+The sixteen bounded capabilities under `backend/internal/modules/`. This is the "what owns what" map
 — use it to find the module a change belongs to, or to place a new one. For the *why* of the module
 boundary (the DAG, the two spine shapes), see [explanation/architecture.md](../explanation/architecture.md);
 for the store/write mechanics every module shares, see
@@ -42,6 +42,8 @@ still answer a generated `501` until its handler lands; it is not an implementat
 | **privacy** | The GDPR engines — Art. 17 erasure, Art. 15 SAR assembly, the nightly retention evaluator — the ratified cross-store writer. Serves the field-history + audit-log reads. | Engines (`NewEraser`, SAR, retention) + thin HTTP over the pool | `erasure_suppression` (deliberately writes, but does NOT own, person/lead/activity/deal/embedding/raw_capture rows during a purge — each ratified in `tableownership_test.go`) | `/field-history`, `/audit-log` |
 | **collections** | Lists (static sets and dynamic segments) and tags over the four core record types, each membership visibility-probed so a list can't become a side channel. Plus saved views + export sources. | Handlers→Store (`NewStore`) | `list, list_member, tag, taggable` | `/lists` (+`/members`), `/tags` (+`/apply`), `/views`, `/exports` |
 | **signals** | The company-level, consent-gated warm-room signal substrate, the inspectable signal→organization resolver, and the warm/cold join over our own contact graph. | Handlers→Store (`NewStore`, strength source injected) | `signal, signal_resolution` | `/signals` (+`/{id}/resolve`,`/{id}/warmth`,`/{id}/intro-path`) |
+| **customfields** | The governed add-field engine — the single chokepoint allowed to run a runtime `ALTER TABLE`. Validates a field definition against the closed type/object sets, derives its namespaced physical `cf_*` column, and runs the DDL + `custom_field` catalog INSERT + audit atomically. Record stores read these columns through the `fieldcatalog` seam, never by importing this module. | Handlers→Service (`NewService`) | `custom_field` | `/custom-fields` (+`/{id}`,`/{id}/retire`,`/{id}/options`) |
+| **quotas** | The quota aggregate (RD-T06) — a per-owner XOR per-team revenue target over an explicit period, with a human-set `target_minor` (never AI-guessed or server-computed). Workspace-shared config posture: governed by the `quota` object grant alone, never row-scoped. Audit-only writes (events.md defines no `quota.*` type). | Handlers→Store (`NewStore`) | `quota` | `/quotas` (+`/{id}`,`/{id}/attainment`) |
 | **de** | The German jurisdiction pack — GoBD statutory retention classes, registered in `init()` and pulled into an edge binary by a blank import. Core code never contains a jurisdiction string. | Jurisdiction pack (`ports/jurisdiction`, no Handlers/Store) | none | none (consumed by privacy's retention evaluator through the seam) |
 
 ## Notable subpackages
