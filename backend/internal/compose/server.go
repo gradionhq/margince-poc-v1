@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
+	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -43,12 +44,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/web"
 )
-
-// fallback pushes the stubs one embedding level deeper than the module
-// handlers, so a module method always wins promotion and the stub only
-// answers operations nothing implements yet (currently: the six /quotas
-// operations, pending the quotas module handler).
-type fallback struct{ stubs }
 
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
@@ -66,12 +61,12 @@ type (
 	agentsHandlers       = agents.Handlers
 	voiceHandlers        = ai.Handlers
 	customfieldsHandlers = customfields.Handlers
+	quotasHandlers       = quotas.Handlers
 )
 
-// Server satisfies crmcontracts.ServerInterface by embedding: the module
-// transport handlers at depth one shadow the depth-two stubs, so an
-// operation with no module handler yet resolves to its generated 501
-// (stubs_gen.go) rather than failing the build.
+// Server satisfies crmcontracts.ServerInterface by embedding: every
+// module transport handler set together covers the full contract
+// surface, so there is no residual stub embed.
 type Server struct {
 	authHandlers
 	peopleHandlers
@@ -93,7 +88,7 @@ type Server struct {
 	filteredExportHandlers
 	orgRollupHandlers
 	customfieldsHandlers
-	fallback
+	quotasHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -357,6 +352,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
+		quotasHandlers:       quotas.NewHandlers(pool),
 		log:                  log,
 	}
 }
