@@ -17,6 +17,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
 type Handlers struct {
@@ -34,6 +35,9 @@ type Handlers struct {
 	// link resolves to — configured at boot, never taken from the request
 	// (WithPublicBaseURL wires it).
 	publicBaseURL string
+	// extractor is the staged AI-extraction seam (RD-T10); nil falls back to
+	// extraction.NoOpExtractor (WithExtractor wires a real one).
+	extractor extraction.Extractor
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
