@@ -42,6 +42,15 @@ const idempotencyKeyHeader = "Idempotency-Key"
 // promise, not the client. TestIdempotentOperationsMirrorTheContract
 // derives the expected set from api/crm.yaml, so a declared operation
 // missing here (or a stale entry) fails the unit lane.
+//
+// bookPublicMeeting declares the parameter but is deliberately NOT
+// mapped (the gate's idempotencyExemptions entry): the anonymous edge
+// binds ONE shared system principal for every visitor, so this table's
+// per-principal claim scope cannot tell callers apart — one visitor's
+// key + body would replay another's recorded confirmation. The anonymous
+// surface needs its own dedupe scope (workspace + request digest) before
+// the header's promise can be honored; until then the slot's natural key
+// refuses a duplicate booking.
 var idempotentOperations = map[string]bool{
 	"POST /v1/people":                      true,
 	"PATCH /v1/people/{id}":                true,
@@ -64,7 +73,6 @@ var idempotentOperations = map[string]bool{
 	"POST /v1/activities/{id}/relink":      true,
 	"POST /v1/activities/{id}/send-email":  true,
 	"POST /v1/bookings":                    true,
-	"POST /v1/public/booking/{host_slug}":  true,
 	"POST /v1/leads":                       true,
 	"PATCH /v1/leads/{id}":                 true,
 	"POST /v1/leads/{id}/promote":          true,
@@ -138,7 +146,12 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			outcome, stored := claimKey(r, pool, actor.ID, key, endpoint, digest)
 			switch outcome {
 			case claimReplay:
-				w.Header().Set("Content-Type", "application/json")
+				// The replay repeats the ORIGINAL response verbatim —
+				// status, body, and the media type recorded with it (0069),
+				// never a restamped Content-Type.
+				if stored.contentType != "" {
+					w.Header().Set("Content-Type", stored.contentType)
+				}
 				w.WriteHeader(stored.status)
 				if stored.body != "" {
 					_, _ = io.WriteString(w, stored.body)
@@ -168,8 +181,9 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 }
 
 type storedResponse struct {
-	status int
-	body   string
+	status      int
+	body        string
+	contentType string
 }
 
 // claimKey runs the insert-first claim. Any claim-infrastructure failure
@@ -191,16 +205,16 @@ func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, d
 		if tag.RowsAffected() == 1 {
 			return nil // fresh claim
 		}
-		var storedDigest string
+		var storedDigest, contentType string
 		var status *int
 		var respBody *string
 		var expired bool
 		if err := tx.QueryRow(r.Context(), `
-			SELECT request_digest, response_status, response_body, created_at < now() - interval '24 hours'
+			SELECT request_digest, response_status, response_body, response_content_type, created_at < now() - interval '24 hours'
 			FROM idempotency_key
 			WHERE principal_id = $1 AND key = $2 AND endpoint = $3
 			FOR UPDATE`,
-			principalID, key, endpoint).Scan(&storedDigest, &status, &respBody, &expired); err != nil {
+			principalID, key, endpoint).Scan(&storedDigest, &status, &respBody, &contentType, &expired); err != nil {
 			return err
 		}
 		if expired {
@@ -208,7 +222,8 @@ func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, d
 			// re-claim it in place for this attempt.
 			_, err := tx.Exec(r.Context(), `
 				UPDATE idempotency_key
-				SET request_digest = $4, response_status = NULL, response_body = NULL, created_at = now()
+				SET request_digest = $4, response_status = NULL, response_body = NULL,
+				    response_content_type = DEFAULT, created_at = now()
 				WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
 				principalID, key, endpoint, digest)
 			return err
@@ -221,6 +236,7 @@ func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, d
 		default:
 			outcome = claimReplay
 			stored.status = *status
+			stored.contentType = contentType
 			if respBody != nil {
 				stored.body = *respBody
 			}
@@ -241,9 +257,9 @@ func settleClaim(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint
 	err := database.WithWorkspaceTx(r.Context(), pool, func(tx pgx.Tx) error {
 		if rec.status >= 200 && rec.status < 300 {
 			_, err := tx.Exec(r.Context(), `
-				UPDATE idempotency_key SET response_status = $4, response_body = $5
+				UPDATE idempotency_key SET response_status = $4, response_body = $5, response_content_type = $6
 				WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
-				principalID, key, endpoint, rec.status, rec.buf.String())
+				principalID, key, endpoint, rec.status, rec.buf.String(), rec.Header().Get("Content-Type"))
 			return err
 		}
 		_, err := tx.Exec(r.Context(), `
