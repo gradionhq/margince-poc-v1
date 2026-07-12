@@ -118,13 +118,18 @@ type Server struct {
 	// option wires (e.g. the brief L2 ranker's degradation warnings).
 	log *slog.Logger
 
-	// offerDrafter is the AI-drafted offer regeneration orchestrator
-	// (arc 4b), injected by WithOfferDraft. Without it, the regenerate
-	// handler's AI path stays unavailable and only the mechanical clone
-	// runs — the same "declared or absent, never a silent default"
-	// posture as coldstartHandlers/scrapeHandlers. T9 reads this field
-	// directly (same package) to route regenerateOffer through it.
+	// offerDrafter is the AI-drafted offer regeneration orchestrator (arc
+	// 4b), injected by WithOfferDraft. Without it, offerregenerate.go's
+	// RegenerateOffer shadow stays mechanical-only — the same "declared
+	// or absent, never a silent default" posture as
+	// coldstartHandlers/scrapeHandlers.
 	offerDrafter *offerDrafter
+
+	// dealsStore backs that same shadow: a direct Store.RegenerateOffer
+	// call, so the mechanical mint's Offer can reach offerDrafter before
+	// the response is written — a separate instance from dealsHandlers'
+	// own store, the same split offerDrafter itself already uses.
+	dealsStore *deals.Store
 }
 
 var _ crmcontracts.ServerInterface = Server{}
@@ -388,6 +393,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// both surfaces answer from the SAME seam.
 		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool, nil)},
 		log:                          log,
+		dealsStore:                   deals.NewStore(pool),
 	}
 }
 
