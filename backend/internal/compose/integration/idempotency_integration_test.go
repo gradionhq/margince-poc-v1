@@ -79,6 +79,58 @@ func TestIdempotencyKeyReplay(t *testing.T) {
 	}
 }
 
+// TestIdempotencyKeyReplay_createQuota proves the promise for an
+// operation with no natural-key dedupe behind it: without transport
+// idempotency a retried createQuota lands a second, identical target.
+func TestIdempotencyKeyReplay_createQuota(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+
+	var me anyMap
+	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("/me = %d", status)
+	}
+	adminID := me["user"].(anyMap)["id"].(string)
+
+	keyed := map[string]string{"Idempotency-Key": "quota-retry-1"}
+	quotaReq := anyMap{
+		"owner_id": adminID, "period_start": "2026-01-01", "period_end": "2026-03-31",
+		"target_minor": 1000000, "currency": "EUR",
+	}
+
+	var first anyMap
+	if status := e.call(t, "POST", "/v1/quotas", quotaReq, keyed, &first); status != http.StatusCreated {
+		t.Fatalf("keyed create quota = %d %v", status, first)
+	}
+	var replay anyMap
+	if status := e.call(t, "POST", "/v1/quotas", quotaReq, keyed, &replay); status != http.StatusCreated {
+		t.Fatalf("keyed replay = %d %v, want the original 201", status, replay)
+	}
+	if !reflect.DeepEqual(first, replay) {
+		t.Errorf("replayed response differs from the original:\n first: %v\nreplay: %v", first, replay)
+	}
+
+	var quotas struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/quotas", nil, nil, &quotas); status != http.StatusOK {
+		t.Fatalf("list quotas = %d", status)
+	}
+	if len(quotas.Data) != 1 {
+		t.Fatalf("replayed create produced %d quotas, want exactly 1", len(quotas.Data))
+	}
+
+	// The same key with a DIFFERENT body is a conflict, never a replay.
+	var problem anyMap
+	status := e.call(t, "POST", "/v1/quotas", anyMap{
+		"owner_id": adminID, "period_start": "2026-04-01", "period_end": "2026-06-30",
+		"target_minor": 2000000, "currency": "EUR",
+	}, keyed, &problem)
+	if status != http.StatusConflict || problem["code"] != "idempotency_key_conflict" {
+		t.Fatalf("mismatched body under a reused key = %d %v, want 409 idempotency_key_conflict", status, problem)
+	}
+}
+
 func TestIdempotencyKeyReplay_logActivity(t *testing.T) {
 	e := setup(t)
 

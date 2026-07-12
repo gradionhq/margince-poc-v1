@@ -36,37 +36,52 @@ import (
 const idempotencyKeyHeader = "Idempotency-Key"
 
 // idempotentOperations mirrors the contract operations that declare the
-// IdempotencyKey parameter (grep api/crm.yaml for IdempotencyKey), keyed
-// by "METHOD <chi route pattern>" exactly like agentPolicies. Requests
-// outside this set pass through untouched even when they carry the
-// header — the contract scopes the promise, not the client.
+// IdempotencyKey parameter, keyed by "METHOD <chi route pattern>"
+// exactly like agentPolicies. Requests outside this set pass through
+// untouched even when they carry the header — the contract scopes the
+// promise, not the client. TestIdempotentOperationsMirrorTheContract
+// derives the expected set from api/crm.yaml, so a declared operation
+// missing here (or a stale entry) fails the unit lane.
 var idempotentOperations = map[string]bool{
-	"POST /v1/people":                     true,
-	"PATCH /v1/people/{id}":               true,
-	"POST /v1/people/{id}/merge":          true,
-	"POST /v1/organizations":              true,
-	"PATCH /v1/organizations/{id}":        true,
-	"POST /v1/organizations/{id}/merge":   true,
-	"POST /v1/deals":                      true,
-	"PATCH /v1/deals/{id}":                true,
-	"POST /v1/deals/{id}/advance":         true,
-	"POST /v1/pipelines":                  true,
-	"PATCH /v1/pipelines/{id}":            true,
-	"POST /v1/stages":                     true,
-	"PATCH /v1/stages/{id}":               true,
-	"POST /v1/activities":                 true,
-	"PATCH /v1/activities/{id}":           true,
-	"POST /v1/activities/{id}/relink":     true,
-	"POST /v1/activities/{id}/send-email": true,
-	"POST /v1/bookings":                   true,
-	"POST /v1/public/booking/{host_slug}": true,
-	"POST /v1/leads":                      true,
-	"PATCH /v1/leads/{id}":                true,
-	"POST /v1/leads/{id}/promote":         true,
-	"POST /v1/approvals/{id}/approve":     true,
-	"POST /v1/data-subject-requests":      true,
-	"POST /v1/people/{id}/consent":        true,
-	"POST /v1/record-grants":              true,
+	"POST /v1/people":                      true,
+	"PATCH /v1/people/{id}":                true,
+	"POST /v1/people/{id}/merge":           true,
+	"POST /v1/organizations":               true,
+	"PATCH /v1/organizations/{id}":         true,
+	"POST /v1/organizations/{id}/merge":    true,
+	"POST /v1/deals":                       true,
+	"PATCH /v1/deals/{id}":                 true,
+	"POST /v1/deals/{id}/advance":          true,
+	"POST /v1/deals/{id}/offers":           true,
+	"POST /v1/offers/{id}/regenerate":      true,
+	"POST /v1/offers/{id}/send":            true,
+	"POST /v1/pipelines":                   true,
+	"PATCH /v1/pipelines/{id}":             true,
+	"POST /v1/stages":                      true,
+	"PATCH /v1/stages/{id}":                true,
+	"POST /v1/activities":                  true,
+	"PATCH /v1/activities/{id}":            true,
+	"POST /v1/activities/{id}/relink":      true,
+	"POST /v1/activities/{id}/send-email":  true,
+	"POST /v1/bookings":                    true,
+	"POST /v1/public/booking/{host_slug}":  true,
+	"POST /v1/leads":                       true,
+	"PATCH /v1/leads/{id}":                 true,
+	"POST /v1/leads/{id}/promote":          true,
+	"POST /v1/approvals/{id}/approve":      true,
+	"POST /v1/custom-fields":               true,
+	"PATCH /v1/custom-fields/{id}":         true,
+	"PATCH /v1/custom-fields/{id}/options": true,
+	"POST /v1/custom-fields/{id}/retire":   true,
+	"POST /v1/products":                    true,
+	"POST /v1/quotas":                      true,
+	"PATCH /v1/quotas/{id}":                true,
+	"POST /v1/signals":                     true,
+	"PATCH /v1/signals/{id}":               true,
+	"POST /v1/signals/{id}/resolve":        true,
+	"POST /v1/data-subject-requests":       true,
+	"POST /v1/people/{id}/consent":         true,
+	"POST /v1/record-grants":               true,
 }
 
 // claimOutcome is what the claim transaction decided.
