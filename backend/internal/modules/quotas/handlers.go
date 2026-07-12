@@ -65,6 +65,7 @@ func (h Handlers) ListQuotas(w http.ResponseWriter, r *http.Request, params crmc
 		OwnerID:         uuidArg(params.OwnerId),
 		TeamID:          uuidArg(params.TeamId),
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		Sort:            params.Sort,
 	}
 	list, page, err := h.store.ListQuotas(r.Context(), in)
 	if err != nil {

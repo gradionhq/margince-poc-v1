@@ -165,6 +165,9 @@ func TestQuotasHTTP(t *testing.T) {
 	t.Run("200 list with owner/team filters", func(t *testing.T) {
 		assertQuotaList(t, e, ownerQuotaID, teamQuotaID, adminID, teamID)
 	})
+	t.Run("200 list sorted, 422 unknown sort field", func(t *testing.T) {
+		assertQuotaListSort(t, e, ownerQuotaID, teamQuotaID)
+	})
 	t.Run("update: 200 happy, 409 stale If-Match, 422 malformed If-Match", func(t *testing.T) {
 		assertQuotaUpdate(t, e, ownerQuotaID)
 	})
@@ -279,6 +282,43 @@ func assertQuotaList(t *testing.T, e *env, ownerQuotaID, teamQuotaID, ownerID, t
 	}
 	if len(byTeam.Data) != 1 || byTeam.Data[0]["id"] != teamQuotaID {
 		t.Fatalf("team_id filter = %+v, want exactly the team quota", byTeam.Data)
+	}
+}
+
+// assertQuotaListSort proves the contract's Sort parameter is honored on
+// listQuotas: the owner quota's period (2020..2030) brackets the team
+// quota's (2026 Q1), so sort=period_start puts the owner quota first and
+// sort=-period_start reverses that — while a field outside the quota
+// vocabulary answers the established 422 sort_field_not_allowed shape.
+func assertQuotaListSort(t *testing.T, e *env, ownerQuotaID, teamQuotaID string) {
+	t.Helper()
+	var asc struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/quotas?sort=period_start", nil, nil, &asc); status != http.StatusOK {
+		t.Fatalf("sort=period_start = %d", status)
+	}
+	if len(asc.Data) != 2 || asc.Data[0]["id"] != ownerQuotaID || asc.Data[1]["id"] != teamQuotaID {
+		t.Fatalf("sort=period_start order = %+v, want [owner %s, team %s]", asc.Data, ownerQuotaID, teamQuotaID)
+	}
+	var desc struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/quotas?sort=-period_start", nil, nil, &desc); status != http.StatusOK {
+		t.Fatalf("sort=-period_start = %d", status)
+	}
+	if len(desc.Data) != 2 || desc.Data[0]["id"] != teamQuotaID || desc.Data[1]["id"] != ownerQuotaID {
+		t.Fatalf("sort=-period_start order = %+v, want [team %s, owner %s]", desc.Data, teamQuotaID, ownerQuotaID)
+	}
+
+	var problem quotaProblem
+	status := e.call(t, "GET", "/v1/quotas?sort=banana", nil, nil, &problem)
+	if status != http.StatusUnprocessableEntity || problem.Code != "validation_error" {
+		t.Fatalf("sort=banana = %d %+v, want 422 validation_error", status, problem)
+	}
+	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "sort" ||
+		problem.Details.Errors[0].Code != "sort_field_not_allowed" {
+		t.Fatalf("details.errors = %+v, want [{sort sort_field_not_allowed}]", problem.Details.Errors)
 	}
 }
 

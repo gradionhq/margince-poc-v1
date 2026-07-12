@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // Store owns the quota table (data-seam ownership, ADR-0014 Am.1); every
@@ -255,19 +256,36 @@ func (s *Store) ArchiveQuota(ctx context.Context, id ids.UUID) (crmcontracts.Quo
 }
 
 // ListQuotasInput narrows the keyset list: optional owner/team filters,
-// the CAP-PAGE cursor/limit pair, and the archived-row toggle.
+// the CAP-PAGE cursor/limit pair, the archived-row toggle, and the
+// contract's sort spec (validated against quotaListFields).
 type ListQuotasInput struct {
 	Cursor          *string
 	Limit           *int
 	OwnerID         *ids.UUID
 	TeamID          *ids.UUID
 	IncludeArchived bool
+	Sort            *string
 }
 
-// ListQuotas pages the workspace's quotas keyset-style (-created_at,id),
-// live rows by default.
+// quotaListFields is the quota list's closed sortable vocabulary: the
+// period bounds, the target, and the house timestamps. No cf_ columns
+// join it — quota is workspace config, not a custom-field object.
+var quotaListFields = map[string]string{
+	"period_start": fieldcatalog.TypeDate,
+	"period_end":   fieldcatalog.TypeDate,
+	"target_minor": fieldcatalog.TypeCurrency,
+	"created_at":   storekit.KindTimestamp,
+	"updated_at":   storekit.KindTimestamp,
+}
+
+// ListQuotas pages the workspace's quotas keyset-style (-created_at,id
+// by default, or the validated sort field first), live rows by default.
 func (s *Store) ListQuotas(ctx context.Context, in ListQuotasInput) ([]crmcontracts.Quota, storekit.Page, error) {
 	if err := auth.Require(ctx, "quota", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	sorted, err := storekit.ParseListSort(in.Sort, quotaListFields)
+	if err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
@@ -285,30 +303,38 @@ func (s *Store) ListQuotas(ctx context.Context, in ListQuotasInput) ([]crmcontra
 		where = append(where, storekit.SQLf("team_id = $%d", arg(*in.TeamID)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
+		clause, err := sorted.KeysetClause(*in.Cursor, arg)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+		where = append(where, clause)
 	}
 
 	var out []crmcontracts.Quota
 	var page storekit.Page
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+quotaColumns+` FROM quota WHERE `+strings.Join(where, " AND ")+
-				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
+			`SELECT `+quotaColumns+sorted.CursorKeySuffix()+
+				` FROM quota WHERE `+strings.Join(where, " AND ")+
+				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
+		var cursorKeys []*string
 		for rows.Next() {
-			q, err := scanQuota(rows)
+			var key *string
+			extra := []any{}
+			if sorted != nil {
+				extra = append(extra, &key)
+			}
+			q, err := scanQuota(rows, extra...)
 			if err != nil {
 				return err
 			}
 			out = append(out, q)
+			cursorKeys = append(cursorKeys, key)
 		}
 		if err := rows.Err(); err != nil {
 			return err
@@ -316,7 +342,7 @@ func (s *Store) ListQuotas(ctx context.Context, in ListQuotasInput) ([]crmcontra
 		if len(out) > limit {
 			out = out[:limit]
 			last := out[len(out)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
 		}
 		return nil
 	})
@@ -353,15 +379,19 @@ func readQuota(ctx context.Context, tx pgx.Tx, id ids.UUID, archived storekit.Ar
 	return quota, err
 }
 
-func scanQuota(row pgx.Row) (crmcontracts.Quota, error) {
+// scanQuota scans the quotaColumns row shape; extra receives any
+// trailing expressions the caller's SELECT appended (the sorted list's
+// cursor key — the scanDeal precedent).
+func scanQuota(row pgx.Row, extra ...any) (crmcontracts.Quota, error) {
 	var q crmcontracts.Quota
 	var id, wsID ids.UUID
 	var ownerID, teamID *ids.UUID
 	var periodStart, periodEnd time.Time
 	var version int64
 
-	err := row.Scan(&id, &wsID, &ownerID, &teamID, &periodStart, &periodEnd,
-		&q.TargetMinor, &q.Currency, &version, &q.CreatedAt, &q.UpdatedAt, &q.ArchivedAt)
+	dests := []any{&id, &wsID, &ownerID, &teamID, &periodStart, &periodEnd,
+		&q.TargetMinor, &q.Currency, &version, &q.CreatedAt, &q.UpdatedAt, &q.ArchivedAt}
+	err := row.Scan(append(dests, extra...)...)
 	if err != nil {
 		return q, err
 	}

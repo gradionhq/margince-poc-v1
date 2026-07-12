@@ -343,6 +343,83 @@ func TestQuotaList_KeysetFiltersAndArchived(t *testing.T) {
 	}
 }
 
+func TestQuotaList_SortVocabulary(t *testing.T) {
+	e := Setup(t)
+	store := quotas.NewStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	// Three owner-quotas whose period_start order deliberately disagrees
+	// with insertion (= created_at) order, so a sorted list is
+	// distinguishable from the default ordering.
+	starts := []time.Time{
+		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+	}
+	targets := []int64{2000, 3000, 1000}
+	for i, owner := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3} {
+		if _, err := store.CreateQuota(ctx, quotas.CreateQuotaInput{
+			OwnerID: &owner, PeriodStart: starts[i], PeriodEnd: starts[i].AddDate(0, 3, 0),
+			TargetMinor: targets[i], Currency: "EUR",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	asc := "period_start"
+	sorted, _, err := store.ListQuotas(ctx, quotas.ListQuotasInput{Sort: &asc})
+	if err != nil {
+		t.Fatalf("sort=period_start: %v", err)
+	}
+	if len(sorted) != 3 {
+		t.Fatalf("sorted list = %d rows, want 3", len(sorted))
+	}
+	for i := 1; i < len(sorted); i++ {
+		if sorted[i].PeriodStart.Time.Before(sorted[i-1].PeriodStart.Time) {
+			t.Fatalf("sort=period_start out of order at %d: %s after %s",
+				i, sorted[i].PeriodStart.Format(time.DateOnly), sorted[i-1].PeriodStart.Format(time.DateOnly))
+		}
+	}
+
+	descTarget := "-target_minor"
+	byTarget, _, err := store.ListQuotas(ctx, quotas.ListQuotasInput{Sort: &descTarget})
+	if err != nil {
+		t.Fatalf("sort=-target_minor: %v", err)
+	}
+	for i := 1; i < len(byTarget); i++ {
+		if byTarget[i].TargetMinor > byTarget[i-1].TargetMinor {
+			t.Fatalf("sort=-target_minor out of order at %d: %d after %d",
+				i, byTarget[i].TargetMinor, byTarget[i-1].TargetMinor)
+		}
+	}
+
+	// A sorted keyset walk continues the SAME order across pages.
+	limit := 2
+	page1, page, err := store.ListQuotas(ctx, quotas.ListQuotasInput{Sort: &asc, Limit: &limit})
+	if err != nil || len(page1) != 2 || !page.HasMore {
+		t.Fatalf("sorted page 1 = %d rows, page %+v, %v — want 2 rows and a next cursor", len(page1), page, err)
+	}
+	page2, _, err := store.ListQuotas(ctx, quotas.ListQuotasInput{Sort: &asc, Limit: &limit, Cursor: &page.NextCursor})
+	if err != nil || len(page2) != 1 {
+		t.Fatalf("sorted page 2 = %d rows, %v — want the final row", len(page2), err)
+	}
+	if page2[0].PeriodStart.Time.Before(page1[1].PeriodStart.Time) {
+		t.Fatalf("sorted keyset continuation broke the order: %s after %s",
+			page2[0].PeriodStart.Format(time.DateOnly), page1[1].PeriodStart.Format(time.DateOnly))
+	}
+
+	// Outside the closed vocabulary — including any cf_ column: quota is
+	// not a custom-field object — the refusal is typed, never a guess.
+	for _, garbage := range []string{"banana", "cf_region"} {
+		spec := garbage
+		_, _, err := store.ListQuotas(ctx, quotas.ListQuotasInput{Sort: &spec})
+		var sortErr *storekit.SortError
+		if !errors.As(err, &sortErr) || sortErr.Code != storekit.CodeSortFieldNotAllowed {
+			t.Fatalf("sort=%s must answer SortError %s, got %v", garbage, storekit.CodeSortFieldNotAllowed, err)
+		}
+	}
+}
+
 func TestQuotaRBAC_RepReadsButNeverMutates(t *testing.T) {
 	e := Setup(t)
 	store := quotas.NewStore(e.Pool)
