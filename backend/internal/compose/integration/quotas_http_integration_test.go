@@ -177,6 +177,9 @@ func TestQuotasHTTP(t *testing.T) {
 	t.Run("422 invalid currency (CHECK violation)", func(t *testing.T) {
 		assertQuotaInvalidCurrency(t, e, adminID)
 	})
+	t.Run("422 inverted period (CHECK violation)", func(t *testing.T) {
+		assertQuotaInvertedPeriod(t, e, adminID)
+	})
 	t.Run("200 attainment happy path — golden numbers", func(t *testing.T) {
 		assertQuotaAttainmentHappy(t, e, adminID)
 	})
@@ -393,6 +396,26 @@ func assertQuotaInvalidCurrency(t *testing.T, e *env, ownerID string) {
 	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "quota_currency_check" ||
 		problem.Details.Errors[0].Code != "constraint_violated" {
 		t.Fatalf("details.errors = %+v, want [{quota_currency_check constraint_violated}]", problem.Details.Errors)
+	}
+}
+
+// assertQuotaInvertedPeriod drives a period_end before period_start into
+// the quota_period_valid CHECK (0067) — a quota measuring a negative
+// window is refused with the same typed 422 as the currency CHECK, never
+// stored or answered with an opaque 500.
+func assertQuotaInvertedPeriod(t *testing.T, e *env, ownerID string) {
+	t.Helper()
+	var problem quotaProblem
+	status := e.call(t, "POST", "/v1/quotas", anyMap{
+		"owner_id": ownerID, "period_start": "2026-03-31", "period_end": "2026-01-01",
+		"target_minor": 1000, "currency": "EUR",
+	}, nil, &problem)
+	if status != http.StatusUnprocessableEntity || problem.Code != "validation_error" {
+		t.Fatalf("inverted period = %d %+v, want 422 validation_error", status, problem)
+	}
+	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "quota_period_valid" ||
+		problem.Details.Errors[0].Code != "constraint_violated" {
+		t.Fatalf("details.errors = %+v, want [{quota_period_valid constraint_violated}]", problem.Details.Errors)
 	}
 }
 
