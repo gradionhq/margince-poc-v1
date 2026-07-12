@@ -2589,8 +2589,8 @@ export interface paths {
         /**
          * Download an attachment's file bytes.
          * @description The scan gate refuses the byte stream while `scan_status` is `scanning` or
-         *     `blocked` (RD-T05) — the row is still readable via `getAttachment`/
-         *     `listAttachments`, only this stream is withheld.
+         *     `blocked` (RD-T05) — the row's metadata is still visible via `listAttachments`,
+         *     only this byte stream is withheld.
          */
         get: operations["downloadAttachment"];
         put?: never;
@@ -2626,7 +2626,8 @@ export interface paths {
          *     production default returns an honest `{fields: [], omitted: []}` (no
          *     document-extraction/OCR/LLM pipeline exists or is built by this ticket). Valid for
          *     any entity_type — a non-deal attachment or the empty-seam default both honestly
-         *     return zero fields; the same visibility gate as `getAttachment` applies.
+         *     return zero fields; the same parent-visibility gate as `downloadAttachment`/
+         *     `listAttachments` applies.
          */
         get: operations["getAttachmentExtraction"];
         put?: never;

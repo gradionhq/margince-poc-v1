@@ -132,18 +132,38 @@ Merged so far:
   (golden-number reconciliation), honest 422s for zero targets and
   missing FX, pace/band derivations on an injected clock. Wave 3 opener
   of the poc-1 delta port.
+- **Attachment AI extraction (RD-T05/RD-T10 backend)** — `scan_status`
+  gating (`scanning`/`blocked` refuse the download stream with typed
+  409s; the module-local Scanner seam has no product, so uploads default
+  `scanning`), the evidence-or-omit staged extraction read behind the
+  `shared/ports/extraction` seam (NoOp default — honest empty), and the
+  compose-orchestrated `extraction:accept` writing an allowlisted set of
+  grounded fields onto the deal with per-field audited provenance
+  (human-only V1). Closes Wave 3 of the poc-1 delta port.
 
 ## Pick up here
 
 Open work, roughly in priority order:
 
-- **Attachment scan verdicts have no runtime driver** — new uploads start
-  `scanning` and stay undownloadable until
-  `activities.Store.MarkScanResult` applies a clean|blocked verdict; no
-  scanning product is wired anywhere (poc-1 parity — the Scanner seam is
-  deliberately store-level, for tests/administration). A production
-  deployment needs a real Scanner behind the seam, or an admin verdict
-  path, before new uploads are downloadable end-to-end.
+- **No scanner product + no boot wiring** — new uploads stay
+  `scanning`/undownloadable until an admin or test drives
+  `activities.Store.MarkScanResult`; no real scanning product is
+  integrated anywhere in this codebase (operational gap, poc-1 parity).
+  A production deployment needs a real Scanner behind the seam, or an
+  admin verdict path, before new uploads are downloadable end-to-end.
+- **The RD-AC-2 "every download audited" clause is NOT ported** — poc-v1
+  audits only attachment create/archive (decisions/0022); a deliberate
+  delta from the spec, not an oversight.
+- **`extraction:accept`'s write is not atomic across the deal update and
+  its per-field notes, and carries no idempotency key** — a client retry
+  on a dropped response duplicates the provenance notes.
+- **The 🟡 agent-staged accept path (approvals effect) is deferred** —
+  V1 ships human-only; an agent cannot currently propose an
+  extraction-accept for confirm-first approval.
+- **`RequestAttachmentAccess` is a courtesy-audit-only op** — poc-v1 has
+  no restricted-but-disclosed state to actually gate on; its existence
+  in the contract is a final-review question rather than a settled
+  design.
 - **§0 baseline ratification** (founder decision): confirm this repo as
   the OSS baseline and reconcile the foundation spec tree with this
   repo's actual architecture. Until it lands, the spec-path references in

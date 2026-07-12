@@ -66,7 +66,12 @@ func (f FakeScanner) Scan(context.Context, string) (string, error) {
 // the parent object type plus parent row visibility, with denial reading
 // as not-found (existence-hiding). A verdict outside clean|blocked is
 // refused with ErrInvalidScanVerdict and the row stays untouched. The
-// applied verdict is an audited update carrying the status transition.
+// applied verdict is an audited update carrying the status transition. A
+// verdict that already matches the row's live status (a repeat scan landing
+// the same clean/blocked call twice) is a no-op — no update, no audit row —
+// mirroring DeactivateUser's idempotent-on-current-state shape
+// (identity/users.go): a same-state write is not a transition and gets no
+// audited entry.
 func (s *Store) MarkScanResult(ctx context.Context, id ids.UUID, scanner Scanner) (crmcontracts.Attachment, error) {
 	var storageKey string
 	if err := s.tx(ctx, func(tx pgx.Tx) error {
@@ -110,14 +115,16 @@ func (s *Store) MarkScanResult(ctx context.Context, id ids.UUID, scanner Scanner
 		case err != nil:
 			return err
 		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE attachment SET scan_status = $1 WHERE id = $2`, verdict, id); err != nil {
-			return err
-		}
-		if _, err := storekit.Audit(ctx, tx, "update", "attachment", id,
-			map[string]any{"scan_status": before},
-			map[string]any{"scan_status": verdict}); err != nil {
-			return err
+		if before != verdict {
+			if _, err := tx.Exec(ctx,
+				`UPDATE attachment SET scan_status = $1 WHERE id = $2`, verdict, id); err != nil {
+				return err
+			}
+			if _, err := storekit.Audit(ctx, tx, "update", "attachment", id,
+				map[string]any{"scan_status": before},
+				map[string]any{"scan_status": verdict}); err != nil {
+				return err
+			}
 		}
 		att, err := readAttachment(ctx, tx, id)
 		if err != nil {
