@@ -27,10 +27,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// art50Disclosure is the Art. 50 AI-assisted disclosure every proposed
+// Art50Disclosure is the Art. 50 AI-assisted disclosure every proposed
 // draft renders (EU AI Act Art. 50; A33/ADR-0025) — one spelling, machine
 // readable in the payload AND human readable inside the draft body.
-const art50Disclosure = "This message was drafted with AI assistance (EU AI Act Art. 50 disclosure)."
+// Exported so every AI-drafted-content surface reuses this one string
+// rather than drafting its own wording (compose/offerdraft.go's
+// ai_disclosure is the other consumer).
+const Art50Disclosure = "This message was drafted with AI assistance (EU AI Act Art. 50 disclosure)."
 
 // IntroPath proposes the warm-intro path for a warm signal: the strongest
 // visible contact at the resolved organization is the route in.
@@ -84,7 +87,7 @@ func (s *Store) IntroPath(ctx context.Context, signalID ids.SignalID, now time.T
 	}
 	out.NextMove.Kind = kind
 	out.NextMove.DraftSubject, out.NextMove.DraftBody = renderIntroDraft(kind, route, orgName, sig.Summary)
-	out.NextMove.AiDisclosure = art50Disclosure
+	out.NextMove.AiDisclosure = Art50Disclosure
 	return out, nil
 }
 
@@ -106,12 +109,12 @@ func renderIntroDraft(kind crmcontracts.SignalIntroPathNextMoveKind, route crmco
 		subject = "Could you introduce us at " + orgName + "?"
 		body = fmt.Sprintf(
 			"Hi %s,\n\nSomething came up on our side about %s: %s. You know the right people there (%s) — would you be open to making an intro?\n\n%s",
-			name, orgName, signalSummary, relationship, art50Disclosure)
+			name, orgName, signalSummary, relationship, Art50Disclosure)
 	default:
 		subject = "Following up with " + orgName
 		body = fmt.Sprintf(
 			"Hi %s,\n\nReaching out because of a recent signal on %s: %s. Given our %s relationship, this felt worth a direct conversation.\n\n%s",
-			name, orgName, signalSummary, relationship, art50Disclosure)
+			name, orgName, signalSummary, relationship, Art50Disclosure)
 	}
 	return subject, body
 }

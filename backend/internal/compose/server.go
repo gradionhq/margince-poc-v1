@@ -117,6 +117,14 @@ type Server struct {
 	// log is the process logger, shared with the optional engines an
 	// option wires (e.g. the brief L2 ranker's degradation warnings).
 	log *slog.Logger
+
+	// offerDrafter is the AI-drafted offer regeneration orchestrator
+	// (arc 4b), injected by WithOfferDraft. Without it, the regenerate
+	// handler's AI path stays unavailable and only the mechanical clone
+	// runs — the same "declared or absent, never a silent default"
+	// posture as coldstartHandlers/scrapeHandlers. T9 reads this field
+	// directly (same package) to route regenerateOffer through it.
+	offerDrafter *offerDrafter
 }
 
 var _ crmcontracts.ServerInterface = Server{}
