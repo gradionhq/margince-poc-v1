@@ -5494,18 +5494,41 @@ type MorningBriefItemState string
 
 // Offer A versioned Angebot bound to one deal. Mirrors the `offer` table; totals are derived from the nested line items.
 type Offer struct {
-	AcceptedAt *time.Time          `json:"accepted_at,omitempty"`
-	ArchivedAt *time.Time          `json:"archived_at,omitempty"`
-	BuyerOrgId *openapi_types.UUID `json:"buyer_org_id,omitempty"`
+	AcceptedAt *time.Time `json:"accepted_at,omitempty"`
+
+	// AiDisclosure The machine-readable Art. 50 disclosure line (features/07 §11 gate 9); non-null iff ai_generated=true.
+	AiDisclosure *string `json:"ai_disclosure,omitempty"`
+
+	// AiGenerated Art. 50 AI-assisted disclosure (features/07 §11 gate 9). true only on the response of the regenerate call that produced this draft revision; false on every other read — disclosure is stamped on the drafting call itself, not persisted across future reads.
+	AiGenerated *bool               `json:"ai_generated,omitempty"`
+	ArchivedAt  *time.Time          `json:"archived_at,omitempty"`
+	BuyerOrgId  *openapi_types.UUID `json:"buyer_org_id,omitempty"`
 
 	// BuyerSnapshot Buyer legal block captured at send time.
 	BuyerSnapshot *map[string]interface{} `json:"buyer_snapshot,omitempty"`
 
 	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
-	CapturedBy *string             `json:"captured_by,omitempty"`
-	CreatedAt  time.Time           `json:"created_at"`
-	Currency   string              `json:"currency"`
-	DealId     openapi_types.UUID  `json:"deal_id"`
+	CapturedBy *string            `json:"captured_by,omitempty"`
+	CreatedAt  time.Time          `json:"created_at"`
+	Currency   string             `json:"currency"`
+	DealId     openapi_types.UUID `json:"deal_id"`
+
+	// DiffFromPrevious Populated only on a regenerate response — added/removed/changed line items vs the immediately prior revision, so the human sees exactly what the AI proposed. Null on every other read; transient, never persisted.
+	DiffFromPrevious *struct {
+		Added   *[]OfferLineItem `json:"added,omitempty"`
+		Changed *[]struct {
+			// After A typed offer line. `description`/`unit_price_minor` are SNAPSHOTS (copied from the
+			// optional product at line creation); `line_net_minor`/`line_tax_minor`/`line_total_minor`
+			// are DERIVED server-side (formulas §12.6) and never stored or client-settable.
+			After *OfferLineItem `json:"after,omitempty"`
+
+			// Before A typed offer line. `description`/`unit_price_minor` are SNAPSHOTS (copied from the
+			// optional product at line creation); `line_net_minor`/`line_tax_minor`/`line_total_minor`
+			// are DERIVED server-side (formulas §12.6) and never stored or client-settable.
+			Before *OfferLineItem `json:"before,omitempty"`
+		} `json:"changed,omitempty"`
+		Removed *[]OfferLineItem `json:"removed,omitempty"`
+	} `json:"diff_from_previous,omitempty"`
 	FxRateDate *openapi_types.Date `json:"fx_rate_date,omitempty"`
 
 	// FxRateToBase Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding.
@@ -5581,6 +5604,9 @@ type OfferLineItem struct {
 
 	// Position Display order
 	Position int `json:"position"`
+
+	// PriceGrounded false only for an AI-proposed line whose price could not be grounded in conversation evidence or the rate card (unit_price_minor is 0 in that case — an honest sentinel, never a guessed value); true for every human-entered or grounded line.
+	PriceGrounded *bool `json:"price_grounded,omitempty"`
 
 	// ProductId Optional rate-card ref; the line survives the product.
 	ProductId *openapi_types.UUID `json:"product_id,omitempty"`
@@ -10569,6 +10595,22 @@ func (a *Offer) UnmarshalJSON(b []byte) error {
 		delete(object, "accepted_at")
 	}
 
+	if raw, found := object["ai_disclosure"]; found {
+		err = json.Unmarshal(raw, &a.AiDisclosure)
+		if err != nil {
+			return fmt.Errorf("error reading 'ai_disclosure': %w", err)
+		}
+		delete(object, "ai_disclosure")
+	}
+
+	if raw, found := object["ai_generated"]; found {
+		err = json.Unmarshal(raw, &a.AiGenerated)
+		if err != nil {
+			return fmt.Errorf("error reading 'ai_generated': %w", err)
+		}
+		delete(object, "ai_generated")
+	}
+
 	if raw, found := object["archived_at"]; found {
 		err = json.Unmarshal(raw, &a.ArchivedAt)
 		if err != nil {
@@ -10623,6 +10665,14 @@ func (a *Offer) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'deal_id': %w", err)
 		}
 		delete(object, "deal_id")
+	}
+
+	if raw, found := object["diff_from_previous"]; found {
+		err = json.Unmarshal(raw, &a.DiffFromPrevious)
+		if err != nil {
+			return fmt.Errorf("error reading 'diff_from_previous': %w", err)
+		}
+		delete(object, "diff_from_previous")
 	}
 
 	if raw, found := object["fx_rate_date"]; found {
@@ -10811,6 +10861,20 @@ func (a Offer) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.AiDisclosure != nil {
+		object["ai_disclosure"], err = json.Marshal(a.AiDisclosure)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'ai_disclosure': %w", err)
+		}
+	}
+
+	if a.AiGenerated != nil {
+		object["ai_generated"], err = json.Marshal(a.AiGenerated)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'ai_generated': %w", err)
+		}
+	}
+
 	if a.ArchivedAt != nil {
 		object["archived_at"], err = json.Marshal(a.ArchivedAt)
 		if err != nil {
@@ -10850,6 +10914,13 @@ func (a Offer) MarshalJSON() ([]byte, error) {
 	object["deal_id"], err = json.Marshal(a.DealId)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'deal_id': %w", err)
+	}
+
+	if a.DiffFromPrevious != nil {
+		object["diff_from_previous"], err = json.Marshal(a.DiffFromPrevious)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'diff_from_previous': %w", err)
+		}
 	}
 
 	if a.FxRateDate != nil {
@@ -13275,7 +13346,7 @@ type ServerInterface interface {
 	// Update a draft offer's line item (totals recomputed; totals themselves are not settable).
 	// (PATCH /offers/{id}/line-items/{lineItemId})
 	UpdateOfferLineItem(w http.ResponseWriter, r *http.Request, id Id, lineItemId openapi_types.UUID)
-	// Mint the next revision as a fresh draft; the sent original becomes superseded.
+	// Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
 	// (POST /offers/{id}/regenerate)
 	RegenerateOffer(w http.ResponseWriter, r *http.Request, id Id, params RegenerateOfferParams)
 	// Record the buyer's decline (sent → rejected; emits offer.rejected).
@@ -14055,7 +14126,7 @@ func (_ Unimplemented) UpdateOfferLineItem(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Mint the next revision as a fresh draft; the sent original becomes superseded.
+// Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
 // (POST /offers/{id}/regenerate)
 func (_ Unimplemented) RegenerateOffer(w http.ResponseWriter, r *http.Request, id Id, params RegenerateOfferParams) {
 	w.WriteHeader(http.StatusNotImplemented)

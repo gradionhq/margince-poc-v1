@@ -4392,12 +4392,16 @@ paths:
     post:
       tags: [Offers]
       operationId: regenerateOffer
-      summary: Mint the next revision as a fresh draft; the sent original becomes superseded.
+      summary: Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
       description: |
-        The `draft_offer` verb (🟢 — a reversible internal write): copies the sent offer's
-        header + lines into revision N+1 as a new `draft`, marks the prior revision
+        The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
+        sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
         `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
-        mutated in place. The produced draft still cannot leave without the 🟡 send gate.
+        mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
+        also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
+        `diff_from_previous` line-item summary versus the prior revision; a mechanical
+        regenerate (no AI context available) still works and returns `ai_generated=false`. The
+        produced draft still cannot leave without the 🟡 send gate.
       x-mcp-tool: { verb: draft_offer, record_type: offer, tier: green }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -8013,6 +8017,7 @@ components:
         line_tax_minor: { type: integer, format: int64, readOnly: true, description: 'round(line_net × tax_rate/100) — server-computed.' }
         line_total_minor: { type: integer, format: int64, readOnly: true, description: line_net + line_tax — server-computed. }
         evidence: { type: [object, 'null'], additionalProperties: true, description: '{snippet, source_id} when AI-drafted (evidence-or-omit, features/07).' }
+        price_grounded: { type: boolean, readOnly: true, default: true, description: 'false only for an AI-proposed line whose price could not be grounded in conversation evidence or the rate card (unit_price_minor is 0 in that case — an honest sentinel, never a guessed value); true for every human-entered or grounded line.' }
         version: { $ref: '#/components/schemas/RowVersion' }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -8043,6 +8048,22 @@ components:
         template_id: { type: [string, 'null'], format: uuid, description: The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale. }
         pdf_asset_ref: { type: [string, 'null'], description: Rendered PDF ref, set by renderOffer (B-E03.22/WP7). }
         accepted_at: { type: [string, 'null'], format: date-time, readOnly: true }
+        ai_generated: { type: boolean, readOnly: true, default: false, description: 'Art. 50 AI-assisted disclosure (features/07 §11 gate 9). true only on the response of the regenerate call that produced this draft revision; false on every other read — disclosure is stamped on the drafting call itself, not persisted across future reads.' }
+        ai_disclosure: { type: [string, 'null'], readOnly: true, description: 'The machine-readable Art. 50 disclosure line (features/07 §11 gate 9); non-null iff ai_generated=true.' }
+        diff_from_previous:
+          type: [object, 'null']
+          readOnly: true
+          description: 'Populated only on a regenerate response — added/removed/changed line items vs the immediately prior revision, so the human sees exactly what the AI proposed. Null on every other read; transient, never persisted.'
+          properties:
+            added: { type: array, items: { $ref: '#/components/schemas/OfferLineItem' } }
+            removed: { type: array, items: { $ref: '#/components/schemas/OfferLineItem' } }
+            changed:
+              type: array
+              items:
+                type: object
+                properties:
+                  before: { $ref: '#/components/schemas/OfferLineItem' }
+                  after: { $ref: '#/components/schemas/OfferLineItem' }
         line_items:
           type: array
           readOnly: true

@@ -2268,11 +2268,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mint the next revision as a fresh draft; the sent original becomes superseded.
-         * @description The `draft_offer` verb (🟢 — a reversible internal write): copies the sent offer's
-         *     header + lines into revision N+1 as a new `draft`, marks the prior revision
+         * Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
+         * @description The `draft_offer` verb (🟢 — a reversible internal write, writes zero sends): copies the
+         *     sent offer's header + lines into revision N+1 as a new `draft`, marks the prior revision
          *     `superseded` and emits `offer.superseded` + `offer.created`. A sent offer is never
-         *     mutated in place. The produced draft still cannot leave without the 🟡 send gate.
+         *     mutated in place. When an AI draft applies (regenerate-from-signal), the response Offer
+         *     also carries the Art. 50 disclosure (`ai_generated`/`ai_disclosure`) and the
+         *     `diff_from_previous` line-item summary versus the prior revision; a mechanical
+         *     regenerate (no AI context available) still works and returns `ai_generated=false`. The
+         *     produced draft still cannot leave without the 🟡 send gate.
          */
         post: operations["regenerateOffer"];
         delete?: never;
@@ -5600,6 +5604,11 @@ export interface components {
             evidence?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * @description false only for an AI-proposed line whose price could not be grounded in conversation evidence or the rate card (unit_price_minor is 0 in that case — an honest sentinel, never a guessed value); true for every human-entered or grounded line.
+             * @default true
+             */
+            readonly price_grounded: boolean;
             version?: components["schemas"]["RowVersion"];
             /** Format: date-time */
             created_at: string;
@@ -5663,6 +5672,22 @@ export interface components {
             pdf_asset_ref?: string | null;
             /** Format: date-time */
             readonly accepted_at?: string | null;
+            /**
+             * @description Art. 50 AI-assisted disclosure (features/07 §11 gate 9). true only on the response of the regenerate call that produced this draft revision; false on every other read — disclosure is stamped on the drafting call itself, not persisted across future reads.
+             * @default false
+             */
+            readonly ai_generated: boolean;
+            /** @description The machine-readable Art. 50 disclosure line (features/07 §11 gate 9); non-null iff ai_generated=true. */
+            readonly ai_disclosure?: string | null;
+            /** @description Populated only on a regenerate response — added/removed/changed line items vs the immediately prior revision, so the human sees exactly what the AI proposed. Null on every other read; transient, never persisted. */
+            readonly diff_from_previous?: {
+                added?: components["schemas"]["OfferLineItem"][];
+                removed?: components["schemas"]["OfferLineItem"][];
+                changed?: {
+                    before?: components["schemas"]["OfferLineItem"];
+                    after?: components["schemas"]["OfferLineItem"];
+                }[];
+            } | null;
             readonly line_items: components["schemas"]["OfferLineItem"][];
             source: string;
             /** @description Server-stamped from the authenticated principal; never client-supplied. */
