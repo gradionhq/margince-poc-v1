@@ -128,12 +128,20 @@ func TestDraftOfferLinesStagesGroundedLinesAndDiscloses(t *testing.T) {
 	}
 	beforeNet, beforeTax, beforeGross := offerTotals(t, before)
 
+	// Two candidates both cite REAL evidence from the same source, but
+	// only "Kickoff workshop" quotes a snippet that actually STATES the
+	// 20000 price — "Follow-up session" cites a genuine snippet too, just
+	// one that says nothing about money, and must NOT be machine-labeled
+	// "grounded" for a price it merely rides alongside (OFFER-AC-14: a
+	// real citation is not itself proof of a price the citation doesn't
+	// state).
 	fake := ai.NewFakeClient().Script(`{"lines":[
 		{"description":"Kickoff workshop","quantity":"1","tax_rate":"19.00",
-		 "evidence_snippet":"we'd want a kickoff workshop","source_id":"` + workshopSource + `",
+		 "evidence_snippet":"agreed to 20000 cents for it","source_id":"` + workshopSource + `",
 		 "conversation_price_minor":20000},
 		{"description":"Follow-up session","quantity":"1","tax_rate":"19.00",
-		 "evidence_snippet":"agreed to 20000 cents for it","source_id":"` + workshopSource + `"}
+		 "evidence_snippet":"we'd want a kickoff workshop","source_id":"` + workshopSource + `",
+		 "conversation_price_minor":20000}
 	]}`)
 	drafter := newOfferDrafterFixture(e, fake)
 
@@ -160,7 +168,13 @@ func TestDraftOfferLinesStagesGroundedLinesAndDiscloses(t *testing.T) {
 		t.Fatalf("staged line carries no evidence")
 	}
 	if workshop.PriceGrounded == nil || !*workshop.PriceGrounded || workshop.UnitPriceMinor != 20000 {
-		t.Fatalf("workshop line price_grounded/unit_price = %v/%d, want true/20000", workshop.PriceGrounded, workshop.UnitPriceMinor)
+		t.Fatalf("workshop line price_grounded/unit_price = %v/%d, want true/20000 (its own cited snippet states the price)", workshop.PriceGrounded, workshop.UnitPriceMinor)
+	}
+
+	followUp := offerLineByDescription(t, result.Offer, "Follow-up session")
+	if followUp.PriceGrounded == nil || *followUp.PriceGrounded || followUp.UnitPriceMinor != 0 {
+		t.Fatalf("follow-up line price_grounded/unit_price = %v/%d, want false/0 — its cited snippet never states 20000, only a DIFFERENT line's evidence does",
+			followUp.PriceGrounded, followUp.UnitPriceMinor)
 	}
 
 	// Never AI-computed: the server's derived totals are exactly the
@@ -272,6 +286,41 @@ func TestDraftOfferLinesNeverGuessesAnUngroundedPrice(t *testing.T) {
 	if line.UnitPriceMinor != 0 {
 		t.Fatalf("unit_price_minor = %d, want the honest zero sentinel, never a guess", line.UnitPriceMinor)
 	}
+}
+
+func TestDraftOfferLinesDropsStoreInvalidQuantityWithoutErroringTheBatch(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, offerDraftPerms)
+	offerID, source := seedDraftOfferWithDealActivity(ctx, t, e, "Bad-decimal-draft deal",
+		"The client wants a workshop and also asked about an onboarding session.")
+
+	// "1e3" and "0" both parse fine under strconv.ParseFloat — the gate a
+	// naive validator would apply — but the store's stricter exact-decimal
+	// column parser (ratFromDecimal) rejects scientific notation, and "0"
+	// is not a real quantity. Neither may error the whole
+	// AddStagedOfferLines transaction; each must drop, leaving the one
+	// well-formed candidate to stage on its own.
+	fake := ai.NewFakeClient().Script(`{"lines":[
+		{"description":"Workshop","quantity":"1","tax_rate":"19.00",
+		 "evidence_snippet":"wants a workshop","source_id":"` + source + `"},
+		{"description":"Onboarding (scientific notation)","quantity":"1e3","tax_rate":"19.00",
+		 "evidence_snippet":"onboarding session","source_id":"` + source + `"},
+		{"description":"Onboarding (zero quantity)","quantity":"0","tax_rate":"19.00",
+		 "evidence_snippet":"onboarding session","source_id":"` + source + `"}
+	]}`)
+	drafter := newOfferDrafterFixture(e, fake)
+
+	result, err := drafter.DraftOfferLines(ctx, offerID)
+	if err != nil {
+		t.Fatalf("draft offer lines: %v, want no error — a store-invalid decimal must drop its line, never fail the batch", err)
+	}
+	if !result.AIGenerated || result.Diff == nil || result.Diff.Added == nil || len(*result.Diff.Added) != 1 {
+		t.Fatalf("Diff.Added = %+v, want exactly 1 staged line (only the well-formed candidate survives)", result.Diff)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM offer_line_item WHERE offer_id = $1 AND proposal_state = 'staged'`, offerID.UUID); n != 1 {
+		t.Fatalf("staged rows = %d, want exactly 1", n)
+	}
+	offerLineByDescription(t, result.Offer, "Workshop")
 }
 
 func TestDraftOfferLinesStripsSecretsBeforeTheModelCall(t *testing.T) {
