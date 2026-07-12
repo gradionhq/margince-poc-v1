@@ -76,6 +76,7 @@ func TestAttachmentHandlersHTTPRoundTrip(t *testing.T) {
 	if att.Filename != "report.pdf" || rec.Header().Get("Location") == "" {
 		t.Fatalf("upload response wrong: %+v (Location %q)", att, rec.Header().Get("Location"))
 	}
+	markClean(t, e, att.Id)
 
 	// Upload with a bad entity_type → 422 (not a 500).
 	badBody, badType := multipartAttachment(t, "widget", person.String(), "x.txt", []byte("y"))
@@ -214,6 +215,16 @@ func attachmentStore(e *Env) (*activities.Store, blobstore.Store) {
 	return e.Activities.WithBlobstore(blob), blob
 }
 
+// markClean applies a clean scan verdict so a freshly uploaded attachment
+// (which starts 'scanning' — no scanner is wired in this codebase) becomes
+// downloadable; the scan gate itself is proven in the scan-gate tests.
+func markClean(t *testing.T, e *Env, id openapi_types.UUID) {
+	t.Helper()
+	if _, err := e.Activities.MarkScanResult(e.Admin(), ids.UUID(id), activities.FakeScanner{Result: "clean"}); err != nil {
+		t.Fatalf("marking attachment clean: %v", err)
+	}
+}
+
 // ownPersonPerms sees only its own person rows — enough to prove the
 // row-scope gate hides another rep's person from an upload target.
 func ownPersonPerms() principal.Permissions {
@@ -246,6 +257,7 @@ func TestAttachmentUploadThenDownloadRoundTrip(t *testing.T) {
 	if att.ByteSize == nil || *att.ByteSize != int64(len(body)) {
 		t.Fatalf("ByteSize = %v, want %d", att.ByteSize, len(body))
 	}
+	markClean(t, e, att.Id)
 
 	meta, rc, err := store.OpenAttachment(ctx, ids.UUID(att.Id))
 	if err != nil {
@@ -332,6 +344,7 @@ func TestErasureWithoutStoreRollsBackRatherThanHalfErasing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
 	}
+	markClean(t, e, att.Id)
 
 	// An eraser wired WITHOUT a blobstore — the asymmetric config where the
 	// api stored objects but the worker running erasure has no store. Erasing

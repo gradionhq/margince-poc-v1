@@ -5066,6 +5066,10 @@ paths:
       security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
       x-agent-access: human-only
       summary: Download an attachment's file bytes.
+      description: |
+        The scan gate refuses the byte stream while `scan_status` is `scanning` or
+        `blocked` (RD-T05) — the row's metadata is still visible via `listAttachments`,
+        only this byte stream is withheld.
       responses:
         '200':
           description: The file bytes; Content-Disposition names the file.
@@ -5073,6 +5077,28 @@ paths:
             application/octet-stream:
               schema: { type: string, format: binary }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The scan gate refuses the byte stream — retryable while scanning, terminal once blocked.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                scanPending:
+                  summary: Virus scan still in progress — retry shortly
+                  value:
+                    type: 'https://errors.gradion.com/scan_pending'
+                    title: Scan pending
+                    status: 409
+                    code: scan_pending
+                    detail: This file is still being scanned; retry the download shortly.
+                attachmentBlocked:
+                  summary: The file failed the virus scan and is quarantined
+                  value:
+                    type: 'https://errors.gradion.com/attachment_blocked'
+                    title: Attachment blocked
+                    status: 409
+                    code: attachment_blocked
+                    detail: This file was quarantined by the virus scan and cannot be downloaded.
     delete:
       tags: [Attachments]
       operationId: deleteAttachment
@@ -5086,6 +5112,115 @@ paths:
         data persists until erasure. Already-archived or invisible → 404.
       responses:
         '204': { description: Archived. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /attachments/{id}/extraction:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Attachments]
+      operationId: getAttachmentExtraction
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+      description: |
+        Every returned field carries a non-empty source_quote/page_or_section/confidence,
+        or is listed in `omitted` with reason "not_stated_in_file" — never a guessed value
+        (RD-T10). Backed by the injectable `shared/ports/extraction.Extractor` seam; the
+        production default returns an honest `{fields: [], omitted: []}` (no
+        document-extraction/OCR/LLM pipeline exists or is built by this ticket). Valid for
+        any entity_type — a non-deal attachment or the empty-seam default both honestly
+        return zero fields; the same parent-visibility gate as `downloadAttachment`/
+        `listAttachments` applies.
+      responses:
+        '200':
+          description: The staged extraction (possibly empty).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentExtraction' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /attachments/{id}/extraction:accept:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Attachments]
+      operationId: acceptAttachmentExtraction
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
+      description: |
+        Persists the named fields onto the target deal via the deals module's existing
+        partial-update path, then writes one audit activity note per accepted field
+        carrying its source quote; provenance flips to `human` for any field named in
+        `edits`. Only valid on a deal-scoped attachment (`entity_type == "deal"`) — 422
+        `unsupported_entity_type` otherwise. `field_keys` is checked against the closed
+        allowlist of deal-writable fields before any write lands — a key outside that
+        allowlist 422s the whole request (no partial acceptance). Requires deal UPDATE
+        authority on the target deal (object RBAC + row-scope visibility), on top of the
+        transport-level human-only gate below: the human's direct call is itself the
+        approval, matching the rest of the attachment surface (`x-agent-access:
+        human-only`) — there is no 🟡 agent-staged path for this operation in V1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptExtractionRequest' }
+      responses:
+        '200':
+          description: The accepted fields, persisted to the deal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttachmentExtractionAcceptResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The attachment is not deal-scoped, or field_keys names a field outside the deal-update allowlist.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                unsupportedEntityType:
+                  summary: The attachment is not bound to a deal
+                  value:
+                    type: 'https://errors.gradion.com/unsupported_entity_type'
+                    title: Unsupported entity type
+                    status: 422
+                    code: unsupported_entity_type
+                    detail: Extraction accept is only valid on a deal-scoped attachment.
+                unknownFieldKey:
+                  summary: field_keys named a field outside the deal-update allowlist
+                  value:
+                    type: 'https://errors.gradion.com/validation_error'
+                    title: Validation failed
+                    status: 422
+                    code: validation_error
+                    detail: One or more field_keys are not accepted onto a deal.
+                    details:
+                      errors:
+                        - { field: 'field_keys[2]', code: not_deal_writable }
+
+  /attachments/{id}/request-access:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Attachments]
+      operationId: requestAttachmentAccess
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Request access to a restricted attachment (audit row only — no notification system).
+      description: |
+        Writes one audit activity note carrying the requesting principal; there is no
+        notification or approval workflow behind it in V1 — the note is the entire effect.
+      responses:
+        '200':
+          description: Request recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestAccessResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # DEFERRED — stubs only (data-model.md §12). Intentionally NOT specified:
@@ -6071,7 +6206,7 @@ components:
         A file hung off an entity. Mirrors the `attachment` table: the row is the
         system of record and the tenant anchor; the bytes live in object storage,
         addressed by an internal object key that is never exposed on the wire.
-      required: [id, workspace_id, entity_type, entity_id, filename, source, captured_by, created_at]
+      required: [id, workspace_id, entity_type, entity_id, filename, source, captured_by, created_at, scan_status]
       properties:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
@@ -6081,6 +6216,17 @@ components:
         content_type: { type: [string, 'null'] }
         byte_size: { type: [integer, 'null'], format: int64 }
         checksum: { type: [string, 'null'], description: 'sha256 of the bytes, for integrity/dedupe.' }
+        scan_status:
+          type: string
+          enum: [scanning, clean, blocked]
+          readOnly: true
+          description: |
+            Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
+            byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
+            (retryable — scan still running) while `scanning`, and 409
+            `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
+            row itself is always disclosed regardless of scan_status; only the download
+            stream is withheld.
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
         created_at: { type: string, format: date-time }
@@ -6091,6 +6237,70 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Attachment' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    ExtractedField:
+      type: object
+      description: One attempted grounded field from the staged AI-extraction read (RD-T10).
+      required: [field, value, source_quote, page_or_section, confidence]
+      properties:
+        field: { type: string }
+        value: { type: string }
+        source_quote: { type: string, description: Verbatim text the value was read from — never a paraphrase. }
+        page_or_section: { type: string }
+        confidence: { type: string, enum: [high, medium] }
+
+    OmittedExtractionField:
+      type: object
+      description: A field the extractor could not ground in the document text (evidence-or-omit; never guessed).
+      required: [field, reason]
+      properties:
+        field: { type: string }
+        reason: { type: string, enum: [not_stated_in_file] }
+
+    AttachmentExtraction:
+      type: object
+      description: The staged extraction for one attachment — grounded fields plus what was honestly omitted.
+      required: [fields, omitted]
+      properties:
+        fields: { type: array, items: { $ref: '#/components/schemas/ExtractedField' } }
+        omitted: { type: array, items: { $ref: '#/components/schemas/OmittedExtractionField' } }
+
+    AcceptExtractionRequest:
+      type: object
+      required: [field_keys]
+      properties:
+        field_keys:
+          type: array
+          items: { type: string }
+          minItems: 1
+          description: Field names to accept onto the deal; each is checked against the deal-update allowlist.
+        edits:
+          type: object
+          additionalProperties: true
+          description: |
+            field -> edited value, for fields the user typed over before accepting. A key
+            present here flips that field's audit provenance from `ai-extracted` to `human`.
+
+    AcceptedExtractionField:
+      type: object
+      required: [field, value, provenance]
+      properties:
+        field: { type: string }
+        value: { type: string }
+        provenance: { type: string, enum: [ai-extracted, human] }
+
+    AttachmentExtractionAcceptResponse:
+      type: object
+      required: [deal_id, accepted]
+      properties:
+        deal_id: { type: string, format: uuid }
+        accepted: { type: array, items: { $ref: '#/components/schemas/AcceptedExtractionField' } }
+
+    RequestAccessResponse:
+      type: object
+      required: [requested]
+      properties:
+        requested: { type: boolean }
 
     EmailDraft:
       type: object

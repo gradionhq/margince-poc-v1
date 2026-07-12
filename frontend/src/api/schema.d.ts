@@ -2586,7 +2586,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Download an attachment's file bytes. */
+        /**
+         * Download an attachment's file bytes.
+         * @description The scan gate refuses the byte stream while `scan_status` is `scanning` or
+         *     `blocked` (RD-T05) — the row's metadata is still visible via `listAttachments`,
+         *     only this byte stream is withheld.
+         */
         get: operations["downloadAttachment"];
         put?: never;
         post?: never;
@@ -2598,6 +2603,93 @@ export interface paths {
          *     data persists until erasure. Already-archived or invisible → 404.
          */
         delete: operations["deleteAttachment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{id}/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Staged AI-extraction for this attachment (pure read; zero writes; evidence-or-omit).
+         * @description Every returned field carries a non-empty source_quote/page_or_section/confidence,
+         *     or is listed in `omitted` with reason "not_stated_in_file" — never a guessed value
+         *     (RD-T10). Backed by the injectable `shared/ports/extraction.Extractor` seam; the
+         *     production default returns an honest `{fields: [], omitted: []}` (no
+         *     document-extraction/OCR/LLM pipeline exists or is built by this ticket). Valid for
+         *     any entity_type — a non-deal attachment or the empty-seam default both honestly
+         *     return zero fields; the same parent-visibility gate as `downloadAttachment`/
+         *     `listAttachments` applies.
+         */
+        get: operations["getAttachmentExtraction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{id}/extraction:accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept staged extraction fields onto the attachment's deal (deal-scoped attachments only).
+         * @description Persists the named fields onto the target deal via the deals module's existing
+         *     partial-update path, then writes one audit activity note per accepted field
+         *     carrying its source quote; provenance flips to `human` for any field named in
+         *     `edits`. Only valid on a deal-scoped attachment (`entity_type == "deal"`) — 422
+         *     `unsupported_entity_type` otherwise. `field_keys` is checked against the closed
+         *     allowlist of deal-writable fields before any write lands — a key outside that
+         *     allowlist 422s the whole request (no partial acceptance). Requires deal UPDATE
+         *     authority on the target deal (object RBAC + row-scope visibility), on top of the
+         *     transport-level human-only gate below: the human's direct call is itself the
+         *     approval, matching the rest of the attachment surface (`x-agent-access:
+         *     human-only`) — there is no 🟡 agent-staged path for this operation in V1.
+         */
+        post: operations["acceptAttachmentExtraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{id}/request-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request access to a restricted attachment (audit row only — no notification system).
+         * @description Writes one audit activity note carrying the requesting principal; there is no
+         *     notification or approval workflow behind it in V1 — the note is the entire effect.
+         */
+        post: operations["requestAttachmentAccess"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3526,6 +3618,16 @@ export interface components {
             byte_size?: number | null;
             /** @description sha256 of the bytes, for integrity/dedupe. */
             checksum?: string | null;
+            /**
+             * @description Virus-scan state (RD-T05). Server-computed; never client-supplied. Gates the
+             *     byte stream, not the row: `downloadAttachment` refuses with 409 `scan_pending`
+             *     (retryable — scan still running) while `scanning`, and 409
+             *     `attachment_blocked` (terminal — quarantined) while `blocked`. The attachment
+             *     row itself is always disclosed regardless of scan_status; only the download
+             *     stream is withheld.
+             * @enum {string}
+             */
+            readonly scan_status: "scanning" | "clean" | "blocked";
             source: string;
             /** @description Server-stamped from the authenticated principal; never client-supplied. */
             readonly captured_by: string;
@@ -3535,6 +3637,52 @@ export interface components {
         AttachmentListResponse: {
             data: components["schemas"]["Attachment"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /** @description One attempted grounded field from the staged AI-extraction read (RD-T10). */
+        ExtractedField: {
+            field: string;
+            value: string;
+            /** @description Verbatim text the value was read from — never a paraphrase. */
+            source_quote: string;
+            page_or_section: string;
+            /** @enum {string} */
+            confidence: "high" | "medium";
+        };
+        /** @description A field the extractor could not ground in the document text (evidence-or-omit; never guessed). */
+        OmittedExtractionField: {
+            field: string;
+            /** @enum {string} */
+            reason: "not_stated_in_file";
+        };
+        /** @description The staged extraction for one attachment — grounded fields plus what was honestly omitted. */
+        AttachmentExtraction: {
+            fields: components["schemas"]["ExtractedField"][];
+            omitted: components["schemas"]["OmittedExtractionField"][];
+        };
+        AcceptExtractionRequest: {
+            /** @description Field names to accept onto the deal; each is checked against the deal-update allowlist. */
+            field_keys: string[];
+            /**
+             * @description field -> edited value, for fields the user typed over before accepting. A key
+             *     present here flips that field's audit provenance from `ai-extracted` to `human`.
+             */
+            edits?: {
+                [key: string]: unknown;
+            };
+        };
+        AcceptedExtractionField: {
+            field: string;
+            value: string;
+            /** @enum {string} */
+            provenance: "ai-extracted" | "human";
+        };
+        AttachmentExtractionAcceptResponse: {
+            /** Format: uuid */
+            deal_id: string;
+            accepted: components["schemas"]["AcceptedExtractionField"][];
+        };
+        RequestAccessResponse: {
+            requested: boolean;
         };
         /** @description A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡). */
         EmailDraft: {
@@ -11972,6 +12120,15 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            /** @description The scan gate refuses the byte stream — retryable while scanning, terminal once blocked. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     deleteAttachment: {
@@ -11993,6 +12150,95 @@ export interface operations {
                 };
                 content?: never;
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAttachmentExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The staged extraction (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentExtraction"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    acceptAttachmentExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptExtractionRequest"];
+            };
+        };
+        responses: {
+            /** @description The accepted fields, persisted to the deal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentExtractionAcceptResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The attachment is not deal-scoped, or field_keys names a field outside the deal-update allowlist. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestAttachmentAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestAccessResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };

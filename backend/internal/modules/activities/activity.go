@@ -21,6 +21,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// fieldKind names the activity kind in the write shape's audit and outbox
+// payloads (the one spelling of the payload key).
+const fieldKind = "kind"
+
 // ActivityLinkInput ties one activity to a person, organization or deal.
 type ActivityLinkInput struct {
 	EntityType string // person | organization | deal
@@ -53,6 +57,34 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
+	var out crmcontracts.Activity
+	created := true
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		out, created, err = logActivityInTx(ctx, tx, in)
+		return err
+	})
+	return out, created, err
+}
+
+// LogActivityTx is LogActivity's transaction-accepting variant (the C5
+// shared-tx shape): a caller that must commit an activity note atomically
+// with a sibling module's own write (the extraction accept-write's deal
+// update, compose/extractionaccept.go) drives it inside the ONE
+// transaction it already opened, so a note failure rolls the sibling
+// write back too, instead of letting LogActivity open (and commit) a
+// second transaction of its own.
+func (s *Store) LogActivityTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmcontracts.Activity, bool, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
+	return logActivityInTx(ctx, tx, in)
+}
+
+// logActivityInTx is LogActivity's transactional body, shared by the
+// store-opened (LogActivity) and caller-opened (LogActivityTx) entry
+// points.
+func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmcontracts.Activity, bool, error) {
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Activity{}, false, err
@@ -61,52 +93,48 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 	if in.OccurredAt != nil {
 		occurredAt = in.OccurredAt.UTC()
 	}
+	wsID := workspaceID(ctx)
 
-	var out crmcontracts.Activity
-	created := true
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := workspaceID(ctx)
+	replay, err := replayedActivity(ctx, tx, in)
+	if err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
+	if replay != nil {
+		return *replay, false, nil
+	}
 
-		replay, err := replayedActivity(ctx, tx, in)
-		if err != nil {
-			return err
+	id := ids.New[ids.ActivityKind]()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
+		                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
+		in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by)
+	if err != nil {
+		if storekit.IsUniqueViolation(err) {
+			return crmcontracts.Activity{}, false, apperrors.ErrConflict
 		}
-		if replay != nil {
-			created, out = false, *replay
-			return nil
-		}
+		return crmcontracts.Activity{}, false, err
+	}
 
-		id := ids.New[ids.ActivityKind]()
-		_, err = tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
-			                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-			id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
-			in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by)
-		if err != nil {
-			if storekit.IsUniqueViolation(err) {
-				return apperrors.ErrConflict
-			}
-			return err
-		}
+	if err := insertActivityLinks(ctx, tx, wsID, id, in.Links, occurredAt); err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
 
-		if err := insertActivityLinks(ctx, tx, wsID, id, in.Links, occurredAt); err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{"kind": in.Kind, "subject": in.Subject})
-		if err != nil {
-			return err
-		}
-		// activity.captured is the first-class verb — emitted instead of
-		// a generic activity.created, never in addition (events.md §1).
-		if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{"kind": in.Kind}); err != nil {
-			return err
-		}
-		out, err = readActivity(ctx, tx, id, storekit.LiveOnly)
-		return err
-	})
-	return out, created, err
+	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{fieldKind: in.Kind, "subject": in.Subject})
+	if err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
+	// activity.captured is the first-class verb — emitted instead of a
+	// generic activity.created, never in addition (events.md §1).
+	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{fieldKind: in.Kind}); err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
+	out, err := readActivity(ctx, tx, id, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
+	return out, true, nil
 }
 
 // replayedActivity resolves the (source_system, source_id) idempotency

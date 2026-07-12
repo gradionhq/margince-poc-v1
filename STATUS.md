@@ -132,11 +132,49 @@ Merged so far:
   (golden-number reconciliation), honest 422s for zero targets and
   missing FX, pace/band derivations on an injected clock. Wave 3 opener
   of the poc-1 delta port.
+- **Attachment AI extraction (RD-T05/RD-T10 backend)** — `scan_status`
+  gating (`scanning`/`blocked` refuse the download stream with typed
+  409s; the module-local Scanner seam has no product, so uploads default
+  `scanning`), the evidence-or-omit staged extraction read behind the
+  `shared/ports/extraction` seam (NoOp default — honest empty), and the
+  compose-orchestrated `extraction:accept` writing an allowlisted set of
+  grounded fields onto the deal with per-field audited provenance
+  (human-only V1). Closes Wave 3 of the poc-1 delta port.
 
 ## Pick up here
 
 Open work, roughly in priority order:
 
+- **No scanner product + no boot wiring** — new uploads stay
+  `scanning`/undownloadable until an admin or test drives
+  `activities.Store.MarkScanResult`; no real scanning product is
+  integrated anywhere in this codebase (operational gap, poc-1 parity).
+  A production deployment needs a real Scanner behind the seam, or an
+  admin verdict path, before new uploads are downloadable end-to-end.
+- **The RD-AC-2 "every download audited" clause is NOT ported** — poc-v1
+  audits only attachment create/archive (decisions/0022); a deliberate
+  delta from the spec, not an oversight.
+- **`extraction:accept` carries no idempotency key on its notes** — the
+  deal update and its per-field notes now commit atomically (one shared
+  `database.WithWorkspaceTx`, driven via `deals.Store.UpdateDealTx` +
+  `activities.Store.LogActivityTx`: a note failure rolls the deal update
+  back too), but a client retry on a dropped response still re-applies the
+  deal update (last-write-wins, harmless) and duplicates the provenance
+  notes — there is no natural key on a note the way capture's
+  `(source_system, source_id)` gives `LogActivity` its own idempotency.
+- **The 🟡 agent-staged accept path (approvals effect) is deferred** —
+  V1 ships human-only; an agent cannot currently propose an
+  extraction-accept for confirm-first approval.
+- **`RequestAttachmentAccess` is a courtesy-audit-only op** — poc-v1 has
+  no restricted-but-disclosed state to actually gate on; the note is the
+  entire effect. The final review ruled it a keep (honestly labelled,
+  contract parity), not a defect.
+- **The extraction read and the accept-write share the raw download's
+  scan gate** — `GetAttachmentExtraction`/`extraction:accept` now refuse
+  a `scanning`/`blocked` attachment with the same typed 409s before the
+  extractor ever sees the bytes (defense-in-depth, RD-T05). Inert today
+  under the NoOp/Fixture seams; essential the moment a real extractor
+  (riding `modules/ai`) reads unvetted content.
 - **§0 baseline ratification** (founder decision): confirm this repo as
   the OSS baseline and reconcile the foundation spec tree with this
   repo's actual architecture. Until it lands, the spec-path references in

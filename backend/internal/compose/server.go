@@ -42,6 +42,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 	"github.com/gradionhq/margince/backend/web"
 )
 
@@ -89,6 +90,7 @@ type Server struct {
 	orgRollupHandlers
 	customfieldsHandlers
 	quotasHandlers
+	attachmentExtractionHandlers
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -234,6 +236,20 @@ func WithScrape(fetch PageFetcher, brain runner.Brain) Option {
 	}
 }
 
+// WithExtractor wires the staged AI-extraction seam ONCE for both
+// surfaces that consume it: the activities read (getAttachmentExtraction)
+// and the accept-write re-run the SAME extractor, so what the accept
+// validates field_keys against is exactly what the read staged. Without
+// it both fall back to the honest-empty NoOp — the read answers
+// {fields: [], omitted: []} and the accept refuses every key as
+// not_grounded, never writing an unevidenced value.
+func WithExtractor(extractor extraction.Extractor) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.activitiesHandlers = s.WithExtractor(extractor)
+		s.attachmentExtractionHandlers = attachmentExtractionHandlers{accept: NewExtractionAccept(pool, extractor)}
+	}
+}
+
 // WithBrief enables the Morning-Brief L2 ranker (B-E05.2) over the given
 // model lane. Without it the brief still serves fully on the deterministic
 // §10.1 composite — the L2 layer is advisory over that floor, never a
@@ -353,7 +369,12 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),
 		quotasHandlers:       quotas.NewHandlers(pool),
-		log:                  log,
+		// The accept-write's default engine rides the honest-empty NoOp
+		// extractor (nothing is ever grounded, so nothing is acceptable);
+		// WithExtractor rebuilds it together with the activities read so
+		// both surfaces answer from the SAME seam.
+		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool, nil)},
+		log:                          log,
 	}
 }
 

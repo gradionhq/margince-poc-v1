@@ -48,7 +48,7 @@ type AttachmentInput struct {
 }
 
 const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
-	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at`
+	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at, at.scan_status`
 
 // attachmentSource marks how the row was captured; a direct upload is "upload".
 const attachmentSource = "upload"
@@ -148,6 +148,35 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 	return out, err
 }
 
+// resolveVisibleAttachmentParent is the ONE spelling of "find a live
+// attachment's parent, then require the caller hold `action` on the parent
+// object type and be able to see the parent row" — GetAttachmentMeta and
+// ArchiveAttachment both need exactly this and nothing more. Object denial
+// and row-scope miss both surface as ErrNotFound (existence-hiding), and so
+// does a missing or already-archived row: a soft-deleted attachment has no
+// live parent to resolve against. OpenAttachment does NOT call this: it
+// fetches storage_key/scan_status in the same round trip so its scan-gate
+// check reads a single consistent snapshot, rather than opening a second
+// query (and a TOCTOU gap) against the row it just gated.
+func resolveVisibleAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID, action principal.Action) (entityType string, err error) {
+	var entityID ids.UUID
+	row := tx.QueryRow(ctx,
+		`SELECT entity_type, entity_id FROM attachment WHERE id = $1 AND archived_at IS NULL`, id)
+	switch scanErr := row.Scan(&entityType, &entityID); {
+	case errors.Is(scanErr, pgx.ErrNoRows):
+		return "", apperrors.ErrNotFound
+	case scanErr != nil:
+		return "", scanErr
+	}
+	if err := requireParentOrHide(ctx, entityType, action); err != nil {
+		return "", err
+	}
+	if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
+		return "", err
+	}
+	return entityType, nil
+}
+
 // OpenAttachment resolves a live attachment (row-scoped through its parent)
 // and opens its object for reading; the caller closes the reader. Archived
 // or invisible attachments read as ErrNotFound.
@@ -160,11 +189,11 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 		key  string
 	)
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		var entityType, storageKey string
+		var entityType, storageKey, scanStatus string
 		var entityID ids.UUID
 		row := tx.QueryRow(ctx,
-			`SELECT entity_type, entity_id, storage_key FROM attachment WHERE id = $1 AND archived_at IS NULL`, id)
-		switch err := row.Scan(&entityType, &entityID, &storageKey); {
+			`SELECT entity_type, entity_id, storage_key, scan_status FROM attachment WHERE id = $1 AND archived_at IS NULL`, id)
+		switch err := row.Scan(&entityType, &entityID, &storageKey, &scanStatus); {
 		case errors.Is(err, pgx.ErrNoRows):
 			return apperrors.ErrNotFound
 		case err != nil:
@@ -174,6 +203,13 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 			return err
 		}
 		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
+			return err
+		}
+		// The scan gate refuses the byte stream — after the visibility
+		// gates (an invisible row stays a 404, never a scan-state leak)
+		// and before any object-store access. Only the stream is withheld;
+		// the metadata surfaces keep disclosing the row.
+		if err := scanGateErr(scanStatus); err != nil {
 			return err
 		}
 		att, err := readAttachment(ctx, tx, id)
@@ -193,6 +229,29 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 	return meta, rc, nil
 }
 
+// GetAttachmentMeta resolves one attachment's metadata row, gated exactly
+// like resolveVisibleAttachmentParent but WITHOUT the scan gate or any
+// object-store access: the extraction read and request-access courtesy note
+// both need only the row's identity, and extraction deliberately ignores
+// scan_status (RD-T10 stages evidence from the already-persisted bytes; only
+// the raw-byte DOWNLOAD is scan-gated). Archived or invisible reads as
+// ErrNotFound.
+func (s *Store) GetAttachmentMeta(ctx context.Context, id ids.UUID) (crmcontracts.Attachment, error) {
+	var out crmcontracts.Attachment
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionRead); err != nil {
+			return err
+		}
+		att, err := readAttachment(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		out = att
+		return nil
+	})
+	return out, err
+}
+
 // ArchiveAttachment soft-deletes the row (identical to the module's other
 // archive verbs). The object bytes are deliberately retained: authoritative
 // byte-erasure is the Art. 17 path, matching how every archived record's data
@@ -200,26 +259,14 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 // scope). Archived/invisible reads as ErrNotFound.
 func (s *Store) ArchiveAttachment(ctx context.Context, id ids.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		var entityType string
-		var entityID ids.UUID
-		row := tx.QueryRow(ctx,
-			`SELECT entity_type, entity_id FROM attachment WHERE id = $1 AND archived_at IS NULL`, id)
-		switch err := row.Scan(&entityType, &entityID); {
-		case errors.Is(err, pgx.ErrNoRows):
-			return apperrors.ErrNotFound
-		case err != nil:
-			return err
-		}
-		if err := requireParentOrHide(ctx, entityType, principal.ActionUpdate); err != nil {
-			return err
-		}
-		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
+		entityType, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionUpdate)
+		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE attachment SET archived_at = now() WHERE id = $1`, id); err != nil {
 			return err
 		}
-		_, err := storekit.Audit(ctx, tx, "archive", "attachment", id, nil, map[string]any{
+		_, err = storekit.Audit(ctx, tx, "archive", "attachment", id, nil, map[string]any{
 			fieldEntityType: entityType,
 		})
 		return err
@@ -298,9 +345,10 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		byteSize    *int64
 		checksum    *string
 		capturedBy  string
+		scanStatus  string
 	)
 	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
-		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt); err != nil {
+		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt, &scanStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return crmcontracts.Attachment{}, apperrors.ErrNotFound
 		}
@@ -314,6 +362,8 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	att.ByteSize = byteSize
 	att.Checksum = checksum
 	att.CapturedBy = &capturedBy
+	status := crmcontracts.AttachmentScanStatus(scanStatus)
+	att.ScanStatus = &status
 	return att, nil
 }
 

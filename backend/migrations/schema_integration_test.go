@@ -117,6 +117,81 @@ func TestMigrations_applyReverseReapply(t *testing.T) {
 	}
 }
 
+// TestAttachmentScanStatusBackfill proves 0070's judgment call directly:
+// a database that already held attachment rows when the scan machinery
+// arrived keeps those rows downloadable (backfilled 'clean' — they were
+// uploaded under the no-scanner regime), while rows inserted after the
+// migration start at the gate's default 'scanning'.
+func TestAttachmentScanStatusBackfill(t *testing.T) {
+	ownerDSN, _ := dsns(t)
+	conn := connect(t, ownerDSN)
+	resetSchema(t, conn)
+	ctx := context.Background()
+
+	core, err := Core()
+	if err != nil {
+		t.Fatalf("loading core: %v", err)
+	}
+	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+
+	// Rewind to just before 0070 so the pre-existing row is inserted into
+	// the pre-scan schema, exactly like a production database at 0069.
+	scanIdx := -1
+	for i, m := range core.Migrations {
+		if m.Version == "0070" {
+			scanIdx = i
+			break
+		}
+	}
+	if scanIdx < 0 {
+		t.Fatal("core migrations contain no 0070 — the scan-status migration is missing")
+	}
+	if _, err := dbmigrate.Down(ctx, conn, core, len(core.Migrations)-scanIdx); err != nil {
+		t.Fatalf("down to pre-0070: %v", err)
+	}
+
+	ws := seedWorkspace(t, conn, "pre-scan")
+	var existing string
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO attachment (workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
+		VALUES ($1, 'person', uuidv7(), 'legacy.pdf', 'ws/legacy', 'upload', 'human:test')
+		RETURNING id`, ws).Scan(&existing); err != nil {
+		t.Fatalf("seeding a pre-migration attachment: %v", err)
+	}
+
+	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
+		t.Fatalf("re-applying 0070 over existing rows: %v", err)
+	}
+
+	var status string
+	if err := conn.QueryRow(ctx,
+		`SELECT scan_status FROM attachment WHERE id = $1`, existing).Scan(&status); err != nil {
+		t.Fatalf("reading backfilled scan_status: %v", err)
+	}
+	if status != "clean" {
+		t.Errorf("pre-existing row scan_status = %q, want 'clean' (backfill must not brick old downloads)", status)
+	}
+
+	if err := conn.QueryRow(ctx, `
+		INSERT INTO attachment (workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
+		VALUES ($1, 'person', uuidv7(), 'new.pdf', 'ws/new', 'upload', 'human:test')
+		RETURNING scan_status`, ws).Scan(&status); err != nil {
+		t.Fatalf("inserting a post-migration attachment: %v", err)
+	}
+	if status != "scanning" {
+		t.Errorf("new row scan_status = %q, want the 'scanning' default", status)
+	}
+
+	// The CHECK constraint holds the closed vocabulary.
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO attachment (workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by, scan_status)
+		VALUES ($1, 'person', uuidv7(), 'x', 'ws/x', 'upload', 'human:test', 'bogus')`, ws); err == nil {
+		t.Error("scan_status outside (scanning|clean|blocked) was accepted; the CHECK must reject it")
+	}
+}
+
 func seedWorkspace(t *testing.T, conn *pgx.Conn, slug string) string {
 	t.Helper()
 	var id string
