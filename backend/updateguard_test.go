@@ -102,6 +102,7 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/collections:ArchiveTag":       "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/deals:ArchiveDeal":            "absolute idempotent archive transition (deal + its edges); concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/deals:ArchiveProduct":         "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
+	"internal/modules/deals:ArchiveOfferTemplate":   "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/people:ArchivePerson":         "absolute idempotent archive transition (person + child rows); concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/people:ArchiveOrganization":   "absolute idempotent archive transition (org + child rows); concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/people:ArchiveRelationship":   "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",

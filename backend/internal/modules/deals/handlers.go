@@ -12,6 +12,7 @@ package deals
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -128,6 +129,9 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(badDecimal.Field, "invalid_decimal", badDecimal.Error()))
 		return
 	}
+	if writeOfferTemplateConflict(w, r, err) {
+		return
+	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a
 	// breach that slipped past the per-path validations still answers a
 	// typed 422 naming the rule — never an opaque 500.
@@ -137,4 +141,29 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	httperr.Write(w, r, err)
+}
+
+// writeOfferTemplateConflict maps the two offer_template pre-checked
+// 409s onto the wire; false means neither matched (writeStoreErr falls
+// through to the sentinel registry).
+func writeOfferTemplateConflict(w http.ResponseWriter, r *http.Request, err error) bool {
+	var dupTemplateName *DuplicateTemplateNameError
+	if errors.As(err, &dupTemplateName) {
+		httperr.Write(w, r, httperr.Duplicate("offer_template_name_duplicate", dupTemplateName.ExistingID.String()))
+		return true
+	}
+	var defaultConflict *DefaultConflictError
+	if errors.As(err, &defaultConflict) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "offer_template_default_conflict",
+			Detail: fmt.Sprintf("a default template already exists for locale %q; archive or un-default it first", defaultConflict.Locale),
+			Details: map[string]any{
+				"existing_id": defaultConflict.ExistingID.String(),
+				"locale":      defaultConflict.Locale,
+			},
+		})
+		return true
+	}
+	return false
 }

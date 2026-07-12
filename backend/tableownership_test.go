@@ -73,6 +73,7 @@ var tableOwners = map[string]string{
 	"product":            "internal/modules/deals",
 	"offer":              "internal/modules/deals",
 	"offer_line_item":    "internal/modules/deals",
+	"offer_template":     "internal/modules/deals",
 	// activities
 	"activity":      "internal/modules/activities",
 	"activity_link": "internal/modules/activities",

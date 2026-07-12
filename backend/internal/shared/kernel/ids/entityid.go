@@ -145,3 +145,18 @@ type (
 	PassportID     = ID[PassportKind]
 	PurposeID      = ID[PurposeKind]
 )
+
+// OfferTemplateKind is the offer_template entity tag (data-model §12.6,
+// offers-depth arc 4a). Declared out-of-line rather than folded into the
+// three blocks above: this identifier is longer than every existing
+// entry, so inserting it into a column-aligned block would make gofmt
+// reflow every line in that block — a whitespace-only diff that would
+// still drag 30-odd pre-existing, unrelated declarations into the
+// new-code strict-lint scope for no reason. A future block-wide edit can
+// fold this back in.
+type OfferTemplateKind struct{}
+
+func (OfferTemplateKind) kind() string { return "offer_template" }
+
+// OfferTemplateID names one offer_template row.
+type OfferTemplateID = ID[OfferTemplateKind]
