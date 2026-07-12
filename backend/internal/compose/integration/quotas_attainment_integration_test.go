@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -355,5 +356,29 @@ func TestQuotaAttainment_RequiresQuotaRead(t *testing.T) {
 	noQuota := e.As(e.Rep2, []ids.UUID{e.Team1}, RepPerms)
 	if _, err := store.QuotaAttainment(noQuota, ids.UUID(created.Id)); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("a caller without quota.read must answer ErrPermissionDenied, got %v", err)
+	}
+}
+
+func TestQuotaAttainment_RequiresDealRead(t *testing.T) {
+	e := Setup(t)
+	store := attainmentStore(e)
+	admin := e.As(e.Rep1, nil, quotaAdminPerms)
+
+	created, err := store.CreateQuota(admin, ownerQuotaInput(e.Rep1, 10000000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// quotaRepPerms carries quota.read but NO deal grant: the attainment
+	// aggregate is built from deal sums, so it rides the deal object gate
+	// too (the hierarchy-rollup precedent) — quota.read alone must not
+	// unlock deal-derived revenue figures.
+	noDeals := e.As(e.Rep2, []ids.UUID{e.Team1}, quotaRepPerms)
+	if _, err := store.QuotaAttainment(noDeals, ids.UUID(created.Id)); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("a caller without deal.read must answer ErrPermissionDenied, got %v", err)
+	}
+	// The plain quota read stays open to the same caller: only the
+	// deal-derived aggregate carries the extra gate.
+	if _, err := store.GetQuota(noDeals, ids.UUID(created.Id), storekit.LiveOnly); err != nil {
+		t.Fatalf("quota.read alone must still resolve the quota itself, got %v", err)
 	}
 }

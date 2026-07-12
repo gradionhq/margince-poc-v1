@@ -5993,7 +5993,7 @@ type QuotaAttainment struct {
 	// GapMinor Signed gap to target — closed_won_minor minus target_minor (RD-FORM-2's worked example: +33.872,00 EUR once closed-won exceeds target); positive once attainment exceeds 100%, negative while short of target.
 	GapMinor int64 `json:"gap_minor"`
 
-	// PacePct attainment_pct measured against percent-of-period-elapsed (RD-PARAM-4 pace indicator).
+	// PacePct Percent of the quota period elapsed at as_of_date (RD-PARAM-4 pace indicator): 0 before period_start, 100 at/after period_end, linear between. Carries period progress ONLY — comparing it against attainment_pct (ahead/behind pace) is the consumer's step, not encoded in this field.
 	PacePct float32            `json:"pace_pct"`
 	QuotaId openapi_types.UUID `json:"quota_id"`
 
@@ -6671,7 +6671,7 @@ type UpdateProductRequest struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// UpdateQuotaRequest Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied — patching the row into a both-set or neither-set state is refused with the same 422 owner_xor_team_required shape as createQuota, not silently accepted.
+// UpdateQuotaRequest Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied — patching the row into a both-set or neither-set state is refused with the same 422 owner_xor_team_required shape as createQuota, not silently accepted. Switching a quota between owner- and team-scoped is archive-and-recreate: merge-PATCH cannot express the null clear (omitted and null are the same wire shape), so a PATCH can only reassign within the side the row already carries.
 type UpdateQuotaRequest struct {
 	Currency    *string             `json:"currency,omitempty"`
 	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`

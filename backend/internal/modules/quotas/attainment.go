@@ -99,11 +99,17 @@ func attainmentBand(pct float64) string {
 }
 
 // QuotaAttainment computes the quota's live attainment in one
-// workspace transaction. It carries the same quota.read object gate as
-// every quota read — the deal sums it reveals are governed by that gate
-// (the T6 review question the package doc records).
+// workspace transaction. It carries the quota.read object gate of every
+// quota read PLUS deal.read — the aggregate is built from deal sums, so
+// it follows the hierarchy-rollup posture: object gates on both record
+// types, per-deal row visibility deliberately not consulted (a
+// workspace-level revenue figure would be dishonest if it varied by the
+// caller's row scope).
 func (s *Store) QuotaAttainment(ctx context.Context, id ids.UUID) (Attainment, error) {
 	if err := auth.Require(ctx, "quota", principal.ActionRead); err != nil {
+		return Attainment{}, err
+	}
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return Attainment{}, err
 	}
 	asOf := s.now().UTC()

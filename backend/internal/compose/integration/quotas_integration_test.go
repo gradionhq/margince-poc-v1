@@ -27,11 +27,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// quotaAdminPerms mirrors the 0068 admin/ops grant: full quota authority.
+// quotaAdminPerms mirrors the 0068 admin/ops grant: full quota authority,
+// plus the deal.read every seeded role carries — the attainment read
+// gates on it (deal-derived sums ride the deal object gate too).
 var quotaAdminPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{
 		"quota": {Create: true, Read: true, Update: true, Delete: true},
+		"deal":  {Read: true},
 	},
 	RowScope: principal.RowScopeAll,
 }

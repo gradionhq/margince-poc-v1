@@ -2539,8 +2539,9 @@ export interface paths {
          *     computation honestly (422 attainment_target_zero, RD-AC-4/AC-quota-6) rather than
          *     dividing by zero; a failed clean-core query (e.g. a missing FX rate, mirroring
          *     getOrganizationHierarchyRollup's fx_rate_unavailable) is an honest error, never a
-         *     stale or invented figure. The actual recompute-or-error logic is a handler concern,
-         *     out of this contract-only ticket's scope.
+         *     stale or invented figure. Requires read on quotas AND deals (the aggregate is
+         *     built from deal sums); per-deal row visibility is deliberately not consulted —
+         *     attainment is a workspace-level figure, the hierarchy-rollup posture.
          */
         get: operations["getQuotaAttainment"];
         put?: never;
@@ -5655,7 +5656,7 @@ export interface components {
             target_minor: number;
             currency: string;
         };
-        /** @description Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied — patching the row into a both-set or neither-set state is refused with the same 422 owner_xor_team_required shape as createQuota, not silently accepted. */
+        /** @description Merge-PATCH (API-CONV-1). Re-validates owner-XOR-team after the merge is applied — patching the row into a both-set or neither-set state is refused with the same 422 owner_xor_team_required shape as createQuota, not silently accepted. Switching a quota between owner- and team-scoped is archive-and-recreate: merge-PATCH cannot express the null clear (omitted and null are the same wire shape), so a PATCH can only reassign within the side the row already carries. */
         UpdateQuotaRequest: {
             /** Format: uuid */
             owner_id?: string | null;
@@ -5702,7 +5703,7 @@ export interface components {
              * @description Signed gap to target — closed_won_minor minus target_minor (RD-FORM-2's worked example: +33.872,00 EUR once closed-won exceeds target); positive once attainment exceeds 100%, negative while short of target.
              */
             gap_minor: number;
-            /** @description attainment_pct measured against percent-of-period-elapsed (RD-PARAM-4 pace indicator). */
+            /** @description Percent of the quota period elapsed at as_of_date (RD-PARAM-4 pace indicator): 0 before period_start, 100 at/after period_end, linear between. Carries period progress ONLY — comparing it against attainment_pct (ahead/behind pace) is the consumer's step, not encoded in this field. */
             pace_pct: number;
             /**
              * @description Server-computed display band (RD-PARAM-4): met >= 100%, accent 60-99%, behind < 60%. The client never recomputes this from raw attainment_pct.
