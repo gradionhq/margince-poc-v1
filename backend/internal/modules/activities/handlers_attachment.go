@@ -150,11 +150,28 @@ func (h Handlers) RequestAttachmentAccess(w http.ResponseWriter, r *http.Request
 	httperr.NotImplemented(w, r, "RequestAttachmentAccess")
 }
 
-// writeAttachmentErr maps a role that wired no object store to a 501, and
-// otherwise defers to the module's shared store-error mapping.
+// writeAttachmentErr maps a role that wired no object store to a 501 and
+// the scan gate's refusals to the contract's typed 409s, and otherwise
+// defers to the module's shared store-error mapping.
 func writeAttachmentErr(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, ErrBlobstoreUnconfigured) {
 		httperr.NotImplemented(w, r, "attachments")
+		return
+	}
+	if errors.Is(err, ErrScanPending) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "scan_pending",
+			Detail: "This file is still being scanned; retry the download shortly.",
+		})
+		return
+	}
+	if errors.Is(err, ErrAttachmentBlocked) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "attachment_blocked",
+			Detail: "This file was quarantined by the virus scan and cannot be downloaded.",
+		})
 		return
 	}
 	writeStoreErr(w, r, err)

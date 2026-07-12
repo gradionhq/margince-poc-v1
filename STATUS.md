@@ -137,6 +137,13 @@ Merged so far:
 
 Open work, roughly in priority order:
 
+- **Attachment scan verdicts have no runtime driver** — new uploads start
+  `scanning` and stay undownloadable until
+  `activities.Store.MarkScanResult` applies a clean|blocked verdict; no
+  scanning product is wired anywhere (poc-1 parity — the Scanner seam is
+  deliberately store-level, for tests/administration). A production
+  deployment needs a real Scanner behind the seam, or an admin verdict
+  path, before new uploads are downloadable end-to-end.
 - **§0 baseline ratification** (founder decision): confirm this repo as
   the OSS baseline and reconcile the foundation spec tree with this
   repo's actual architecture. Until it lands, the spec-path references in
