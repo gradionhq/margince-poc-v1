@@ -4438,7 +4438,23 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '501':
+          description: >-
+            The object store (blobstore) is not wired on this deployment — the same
+            unwired-by-omission posture as the attachments seam.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                blobstoreUnwired:
+                  value:
+                    type: 'https://errors.gradion.com/not_implemented'
+                    title: Not Implemented
+                    status: 501
+                    code: not_implemented
+                    detail: operation RenderOffer is specified but not yet implemented
 
   # -------------------------- /signals (E08 warm room) ----------------------
   # The warm-room signal spine (B-E08.1–.4, features/07 §9, data-model §12.5):

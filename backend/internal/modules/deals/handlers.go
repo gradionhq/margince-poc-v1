@@ -164,7 +164,18 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 func writeOfferTemplateConflict(w http.ResponseWriter, r *http.Request, err error) bool {
 	var dupTemplateName *DuplicateTemplateNameError
 	if errors.As(err, &dupTemplateName) {
-		httperr.Write(w, r, httperr.Duplicate("offer_template_name_duplicate", dupTemplateName.ExistingID.String()))
+		// Not httperr.Duplicate: its fixed detail claims a LIVE record
+		// holds the name, but offer_template_name_unique (0071) is NOT
+		// partial — an ARCHIVED template reserves its name too, so the
+		// blocking row here may never have been live at all.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "offer_template_name_duplicate",
+			Detail: "an offer template with this name already exists",
+			Details: map[string]any{
+				"existing_id": dupTemplateName.ExistingID.String(),
+			},
+		})
 		return true
 	}
 	var defaultConflict *DefaultConflictError

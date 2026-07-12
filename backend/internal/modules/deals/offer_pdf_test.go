@@ -39,7 +39,7 @@ func TestRenderOfferPDF_IncludesOfferDataAndStoredTotals(t *testing.T) {
 	o := testRenderOffer(123456, 23456, 146912)
 	buyerBlock := map[string]any{"organization_id": "org-1", "display_name": "Acme GmbH"}
 
-	pdf, err := RenderOfferPDF(o, testRenderLines(), buyerBlock, "Margince GmbH", "de-DE")
+	pdf, err := RenderOfferPDF(o, testRenderLines(), buyerBlock, "Margince GmbH", "de-DE", nil)
 	if err != nil {
 		t.Fatalf("RenderOfferPDF() error = %v", err)
 	}
@@ -63,11 +63,11 @@ func TestRenderOfferPDF_LocaleDrivesLabels(t *testing.T) {
 	o := testRenderOffer(100000, 19000, 119000)
 	lines := testRenderLines()
 
-	dePDF, err := RenderOfferPDF(o, lines, nil, "Margince GmbH", "de-DE")
+	dePDF, err := RenderOfferPDF(o, lines, nil, "Margince GmbH", "de-DE", nil)
 	if err != nil {
 		t.Fatalf("RenderOfferPDF(de-DE) error = %v", err)
 	}
-	enPDF, err := RenderOfferPDF(o, lines, nil, "Margince GmbH", "en")
+	enPDF, err := RenderOfferPDF(o, lines, nil, "Margince GmbH", "en", nil)
 	if err != nil {
 		t.Fatalf("RenderOfferPDF(en) error = %v", err)
 	}
@@ -99,7 +99,7 @@ func TestRenderOfferPDF_UsesStoredTotalsNeverRecomputes(t *testing.T) {
 	mismatchedNet := int64(999999)
 	o := testRenderOffer(mismatchedNet, 1, 1000000)
 
-	pdf, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE")
+	pdf, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE", nil)
 	if err != nil {
 		t.Fatalf("RenderOfferPDF() error = %v", err)
 	}
@@ -128,7 +128,7 @@ func TestRenderOfferPDF_GermanDiacriticsRenderCorrectlyNotAsMojibake(t *testing.
 	buyerBlock := map[string]any{"display_name": "Müller GmbH", "legal_name": "Müller Größe & Prüfung GmbH"}
 	issuerName := "Straße Verträge GmbH"
 
-	pdf, err := RenderOfferPDF(o, lines, buyerBlock, issuerName, "de-DE")
+	pdf, err := RenderOfferPDF(o, lines, buyerBlock, issuerName, "de-DE", nil)
 	if err != nil {
 		t.Fatalf("RenderOfferPDF() error = %v", err)
 	}
@@ -157,7 +157,7 @@ func TestRenderOfferPDF_GermanDiacriticsRenderCorrectlyNotAsMojibake(t *testing.
 func TestRenderOfferPDF_OmitsBuyerSectionWhenBuyerBlockNil(t *testing.T) {
 	o := testRenderOffer(100000, 19000, 119000)
 
-	withBuyer, err := RenderOfferPDF(o, testRenderLines(), map[string]any{"display_name": "Acme GmbH"}, "Margince GmbH", "de-DE")
+	withBuyer, err := RenderOfferPDF(o, testRenderLines(), map[string]any{"display_name": "Acme GmbH"}, "Margince GmbH", "de-DE", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,11 +165,95 @@ func TestRenderOfferPDF_OmitsBuyerSectionWhenBuyerBlockNil(t *testing.T) {
 		t.Fatalf("a non-nil buyer block must render the buyer section heading:\n%s", withBuyer)
 	}
 
-	withoutBuyer, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE")
+	withoutBuyer, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(withoutBuyer, []byte("Kunde")) {
 		t.Fatalf("a nil buyer block must omit the buyer section entirely:\n%s", withoutBuyer)
+	}
+}
+
+// TestRenderOfferPDF_TwoTemplatesWithDistinctLayoutsProduceDifferentBytes
+// is the layout-actually-renders proof: two templates whose layout bags
+// differ only in their header/footer/terms text must produce genuinely
+// different PDF bytes — the regression this guards is a renderer that
+// resolves a template (for its locale) but silently ignores the layout it
+// carries, so every template would look identical regardless of its
+// configured branding.
+func TestRenderOfferPDF_TwoTemplatesWithDistinctLayoutsProduceDifferentBytes(t *testing.T) {
+	o := testRenderOffer(100000, 19000, 119000)
+	lines := testRenderLines()
+
+	layoutA := map[string]any{"header_text": "Alpha Consulting GmbH", "footer_text": "Alpha footer", "terms_text": "Alpha terms apply"}
+	layoutB := map[string]any{"header_text": "Beta Solutions GmbH", "footer_text": "Beta footer", "terms_text": "Beta terms apply"}
+
+	pdfA, err := RenderOfferPDF(o, lines, nil, "Margince GmbH", "de-DE", layoutA)
+	if err != nil {
+		t.Fatalf("RenderOfferPDF(layoutA) error = %v", err)
+	}
+	pdfB, err := RenderOfferPDF(o, lines, nil, "Margince GmbH", "de-DE", layoutB)
+	if err != nil {
+		t.Fatalf("RenderOfferPDF(layoutB) error = %v", err)
+	}
+	if bytes.Equal(pdfA, pdfB) {
+		t.Fatal("two templates with distinct layouts must produce different PDF bytes — the layout is being ignored")
+	}
+
+	for _, want := range []string{"Alpha Consulting GmbH", "Alpha footer", "Alpha terms apply"} {
+		if !bytes.Contains(pdfA, []byte(want)) {
+			t.Fatalf("layoutA's PDF must contain %q:\n%s", want, pdfA)
+		}
+	}
+	for _, unwanted := range []string{"Beta Solutions GmbH", "Beta footer", "Beta terms apply"} {
+		if bytes.Contains(pdfA, []byte(unwanted)) {
+			t.Fatalf("layoutA's PDF must not contain layoutB's text %q", unwanted)
+		}
+	}
+	for _, want := range []string{"Beta Solutions GmbH", "Beta footer", "Beta terms apply"} {
+		if !bytes.Contains(pdfB, []byte(want)) {
+			t.Fatalf("layoutB's PDF must contain %q:\n%s", want, pdfB)
+		}
+	}
+}
+
+// TestRenderOfferPDF_EmptyLayoutOmitsHeaderFooterTermsSections proves the
+// honest-gap side of the contract: a template with no header/footer/terms
+// text (or no template at all — a nil layout) renders exactly the base
+// document, with no empty "Terms" heading or stray blank lines standing
+// in for the sections layout would otherwise add.
+func TestRenderOfferPDF_EmptyLayoutOmitsHeaderFooterTermsSections(t *testing.T) {
+	o := testRenderOffer(100000, 19000, 119000)
+
+	pdf, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(pdf, []byte("Bedingungen")) {
+		t.Fatalf("a nil layout must omit the terms heading entirely:\n%s", pdf)
+	}
+}
+
+// TestRenderOfferPDF_LayoutIgnoresNonStringAndUnknownKeys proves this
+// renderer only ever honors the bounded string keys it documents: an
+// unknown key (a future/decorative ref like logo_url) and a non-string
+// value under a known key are both silently ignored rather than panicking
+// or leaking a Go-formatted value into the document.
+func TestRenderOfferPDF_LayoutIgnoresNonStringAndUnknownKeys(t *testing.T) {
+	o := testRenderOffer(100000, 19000, 119000)
+	layout := map[string]any{
+		"logo_url":    "https://example.test/logo.png",
+		"header_text": 12345, // wrong type — must be ignored, not stringified
+	}
+
+	pdf, err := RenderOfferPDF(o, testRenderLines(), nil, "Margince GmbH", "de-DE", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(pdf, []byte("logo_url")) || bytes.Contains(pdf, []byte("example.test")) {
+		t.Fatalf("an unhonored layout key must never leak into the document:\n%s", pdf)
+	}
+	if bytes.Contains(pdf, []byte("12345")) {
+		t.Fatalf("a non-string value under a known layout key must be ignored, not stringified:\n%s", pdf)
 	}
 }

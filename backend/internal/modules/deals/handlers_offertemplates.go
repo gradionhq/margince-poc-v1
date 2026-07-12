@@ -5,12 +5,14 @@ package deals
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -122,10 +124,15 @@ func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, i
 
 // RenderOffer builds the offer's branded PDF (offer_pdf.go) over
 // PrepareRender's resolved inputs, writes it to the object store at a
-// per-revision key, and persists the resulting ref via SetPdfAssetRef.
-// Without a wired blobstore (WithBlobstore) this stays an explicit 501 —
-// the same unwired-by-omission posture as activities' attachment
-// endpoints — rather than nil-derefing h.blob.
+// per-revision key, and persists the resulting ref via SetPdfAssetRef,
+// fenced on the row version PrepareRender saw. Without a wired blobstore
+// (WithBlobstore) this stays an explicit 501 — the same unwired-by-omission
+// posture as activities' attachment endpoints — rather than nil-derefing
+// h.blob. A concurrent draft edit between PrepareRender and the
+// SetPdfAssetRef call (another render, a line edit, a regenerate) moves
+// the offer's version out from under this request: SetPdfAssetRef then
+// answers version_skew, and this handler reclaims the blob it already
+// wrote so the rejected render never leaves an orphan object behind.
 func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.RenderOfferParams) {
 	if h.blob == nil {
 		httperr.NotImplemented(w, r, "RenderOffer")
@@ -137,7 +144,7 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		writeStoreErr(w, r, err)
 		return
 	}
-	pdfBytes, err := RenderOfferPDF(ingredients.Offer, ingredients.LineItems, ingredients.BuyerBlock, ingredients.IssuerName, ingredients.Locale)
+	pdfBytes, err := RenderOfferPDF(ingredients.Offer, ingredients.LineItems, ingredients.BuyerBlock, ingredients.IssuerName, ingredients.Locale, ingredients.Layout)
 	if err != nil {
 		httperr.Write(w, r, fmt.Errorf("render offer pdf: %w", err))
 		return
@@ -146,13 +153,23 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	if ingredients.Offer.Revision != nil {
 		revision = *ingredients.Offer.Revision
 	}
+	var preparedVersion int64
+	if ingredients.Offer.Version != nil {
+		preparedVersion = *ingredients.Offer.Version
+	}
 	key := fmt.Sprintf("offers/%s/%s/%d.pdf", storekit.MustWorkspace(r.Context()), ids.UUID(id), revision)
 	if err := h.blob.Put(r.Context(), key, bytes.NewReader(pdfBytes), int64(len(pdfBytes)), "application/pdf"); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	updated, err := h.store.SetPdfAssetRef(r.Context(), offerID, key)
+	updated, err := h.store.SetPdfAssetRef(r.Context(), offerID, key, preparedVersion)
 	if err != nil {
+		if errors.Is(err, apperrors.ErrVersionSkew) {
+			if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
+				httperr.Write(w, r, fmt.Errorf("reclaim orphaned render blob after a version conflict: %w", delErr))
+				return
+			}
+		}
 		writeStoreErr(w, r, err)
 		return
 	}

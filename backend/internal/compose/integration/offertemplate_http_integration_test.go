@@ -6,8 +6,8 @@
 package integration
 
 // HTTP-level coverage for the six /offer-templates operations plus
-// renderOffer's still-unimplemented 501 (offers-depth arc 4a, T3): the
-// handler (deals.Handlers) and its wire mapping that
+// renderOffer's 501 when no blobstore is wired: the handler
+// (deals.Handlers) and its wire mapping that
 // offertemplate_integration_test.go's store-level suite never drives —
 // the two named 409 shapes (offer_template_name_duplicate,
 // offer_template_default_conflict), the full-replace PUT's version-skew
@@ -60,8 +60,8 @@ func TestOfferTemplatesHTTP(t *testing.T) {
 	t.Run("422 missing required layout on create", func(t *testing.T) {
 		assertOfferTemplateMissingLayout422(t, e)
 	})
-	t.Run("501 renderOffer stays unimplemented", func(t *testing.T) {
-		assertRenderOfferNotImplemented(t, e)
+	t.Run("501 renderOffer without a wired blobstore", func(t *testing.T) {
+		assertRenderOfferNotImplementedWithoutBlobstore(t, e)
 	})
 }
 
@@ -80,7 +80,11 @@ func assertOfferTemplateCreate201(t *testing.T, e *env) string {
 	if created["version"].(float64) != 1 || created["archived_at"] != nil {
 		t.Errorf("a fresh template carries version 1 and no archived_at, got %+v", created)
 	}
-	return created["id"].(string)
+	id, ok := created["id"].(string)
+	if !ok {
+		t.Fatalf("create response carries no id: %v", created)
+	}
+	return id
 }
 
 func assertOfferTemplateNameDuplicate409(t *testing.T, e *env) {
@@ -181,7 +185,10 @@ func assertOfferTemplateArchive(t *testing.T, e *env) {
 	if status != http.StatusCreated {
 		t.Fatalf("create to archive = %d %v", status, created)
 	}
-	id := created["id"].(string)
+	id, ok := created["id"].(string)
+	if !ok {
+		t.Fatalf("create to archive response carries no id: %v", created)
+	}
 
 	var archived anyMap
 	status = e.call(t, "DELETE", "/v1/offer-templates/"+id, nil, nil, &archived)
@@ -214,11 +221,17 @@ func assertOfferTemplateMissingLayout422(t *testing.T, e *env) {
 	}
 }
 
-// assertRenderOfferNotImplemented proves the render endpoint stays the
-// explicit-501 shape until T4 wires the PDF renderer — a dedicated
-// deal+offer is seeded fresh here because offerFixture (offers_integration_test.go)
+// assertRenderOfferNotImplementedWithoutBlobstore proves the render
+// endpoint's 501 fallback: the PDF renderer itself is fully implemented
+// (offer_pdf.go, offer_render.go), but THIS suite's setup() harness wires
+// no blobstore (compose.WithBlobstore is never passed), so RenderOffer's
+// own h.blob == nil check correctly answers 501 rather than nil-derefing —
+// the same unwired-by-omission posture as the attachments seam. The
+// wired-blobstore success path (a real render, a real blob, real bytes)
+// lives in offerrender_http_integration_test.go. A dedicated deal+offer
+// is seeded fresh here because offerFixture (offers_integration_test.go)
 // is this suite's only source of a valid deal/pipeline pair.
-func assertRenderOfferNotImplemented(t *testing.T, e *env) {
+func assertRenderOfferNotImplementedWithoutBlobstore(t *testing.T, e *env) {
 	t.Helper()
 	dealID := offerFixture(t, e)
 	var offer anyMap
@@ -229,8 +242,12 @@ func assertRenderOfferNotImplemented(t *testing.T, e *env) {
 	if status != http.StatusCreated {
 		t.Fatalf("create offer for render = %d %v", status, offer)
 	}
-	status = e.call(t, "POST", "/v1/offers/"+offer["id"].(string)+"/render", anyMap{}, nil, nil)
+	offerID, ok := offer["id"].(string)
+	if !ok {
+		t.Fatalf("create offer for render response carries no id: %v", offer)
+	}
+	status = e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, nil)
 	if status != http.StatusNotImplemented {
-		t.Fatalf("renderOffer = %d, want 501 (T4 wires the real renderer)", status)
+		t.Fatalf("renderOffer without a wired blobstore = %d, want 501", status)
 	}
 }

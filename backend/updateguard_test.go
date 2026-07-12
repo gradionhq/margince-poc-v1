@@ -116,7 +116,6 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/customfields:Retire":          "runs under the catalog row lock minted by lockField (FOR UPDATE before every decision read); the flip is an absolute idempotent transition besides",
 	"internal/modules/customfields:setOptionsInTx":  "runs under the catalog row lock minted by lockPicklistField (FOR UPDATE before every decision read), plus the per-table advisory lock serializeSchemaChange mints",
 	"internal/modules/deals:ArchiveOffer":           "runs under the offer row lock taken by visibleOfferLocked, and the write itself is an absolute archive transition",
-	"internal/modules/deals:SetPdfAssetRef":         "runs under the offer row lock taken by visibleOfferLocked, and the write itself is an absolute unconditional key assignment (the render handler is the only caller, one per request)",
 	"internal/modules/deals:UpdateOfferLineItem":    "runs under the parent offer's row lock taken by visibleOfferLocked, which serializes every line edit",
 	"internal/modules/deals:recomputeOfferTotals":   "every caller holds the offer row lock via visibleOfferLocked, except createOfferTx where the offer row was inserted in the same transaction",
 	"internal/modules/people:absorbOrgReferences":   "runs under the merge pair lock (storekit.LockPair on both organization rows) taken by MergeOrganization",

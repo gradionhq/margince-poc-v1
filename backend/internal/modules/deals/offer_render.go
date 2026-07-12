@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-// The offer PDF render seam (OFFER-AC-12/12a, offers-depth arc 4a T4):
-// PrepareRender gathers every input offer_pdf.go's RenderOfferPDF needs —
-// the offer (its Net/Tax/GrossMinor are already the totals engine's
-// persisted output), its lines, the buyer legal block, the issuer name,
-// and the resolved locale — WITHOUT ever touching blob storage. The
-// render handler (handlers_offertemplates.go) calls RenderOfferPDF over
-// these ingredients, writes the bytes to the object store, and then calls
+// The offer PDF render seam: PrepareRender gathers every input
+// offer_pdf.go's RenderOfferPDF needs — the offer (its Net/Tax/GrossMinor
+// are already the totals engine's persisted output), its lines, the buyer
+// legal block, the issuer name, and the selected template's locale +
+// layout — WITHOUT ever touching blob storage. The render handler
+// (handlers_offertemplates.go) calls RenderOfferPDF over these
+// ingredients, writes the bytes to the object store, and then calls
 // SetPdfAssetRef to persist the resulting key. Splitting the read/render/
-// write this way keeps OfferStore blob-free (mirrors poc-1's own split;
-// unlike activities' attachment store, which owns its blob field, this
-// store never imports platform/blobstore).
+// write this way keeps OfferStore blob-free (unlike activities'
+// attachment store, which owns its blob field, this store never imports
+// platform/blobstore).
 
 package deals
 
@@ -37,6 +37,10 @@ type RenderIngredients struct {
 	BuyerBlock map[string]any
 	IssuerName string
 	Locale     string
+	// Layout is the selected offer_template's layout bag (or an empty map
+	// when the offer carries no template) — offer_pdf.go's RenderOfferPDF
+	// honors the bounded set of text keys it defines and ignores the rest.
+	Layout map[string]any
 }
 
 // PrepareRender resolves the render inputs for one offer: the caller must
@@ -44,12 +48,10 @@ type RenderIngredients struct {
 // usual row-scope gate; a miss on either answers 404, existence-hiding).
 // It ALSO requires offer-update up front, even though this call itself
 // only reads: RenderOffer's overall operation ends in a write
-// (SetPdfAssetRef persists pdf_asset_ref), so gating on read alone would
-// let a read-only-role caller trigger a full PDF render and an object-store
-// Put before ever hitting the update check that used to live only in
-// SetPdfAssetRef — an orphan blob write ahead of the 403 it was always
-// going to get. Requiring both here, before the transaction even opens,
-// means a denied caller never reaches the render or the blob store at all.
+// (SetPdfAssetRef persists pdf_asset_ref), so requiring both gates here —
+// before the transaction even opens — means a caller who lacks the update
+// grant never reaches the render or the blob store at all; PrepareRender
+// is the sole admission gate for the whole render operation.
 // It runs a single read-only transaction and never opens the blob store —
 // the caller (the render handler) writes the PDF bytes afterward and
 // commits the resulting ref through the separate SetPdfAssetRef call.
@@ -78,13 +80,13 @@ func (s *Store) PrepareRender(ctx context.Context, id ids.OfferID) (RenderIngred
 		if err != nil {
 			return err
 		}
-		locale, err := resolveRenderLocale(ctx, tx, offer.TemplateId)
+		locale, layout, err := resolveRenderTemplate(ctx, tx, offer.TemplateId)
 		if err != nil {
 			return err
 		}
 		out = RenderIngredients{
 			Offer: offer, LineItems: lines, BuyerBlock: buyerBlock,
-			IssuerName: issuerName, Locale: locale,
+			IssuerName: issuerName, Locale: locale, Layout: layout,
 		}
 		return nil
 	})
@@ -144,49 +146,56 @@ func resolveRenderIssuerName(ctx context.Context, tx pgx.Tx, offer crmcontracts.
 	return name, nil
 }
 
-// resolveRenderLocale resolves an offer's render locale: unset falls back
-// to de-DE (offer_template's own launch default), never a blank column. A
-// template_id that no longer resolves (only possible if a template were
-// hard-deleted out from under the FK's ON DELETE SET NULL mid-flight,
-// never observed in practice) falls back the same way rather than
-// failing an otherwise-good render.
-func resolveRenderLocale(ctx context.Context, tx pgx.Tx, templateID *openapi_types.UUID) (string, error) {
+// resolveRenderTemplate resolves an offer's render locale AND layout
+// together — one offer_template row backs both. Unset falls back to
+// de-DE (offer_template's own launch default) and an empty layout, never
+// a blank column. A template_id that no longer resolves (only possible if
+// a template were hard-deleted out from under the FK's ON DELETE SET NULL
+// mid-flight, never observed in practice) falls back the same way rather
+// than failing an otherwise-good render.
+func resolveRenderTemplate(ctx context.Context, tx pgx.Tx, templateID *openapi_types.UUID) (locale string, layout map[string]any, err error) {
 	if templateID == nil {
-		return defaultOfferTemplateLocale, nil
+		return defaultOfferTemplateLocale, map[string]any{}, nil
 	}
-	var locale string
-	err := tx.QueryRow(ctx,
-		`SELECT locale FROM offer_template WHERE id = $1`, ids.UUID(*templateID)).Scan(&locale)
+	err = tx.QueryRow(ctx,
+		`SELECT locale, layout FROM offer_template WHERE id = $1`, ids.UUID(*templateID)).Scan(&locale, &layout)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return defaultOfferTemplateLocale, nil
+		return defaultOfferTemplateLocale, map[string]any{}, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("render: read template locale: %w", err)
+		return "", nil, fmt.Errorf("render: read template locale/layout: %w", err)
 	}
-	return locale, nil
+	if layout == nil {
+		layout = map[string]any{}
+	}
+	return locale, layout, nil
 }
 
 // SetPdfAssetRef persists the blob key the render handler already wrote
 // and audits it as a standard offer update. PrepareRender's read and this
 // write are deliberately separate transactions — the blob.Put in between
-// cannot ride inside either one — so this step re-locks and re-verifies
-// visibility fresh rather than trusting the caller's earlier read. The
-// offer-update requirement below is a belt-and-braces repeat of
-// PrepareRender's own — the real admission gate for the whole render
-// operation lives there, before the render or the blob write, precisely so
-// a denied caller never reaches this far.
-func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string) (crmcontracts.Offer, error) {
+// cannot ride inside either one — so a concurrent draft edit (a line
+// added/removed, a regenerate, another render) can land between the two.
+// expectedVersion is the offer's row version PrepareRender saw; the UPDATE
+// is fenced on it (the same optimistic-concurrency column every other
+// client-driven offer write honors), so a version that moved under us
+// answers apperrors.ErrVersionSkew instead of silently pointing
+// pdf_asset_ref at a PDF that no longer matches the offer's current lines.
+// The caller (the render handler) reclaims the blob it already wrote when
+// this happens — this store stays blob-free, so it cannot do that itself.
+func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string, expectedVersion int64) (crmcontracts.Offer, error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
 		return crmcontracts.Offer{}, err
 	}
 	var out crmcontracts.Offer
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if _, err := visibleOffer(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE offer SET pdf_asset_ref = $2 WHERE id = $1`, id, ref); err != nil {
-			return fmt.Errorf("set offer pdf_asset_ref: %w", err)
+		p := storekit.NewPatch()
+		p.Set("pdf_asset_ref", nil, ref)
+		if err := p.ApplyWithVersion(ctx, tx, "offer", id.UUID, expectedVersion); err != nil {
+			return err
 		}
 		if _, err := storekit.Audit(ctx, tx, "update", "offer", id.UUID,
 			nil, map[string]any{"pdf_asset_ref": ref}); err != nil {
