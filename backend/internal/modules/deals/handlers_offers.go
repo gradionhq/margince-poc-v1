@@ -150,6 +150,7 @@ func (h Handlers) CreateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		BuyerOrgID: idArg[ids.OrganizationKind](req.BuyerOrgId),
 		IntroText:  req.IntroText,
 		TermsText:  req.TermsText,
+		TemplateID: idArg[ids.OfferTemplateKind](req.TemplateId),
 		Source:     req.Source,
 	}
 	if req.ValidUntil != nil {
@@ -197,6 +198,7 @@ func (h Handlers) UpdateOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		BuyerOrgID: idArg[ids.OrganizationKind](req.BuyerOrgId),
 		IntroText:  req.IntroText,
 		TermsText:  req.TermsText,
+		TemplateID: idArg[ids.OfferTemplateKind](req.TemplateId),
 		IfVersion:  ifVersion,
 	}
 	if req.ValidUntil != nil {

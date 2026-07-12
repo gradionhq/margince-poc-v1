@@ -23,6 +23,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -47,6 +48,10 @@ type CreateOfferInput struct {
 	ValidUntil *string // ISO date
 	IntroText  *string
 	TermsText  *string
+	// TemplateID picks the offer_template render.go's PrepareRender
+	// resolves into a locale; unset falls back to de-DE (the
+	// offer_template package default), never a blank column.
+	TemplateID *ids.OfferTemplateID
 	LineItems  []OfferLineInputRow
 	Source     string
 }
@@ -83,6 +88,9 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.DealID, in CreateO
 	if err != nil {
 		return crmcontracts.Offer{}, err
 	}
+	if err := resolveOfferTemplateRef(ctx, tx, in.TemplateID); err != nil {
+		return crmcontracts.Offer{}, err
+	}
 	number, err := nextOfferNumber(ctx, tx, wsID)
 	if err != nil {
 		return crmcontracts.Offer{}, err
@@ -91,9 +99,10 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.DealID, in CreateO
 	id := ids.New[ids.OfferKind]()
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
-		                    buyer_org_id, valid_until, intro_text, terms_text, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 1, 'draft', $5, $6, $7, $8, $9, $10, $11)`,
-		id, wsID, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText, in.Source, by); err != nil {
+		                    buyer_org_id, valid_until, intro_text, terms_text, template_id, source, captured_by)
+		 VALUES ($1, $2, $3, $4, 1, 'draft', $5, $6, $7, $8, $9, $10, $11, $12)`,
+		id, wsID, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText,
+		in.TemplateID, in.Source, by); err != nil {
 		return crmcontracts.Offer{}, fmt.Errorf("insert offer: %w", err)
 	}
 	if err := insertOfferLines(ctx, tx, wsID, id, in.Currency, in.LineItems); err != nil {
@@ -137,6 +146,29 @@ func resolveBuyerOrg(ctx context.Context, tx pgx.Tx, dealID ids.DealID, buyerOrg
 		return nil, fmt.Errorf("read deal organization: %w", err)
 	}
 	return dealOrg, nil
+}
+
+// resolveOfferTemplateRef validates a client-supplied template_id refers
+// to a live template in this workspace. offer_template carries no
+// owner_id — it is workspace-shared config, not row-scoped data (see
+// offer_template.go's file doc) — so auth.EnsureLinkTarget (which
+// requires the target table be row-scoped) does not apply here; a plain
+// existence probe, already RLS-scoped to the caller's workspace by the
+// surrounding transaction, gives the same existence-hiding 404 without it.
+func resolveOfferTemplateRef(ctx context.Context, tx pgx.Tx, templateID *ids.OfferTemplateID) error {
+	if templateID == nil {
+		return nil
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM offer_template WHERE id = $1 AND archived_at IS NULL)`,
+		*templateID).Scan(&exists); err != nil {
+		return fmt.Errorf("check offer_template reference: %w", err)
+	}
+	if !exists {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }
 
 // nextOfferNumber mints the workspace's next human-facing Angebot number
@@ -237,6 +269,7 @@ type UpdateOfferInput struct {
 	ValidUntil *string // ISO date
 	IntroText  *string
 	TermsText  *string
+	TemplateID *ids.OfferTemplateID
 	IfVersion  *int64
 }
 
@@ -272,6 +305,12 @@ func (s *Store) UpdateOffer(ctx context.Context, id ids.OfferID, in UpdateOfferI
 		}
 		if in.TermsText != nil {
 			p.Set("terms_text", current.TermsText, *in.TermsText)
+		}
+		if in.TemplateID != nil {
+			if err := resolveOfferTemplateRef(ctx, tx, in.TemplateID); err != nil {
+				return err
+			}
+			p.Set("template_id", current.TemplateId, *in.TemplateID)
 		}
 		if p.Empty() {
 			out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly)

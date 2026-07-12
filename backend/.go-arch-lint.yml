@@ -25,6 +25,7 @@ vendors:
   emersion: { in: github.com/emersion/** }
   river:  { in: github.com/riverqueue/** }
   minio:  { in: github.com/minio/** }
+  fpdf:   { in: github.com/go-pdf/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -94,7 +95,10 @@ deps:
     canUse: [pgx, oapi]
   deals:
     mayDependOn: [contracts, platform]
-    canUse: [pgx, oapi]
+    # fpdf backs offer_pdf.go's branded PDF render (offers-depth arc 4a
+    # T4, OFFER-AC-12): pure-Go, no cgo, a runtime render path — belongs
+    # in the product module, not tools.
+    canUse: [pgx, oapi, fpdf]
   activities:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

@@ -4690,14 +4690,26 @@ type CreateListRequestListType string
 // CreateOfferRequest defines model for CreateOfferRequest.
 type CreateOfferRequest struct {
 	// BuyerOrgId Defaults to the deal's organization.
-	BuyerOrgId           *openapi_types.UUID    `json:"buyer_org_id,omitempty"`
-	Currency             string                 `json:"currency"`
-	IntroText            *string                `json:"intro_text,omitempty"`
-	LineItems            *[]OfferLineItemInput  `json:"line_items,omitempty"`
-	Source               string                 `json:"source"`
+	BuyerOrgId *openapi_types.UUID   `json:"buyer_org_id,omitempty"`
+	Currency   string                `json:"currency"`
+	IntroText  *string               `json:"intro_text,omitempty"`
+	LineItems  *[]OfferLineItemInput `json:"line_items,omitempty"`
+	Source     string                `json:"source"`
+
+	// TemplateId Optional offer_template to render with; unset falls back to the workspace's default template for the offer's locale.
+	TemplateId           *openapi_types.UUID    `json:"template_id,omitempty"`
 	TermsText            *string                `json:"terms_text,omitempty"`
 	ValidUntil           *openapi_types.Date    `json:"valid_until,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// CreateOfferTemplateRequest defines model for CreateOfferTemplateRequest.
+type CreateOfferTemplateRequest struct {
+	// IsDefault Defaults to false.
+	IsDefault *bool                  `json:"is_default,omitempty"`
+	Layout    map[string]interface{} `json:"layout"`
+	Locale    *string                `json:"locale,omitempty"`
+	Name      string                 `json:"name"`
 }
 
 // CreateOrganizationRequest defines model for CreateOrganizationRequest.
@@ -5514,7 +5526,7 @@ type Offer struct {
 	// OfferNumber Human-facing Angebot number
 	OfferNumber *string `json:"offer_number,omitempty"`
 
-	// PdfAssetRef Rendered PDF ref (render is the WP7 slice).
+	// PdfAssetRef Rendered PDF ref
 	PdfAssetRef *string `json:"pdf_asset_ref,omitempty"`
 
 	// Revision Bumped when a sent offer is regenerated; the prior revision becomes superseded.
@@ -5523,7 +5535,10 @@ type Offer struct {
 	Status   OfferStatus `json:"status"`
 
 	// TaxMinor Σ line taxes — derived
-	TaxMinor   *int64              `json:"tax_minor,omitempty"`
+	TaxMinor *int64 `json:"tax_minor,omitempty"`
+
+	// TemplateId The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale.
+	TemplateId *openapi_types.UUID `json:"template_id,omitempty"`
 	TermsText  *string             `json:"terms_text,omitempty"`
 	UpdatedAt  time.Time           `json:"updated_at"`
 	ValidUntil *openapi_types.Date `json:"valid_until,omitempty"`
@@ -5611,6 +5626,40 @@ type OfferLineItemInput struct {
 type OfferListResponse struct {
 	Data []Offer  `json:"data"`
 	Page PageInfo `json:"page"`
+}
+
+// OfferTemplate A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6). Mirrors the `offer_template` table. Deliberately carries no source/captured_by — like Quota/CustomField, this is workspace-authored config, not a captured record; provenance lives in the audit row, not this schema.
+type OfferTemplate struct {
+	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
+	CreatedAt  time.Time          `json:"created_at"`
+	Id         openapi_types.UUID `json:"id"`
+
+	// IsDefault At most one default template per locale (partial unique index; OFFER-DDL-4).
+	IsDefault bool `json:"is_default"`
+
+	// Layout Logo/header/footer/terms-block refs — bounded params
+	Layout map[string]interface{} `json:"layout"`
+
+	// Locale DE/EN at launch (de-DE, en-US); drives the rendered PDF label set.
+	Locale string `json:"locale"`
+
+	// Name Unique per workspace among live (non-archived) templates.
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version     *RowVersion        `json:"version,omitempty"`
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// OfferTemplateListResponse defines model for OfferTemplateListResponse.
+type OfferTemplateListResponse struct {
+	Data []OfferTemplate `json:"data"`
+	Page PageInfo        `json:"page"`
 }
 
 // OmittedExtractionField A field the extractor could not ground in the document text (evidence-or-omit; never guessed).
@@ -6767,9 +6816,18 @@ type UpdateOfferRequest struct {
 	BuyerOrgId           *openapi_types.UUID    `json:"buyer_org_id,omitempty"`
 	Currency             *string                `json:"currency,omitempty"`
 	IntroText            *string                `json:"intro_text,omitempty"`
+	TemplateId           *openapi_types.UUID    `json:"template_id,omitempty"`
 	TermsText            *string                `json:"terms_text,omitempty"`
 	ValidUntil           *openapi_types.Date    `json:"valid_until,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// UpdateOfferTemplateRequest Full replace via PUT (unlike updateProduct's merge-PATCH) — every writable field must be supplied; omitting one resets it, it is not left unchanged.
+type UpdateOfferTemplateRequest struct {
+	IsDefault bool                   `json:"is_default"`
+	Layout    map[string]interface{} `json:"layout"`
+	Locale    string                 `json:"locale"`
+	Name      string                 `json:"name"`
 }
 
 // UpdateOrganizationRequest defines model for UpdateOrganizationRequest.
@@ -7821,6 +7879,69 @@ type ListListMembersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListOfferTemplatesParams defines parameters for ListOfferTemplates.
+type ListOfferTemplatesParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// IncludeArchived Include soft-deleted (archived) rows. Default false.
+	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// Locale Filter to one locale (e.g. de-DE, en-US).
+	Locale *string `form:"locale,omitempty" json:"locale,omitempty"`
+}
+
+// CreateOfferTemplateParams defines parameters for CreateOfferTemplate.
+type CreateOfferTemplateParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateOfferTemplateParams defines parameters for UpdateOfferTemplate.
+type UpdateOfferTemplateParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // UpdateOfferParams defines parameters for UpdateOffer.
 type UpdateOfferParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -7861,6 +7982,18 @@ type RejectOfferParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// RenderOfferParams defines parameters for RenderOffer.
+type RenderOfferParams struct {
+	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // SendOfferParams defines parameters for SendOffer.
@@ -8769,6 +8902,12 @@ type CreateListJSONRequestBody = CreateListRequest
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
 
+// CreateOfferTemplateJSONRequestBody defines body for CreateOfferTemplate for application/json ContentType.
+type CreateOfferTemplateJSONRequestBody = CreateOfferTemplateRequest
+
+// UpdateOfferTemplateJSONRequestBody defines body for UpdateOfferTemplate for application/json ContentType.
+type UpdateOfferTemplateJSONRequestBody = UpdateOfferTemplateRequest
+
 // UpdateOfferJSONRequestBody defines body for UpdateOffer for application/json ContentType.
 type UpdateOfferJSONRequestBody = UpdateOfferRequest
 
@@ -9277,6 +9416,14 @@ func (a *CreateOfferRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "source")
 	}
 
+	if raw, found := object["template_id"]; found {
+		err = json.Unmarshal(raw, &a.TemplateId)
+		if err != nil {
+			return fmt.Errorf("error reading 'template_id': %w", err)
+		}
+		delete(object, "template_id")
+	}
+
 	if raw, found := object["terms_text"]; found {
 		err = json.Unmarshal(raw, &a.TermsText)
 		if err != nil {
@@ -9341,6 +9488,13 @@ func (a CreateOfferRequest) MarshalJSON() ([]byte, error) {
 	object["source"], err = json.Marshal(a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.TemplateId != nil {
+		object["template_id"], err = json.Marshal(a.TemplateId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'template_id': %w", err)
+		}
 	}
 
 	if a.TermsText != nil {
@@ -10583,6 +10737,14 @@ func (a *Offer) UnmarshalJSON(b []byte) error {
 		delete(object, "tax_minor")
 	}
 
+	if raw, found := object["template_id"]; found {
+		err = json.Unmarshal(raw, &a.TemplateId)
+		if err != nil {
+			return fmt.Errorf("error reading 'template_id': %w", err)
+		}
+		delete(object, "template_id")
+	}
+
 	if raw, found := object["terms_text"]; found {
 		err = json.Unmarshal(raw, &a.TermsText)
 		if err != nil {
@@ -10770,6 +10932,13 @@ func (a Offer) MarshalJSON() ([]byte, error) {
 	object["tax_minor"], err = json.Marshal(a.TaxMinor)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'tax_minor': %w", err)
+	}
+
+	if a.TemplateId != nil {
+		object["template_id"], err = json.Marshal(a.TemplateId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'template_id': %w", err)
+		}
 	}
 
 	if a.TermsText != nil {
@@ -12116,6 +12285,14 @@ func (a *UpdateOfferRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "intro_text")
 	}
 
+	if raw, found := object["template_id"]; found {
+		err = json.Unmarshal(raw, &a.TemplateId)
+		if err != nil {
+			return fmt.Errorf("error reading 'template_id': %w", err)
+		}
+		delete(object, "template_id")
+	}
+
 	if raw, found := object["terms_text"]; found {
 		err = json.Unmarshal(raw, &a.TermsText)
 		if err != nil {
@@ -12169,6 +12346,13 @@ func (a UpdateOfferRequest) MarshalJSON() ([]byte, error) {
 		object["intro_text"], err = json.Marshal(a.IntroText)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'intro_text': %w", err)
+		}
+	}
+
+	if a.TemplateId != nil {
+		object["template_id"], err = json.Marshal(a.TemplateId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'template_id': %w", err)
 		}
 	}
 
@@ -13055,6 +13239,21 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// List offer templates (branded DE/EN PDF layouts), newest first.
+	// (GET /offer-templates)
+	ListOfferTemplates(w http.ResponseWriter, r *http.Request, params ListOfferTemplatesParams)
+	// Create an offer template.
+	// (POST /offer-templates)
+	CreateOfferTemplate(w http.ResponseWriter, r *http.Request, params CreateOfferTemplateParams)
+	// Archive (soft-delete) an offer template.
+	// (DELETE /offer-templates/{id})
+	ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, id Id)
+	// Get an offer template by id.
+	// (GET /offer-templates/{id})
+	GetOfferTemplate(w http.ResponseWriter, r *http.Request, id Id)
+	// Update an offer template (full replace — every writable field is replaced).
+	// (PUT /offer-templates/{id})
+	UpdateOfferTemplate(w http.ResponseWriter, r *http.Request, id Id, params UpdateOfferTemplateParams)
 	// Archive (soft-delete) an offer.
 	// (DELETE /offers/{id})
 	ArchiveOffer(w http.ResponseWriter, r *http.Request, id Id)
@@ -13082,6 +13281,9 @@ type ServerInterface interface {
 	// Record the buyer's decline (sent → rejected; emits offer.rejected).
 	// (POST /offers/{id}/reject)
 	RejectOffer(w http.ResponseWriter, r *http.Request, id Id, params RejectOfferParams)
+	// Render the offer's branded PDF (sets pdf_asset_ref).
+	// (POST /offers/{id}/render)
+	RenderOffer(w http.ResponseWriter, r *http.Request, id Id, params RenderOfferParams)
 	// Send a draft offer (🟡 — leaves the workspace; freezes FX + buyer/issuer snapshot).
 	// (POST /offers/{id}/send)
 	SendOffer(w http.ResponseWriter, r *http.Request, id Id, params SendOfferParams)
@@ -13781,6 +13983,36 @@ func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List offer templates (branded DE/EN PDF layouts), newest first.
+// (GET /offer-templates)
+func (_ Unimplemented) ListOfferTemplates(w http.ResponseWriter, r *http.Request, params ListOfferTemplatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create an offer template.
+// (POST /offer-templates)
+func (_ Unimplemented) CreateOfferTemplate(w http.ResponseWriter, r *http.Request, params CreateOfferTemplateParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive (soft-delete) an offer template.
+// (DELETE /offer-templates/{id})
+func (_ Unimplemented) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get an offer template by id.
+// (GET /offer-templates/{id})
+func (_ Unimplemented) GetOfferTemplate(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update an offer template (full replace — every writable field is replaced).
+// (PUT /offer-templates/{id})
+func (_ Unimplemented) UpdateOfferTemplate(w http.ResponseWriter, r *http.Request, id Id, params UpdateOfferTemplateParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Archive (soft-delete) an offer.
 // (DELETE /offers/{id})
 func (_ Unimplemented) ArchiveOffer(w http.ResponseWriter, r *http.Request, id Id) {
@@ -13832,6 +14064,12 @@ func (_ Unimplemented) RegenerateOffer(w http.ResponseWriter, r *http.Request, i
 // Record the buyer's decline (sent → rejected; emits offer.rejected).
 // (POST /offers/{id}/reject)
 func (_ Unimplemented) RejectOffer(w http.ResponseWriter, r *http.Request, id Id, params RejectOfferParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Render the offer's branded PDF (sets pdf_asset_ref).
+// (POST /offers/{id}/render)
+func (_ Unimplemented) RenderOffer(w http.ResponseWriter, r *http.Request, id Id, params RenderOfferParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -18190,6 +18428,293 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListOfferTemplates operation middleware
+func (siw *ServerInterfaceWrapper) ListOfferTemplates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOfferTemplatesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "locale" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "locale", r.URL.Query(), &params.Locale, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "locale"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "locale", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOfferTemplates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateOfferTemplate operation middleware
+func (siw *ServerInterfaceWrapper) CreateOfferTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateOfferTemplateParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOfferTemplate(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveOfferTemplate operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveOfferTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOfferTemplate operation middleware
+func (siw *ServerInterfaceWrapper) GetOfferTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOfferTemplate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateOfferTemplate operation middleware
+func (siw *ServerInterfaceWrapper) UpdateOfferTemplate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateOfferTemplateParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateOfferTemplate(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ArchiveOffer operation middleware
 func (siw *ServerInterfaceWrapper) ArchiveOffer(w http.ResponseWriter, r *http.Request) {
 
@@ -18597,6 +19122,64 @@ func (siw *ServerInterfaceWrapper) RejectOffer(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RejectOffer(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenderOffer operation middleware
+func (siw *ServerInterfaceWrapper) RenderOffer(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RenderOfferParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenderOffer(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -23294,6 +23877,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/offer-templates", wrapper.ListOfferTemplates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/offer-templates", wrapper.CreateOfferTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/offer-templates/{id}", wrapper.ArchiveOfferTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/offer-templates/{id}", wrapper.GetOfferTemplate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/offer-templates/{id}", wrapper.UpdateOfferTemplate)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/offers/{id}", wrapper.ArchiveOffer)
 	})
 	r.Group(func(r chi.Router) {
@@ -23319,6 +23917,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/reject", wrapper.RejectOffer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/offers/{id}/render", wrapper.RenderOffer)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/send", wrapper.SendOffer)

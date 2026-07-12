@@ -1,0 +1,194 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package deals
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// offerTemplateNameField names the "name" field: required on both the
+// create and update request bodies, and reused as the audit-payload key
+// in offer_template.go's CreateOfferTemplate. Deliberately its own
+// constant rather than a reuse of deal_read.go's dealNameColumn (that
+// one names a SQL column; this one names a wire/audit field — the same
+// text is a coincidence, not a shared concept).
+const offerTemplateNameField = "name"
+
+// ListOfferTemplates pages the workspace's offer templates.
+func (h Handlers) ListOfferTemplates(w http.ResponseWriter, r *http.Request, params crmcontracts.ListOfferTemplatesParams) {
+	in := ListOfferTemplatesInput{
+		Cursor:          params.Cursor,
+		Limit:           params.Limit,
+		Locale:          params.Locale,
+		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+	}
+	templates, page, err := h.store.ListOfferTemplates(r.Context(), in)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.OfferTemplateListResponse{Data: templates, Page: pageInfo(page)})
+}
+
+// CreateOfferTemplate creates a new offer template, staging validation
+// (required name/layout) before the store's conflict pre-checks.
+func (h Handlers) CreateOfferTemplate(w http.ResponseWriter, r *http.Request, _ crmcontracts.CreateOfferTemplateParams) {
+	var req crmcontracts.CreateOfferTemplateRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		writeStoreErr(w, r, &RequiredFieldError{Field: offerTemplateNameField})
+		return
+	}
+	if req.Layout == nil {
+		writeStoreErr(w, r, &RequiredFieldError{Field: "layout"})
+		return
+	}
+	in := CreateOfferTemplateInput{Name: req.Name, Layout: req.Layout}
+	if req.Locale != nil {
+		in.Locale = *req.Locale
+	}
+	if req.IsDefault != nil {
+		in.IsDefault = *req.IsDefault
+	}
+	template, err := h.store.CreateOfferTemplate(r.Context(), in)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/v1/offer-templates/"+template.Id.String())
+	httperr.WriteJSON(w, http.StatusCreated, template)
+}
+
+// GetOfferTemplate returns one template by id (live or archived).
+func (h Handlers) GetOfferTemplate(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	template, err := h.store.GetOfferTemplate(r.Context(), pathID[ids.OfferTemplateKind](id), storekit.IncludeArchived)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, template)
+}
+
+// UpdateOfferTemplate is the full-replace PUT: every writable field is
+// required on the wire, matching the store's full-replace semantics.
+func (h Handlers) UpdateOfferTemplate(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.UpdateOfferTemplateParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	var req crmcontracts.UpdateOfferTemplateRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if req.Name == "" {
+		writeStoreErr(w, r, &RequiredFieldError{Field: offerTemplateNameField})
+		return
+	}
+	if req.Layout == nil {
+		writeStoreErr(w, r, &RequiredFieldError{Field: "layout"})
+		return
+	}
+	in := UpdateOfferTemplateInput{
+		Name: req.Name, Locale: req.Locale, IsDefault: req.IsDefault, Layout: req.Layout, IfVersion: ifVersion,
+	}
+	template, err := h.store.UpdateOfferTemplate(r.Context(), pathID[ids.OfferTemplateKind](id), in)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, template)
+}
+
+// ArchiveOfferTemplate soft-deletes a template; a repeat archive is a
+// no-op that returns the same entity.
+func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	template, err := h.store.ArchiveOfferTemplate(r.Context(), pathID[ids.OfferTemplateKind](id))
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, template)
+}
+
+// RenderOffer builds the offer's branded PDF (offer_pdf.go) over
+// PrepareRender's resolved inputs, writes it to the object store at a
+// PER-ATTEMPT key (a fresh id minted for this render call, not merely the
+// revision — two concurrent renders of the same offer/revision must never
+// share one blob key), and persists the resulting ref via SetPdfAssetRef,
+// fenced on the row version PrepareRender saw. Without a wired blobstore
+// (WithBlobstore) this stays an explicit 501 — the same unwired-by-omission
+// posture as activities' attachment endpoints — rather than nil-derefing
+// h.blob. A concurrent draft edit between PrepareRender and the
+// SetPdfAssetRef call (another render, a line edit, a regenerate) moves
+// the offer's version out from under this request: SetPdfAssetRef then
+// answers version_skew, and this handler reclaims the blob it already
+// wrote — safely, since the per-attempt key means that blob is never the
+// one another render's SetPdfAssetRef could have just committed. A
+// successful re-render instead reclaims its own now-superseded PREVIOUS
+// ref (best-effort: the row is already committed at this point, so a
+// stray old blob is a GC concern, never a dangling reference).
+func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.RenderOfferParams) {
+	if h.blob == nil {
+		httperr.NotImplemented(w, r, "RenderOffer")
+		return
+	}
+	offerID := pathID[ids.OfferKind](id)
+	ingredients, err := h.store.PrepareRender(r.Context(), offerID)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	pdfBytes, err := RenderOfferPDF(ingredients.Offer, ingredients.LineItems, ingredients.BuyerBlock, ingredients.IssuerName, ingredients.Locale, ingredients.Layout)
+	if err != nil {
+		httperr.Write(w, r, fmt.Errorf("render offer pdf: %w", err))
+		return
+	}
+	revision := 0
+	if ingredients.Offer.Revision != nil {
+		revision = *ingredients.Offer.Revision
+	}
+	var preparedVersion int64
+	if ingredients.Offer.Version != nil {
+		preparedVersion = *ingredients.Offer.Version
+	}
+	key := fmt.Sprintf("offers/%s/%s/%d/%s.pdf", storekit.MustWorkspace(r.Context()), ids.UUID(id), revision, ids.NewV7())
+	if err := h.blob.Put(r.Context(), key, bytes.NewReader(pdfBytes), int64(len(pdfBytes)), "application/pdf"); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	updated, oldRef, err := h.store.SetPdfAssetRef(r.Context(), offerID, key, preparedVersion)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrVersionSkew) {
+			if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
+				httperr.Write(w, r, fmt.Errorf("reclaim orphaned render blob after a version conflict: %w", delErr))
+				return
+			}
+		}
+		writeStoreErr(w, r, err)
+		return
+	}
+	if oldRef != nil {
+		// The offer row is already committed to the NEW ref at this point;
+		// a failure to delete the stale one leaves an inert orphan blob,
+		// never a dangling reference, so it is logged rather than failing
+		// an otherwise-successful render (mirrors DownloadAttachment's
+		// post-commit best-effort cleanup logging).
+		if delErr := h.blob.Delete(r.Context(), *oldRef); delErr != nil {
+			slog.WarnContext(r.Context(), "reclaiming superseded render blob", "offer", offerID.String(), "old_ref", *oldRef, "err", delErr)
+		}
+	}
+	httperr.WriteJSON(w, http.StatusOK, updated)
+}

@@ -12,12 +12,14 @@ package deals
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
@@ -25,6 +27,12 @@ import (
 
 type Handlers struct {
 	store *Store
+	// blob backs the renderOffer endpoint's PDF write; nil means this
+	// role answers RenderOffer 501 (WithBlobstore opts a role in). Unlike
+	// activities' attachment store, the blob write lives here in
+	// transport, not the store — OfferStore's PrepareRender/
+	// SetPdfAssetRef seams (offer_render.go) stay blobstore-free.
+	blob blobstore.Store
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
@@ -36,6 +44,14 @@ func NewHandlers(pool *pgxpool.Pool) Handlers {
 // modules/customfields' Service here.
 func (h Handlers) WithFieldCatalog(catalog fieldcatalog.Reader) Handlers {
 	h.store = h.store.WithFieldCatalog(catalog)
+	return h
+}
+
+// WithBlobstore returns handlers whose renderOffer endpoint is backed by
+// the given object store; without it renderOffer answers 501 (the
+// attachments precedent, activities.Handlers.WithBlobstore).
+func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
+	h.blob = blob
 	return h
 }
 
@@ -128,6 +144,9 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(badDecimal.Field, "invalid_decimal", badDecimal.Error()))
 		return
 	}
+	if writeOfferTemplateConflict(w, r, err) {
+		return
+	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a
 	// breach that slipped past the per-path validations still answers a
 	// typed 422 naming the rule — never an opaque 500.
@@ -137,4 +156,40 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	httperr.Write(w, r, err)
+}
+
+// writeOfferTemplateConflict maps the two offer_template pre-checked
+// 409s onto the wire; false means neither matched (writeStoreErr falls
+// through to the sentinel registry).
+func writeOfferTemplateConflict(w http.ResponseWriter, r *http.Request, err error) bool {
+	var dupTemplateName *DuplicateTemplateNameError
+	if errors.As(err, &dupTemplateName) {
+		// Not httperr.Duplicate: its fixed detail claims a LIVE record
+		// holds the name, but offer_template_name_unique (0071) is NOT
+		// partial — an ARCHIVED template reserves its name too, so the
+		// blocking row here may never have been live at all.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "offer_template_name_duplicate",
+			Detail: "an offer template with this name already exists",
+			Details: map[string]any{
+				"existing_id": dupTemplateName.ExistingID.String(),
+			},
+		})
+		return true
+	}
+	var defaultConflict *DefaultConflictError
+	if errors.As(err, &defaultConflict) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "offer_template_default_conflict",
+			Detail: fmt.Sprintf("a default template already exists for locale %q; archive or un-default it first", defaultConflict.Locale),
+			Details: map[string]any{
+				"existing_id": defaultConflict.ExistingID.String(),
+				"locale":      defaultConflict.Locale,
+			},
+		})
+		return true
+	}
+	return false
 }

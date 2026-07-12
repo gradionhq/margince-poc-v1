@@ -2037,6 +2037,61 @@ export interface paths {
         patch: operations["updateProduct"];
         trace?: never;
     };
+    "/offer-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List offer templates (branded DE/EN PDF layouts), newest first.
+         * @description Default view excludes archived rows; pass include_archived=true to include them.
+         */
+        get: operations["listOfferTemplates"];
+        put?: never;
+        /**
+         * Create an offer template.
+         * @description `name` must be unique among this workspace's live templates (409
+         *     `offer_template_name_duplicate`). At most one default template per locale (409
+         *     `offer_template_default_conflict` — setting `is_default=true` while another
+         *     default already holds that locale).
+         */
+        post: operations["createOfferTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offer-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get an offer template by id. */
+        get: operations["getOfferTemplate"];
+        /**
+         * Update an offer template (full replace — every writable field is replaced).
+         * @description Uses PUT (not PATCH) — omitting a writable field resets it, it is not a partial no-op.
+         */
+        put: operations["updateOfferTemplate"];
+        post?: never;
+        /**
+         * Archive (soft-delete) an offer template.
+         * @description Sets archived_at (soft-archive); hidden from the default list but still fetchable by id. Offers already carrying this template_id are unaffected — a template is never deleted out from under an existing offer.
+         */
+        delete: operations["archiveOfferTemplate"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals/{id}/offers": {
         parameters: {
             query?: never;
@@ -2220,6 +2275,34 @@ export interface paths {
          *     mutated in place. The produced draft still cannot leave without the 🟡 send gate.
          */
         post: operations["regenerateOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Render the offer's branded PDF (sets pdf_asset_ref).
+         * @description Produces the branded DE/EN PDF from the offer's current template (`offer.template_id`,
+         *     falling back to the workspace's default template for the offer's locale, de-DE when
+         *     none is set) plus its line items, and stores the result as `pdf_asset_ref` (B-E03.22/
+         *     WP7, data-model §12.6). The rendered totals equal the server-computed totals — the PDF
+         *     never recomputes money (P11). Not itself an outbound or irreversible act — `send` is
+         *     the 🟡 gated step that leaves the workspace — so render stays 🟢.
+         */
+        post: operations["renderOffer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5408,6 +5491,59 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6). Mirrors the `offer_template` table. Deliberately carries no source/captured_by — like Quota/CustomField, this is workspace-authored config, not a captured record; provenance lives in the audit row, not this schema. */
+        OfferTemplate: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** @description Unique per workspace among live (non-archived) templates. */
+            name: string;
+            /**
+             * @description DE/EN at launch (de-DE, en-US); drives the rendered PDF label set.
+             * @default de-DE
+             */
+            locale: string;
+            /**
+             * @description At most one default template per locale (partial unique index; OFFER-DDL-4).
+             * @default false
+             */
+            is_default: boolean;
+            /** @description Logo/header/footer/terms-block refs — bounded params */
+            layout: {
+                [key: string]: unknown;
+            };
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        };
+        CreateOfferTemplateRequest: {
+            name: string;
+            /** @default de-DE */
+            locale: string | null;
+            /** @description Defaults to false. */
+            is_default?: boolean | null;
+            layout: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Full replace via PUT (unlike updateProduct's merge-PATCH) — every writable field must be supplied; omitting one resets it, it is not left unchanged. */
+        UpdateOfferTemplateRequest: {
+            name: string;
+            locale: string;
+            is_default: boolean;
+            layout: {
+                [key: string]: unknown;
+            };
+        };
+        OfferTemplateListResponse: {
+            data: components["schemas"]["OfferTemplate"][];
+            page: components["schemas"]["PageInfo"];
+        };
         /**
          * @description A typed offer line. `description`/`unit_price_minor` are SNAPSHOTS (copied from the
          *     optional product at line creation); `line_net_minor`/`line_tax_minor`/`line_total_minor`
@@ -5518,7 +5654,12 @@ export interface components {
             readonly fx_rate_to_base?: string | null;
             /** Format: date */
             readonly fx_rate_date?: string | null;
-            /** @description Rendered PDF ref (render is the WP7 slice). */
+            /**
+             * Format: uuid
+             * @description The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale.
+             */
+            template_id?: string | null;
+            /** @description Rendered PDF ref */
             pdf_asset_ref?: string | null;
             /** Format: date-time */
             readonly accepted_at?: string | null;
@@ -5589,6 +5730,11 @@ export interface components {
             valid_until?: string | null;
             intro_text?: string | null;
             terms_text?: string | null;
+            /**
+             * Format: uuid
+             * @description Optional offer_template to render with; unset falls back to the workspace's default template for the offer's locale.
+             */
+            template_id?: string | null;
             line_items?: components["schemas"]["OfferLineItemInput"][] | null;
             source: string;
         } & {
@@ -5601,6 +5747,8 @@ export interface components {
             buyer_org_id?: string | null;
             /** Format: date */
             valid_until?: string | null;
+            /** Format: uuid */
+            template_id?: string | null;
             intro_text?: string | null;
             terms_text?: string | null;
         } & {
@@ -10871,6 +11019,208 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listOfferTemplates: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+                /** @description Filter to one locale (e.g. de-DE, en-US). */
+                locale?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of offer templates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferTemplateListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createOfferTemplate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOfferTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created offer template. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferTemplate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A template with this name already exists, or a default already exists for this locale. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOfferTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The offer template. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferTemplate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateOfferTemplate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOfferTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated offer template. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferTemplate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    archiveOfferTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived offer template. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferTemplate"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listDealOffers: {
         parameters: {
             query?: {
@@ -11293,6 +11643,54 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    renderOffer: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The offer, with pdf_asset_ref populated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Offer"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description The object store (blobstore) is not wired on this deployment — the same unwired-by-omission posture as the attachments seam. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listSignals: {

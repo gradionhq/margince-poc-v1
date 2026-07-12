@@ -3996,6 +3996,151 @@ paths:
               schema: { $ref: '#/components/schemas/Product' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # -------------------------- offer templates ---------------------------
+  # Branded, workspace-governed DE/EN PDF layouts for offers (B-E03.22/WP7,
+  # data-model §12.6). Admin/ops config surface, like pipeline/product rate-
+  # card config — reps read the catalog but don't author brand layout.
+  # `name` is unique per workspace among live (non-archived) rows (409
+  # offer_template_name_duplicate). At most one default template per locale
+  # (partial unique index on workspace_id+locale WHERE is_default AND NOT
+  # archived) — setting is_default=true while another default already holds
+  # that locale is rejected (409 offer_template_default_conflict); different
+  # locales may each carry their own default. Deliberately carries no
+  # source/captured_by — like Quota/CustomField, this is workspace-authored
+  # config, not a captured record; provenance lives in the audit row.
+  /offer-templates:
+    get:
+      tags: [Offers]
+      operationId: listOfferTemplates
+      summary: List offer templates (branded DE/EN PDF layouts), newest first.
+      description: Default view excludes archived rows; pass include_archived=true to include them.
+      x-mcp-tool: { verb: search_records, record_type: offer_template, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: locale
+          in: query
+          schema: { type: string }
+          description: Filter to one locale (e.g. de-DE, en-US).
+      responses:
+        '200':
+          description: A page of offer templates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferTemplateListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Offers]
+      operationId: createOfferTemplate
+      summary: Create an offer template.
+      description: |
+        `name` must be unique among this workspace's live templates (409
+        `offer_template_name_duplicate`). At most one default template per locale (409
+        `offer_template_default_conflict` — setting `is_default=true` while another
+        default already holds that locale).
+      x-mcp-tool: { verb: create_record, record_type: offer_template, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOfferTemplateRequest' }
+      responses:
+        '201':
+          description: Created offer template.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferTemplate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: A template with this name already exists, or a default already exists for this locale.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                nameDuplicate:
+                  summary: A live template with this name already exists in this workspace
+                  value:
+                    type: 'https://errors.gradion.com/offer_template_name_duplicate'
+                    title: Duplicate name
+                    status: 409
+                    code: offer_template_name_duplicate
+                    detail: An offer template named "Standard DE" already exists in this workspace.
+                defaultConflict:
+                  summary: Another template already holds is_default for this locale
+                  value:
+                    type: 'https://errors.gradion.com/offer_template_default_conflict'
+                    title: Default template conflict
+                    status: 409
+                    code: offer_template_default_conflict
+                    detail: 'A default template already exists for locale "de-DE"; archive or un-default it first.'
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offer-templates/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Offers]
+      operationId: getOfferTemplate
+      summary: Get an offer template by id.
+      x-mcp-tool: { verb: read_record, record_type: offer_template, tier: green }
+      responses:
+        '200':
+          description: The offer template.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferTemplate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Offers]
+      operationId: updateOfferTemplate
+      summary: Update an offer template (full replace — every writable field is replaced).
+      description: Uses PUT (not PATCH) — omitting a writable field resets it, it is not a partial no-op.
+      x-mcp-tool: { verb: update_record, record_type: offer_template, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOfferTemplateRequest' }
+      responses:
+        '200':
+          description: Updated offer template.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferTemplate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Offers]
+      operationId: archiveOfferTemplate
+      summary: Archive (soft-delete) an offer template.
+      description: Sets archived_at (soft-archive); hidden from the default list but still fetchable by id. Offers already carrying this template_id are unaffected — a template is never deleted out from under an existing offer.
+      x-mcp-tool: { verb: archive_record, record_type: offer_template, tier: yellow }
+      responses:
+        '200':
+          description: Archived offer template.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfferTemplate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ------------------------------ offers -------------------------------------
   # The versioned, deal-bound Angebot (B-E03.17–.20, data-model §12.6).
   # Totals (line and offer) are SERVER-COMPUTED from the line items (P11);
@@ -4266,6 +4411,50 @@ paths:
               schema: { $ref: '#/components/schemas/Offer' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /offers/{id}/render:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Offers]
+      operationId: renderOffer
+      summary: Render the offer's branded PDF (sets pdf_asset_ref).
+      description: |
+        Produces the branded DE/EN PDF from the offer's current template (`offer.template_id`,
+        falling back to the workspace's default template for the offer's locale, de-DE when
+        none is set) plus its line items, and stores the result as `pdf_asset_ref` (B-E03.22/
+        WP7, data-model §12.6). The rendered totals equal the server-computed totals — the PDF
+        never recomputes money (P11). Not itself an outbound or irreversible act — `send` is
+        the 🟡 gated step that leaves the workspace — so render stays 🟢.
+      x-mcp-tool: { verb: render_offer, record_type: offer, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The offer, with pdf_asset_ref populated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Offer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '501':
+          description: >-
+            The object store (blobstore) is not wired on this deployment — the same
+            unwired-by-omission posture as the attachments seam.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                blobstoreUnwired:
+                  value:
+                    type: 'https://errors.gradion.com/not_implemented'
+                    title: Not Implemented
+                    status: 501
+                    code: not_implemented
+                    detail: operation RenderOffer is specified but not yet implemented
 
   # -------------------------- /signals (E08 warm room) ----------------------
   # The warm-room signal spine (B-E08.1–.4, features/07 §9, data-model §12.5):
@@ -4909,11 +5098,9 @@ paths:
   # join/append tables surfaced through admin/parent endpoints, not standalone CRUD.
   #
   # OFFERS / ANGEBOTE (data-model.md §12.6; A48/ADR-0037) — bounded line-item
-  # quote engine, NOT CPQ. /products, /deals/{id}/offers, /offers/{id}
-  # (+/line-items, /regenerate, /send, /accept, /reject) are now SPECIFIED
-  # above (B-E03.16–.20). Still pattern-only until their work packages land:
-  #   /offer-templates       (branded DE/EN PDF layouts; admin; one default per locale — B-E03.22/WP7)
-  #   POST /offers/{id}/render      (produce the branded PDF → pdf_asset_ref — B-E03.22/WP7)
+  # quote engine, NOT CPQ. /products, /offer-templates, /deals/{id}/offers,
+  # /offers/{id} (+/line-items, /regenerate, /render, /send, /accept, /reject)
+  # are now SPECIFIED above (B-E03.16–.20, B-E03.22/WP7).
   # Money totals (net/tax/gross) are DERIVED server-side from line items (P11
   # integer minor-units); a client-supplied total is rejected. Multi-currency
   # offers roll up to base via fx_rate (RT-PR-C2). Offer drafting obeys evidence-
@@ -7759,6 +7946,52 @@ components:
       additionalProperties: true
       x-extension: true
 
+    OfferTemplate:
+      type: object
+      description: >-
+        A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6).
+        Mirrors the `offer_template` table. Deliberately carries no source/captured_by —
+        like Quota/CustomField, this is workspace-authored config, not a captured record;
+        provenance lives in the audit row, not this schema.
+      required: [id, workspace_id, name, locale, is_default, layout, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string, description: Unique per workspace among live (non-archived) templates. }
+        locale: { type: string, default: de-DE, description: 'DE/EN at launch (de-DE, en-US); drives the rendered PDF label set.' }
+        is_default: { type: boolean, default: false, description: At most one default template per locale (partial unique index; OFFER-DDL-4). }
+        layout: { type: object, additionalProperties: true, description: Logo/header/footer/terms-block refs — bounded params, not a CMS. }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+
+    CreateOfferTemplateRequest:
+      type: object
+      required: [name, layout]
+      properties:
+        name: { type: string }
+        locale: { type: [string, 'null'], default: de-DE }
+        is_default: { type: [boolean, 'null'], description: Defaults to false. }
+        layout: { type: object, additionalProperties: true }
+
+    UpdateOfferTemplateRequest:
+      type: object
+      description: Full replace via PUT (unlike updateProduct's merge-PATCH) — every writable field must be supplied; omitting one resets it, it is not left unchanged.
+      required: [name, locale, is_default, layout]
+      properties:
+        name: { type: string }
+        locale: { type: string }
+        is_default: { type: boolean }
+        layout: { type: object, additionalProperties: true }
+
+    OfferTemplateListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/OfferTemplate' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
     OfferLineItem:
       type: object
       description: |
@@ -7807,7 +8040,8 @@ components:
         gross_minor: { type: integer, format: int64, readOnly: true, description: net + tax — derived, never client-set. }
         fx_rate_to_base: { type: [string, 'null'], readOnly: true, description: 'Native→base, frozen at send (RT-PR-C2). Decimal-as-string to avoid float rounding.' }
         fx_rate_date: { type: [string, 'null'], format: date, readOnly: true }
-        pdf_asset_ref: { type: [string, 'null'], description: Rendered PDF ref (render is the WP7 slice). }
+        template_id: { type: [string, 'null'], format: uuid, description: The offer_template used for locale/layout at render time; unset falls back to the workspace's default template for the offer's locale. }
+        pdf_asset_ref: { type: [string, 'null'], description: Rendered PDF ref, set by renderOffer (B-E03.22/WP7). }
         accepted_at: { type: [string, 'null'], format: date-time, readOnly: true }
         line_items:
           type: array
@@ -7867,6 +8101,7 @@ components:
         valid_until: { type: [string, 'null'], format: date }
         intro_text: { type: [string, 'null'] }
         terms_text: { type: [string, 'null'] }
+        template_id: { type: [string, 'null'], format: uuid, description: Optional offer_template to render with; unset falls back to the workspace's default template for the offer's locale. }
         line_items:
           type: [array, 'null']
           items: { $ref: '#/components/schemas/OfferLineItemInput' }
@@ -7881,6 +8116,7 @@ components:
         currency: { type: string, pattern: '^[A-Z]{3}$' }
         buyer_org_id: { type: [string, 'null'], format: uuid }
         valid_until: { type: [string, 'null'], format: date }
+        template_id: { type: [string, 'null'], format: uuid }
         intro_text: { type: [string, 'null'] }
         terms_text: { type: [string, 'null'] }
       additionalProperties: true

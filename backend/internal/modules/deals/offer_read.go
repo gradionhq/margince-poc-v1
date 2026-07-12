@@ -148,7 +148,7 @@ func attachOfferLines(ctx context.Context, tx pgx.Tx, offers []crmcontracts.Offe
 const offerColumns = `id, workspace_id, deal_id, offer_number, revision, status, currency,
 	buyer_org_id, buyer_snapshot, issuer_snapshot, valid_until, intro_text, terms_text,
 	net_minor, tax_minor, gross_minor, fx_rate_to_base::text, fx_rate_date, pdf_asset_ref,
-	accepted_at, source, captured_by, version, created_at, updated_at, archived_at`
+	template_id, accepted_at, source, captured_by, version, created_at, updated_at, archived_at`
 
 func readOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
 	q := `SELECT ` + offerColumns + ` FROM offer WHERE id = $1`
@@ -180,7 +180,7 @@ func readOfferWithLines(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived
 func scanOffer(row pgx.Row) (crmcontracts.Offer, error) {
 	var o crmcontracts.Offer
 	var id, wsID, dealID ids.UUID
-	var buyerOrgID *ids.UUID
+	var buyerOrgID, templateID *ids.UUID
 	var offerNumber string
 	var revision int
 	var status string
@@ -193,7 +193,7 @@ func scanOffer(row pgx.Row) (crmcontracts.Offer, error) {
 	err := row.Scan(&id, &wsID, &dealID, &offerNumber, &revision, &status, &o.Currency,
 		&buyerOrgID, &buyerSnapshot, &issuerSnapshot, &validUntil, &o.IntroText, &o.TermsText,
 		&netMinor, &taxMinor, &grossMinor, &o.FxRateToBase, &fxRateDate, &o.PdfAssetRef,
-		&o.AcceptedAt, &o.Source, &capturedBy, &version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt)
+		&templateID, &o.AcceptedAt, &o.Source, &capturedBy, &version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt)
 	if err != nil {
 		return o, err
 	}
@@ -202,6 +202,7 @@ func scanOffer(row pgx.Row) (crmcontracts.Offer, error) {
 	o.WorkspaceId = openapi_types.UUID(wsID)
 	o.DealId = openapi_types.UUID(dealID)
 	o.BuyerOrgId = uuidPtr(buyerOrgID)
+	o.TemplateId = uuidPtr(templateID)
 	o.OfferNumber = &offerNumber
 	o.Revision = &revision
 	o.Status = crmcontracts.OfferStatus(status)

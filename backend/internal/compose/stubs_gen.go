@@ -312,6 +312,26 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
+func (stubs) ListOfferTemplates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOfferTemplatesParams) {
+	httperr.NotImplemented(w, r, "ListOfferTemplates")
+}
+
+func (stubs) CreateOfferTemplate(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateOfferTemplateParams) {
+	httperr.NotImplemented(w, r, "CreateOfferTemplate")
+}
+
+func (stubs) ArchiveOfferTemplate(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ArchiveOfferTemplate")
+}
+
+func (stubs) GetOfferTemplate(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOfferTemplate")
+}
+
+func (stubs) UpdateOfferTemplate(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateOfferTemplateParams) {
+	httperr.NotImplemented(w, r, "UpdateOfferTemplate")
+}
+
 func (stubs) ArchiveOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ArchiveOffer")
 }
@@ -346,6 +366,10 @@ func (stubs) RegenerateOffer(w nethttp.ResponseWriter, r *nethttp.Request, id cr
 
 func (stubs) RejectOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RejectOfferParams) {
 	httperr.NotImplemented(w, r, "RejectOffer")
+}
+
+func (stubs) RenderOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RenderOfferParams) {
+	httperr.NotImplemented(w, r, "RenderOffer")
 }
 
 func (stubs) SendOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendOfferParams) {
