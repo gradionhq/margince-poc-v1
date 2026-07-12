@@ -56,7 +56,7 @@ still answer a generated `501` until its handler lands; it is not an implementat
 ## Where cross-module edges are wired
 
 A module never reaches a sibling; the composition root injects the edge (how that works:
-[explanation/composition-layer.md](../explanation/composition-layer.md)). The current edges (all in
+[explanation/composition-layer.md](../explanation/composition-layer.md)). The current edges (wired in
 `internal/compose/server.go`):
 
 - **identity's workspace seed** ← deals (default pipeline) + consent (default purposes/retention) +
@@ -65,6 +65,8 @@ A module never reaches a sibling; the composition root injects the edge (how tha
 - **consent's DSR erasure** ← privacy's `Eraser`.
 - **signals' relationship strength** ← people's store (adapter).
 - **activities' outbound gate** ← consent (the suppression gate) + people/consent public seams.
+- **imap connect** ← capture's connector registry (adapter).
+- **filtered export** ← collections' saved-view/list source (adapter).
 
 To place a new capability: add `internal/modules/<name>/` (flat), give it a `doc.go` with a "Tables
 owned" list, follow one spine shape, and wire any cross-module need as a compose adapter — never a

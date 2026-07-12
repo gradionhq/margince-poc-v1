@@ -12,7 +12,7 @@ Read those first if you want the short version.
 
 ## The shape at a glance
 
-```
+```text
 HTTP request / agent run / bus consumer
         │  (middleware binds actor + workspace + correlation_id onto ctx)
         ▼

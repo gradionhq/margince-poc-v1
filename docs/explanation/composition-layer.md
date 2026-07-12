@@ -92,6 +92,7 @@ backed by the provider module's store — so neither module names the other. The
 | identity (bootstrap) | deals + consent + agents + activities defaults | `workspaceSeed(dealsH)` (one tx) |
 | activities | consent's outbound suppression gate; people (public booking); consent (unsubscribe link) | `.WithConsent(...)`, `.WithPublicBooking(...)`, `.WithUnsubscribe(...)` |
 | consent (DSR erase) | privacy's `Eraser` (blob-aware under `WithBlobstore`) | `consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool))` |
+| agents / automations | approvals' staging + redemption (the 🟡 confirm-first effects) | `approvalsHandlersWithEffects(pool)` (`.WithEffects(...)`) |
 | signals | people's relationship-strength | `signalStrength{people: people.NewStore(pool)}` adapter |
 | imap connect | capture's connector registry (vault under `WithKeyvault`) | `imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}` |
 | filtered export | collections' saved-view/list source | `filteredExportHandlers{collections: collections.NewStore(pool)}` |

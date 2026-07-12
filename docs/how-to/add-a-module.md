@@ -35,6 +35,7 @@ A module never imports a sibling. Inject the dependency in compose as an adapter
    parameter (`signals.NewHandlers(pool, strength)`).
 2. **Write the adapter in compose** that satisfies that interface, backed by module B's store:
    ```go
+   // illustrative, not copy-paste Go — the real signature is signals.StrengthSource
    type signalStrength struct{ people *people.Store }
    func (a signalStrength) Strength(...) (...) { return a.people.Strength(...) } // delegate
    ```
