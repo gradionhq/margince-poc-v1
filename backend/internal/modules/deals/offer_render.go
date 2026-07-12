@@ -183,14 +183,24 @@ func resolveRenderTemplate(ctx context.Context, tx pgx.Tx, templateID *openapi_t
 // pdf_asset_ref at a PDF that no longer matches the offer's current lines.
 // The caller (the render handler) reclaims the blob it already wrote when
 // this happens — this store stays blob-free, so it cannot do that itself.
-func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string, expectedVersion int64) (crmcontracts.Offer, error) {
+//
+// It also returns the offer's PREVIOUS pdf_asset_ref (nil if it had none, or
+// if it is unchanged from ref): the render handler's key is per-attempt-
+// unique, so a successful re-render leaves its old blob orphaned unless the
+// caller reclaims it — this is the one place that still holds the
+// pre-overwrite row, so it is the one place that can hand the old ref back
+// rather than requiring a second read.
+func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string, expectedVersion int64) (out crmcontracts.Offer, oldRef *string, err error) {
 	if err := auth.Require(ctx, "offer", principal.ActionUpdate); err != nil {
-		return crmcontracts.Offer{}, err
+		return crmcontracts.Offer{}, nil, err
 	}
-	var out crmcontracts.Offer
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := visibleOffer(ctx, tx, id, storekit.LiveOnly); err != nil {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		existing, err := visibleOffer(ctx, tx, id, storekit.LiveOnly)
+		if err != nil {
 			return err
+		}
+		if existing.PdfAssetRef != nil && *existing.PdfAssetRef != ref {
+			oldRef = existing.PdfAssetRef
 		}
 		p := storekit.NewPatch()
 		p.Set("pdf_asset_ref", nil, ref)
@@ -201,11 +211,14 @@ func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string, 
 			nil, map[string]any{"pdf_asset_ref": ref}); err != nil {
 			return fmt.Errorf("audit offer render: %w", err)
 		}
-		var err error
-		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
-			return fmt.Errorf("read offer after render: %w", err)
+		var err2 error
+		if out, err2 = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err2 != nil {
+			return fmt.Errorf("read offer after render: %w", err2)
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return crmcontracts.Offer{}, nil, err
+	}
+	return out, oldRef, nil
 }

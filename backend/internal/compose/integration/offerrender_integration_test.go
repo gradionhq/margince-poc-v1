@@ -266,10 +266,13 @@ func TestOfferRenderSetPdfAssetRef_PersistsAndAuditsExactlyOnce(t *testing.T) {
 
 	before := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type = 'offer' AND action = 'update'`)
 
-	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1.pdf"
-	updated, err := e.Deals.SetPdfAssetRef(ctx, offerID, ref, *created.Version)
+	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1/" + ids.NewV7().String() + ".pdf"
+	updated, oldRef, err := e.Deals.SetPdfAssetRef(ctx, offerID, ref, *created.Version)
 	if err != nil {
 		t.Fatalf("set pdf asset ref: %v", err)
+	}
+	if oldRef != nil {
+		t.Fatalf("a first-ever render has no previous ref to report, got %+v", oldRef)
 	}
 	if updated.PdfAssetRef == nil || *updated.PdfAssetRef != ref {
 		t.Fatalf("SetPdfAssetRef must persist the given ref, got %+v want %q", updated.PdfAssetRef, ref)
@@ -285,6 +288,22 @@ func TestOfferRenderSetPdfAssetRef_PersistsAndAuditsExactlyOnce(t *testing.T) {
 	got, err := e.Deals.GetOffer(ctx, offerID, storekit.LiveOnly)
 	if err != nil || got.PdfAssetRef == nil || *got.PdfAssetRef != ref {
 		t.Fatalf("the persisted pdf_asset_ref must survive a fresh read, got %+v, %v", got.PdfAssetRef, err)
+	}
+
+	// A second render's SetPdfAssetRef must report the just-superseded ref
+	// back — the render handler's signal to reclaim that now-orphaned
+	// blob (the fix for the dangling-ref regression: per-attempt keys mean
+	// this old ref is never the one another concurrent render committed).
+	secondRef := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1/" + ids.NewV7().String() + ".pdf"
+	updatedAgain, oldRefAgain, err := e.Deals.SetPdfAssetRef(ctx, offerID, secondRef, *updated.Version)
+	if err != nil {
+		t.Fatalf("set pdf asset ref again: %v", err)
+	}
+	if oldRefAgain == nil || *oldRefAgain != ref {
+		t.Fatalf("a re-render must report the superseded ref %q, got %+v", ref, oldRefAgain)
+	}
+	if updatedAgain.PdfAssetRef == nil || *updatedAgain.PdfAssetRef != secondRef {
+		t.Fatalf("SetPdfAssetRef must persist the NEW ref, got %+v want %q", updatedAgain.PdfAssetRef, secondRef)
 	}
 }
 
@@ -322,8 +341,8 @@ func TestOfferRenderSetPdfAssetRef_StalePreparedVersionRejectsWithVersionSkew(t 
 		t.Fatalf("inject concurrent line edit: %v", err)
 	}
 
-	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/stale.pdf"
-	if _, err := e.Deals.SetPdfAssetRef(ctx, offerID, ref, preparedVersion); !errors.Is(err, apperrors.ErrVersionSkew) {
+	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/stale/" + ids.NewV7().String() + ".pdf"
+	if _, _, err := e.Deals.SetPdfAssetRef(ctx, offerID, ref, preparedVersion); !errors.Is(err, apperrors.ErrVersionSkew) {
 		t.Fatalf("SetPdfAssetRef against a stale prepared version = %v, want ErrVersionSkew", err)
 	}
 

@@ -90,14 +90,27 @@ func TestOfferRenderHTTP_PostRenderReturns200WithPdfAssetRefAndTheBlobExists(t *
 		t.Fatalf("the rendered blob's content type = %q, want application/pdf", obj.ContentType)
 	}
 
-	// A second render overwrites the same revision's object rather than
+	// A second render gets its OWN per-attempt key (never the first
+	// render's key — that is what closes the dangling-ref race two
+	// concurrent renders sharing one key could hit), but a successful
+	// re-render still reclaims its now-superseded PREVIOUS ref rather than
 	// accumulating orphans, and stays 200.
 	var renderedAgain renderedOffer
 	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &renderedAgain); status != http.StatusOK {
 		t.Fatalf("second render = %d", status)
 	}
-	if renderedAgain.PdfAssetRef != rendered.PdfAssetRef {
-		t.Fatalf("re-rendering the same revision must reuse the same key, got %q then %q", rendered.PdfAssetRef, renderedAgain.PdfAssetRef)
+	if renderedAgain.PdfAssetRef == rendered.PdfAssetRef {
+		t.Fatalf("each render attempt must get its own key, got the same %q twice", rendered.PdfAssetRef)
+	}
+	if _, _, err := blob.Get(context.Background(), rendered.PdfAssetRef); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Fatalf("the superseded first render's blob must be reclaimed after a successful re-render, got err=%v", err)
+	}
+	rc2, _, err := blob.Get(context.Background(), renderedAgain.PdfAssetRef)
+	if err != nil {
+		t.Fatalf("get the re-rendered blob at %q: %v", renderedAgain.PdfAssetRef, err)
+	}
+	if cerr := rc2.Close(); cerr != nil {
+		t.Errorf("close the re-rendered blob reader: %v", cerr)
 	}
 }
 
@@ -114,12 +127,18 @@ type raceLineAdder struct {
 	t       *testing.T
 	e       *env
 	offerID string
+	// putKey records the exact per-attempt key the render handler wrote —
+	// each render mints a fresh key, so the test cannot reconstruct it from
+	// the offer's workspace/id/revision alone the way the shared
+	// per-revision key it replaced once allowed.
+	putKey string
 }
 
 func (r *raceLineAdder) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
 	if err := r.Store.Put(ctx, key, body, size, contentType); err != nil {
 		return err
 	}
+	r.putKey = key
 	var line anyMap
 	status := r.e.call(r.t, "POST", "/v1/offers/"+r.offerID+"/line-items", anyMap{
 		"description": "Concurrent Line", "quantity": 1.0, "unit_price_minor": 1000,
@@ -156,10 +175,6 @@ func TestOfferRenderHTTP_ConcurrentLineEditBetweenPrepareAndSetRejectsWithVersio
 	if !ok {
 		t.Fatalf("create offer for render response carries no id: %v", offer)
 	}
-	wsID, ok := offer["workspace_id"].(string)
-	if !ok {
-		t.Fatalf("create offer for render response carries no workspace_id: %v", offer)
-	}
 	race.offerID = offerID
 
 	var problem struct {
@@ -171,10 +186,12 @@ func TestOfferRenderHTTP_ConcurrentLineEditBetweenPrepareAndSetRejectsWithVersio
 	}
 
 	// The rendered blob written just before the concurrent edit landed
-	// must be reclaimed — the object store must carry NOTHING for this
-	// offer's revision key.
-	key := "offers/" + wsID + "/" + offerID + "/1.pdf"
-	if _, _, err := race.Get(context.Background(), key); !errors.Is(err, blobstore.ErrNotFound) {
+	// must be reclaimed — the object store must carry NOTHING at the
+	// exact per-attempt key this rejected render wrote.
+	if race.putKey == "" {
+		t.Fatal("the race hook never observed a Put — the render must have failed before writing any blob")
+	}
+	if _, _, err := race.Get(context.Background(), race.putKey); !errors.Is(err, blobstore.ErrNotFound) {
 		t.Fatalf("the render blob must be reclaimed after a version conflict, got err=%v", err)
 	}
 
@@ -185,5 +202,97 @@ func TestOfferRenderHTTP_ConcurrentLineEditBetweenPrepareAndSetRejectsWithVersio
 	}
 	if got["pdf_asset_ref"] != nil {
 		t.Fatalf("a rejected render must not persist any pdf_asset_ref, got %+v", got["pdf_asset_ref"])
+	}
+}
+
+// raceDoubleRenderer wraps a real blobstore.Store and, right after Put
+// writes the OUTER render's PDF bytes, drives a second, COMPLETE render of
+// the same offer over the ordinary HTTP surface — reproducing two renders
+// racing each other rather than a differently-shaped write like a line
+// edit. The nested render's own PrepareRender still sees the offer at the
+// version the outer render prepared against (the outer request has not
+// committed yet), so the nested render wins the version fence and commits
+// its own fresh per-attempt key; only once it returns does control resume
+// in the outer Put, so the outer request's later SetPdfAssetRef loses the
+// fence and reclaims. nested guards against the nested render's own Put
+// re-triggering the same hook.
+type raceDoubleRenderer struct {
+	blobstore.Store
+	t       *testing.T
+	e       *env
+	offerID string
+	nested  bool
+}
+
+func (r *raceDoubleRenderer) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	if err := r.Store.Put(ctx, key, body, size, contentType); err != nil {
+		return err
+	}
+	if r.nested {
+		return nil
+	}
+	r.nested = true
+	var winner renderedOffer
+	status := r.e.call(r.t, "POST", "/v1/offers/"+r.offerID+"/render", anyMap{}, nil, &winner)
+	if status != http.StatusOK {
+		r.t.Fatalf("nested concurrent render = %d %+v, want 200", status, winner)
+	}
+	return nil
+}
+
+// TestOfferRenderHTTP_ConcurrentDoubleRenderLoserReclaimsOnlyItsOwnBlob is
+// the dangling-ref regression's end-to-end proof: two renders of the SAME
+// offer race for the version fence (raceDoubleRenderer injects the second,
+// complete render at the one point in the real flow where the gap between
+// PrepareRender and SetPdfAssetRef is observable — the blob.Put call). A
+// render blob key shared across concurrent renders of the same offer (keyed
+// only by workspace/offer/revision) would have the LOSER's reclaim delete
+// the WINNER's just-committed object — a dangling pdf_asset_ref a later
+// download would 404 on. Per-attempt keys (this offer's render key includes
+// a fresh id minted per render call) mean the loser only ever reclaims the
+// blob it itself wrote, so the winner's committed blob must survive.
+func TestOfferRenderHTTP_ConcurrentDoubleRenderLoserReclaimsOnlyItsOwnBlob(t *testing.T) {
+	race := &raceDoubleRenderer{Store: blobstore.NewMemory()}
+	e := setupWithOptions(t, compose.WithBlobstore(race))
+	race.t, race.e = t, e
+	e.bootstrapWorkspace(t)
+	dealID := offerFixture(t, e)
+
+	var offer anyMap
+	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+		"currency": "EUR", "source": "manual",
+		"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+	}, nil, &offer); status != http.StatusCreated {
+		t.Fatalf("create offer for render = %d %v", status, offer)
+	}
+	offerID, ok := offer["id"].(string)
+	if !ok {
+		t.Fatalf("create offer for render response carries no id: %v", offer)
+	}
+	race.offerID = offerID
+
+	var problem struct {
+		Code string `json:"code"`
+	}
+	status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &problem)
+	if status != http.StatusConflict || problem.Code != "version_skew" {
+		t.Fatalf("outer render racing a nested concurrent render = %d %+v, want 409 version_skew", status, problem)
+	}
+
+	var got anyMap
+	if status := e.call(t, "GET", "/v1/offers/"+offerID, nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("get offer after the race = %d", status)
+	}
+	winnerRef, ok := got["pdf_asset_ref"].(string)
+	if !ok || winnerRef == "" {
+		t.Fatalf("the offer must carry the WINNING nested render's pdf_asset_ref, got %+v", got["pdf_asset_ref"])
+	}
+
+	rc, _, err := race.Get(context.Background(), winnerRef)
+	if err != nil {
+		t.Fatalf("the winning render's committed blob must still exist after the loser's reclaim ran, get %q: %v", winnerRef, err)
+	}
+	if cerr := rc.Close(); cerr != nil {
+		t.Errorf("close the winning blob reader: %v", cerr)
 	}
 }

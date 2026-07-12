@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -124,7 +125,9 @@ func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, i
 
 // RenderOffer builds the offer's branded PDF (offer_pdf.go) over
 // PrepareRender's resolved inputs, writes it to the object store at a
-// per-revision key, and persists the resulting ref via SetPdfAssetRef,
+// PER-ATTEMPT key (a fresh id minted for this render call, not merely the
+// revision — two concurrent renders of the same offer/revision must never
+// share one blob key), and persists the resulting ref via SetPdfAssetRef,
 // fenced on the row version PrepareRender saw. Without a wired blobstore
 // (WithBlobstore) this stays an explicit 501 — the same unwired-by-omission
 // posture as activities' attachment endpoints — rather than nil-derefing
@@ -132,7 +135,11 @@ func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, i
 // SetPdfAssetRef call (another render, a line edit, a regenerate) moves
 // the offer's version out from under this request: SetPdfAssetRef then
 // answers version_skew, and this handler reclaims the blob it already
-// wrote so the rejected render never leaves an orphan object behind.
+// wrote — safely, since the per-attempt key means that blob is never the
+// one another render's SetPdfAssetRef could have just committed. A
+// successful re-render instead reclaims its own now-superseded PREVIOUS
+// ref (best-effort: the row is already committed at this point, so a
+// stray old blob is a GC concern, never a dangling reference).
 func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.RenderOfferParams) {
 	if h.blob == nil {
 		httperr.NotImplemented(w, r, "RenderOffer")
@@ -157,12 +164,12 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	if ingredients.Offer.Version != nil {
 		preparedVersion = *ingredients.Offer.Version
 	}
-	key := fmt.Sprintf("offers/%s/%s/%d.pdf", storekit.MustWorkspace(r.Context()), ids.UUID(id), revision)
+	key := fmt.Sprintf("offers/%s/%s/%d/%s.pdf", storekit.MustWorkspace(r.Context()), ids.UUID(id), revision, ids.NewV7())
 	if err := h.blob.Put(r.Context(), key, bytes.NewReader(pdfBytes), int64(len(pdfBytes)), "application/pdf"); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	updated, err := h.store.SetPdfAssetRef(r.Context(), offerID, key, preparedVersion)
+	updated, oldRef, err := h.store.SetPdfAssetRef(r.Context(), offerID, key, preparedVersion)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrVersionSkew) {
 			if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
@@ -172,6 +179,16 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		}
 		writeStoreErr(w, r, err)
 		return
+	}
+	if oldRef != nil {
+		// The offer row is already committed to the NEW ref at this point;
+		// a failure to delete the stale one leaves an inert orphan blob,
+		// never a dangling reference, so it is logged rather than failing
+		// an otherwise-successful render (mirrors DownloadAttachment's
+		// post-commit best-effort cleanup logging).
+		if delErr := h.blob.Delete(r.Context(), *oldRef); delErr != nil {
+			slog.WarnContext(r.Context(), "reclaiming superseded render blob", "offer", offerID.String(), "old_ref", *oldRef, "err", delErr)
+		}
 	}
 	httperr.WriteJSON(w, http.StatusOK, updated)
 }
