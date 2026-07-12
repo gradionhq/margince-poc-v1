@@ -43,6 +43,7 @@ components:
   activities:  { in: internal/modules/activities }
   approvals:   { in: internal/modules/approvals }
   customfields: { in: internal/modules/customfields }
+  quotas:      { in: internal/modules/quotas }
   agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
   de:          { in: internal/modules/de }
   compose:     { in: [internal/compose, internal/compose/**] }
@@ -103,11 +104,14 @@ deps:
   customfields:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
+  quotas:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   agents:
     mayDependOn: [agents, contracts, platform]
     canUse: [pgx, oapi]
   compose:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, contracts, platform, web, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, web, migrations]
     canUse: [pgx, chi, oapi, river]
   migrations:
     mayDependOn: [platform]
@@ -119,5 +123,5 @@ deps:
   root:
     canUse: [yaml]
   cmd:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
     canUse: [pgx, redis]

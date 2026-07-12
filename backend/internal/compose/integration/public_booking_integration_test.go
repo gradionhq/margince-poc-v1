@@ -266,9 +266,13 @@ func assertWithdrawalStandsAgainstBooking(t *testing.T, e *env, base string, mon
 	}
 }
 
-// assertIdempotencyKeyReplay checks a keyed replay returns the recorded
-// confirmation without landing a second meeting.
-func assertIdempotencyKeyReplay(t *testing.T, e *env, base string, monday time.Time, consent anyMap) {
+// assertIdempotencyKeyNotClaimed checks the anonymous edge does NOT run
+// transport idempotency: every visitor shares one system principal, so a
+// per-principal claim scope would replay one visitor's confirmation to
+// another (see idempotentOperations' exemption). A keyed retry therefore
+// re-executes and the slot's natural key refuses it — a duplicate meeting
+// never lands, but neither does a stranger's recorded response.
+func assertIdempotencyKeyNotClaimed(t *testing.T, e *env, base string, monday time.Time, consent anyMap) {
 	t.Helper()
 	replayKey := map[string]string{"Idempotency-Key": "public-replay-1"}
 	third := anyMap{
@@ -279,8 +283,11 @@ func assertIdempotencyKeyReplay(t *testing.T, e *env, base string, monday time.T
 	if status := publicCall(t, e, "POST", base, third, replayKey, nil); status != http.StatusCreated {
 		t.Fatalf("keyed booking → %d", status)
 	}
-	if status := publicCall(t, e, "POST", base, third, replayKey, nil); status != http.StatusCreated {
-		t.Fatalf("keyed replay → %d, want the recorded 201", status)
+	var problem struct {
+		Code string `json:"code"`
+	}
+	if status := publicCall(t, e, "POST", base, third, replayKey, &problem); status != http.StatusConflict || problem.Code != "slot_taken" {
+		t.Fatalf("keyed retry → %d %q, want 409 slot_taken (the header is ignored on the anonymous edge; the slot guard refuses the duplicate)", status, problem.Code)
 	}
 	var meetings int
 	if err := e.owner.QueryRow(context.Background(),
@@ -288,7 +295,7 @@ func assertIdempotencyKeyReplay(t *testing.T, e *env, base string, monday time.T
 		t.Fatal(err)
 	}
 	if meetings != 4 {
-		t.Fatalf("%d meetings landed, want 4 (the replay applied nothing)", meetings)
+		t.Fatalf("%d meetings landed, want 4 (the retry applied nothing)", meetings)
 	}
 }
 
@@ -318,7 +325,7 @@ func TestPublicBookingEndToEnd(t *testing.T) {
 		t.Fatalf("double-book → %d %q, want 409 slot_taken", status, problem.Code)
 	}
 
-	assertIdempotencyKeyReplay(t, e, base, monday, consent)
+	assertIdempotencyKeyNotClaimed(t, e, base, monday, consent)
 }
 
 // The anonymous surface is throttled per slug: a flood of booking posts
