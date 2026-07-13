@@ -103,14 +103,25 @@ function StrengthBody({
   locale: ReturnType<typeof useLocale>["locale"];
 }>) {
   const t = useT();
+  // The contract guarantees factors/bucket/score, but a single data-driven
+  // card must never crash the whole 360 if a response arrives malformed —
+  // degrade to the honest zero/dormant reading instead (craft T7).
+  const factors = strength.factors ?? {
+    recency: 0,
+    frequency: 0,
+    reciprocity: 0,
+    direction: 0,
+  };
+  const bucket = strength.bucket ?? "dormant";
+  const score = strength.score ?? 0;
   const factorRows: Array<{
     key: "recency" | "frequency" | "reciprocity" | "direction";
     value: number;
   }> = [
-    { key: "recency", value: strength.factors.recency },
-    { key: "frequency", value: strength.factors.frequency },
-    { key: "reciprocity", value: strength.factors.reciprocity },
-    { key: "direction", value: strength.factors.direction },
+    { key: "recency", value: factors.recency },
+    { key: "frequency", value: factors.frequency },
+    { key: "reciprocity", value: factors.reciprocity },
+    { key: "direction", value: factors.direction },
   ];
   const contributingCount = strength.contributing_activity_ids?.length ?? 0;
 
@@ -125,11 +136,11 @@ function StrengthBody({
           marginBottom: 12,
         }}
       >
-        <Badge tone={BUCKET_TONE[strength.bucket]}>
-          {t(`strength.bucket.${strength.bucket}`)}
+        <Badge tone={BUCKET_TONE[bucket]}>
+          {t(`strength.bucket.${bucket}`)}
         </Badge>
         <span className="t-mono">
-          {t("strength.score", { score: strength.score })}
+          {t("strength.score", { score })}
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

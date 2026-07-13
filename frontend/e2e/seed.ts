@@ -644,6 +644,36 @@ export async function mockApi(target: Page): Promise<void> {
         ],
       });
     }
+    // Phase-3/4 reads the 360 fires: strength (P-4), partner (P-6), roll-up
+    // (P-7). Without these the catch-all's list-envelope shape reaches a
+    // record card that expects an entity, so mock them explicitly.
+    if (path.endsWith("/strength")) {
+      return json({
+        score: 0,
+        bucket: "dormant",
+        factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+        inbound_90d: 0,
+        outbound_90d: 0,
+        last_interaction: null,
+        contributing_activity_ids: [],
+        computed_at: "2026-07-13T00:00:00Z",
+      });
+    }
+    if (path.endsWith("/partner") && method === "GET") {
+      return json({ code: "not_found", title: "no partner" }, 404);
+    }
+    if (path.endsWith("/hierarchy-rollup")) {
+      return json({
+        root_id: "o-brandt",
+        scope: "tree",
+        weighted_pipeline: { amount_minor: 0, currency: "EUR" },
+        closed_won: { amount_minor: 0, currency: "EUR" },
+        activity_count_30d: 0,
+        aggregated_account_count: 1,
+        restricted_excluded: [],
+        computed_at: "2026-07-13T00:00:00Z",
+      });
+    }
     return json(page([]));
   });
 }
