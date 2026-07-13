@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useMemo, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type DragEvent,
+  type SetStateAction,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -28,6 +35,7 @@ import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
 import type { CreateField } from "./create";
 import { CreateAction } from "./create";
 import { EditAction } from "./edit";
+import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
@@ -41,6 +49,7 @@ import { activityTimeline } from "./people";
 
 type Deal = components["schemas"]["Deal"];
 type Stage = components["schemas"]["Stage"];
+type Pipeline = components["schemas"]["Pipeline"];
 
 function usePipeline() {
   return useQuery({
@@ -62,12 +71,56 @@ function usePipeline() {
   });
 }
 
-function useDeals() {
+// The plural read over ALL pipelines (D-9's selector) — a DISTINCT cache key
+// from usePipeline's ["pipelines"] (which DealScreen still reads as a single
+// Pipeline). Sharing the key would let the cache hold either shape depending
+// on which screen loaded last; ["pipelines","all"] still gets refreshed by
+// any mutation that invalidates the ["pipelines"] prefix (react-query prefix
+// matching), so freshness is preserved without a shape collision.
+function usePipelines() {
   return useQuery({
-    queryKey: ["deals"],
+    queryKey: ["pipelines", "all"],
     queryFn: async () => {
+      const { data, error } = await api.GET("/pipelines", {
+        params: { query: {} },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data.data;
+    },
+  });
+}
+
+type DealFilters = {
+  pipelineId: string;
+  sort: string;
+  includeArchived: boolean;
+  filters: Record<string, string>;
+};
+
+// The board is not paginated — limit:100 is an honest documented cap (a
+// live Kanban reads one screenful, not a keyset walk).
+function useDeals(f: DealFilters) {
+  return useQuery({
+    queryKey: ["deals", f],
+    queryFn: async () => {
+      const { filters } = f;
       const { data, error } = await api.GET("/deals", {
-        params: { query: { limit: 100 } },
+        params: {
+          query: {
+            limit: 100,
+            pipeline_id: f.pipelineId || undefined,
+            sort: f.sort || undefined,
+            include_archived: f.includeArchived || undefined,
+            stage_id: filters.stage_id || undefined,
+            owner_id: filters.owner_id || undefined,
+            organization_id: filters.organization_id || undefined,
+            stalled: filters.stalled === "true" ? true : undefined,
+            partner_sourced:
+              filters.partner_sourced === "true" ? true : undefined,
+          },
+        },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -232,6 +285,13 @@ export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
     });
 }
 
+const DEAL_SORT_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "name", label: "people.name" },
+  { value: "-created_at", label: "deals.sortNewest" },
+  { value: "expected_close_date", label: "deals.sortClose" },
+  { value: "-amount_minor", label: "deals.sortAmount" },
+];
+
 type PendingAdvance = {
   dealId: string;
   toStage: Stage;
@@ -250,13 +310,118 @@ function dealStatusTone(
   return undefined;
 }
 
+// Bespoke selects for the filters whose option labels are runtime strings
+// (pipeline/stage/org names) — FilterSpec's option label is a MessageKey, so
+// these three cannot go through ListToolbar (Gotcha 3). Each writes into the
+// same ListQuery.filters bag ListToolbar reads, deleting the key on a blank
+// choice so the two stay in one coherent query state.
+function setOrClearFilter(
+  setQuery: Dispatch<SetStateAction<ListQuery>>,
+  key: string,
+  value: string,
+) {
+  setQuery((q) => {
+    const next = { ...q.filters };
+    if (value) {
+      next[key] = value;
+    } else {
+      delete next[key];
+    }
+    return { ...q, filters: next };
+  });
+}
+
+function DealFilterSelects({
+  pipelines,
+  pipelineId,
+  setPipelineId,
+  stages,
+  orgs,
+  query,
+  setQuery,
+}: Readonly<{
+  pipelines: Pipeline[];
+  pipelineId: string;
+  setPipelineId: (id: string) => void;
+  stages: Stage[];
+  orgs: { id: string; display_name: string }[];
+  query: ListQuery;
+  setQuery: Dispatch<SetStateAction<ListQuery>>;
+}>) {
+  const t = useT();
+  return (
+    <div className="list-toolbar">
+      <select
+        className="input"
+        aria-label={t("deals.pipeline")}
+        value={pipelineId}
+        onChange={(event) => setPipelineId(event.target.value)}
+      >
+        <option value="" />
+        {pipelines.map((pipeline) => (
+          <option key={pipeline.id} value={pipeline.id}>
+            {pipeline.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label={t("deals.stage")}
+        value={query.filters.stage_id ?? ""}
+        onChange={(event) =>
+          setOrClearFilter(setQuery, "stage_id", event.target.value)
+        }
+      >
+        <option value="" />
+        {stages.map((stage) => (
+          <option key={stage.id} value={stage.id}>
+            {stage.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label={t("create.organization")}
+        value={query.filters.organization_id ?? ""}
+        onChange={(event) =>
+          setOrClearFilter(setQuery, "organization_id", event.target.value)
+        }
+      >
+        <option value="" />
+        {orgs.map((org) => (
+          <option key={org.id} value={org.id}>
+            {org.display_name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function DealsScreen({
   startCreating = false,
 }: Readonly<{ startCreating?: boolean }>) {
   const t = useT();
   const queryClient = useQueryClient();
-  const pipelineQuery = usePipeline();
-  const dealsQuery = useDeals();
+  const pipelinesQuery = usePipelines();
+  const meQuery = useMe();
+  const [pipelineId, setPipelineId] = useState("");
+  const [query, setQuery] = useState<ListQuery>({
+    q: "",
+    sort: "",
+    includeArchived: false,
+    filters: {},
+  });
+  const effectivePipeline: Pipeline | undefined =
+    pipelinesQuery.data?.find((p) => p.id === pipelineId) ??
+    pipelinesQuery.data?.find((p) => p.is_default) ??
+    pipelinesQuery.data?.[0];
+  const dealsQuery = useDeals({
+    pipelineId: effectivePipeline?.id ?? "",
+    sort: query.sort,
+    includeArchived: query.includeArchived,
+    filters: query.filters,
+  });
   const [view, setView] = useState<"board" | "table">("board");
   const [pending, setPending] = useState<PendingAdvance | null>(null);
   const [lostReason, setLostReason] = useState("");
@@ -293,7 +458,7 @@ export function DealsScreen({
     },
   });
 
-  const stages = pipelineQuery.data?.stages ?? [];
+  const stages = effectivePipeline?.stages ?? [];
 
   const orgsQuery = useQuery({
     queryKey: ["organizations"],
@@ -309,7 +474,7 @@ export function DealsScreen({
   });
 
   const createDeal = async (values: Record<string, string>) => {
-    const pipeline = pipelineQuery.data;
+    const pipeline = effectivePipeline;
     if (!pipeline) {
       throw new Error(problemMessage(null));
     }
@@ -448,24 +613,73 @@ export function DealsScreen({
           labels={{ board: t("deals.viewBoard"), table: t("deals.viewTable") }}
         />
       </div>
-      <QueryGate query={dealsQuery}>
-        {(page) => (
-          <QueryGate query={pipelineQuery}>
-            {(pipeline) => {
-              const columns = buildColumns(pipeline.stages ?? [], page.data);
-              return view === "board" ? (
-                <PipelineBoard
-                  columns={columns}
-                  onOpen={openDeal}
-                  cardDragHandlers={cardDragHandlers}
-                  columnDropHandlers={columnDropHandlers}
-                />
-              ) : (
-                <DealTable deals={page.data} stages={pipeline.stages ?? []} />
-              );
-            }}
-          </QueryGate>
-        )}
+      <DealFilterSelects
+        pipelines={pipelinesQuery.data ?? []}
+        pipelineId={effectivePipeline?.id ?? ""}
+        setPipelineId={setPipelineId}
+        stages={stages}
+        orgs={orgsQuery.data?.data ?? []}
+        query={query}
+        setQuery={setQuery}
+      />
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        searchable={false}
+        showArchivedToggle
+        sortOptions={DEAL_SORT_OPTIONS}
+        filters={[
+          {
+            kind: "select",
+            key: "stalled",
+            label: "deals.filterStalled",
+            options: [{ value: "true", label: "deals.filterStalled" }],
+          },
+          {
+            kind: "select",
+            key: "owner_id",
+            label: "deals.filterOwnerMe",
+            options: [
+              {
+                value: meQuery.data?.user.id ?? "",
+                label: "deals.filterOwnerMe",
+              },
+            ],
+          },
+          {
+            kind: "select",
+            key: "partner_sourced",
+            label: "deals.filterPartnerSourced",
+            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
+          },
+        ]}
+      />
+      <QueryGate query={pipelinesQuery}>
+        {() =>
+          effectivePipeline ? (
+            <QueryGate query={dealsQuery}>
+              {(page) => {
+                const columns = buildColumns(
+                  effectivePipeline.stages ?? [],
+                  page.data,
+                );
+                return view === "board" ? (
+                  <PipelineBoard
+                    columns={columns}
+                    onOpen={openDeal}
+                    cardDragHandlers={cardDragHandlers}
+                    columnDropHandlers={columnDropHandlers}
+                  />
+                ) : (
+                  <DealTable
+                    deals={page.data}
+                    stages={effectivePipeline.stages ?? []}
+                  />
+                );
+              }}
+            </QueryGate>
+          ) : null
+        }
       </QueryGate>
       {advance.isError && (
         <p

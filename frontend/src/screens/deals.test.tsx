@@ -117,6 +117,8 @@ function stubBackend(
     single?: Deal;
     onPatch?: (body: unknown, ifMatch: string | null) => void;
     onDelete?: () => void;
+    onDealsUrl?: (url: string) => void;
+    pipelines?: components["schemas"]["Pipeline"][];
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -125,7 +127,7 @@ function stubBackend(
     const method = request ? request.method : (init?.method ?? "GET");
     if (url.includes("/pipelines")) {
       return jsonResponse({
-        data: [
+        data: opts.pipelines ?? [
           {
             id: "pl",
             workspace_id: "w",
@@ -182,6 +184,7 @@ function stubBackend(
       });
     }
     if (url.includes("/deals")) {
+      opts.onDealsUrl?.(url);
       return jsonResponse({ data: deals, page: { next_cursor: null } });
     }
     return jsonResponse({ data: [], page: { next_cursor: null } });
@@ -289,6 +292,59 @@ describe("DealsScreen", () => {
     expect((advances[0] as Record<string, unknown>).status).toBeUndefined();
     await waitFor(() =>
       expect(screen.getByText("Moved to Proposal")).toBeTruthy(),
+    );
+  });
+});
+
+describe("DealsScreen filters", () => {
+  it("switching pipeline scopes the deals fetch to that pipeline_id", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        onDealsUrl: (u) => urls.push(u),
+        pipelines: [
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages,
+          },
+          {
+            id: "pl2",
+            workspace_id: "w",
+            name: "Renewals",
+            is_default: false,
+            position: 1,
+            stages,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+    await userEvent.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("pipeline_id=pl2"))).toBe(true),
+    );
+  });
+
+  it("the stalled filter adds stalled=true to the deals query", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], { onDealsUrl: (u) => urls.push(u) }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Stalled only"),
+      "true",
+    );
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("stalled=true"))).toBe(true),
     );
   });
 });
