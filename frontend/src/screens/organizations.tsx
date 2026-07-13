@@ -17,6 +17,7 @@ import {
   ProvenanceTag,
 } from "../design-system/trust";
 import { useT } from "../i18n";
+import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
   problemMessage,
@@ -219,7 +220,12 @@ export function CompaniesScreen() {
                 key: "name",
                 header: t("org.name"),
                 render: (org: Organization) => (
-                  <strong>{org.display_name}</strong>
+                  <span>
+                    <strong>{org.display_name}</strong>
+                    {org.archived_at && (
+                      <Badge tone="warn">{t("record.archived")}</Badge>
+                    )}
+                  </span>
                 ),
               },
               {
@@ -390,6 +396,9 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
               <>
                 {org.classification && <Badge>{org.classification}</Badge>}
                 <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+                {org.archived_at && (
+                  <Badge tone="warn">{t("record.archived")}</Badge>
+                )}
                 <EditAction
                   label={t("record.edit")}
                   fields={companyEditFields}
@@ -423,6 +432,23 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                     screen: "companies",
                     id: existingId,
                   })}
+                />
+                <ArchiveAction
+                  label={t("record.archive")}
+                  confirmText={t("record.archiveConfirm")}
+                  archive={async () => {
+                    const { data, error } = await api.DELETE(
+                      "/organizations/{id}",
+                      { params: { path: { id } } },
+                    );
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="organizations"
+                  recordKey="organization"
+                  onArchived={() => navigate({ screen: "companies" })}
                 />
               </>
             }

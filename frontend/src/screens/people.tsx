@@ -7,6 +7,7 @@ import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
+import { ArchiveAction } from "./archive";
 import {
   problemMessage,
   provenanceOf,
@@ -287,6 +288,9 @@ export function ContactsScreen() {
                     {person.title && (
                       <span className="t-caption"> · {person.title}</span>
                     )}
+                    {person.archived_at && (
+                      <Badge tone="warn">{t("record.archived")}</Badge>
+                    )}
                   </span>
                 ),
               },
@@ -350,6 +354,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             badges={
               <>
                 <ProvenanceTag provenance={provenanceOf(person.captured_by)} />
+                {person.archived_at && (
+                  <Badge tone="warn">{t("record.archived")}</Badge>
+                )}
                 <EditAction
                   label={t("record.edit")}
                   fields={personEditFields}
@@ -377,6 +384,22 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   }}
                   invalidate="people"
                   recordKey="person"
+                />
+                <ArchiveAction
+                  label={t("record.archive")}
+                  confirmText={t("record.archiveConfirm")}
+                  archive={async () => {
+                    const { data, error } = await api.DELETE("/people/{id}", {
+                      params: { path: { id } },
+                    });
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="people"
+                  recordKey="person"
+                  onArchived={() => navigate({ screen: "contacts" })}
                 />
               </>
             }

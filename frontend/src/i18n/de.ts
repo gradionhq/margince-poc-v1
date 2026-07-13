@@ -96,6 +96,13 @@ export const de = {
   "record.timeline": "Verlauf",
   "record.edit": "Bearbeiten",
   "record.save": "Speichern",
+  "record.archive": "Archivieren",
+  "record.disqualify": "Disqualifizieren",
+  "record.archiveConfirm":
+    "Bist du sicher? Das archiviert den Datensatz — es gibt keine Rückgängig-Funktion.",
+  "record.disqualifyConfirm":
+    "Bist du sicher? Das disqualifiziert und archiviert den Lead — es gibt keine Rückgängig-Funktion.",
+  "record.archived": "Archiviert",
   "edit.versionSkew":
     "Dieser Datensatz hat sich geändert, seit du ihn geöffnet hast — neu laden und erneut versuchen.",
 
@@ -134,6 +141,7 @@ export const de = {
   "lead.statusWorking": "In Bearbeitung",
   "lead.statusPromoted": "Übernommen",
   "lead.statusDisqualified": "Disqualifiziert",
+  "lead.disqualified": "Disqualifiziert",
 
   "deals.viewBoard": "Board",
   "deals.viewTable": "Tabelle",

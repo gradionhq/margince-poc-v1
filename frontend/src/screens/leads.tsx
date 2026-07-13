@@ -11,6 +11,7 @@ import {
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
+import { ArchiveAction } from "./archive";
 import {
   problemMessage,
   provenanceOf,
@@ -207,6 +208,9 @@ export function LeadsScreen() {
                     {lead.company_name && (
                       <span className="t-caption"> · {lead.company_name}</span>
                     )}
+                    {lead.archived_at && (
+                      <Badge tone="warn">{t("lead.disqualified")}</Badge>
+                    )}
                   </span>
                 ),
               },
@@ -312,6 +316,22 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 invalidate="leads"
                 recordKey="lead"
               />
+              <ArchiveAction
+                label={t("record.disqualify")}
+                confirmText={t("record.disqualifyConfirm")}
+                archive={async () => {
+                  const { data, error } = await api.DELETE("/leads/{id}", {
+                    params: { path: { id } },
+                  });
+                  if (error) {
+                    throwProblem(error);
+                  }
+                  return data;
+                }}
+                invalidate="leads"
+                recordKey="lead"
+                onArchived={() => navigate({ screen: "leads" })}
+              />
             </div>
             <div
               style={{
@@ -326,6 +346,9 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
               </Badge>
               <Badge>{lead.status}</Badge>
               {lead.company_name && <Badge>{lead.company_name}</Badge>}
+              {lead.archived_at && (
+                <Badge tone="warn">{t("lead.disqualified")}</Badge>
+              )}
               <ProvenanceTag provenance={provenanceOf(lead.captured_by)} />
             </div>
             {lead.email && <p className="t-mono">{lead.email}</p>}

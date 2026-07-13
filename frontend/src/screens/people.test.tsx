@@ -237,6 +237,51 @@ describe("PersonScreen — edit with If-Match (P-1)", () => {
   });
 });
 
+describe("PersonScreen — archive (P-3)", () => {
+  it("opens a confirm, DELETEs /people/{id} on confirm, and navigates to the list", async () => {
+    let deleted = false;
+    stubFetch(async (url, method) => {
+      if (method === "DELETE" && url.includes("/people/p-1")) {
+        deleted = true;
+        return jsonResponse({ ...anna, archived_at: "2026-07-13T00:00:00Z" });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("archive-record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("archive-record"));
+    expect(
+      screen.getByText(
+        "Are you sure? This archives the record — there is no undo control.",
+      ),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByTestId("archive-confirm"));
+
+    await waitFor(() => expect(deleted).toBe(true));
+    expect(window.location.hash).toBe("#/contacts");
+  });
+});
+
+describe("ContactsScreen — archived marking (P-3)", () => {
+  it("shows an Archived badge on a row with archived_at set", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...anna, archived_at: "2026-07-01T00:00:00Z" }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<ContactsScreen />);
+    await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
+    expect(screen.getByText("Archived")).toBeTruthy();
+  });
+});
+
 describe("ContactsScreen — dedupe view-existing link (P-16)", () => {
   it("renders a link to the collided record on a duplicate_email 409", async () => {
     stubFetch(async (url, method) => {

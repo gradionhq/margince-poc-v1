@@ -310,6 +310,63 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
   });
 });
 
+describe("LeadScreen — disqualify (P-3)", () => {
+  it("labels the action Disqualify, DELETEs /leads/{id} on confirm, and navigates to the list", async () => {
+    let deleted = false;
+    stubFetch(async (url, method) => {
+      if (method === "DELETE" && url.includes("/leads/l-1")) {
+        deleted = true;
+        return jsonResponse({
+          ...lead,
+          status: "disqualified",
+          archived_at: "2026-07-13T00:00:00Z",
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("archive-record")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("archive-record").textContent).toBe("Disqualify");
+    await userEvent.click(screen.getByTestId("archive-record"));
+    expect(
+      screen.getByText(
+        "Are you sure? This disqualifies and archives the lead — there is no undo control.",
+      ),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByTestId("archive-confirm"));
+
+    await waitFor(() => expect(deleted).toBe(true));
+    expect(window.location.hash).toBe("#/leads");
+  });
+});
+
+describe("LeadsScreen — archived marking (P-3)", () => {
+  it("shows a Disqualified badge on a row with archived_at set", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [
+          {
+            ...lead,
+            status: "disqualified",
+            archived_at: "2026-07-01T00:00:00Z",
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<LeadsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText("Disqualified", { selector: "span.badge-warn" }),
+    ).toBeTruthy();
+  });
+});
+
 describe("LeadsScreen — dedupe view-existing link (P-16)", () => {
   it("renders a link to the collided record on a duplicate_email 409", async () => {
     stubFetch(async (url, method) => {

@@ -93,6 +93,13 @@ export const en = {
   "record.timeline": "Timeline",
   "record.edit": "Edit",
   "record.save": "Save",
+  "record.archive": "Archive",
+  "record.disqualify": "Disqualify",
+  "record.archiveConfirm":
+    "Are you sure? This archives the record — there is no undo control.",
+  "record.disqualifyConfirm":
+    "Are you sure? This disqualifies and archives the lead — there is no undo control.",
+  "record.archived": "Archived",
   "edit.versionSkew":
     "This record changed since you opened it — reload and try again.",
 
@@ -130,6 +137,7 @@ export const en = {
   "lead.statusWorking": "Working",
   "lead.statusPromoted": "Promoted",
   "lead.statusDisqualified": "Disqualified",
+  "lead.disqualified": "Disqualified",
 
   "deals.viewBoard": "Board",
   "deals.viewTable": "Table",
