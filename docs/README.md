@@ -20,6 +20,7 @@ maps the codebase and links everything below.
 - [mint-a-passport.md](how-to/mint-a-passport.md) — issue an agent passport token.
 - [run-the-mcp-server.md](how-to/run-the-mcp-server.md) — serve the governed MCP tool surface.
 - [run-the-frontend.md](how-to/run-the-frontend.md) — run the SPA in dev.
+- [enrich-with-a-local-llm.md](how-to/enrich-with-a-local-llm.md) — point the AI lanes at a local Ollama and enrich a company with no cloud key.
 
 ### Reference — look it up
 - [modules.md](reference/modules.md) — the 16 modules: what each owns, its tables, its HTTP surface.

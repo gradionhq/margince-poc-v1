@@ -36,18 +36,34 @@ const anthropicAPIVersion = "2023-06-01"
 const anthropicMaxTokensDefault = 1024
 
 type anthropicWire struct {
-	Model     string              `json:"model"`
-	MaxTokens int                 `json:"max_tokens"`
-	System    string              `json:"system,omitempty"`
-	Messages  []wireMessage       `json:"messages"`
-	Tools     []anthropicToolWire `json:"tools,omitempty"`
-	Stream    bool                `json:"stream,omitempty"`
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       string                 `json:"system,omitempty"`
+	Messages     []wireMessage          `json:"messages"`
+	Tools        []anthropicToolWire    `json:"tools,omitempty"`
+	Stream       bool                   `json:"stream,omitempty"`
+	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
 }
 
 type anthropicToolWire struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+// anthropicOutputConfig / anthropicResponseFormat carry Anthropic's native
+// structured-output constraint (output_config.format). A json_schema format
+// constrains the completion to the schema at generation — the same guardrail
+// Ollama's `format` and vLLM's response_format provide — and the completion
+// still arrives as an ordinary text block of JSON, so no response handling
+// changes. Sent only when the request carries a schema.
+type anthropicOutputConfig struct {
+	Format *anthropicResponseFormat `json:"format,omitempty"`
+}
+
+type anthropicResponseFormat struct {
+	Type   string          `json:"type"`
+	Schema json.RawMessage `json:"schema"`
 }
 
 func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
@@ -123,6 +139,28 @@ func (c *anthropicClient) postStream(ctx context.Context, req model.Request) (io
 }
 
 func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
+	body, status, err := c.sendOnce(ctx, req, stream)
+	if err != nil && status == http.StatusBadRequest && len(req.ResponseSchema) > 0 {
+		// ResponseSchema is a best-effort generation guardrail (see
+		// model.Request.ResponseSchema): not every Anthropic model supports
+		// output_config.format, and one that doesn't rejects it with a 400.
+		// Rather than fail the whole call, retry with the schema cleared — the
+		// caller's parse→validate→retry policy and the evidence gate remain the
+		// authority, exactly as for a provider that ignores the schema outright.
+		// A 400 with an unrelated cause simply recurs on the retry and surfaces
+		// then. The clear is on a copy; the caller's request is untouched.
+		unconstrained := req
+		unconstrained.ResponseSchema = nil
+		body, _, err = c.sendOnce(ctx, unconstrained, stream)
+	}
+	return body, err
+}
+
+// sendOnce performs one Messages call, attaching the output_config.format
+// guardrail when the request carries a schema. The returned status is the HTTP
+// status (0 on a transport-level failure) so send can distinguish a
+// schema-rejection 400 from a transport error.
+func (c *anthropicClient) sendOnce(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, int, error) {
 	wire := anthropicWire{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
@@ -141,27 +179,32 @@ func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bo
 			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
 		})
 	}
+	if len(req.ResponseSchema) > 0 {
+		wire.OutputConfig = &anthropicOutputConfig{
+			Format: &anthropicResponseFormat{Type: jsonSchemaFormatType, Schema: req.ResponseSchema},
+		}
+	}
 	payload, _, err := sendablePayload(ctx, wire, req.SecretStripper)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("ai: anthropic: build request: %w", err)
+		return nil, 0, fmt.Errorf("ai: anthropic: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Api-Key", c.apiKey)
 	httpReq.Header.Set("Anthropic-Version", anthropicAPIVersion)
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("ai: anthropic: %w", err)
+		return nil, 0, fmt.Errorf("ai: anthropic: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
-		return nil, anthropicError(resp)
+		return nil, resp.StatusCode, anthropicError(resp)
 	}
-	return resp.Body, nil
+	return resp.Body, resp.StatusCode, nil
 }
 
 // anthropicError surfaces the API's error type and message — and only

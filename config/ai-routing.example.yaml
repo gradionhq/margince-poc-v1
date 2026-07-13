@@ -35,7 +35,7 @@ profile: eu_hosted
 #             (api.anthropic.com / localhost:11434 / localhost:8000)
 #   api_key:  BYOK credential — REQUIRED for anthropic (ADR-0020: we provide
 #             no inference). The value is read literally (no env expansion);
-#             `make dev-tls` injects ANTHROPIC_API_KEY from .env.local into a
+#             `make dev` injects ANTHROPIC_API_KEY from .env.local into a
 #             scratch copy for dev, so no key ever lands in a committed file.
 tiers:
   local_small:

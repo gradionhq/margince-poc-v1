@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-tls clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-dev frontend-e2e fe-dev fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction uat_env uat_env_stop hooks
+.PHONY: help install check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -22,7 +22,7 @@ help:
 ## install — one-shot fresh-worktree setup (the factory's worktree-init runs
 ## this by name): frontend deps + the Go gate binaries + the repo git hooks.
 ## Idempotent; extend here as new setup steps are needed. A fresh worktree can
-## run `make check` / `make uat_env` immediately after.
+## run `make check` / `make dev` immediately after.
 install: fe-install tools hooks
 	@echo "install: worktree ready (frontend deps + gate tools + hooks)"
 
@@ -64,14 +64,22 @@ infra-up: db-up
 infra-down:
 	$(MAKE) -C backend infra-down
 
-## dev-tls — the full local stack in a real browser: an HTTPS front door on
-## :8080 fronts the api (:8081) and the Vite dev server (:5173), so the SPA
-## gets a single Secure-cookie origin. Reads the Anthropic BYOK key from
-## .env.local for the live cold-start read-back. Open https://localhost:8080.
-dev-tls:
-	./dev/dev.sh
+## dev — the full local stack in a real browser: Postgres + Redis, the api, and
+## the Vite dev server, so the SPA runs against a live api on http://localhost:8080
+## (FE on :5173). Bare `make dev` uses the shared `margince` database; `make dev
+## DEV_SLUG=<slug>` gives an isolated margince_dev_<slug> on slug-derived ports,
+## so two worktrees run concurrently without colliding. Reads an optional
+## Anthropic BYOK key from .env.local for the live cold-start read-back. Logs +
+## stop handle under .tmp/dev/<slug>/.
+dev:
+	@bash scripts/dev.sh up "$(DEV_SLUG)"
 
-build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev clean tools tools-go infra-logs infra-reset:
+## dev-stop — stop the stack started by `make dev` and free its ports:
+## make dev-stop [DEV_SLUG=<slug>] [DROP=1 also drops an isolated margince_dev_<slug>].
+dev-stop:
+	@bash scripts/dev.sh stop "$(DEV_SLUG)" $(if $(filter 1,$(DROP)),--drop,)
+
+build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy clean tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
@@ -80,8 +88,6 @@ build test test-v test-cover test-integration test-db-up test-it test-integratio
 check-fe:
 	@[ -d frontend/node_modules ] || { echo "check-fe: frontend/node_modules missing — run 'make install' (or 'make fe-install') first" >&2; exit 1; }
 	$(MAKE) frontend-check
-## fe-dev — Vite dev server (alias for frontend-dev).
-fe-dev: frontend-dev
 ## fitness-jurisdiction — no country strings in core (alias for no-jurisdiction).
 fitness-jurisdiction: no-jurisdiction
 ## gen-types — regenerate the contract types (alias for gen).
@@ -124,7 +130,7 @@ seed-dev:
 
 ## verify-boot — prove a running, seeded stack end to end: seeded-admin
 ## login, seeded people visible over /v1, frontend production build.
-## Pure client (make dev + make seed-dev first); fails loudly, never skips.
+## Pure client (make dev first — it API-seeds on boot); fails loudly, never skips.
 verify-boot:
 	./scripts/verify-boot.sh
 
@@ -150,7 +156,7 @@ frontend-check:
 		pnpm check
 
 ## fe-install — install the frontend deps (pnpm, frozen lockfile). The FE half
-## of `make install`; also what `fe-uat` / `uat_env` assume has run.
+## of `make install`; also what `fe-uat` / `dev` assume has run.
 fe-install:
 	cd frontend && pnpm install --frozen-lockfile
 
@@ -158,9 +164,6 @@ fe-install:
 ## app build). A scope-aware per-task gate for FE-only work.
 fe-typecheck:
 	cd frontend && pnpm install --frozen-lockfile && pnpm exec tsc -b
-
-frontend-dev:
-	cd frontend && pnpm install && pnpm dev
 
 ## frontend-e2e — the screen-acceptance harness (AC-<screen>-N + axe WCAG AA
 ## + perceived perf budgets) against the built app over the seed mock.
@@ -258,18 +261,6 @@ rls-store-path:
 ## internal/shared/ports/jurisdiction). Comments citing a statute are allowed.
 no-jurisdiction:
 	@./scripts/check-no-jurisdiction.sh
-
-## uat_env — spin a per-worktree live UAT stack (mandatory UAT_SLUG=<slug>):
-## the ONE shared infra, but its own database margince_uat_<slug> and api/FE
-## ports derived deterministically from the slug, so two worktrees run live UAT
-## at once without colliding. Logs + stop handle under .tmp/uat/<slug>/.
-uat_env:
-	@bash scripts/uat-env.sh up "$(UAT_SLUG)"
-
-## uat_env_stop — stop a UAT env: make uat_env_stop UAT_SLUG=<slug> [DROP=1 also
-## drops margince_uat_<slug>].
-uat_env_stop:
-	@bash scripts/uat-env.sh stop "$(UAT_SLUG)" $(if $(filter 1,$(DROP)),--drop,)
 
 ## hooks — install the repo's git hooks (the pre-push craft-static gate).
 ## Run once after cloning.
