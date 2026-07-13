@@ -12,6 +12,7 @@ import {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
 import { MoneyInput } from "../design-system/moneyinput";
 import {
   RecordPicker,
@@ -803,6 +804,193 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
   );
 }
 
+// Task 3.4 (OP-8/OP-9/OP-10): the send/accept/reject lifecycle. All three
+// return the FULL updated Offer (P11 — server-truth totals/status), so the
+// only client-side work on success is queryClient.setQueryData(["offer",
+// ...]) — never a locally-derived status flip. Send is the confirm-first
+// (🟡) action: a human's own click on this REST path IS the approval
+// (ADR-0055), so no ApprovalToken/Idempotency-Key header is sent here — that
+// plumbing belongs to the agent/passport path, out of scope for this screen.
+
+function SendOfferAction({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/offers/{id}/send", {
+        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["offer", offer.id], data);
+      setOpen(false);
+    },
+  });
+
+  const skew =
+    mutation.error instanceof ProblemError &&
+    isVersionSkew(mutation.error.problem);
+  const errorMessage = mutation.isError
+    ? skew
+      ? t("edit.versionSkew")
+      : (mutation.error?.message ?? null)
+    : null;
+
+  return (
+    <>
+      <Button small data-testid="send-offer" onClick={() => setOpen(true)}>
+        {t("offer.send")}
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("offer.sendConfirm")}
+        tier="confirm"
+        confirmLabel={t("deals.confirm")}
+        onConfirm={() => mutation.mutate()}
+        pending={mutation.isPending}
+        error={errorMessage}
+      >
+        <p className="t-body">{t("offer.sendConfirm")}</p>
+      </ConfirmModal>
+    </>
+  );
+}
+
+// Accept (OP-9) is human-only — the deal's amount/currency sync server-side
+// on acceptance, so the deal screen's amount card and offers panel (the
+// exact ["deal", id] / ["deal-offers", id] keys deals.tsx's DealScreen
+// reads) must be told to refetch; setQueryData alone would leave the deal
+// screen showing stale figures if the user navigates back to it.
+function AcceptOfferAction({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/offers/{id}/accept", {
+        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["offer", offer.id], data);
+      queryClient.invalidateQueries({ queryKey: ["deal", offer.deal_id] });
+      queryClient.invalidateQueries({
+        queryKey: ["deal-offers", offer.deal_id],
+      });
+      setOpen(false);
+    },
+  });
+
+  const skew =
+    mutation.error instanceof ProblemError &&
+    isVersionSkew(mutation.error.problem);
+  const errorMessage = mutation.isError
+    ? skew
+      ? t("edit.versionSkew")
+      : (mutation.error?.message ?? null)
+    : null;
+
+  return (
+    <>
+      <Button small data-testid="accept-offer" onClick={() => setOpen(true)}>
+        {t("offer.accept")}
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("offer.acceptConfirm")}
+        confirmLabel={t("deals.confirm")}
+        onConfirm={() => mutation.mutate()}
+        pending={mutation.isPending}
+        error={errorMessage}
+      >
+        <p className="t-body">{t("offer.acceptConfirm")}</p>
+      </ConfirmModal>
+    </>
+  );
+}
+
+// Reject (OP-10) never touches the deal's amount, so unlike accept it only
+// ever needs the offer's own query updated. The optional reason is a plain
+// text field, not a bespoke form — proportionate to a non-money-moving
+// action, but still routed through the shared ConfirmModal chrome (no
+// `tier`: rejecting isn't a confirm-first 🟡 operation) for the same
+// disable-while-pending / inline-error affordances Send and Accept get.
+function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/offers/{id}/reject", {
+        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+        body: { reason: reason || null },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["offer", offer.id], data);
+      setOpen(false);
+      setReason("");
+    },
+  });
+
+  const skew =
+    mutation.error instanceof ProblemError &&
+    isVersionSkew(mutation.error.problem);
+  const errorMessage = mutation.isError
+    ? skew
+      ? t("edit.versionSkew")
+      : (mutation.error?.message ?? null)
+    : null;
+
+  return (
+    <>
+      <Button small data-testid="reject-offer" onClick={() => setOpen(true)}>
+        {t("offer.reject")}
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("offer.rejectConfirm")}
+        confirmLabel={t("deals.confirm")}
+        onConfirm={() => mutation.mutate()}
+        pending={mutation.isPending}
+        error={errorMessage}
+      >
+        <div className="field">
+          <span className="t-label" id="reject-reason-label">
+            {t("offer.rejectReason")}
+          </span>
+          <TextInput
+            aria-labelledby="reject-reason-label"
+            data-testid="reject-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </div>
+      </ConfirmModal>
+    </>
+  );
+}
+
 export function OfferScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -852,6 +1040,13 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
                   >
                     {t("offer.edit")}
                   </Button>
+                )}
+                {offer.status === "draft" && <SendOfferAction offer={offer} />}
+                {offer.status === "sent" && (
+                  <>
+                    <AcceptOfferAction offer={offer} />
+                    <RejectOfferAction offer={offer} />
+                  </>
                 )}
               </div>
             </section>

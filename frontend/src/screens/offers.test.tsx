@@ -27,11 +27,12 @@ function render(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return rtlRender(
+  const result = rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+  return { ...result, client };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -125,6 +126,37 @@ function stubOfferWithMutations(
               : JSON.parse(String(init?.body));
         mutations.push({ method, url, body });
         return jsonResponse(mutationResponse, method === "POST" ? 201 : 200);
+      }
+      if (url.includes("/offers/")) {
+        return jsonResponse(offer);
+      }
+      return jsonResponse({ data: [], page: { has_more: false } });
+    }),
+  );
+}
+
+// A method-aware backend for the lifecycle actions (send/accept/reject):
+// GETs read the offer fixture, a POST against .../send|accept|reject is
+// served from the caller-supplied response (success or an RFC-7807 problem)
+// and recorded so a test can assert on the exact request + headers sent.
+function stubOfferWithLifecycle(
+  offer: Record<string, unknown>,
+  action: "send" | "accept" | "reject",
+  response: { body: Record<string, unknown>; status: number },
+  calls: { url: string; body: unknown; ifMatch: string | null }[],
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request ? request.method : (init?.method ?? "GET");
+      if (url.includes(`/offers/o-1/${action}`) && method === "POST") {
+        const rawBody = request ? await request.text() : (init?.body ?? null);
+        const body = rawBody ? JSON.parse(String(rawBody)) : null;
+        const headers = request ? request.headers : new Headers(init?.headers);
+        calls.push({ url, body, ifMatch: headers.get("If-Match") });
+        return jsonResponse(response.body, response.status);
       }
       if (url.includes("/offers/")) {
         return jsonResponse(offer);
@@ -317,5 +349,138 @@ describe("OfferLineEditor (OP-7/OP-13)", () => {
       2,
     );
     expect(screen.queryByText("€0.00")).toBeNull();
+  });
+});
+
+describe("offer lifecycle actions (OP-8/OP-9/OP-10)", () => {
+  it("shows send only while draft, and accept/reject only once sent", async () => {
+    stubOffer(baseOffer);
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    expect(screen.getByTestId("send-offer")).toBeTruthy();
+    expect(screen.queryByTestId("accept-offer")).toBeNull();
+    expect(screen.queryByTestId("reject-offer")).toBeNull();
+  });
+
+  it("omits send and shows accept/reject once the offer is sent", async () => {
+    stubOffer({ ...baseOffer, status: "sent" });
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    expect(screen.queryByTestId("send-offer")).toBeNull();
+    expect(screen.getByTestId("accept-offer")).toBeTruthy();
+    expect(screen.getByTestId("reject-offer")).toBeTruthy();
+  });
+
+  it("omits every lifecycle action once the offer is accepted or rejected", async () => {
+    stubOffer({ ...baseOffer, status: "accepted" });
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    expect(screen.queryByTestId("send-offer")).toBeNull();
+    expect(screen.queryByTestId("accept-offer")).toBeNull();
+    expect(screen.queryByTestId("reject-offer")).toBeNull();
+  });
+
+  it("sends the offer with the current version as If-Match after confirming", async () => {
+    const calls: { url: string; body: unknown; ifMatch: string | null }[] = [];
+    stubOfferWithLifecycle(
+      baseOffer,
+      "send",
+      {
+        body: { ...baseOffer, status: "sent" },
+        status: 200,
+      },
+      calls,
+    );
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("send-offer"));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toContain("/offers/o-1/send");
+    expect(calls[0].ifMatch).toBe("3");
+    expect(await screen.findByText("sent")).toBeTruthy();
+    // Once sent, the send action and the draft-only affordances disappear.
+    expect(screen.queryByTestId("send-offer")).toBeNull();
+    expect(screen.queryByTestId("edit-offer-header")).toBeNull();
+    expect(screen.queryByTestId("offer-line-editor")).toBeNull();
+  });
+
+  it("renders a 422 detail verbatim when send is rejected (e.g. fx_rate_unavailable)", async () => {
+    const calls: { url: string; body: unknown; ifMatch: string | null }[] = [];
+    stubOfferWithLifecycle(
+      baseOffer,
+      "send",
+      {
+        body: {
+          title: "Unprocessable",
+          detail: "no FX rate available for this currency pair",
+          code: "fx_rate_unavailable",
+        },
+        status: 422,
+      },
+      calls,
+    );
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("send-offer"));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(
+      await screen.findByText("no FX rate available for this currency pair"),
+    ).toBeTruthy();
+  });
+
+  it("accepts the offer and invalidates the deal + deal-offers queries so the deal screen resyncs", async () => {
+    const calls: { url: string; body: unknown; ifMatch: string | null }[] = [];
+    stubOfferWithLifecycle(
+      { ...baseOffer, status: "sent" },
+      "accept",
+      { body: { ...baseOffer, status: "accepted" }, status: 200 },
+      calls,
+    );
+    const { client } = render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+
+    await userEvent.click(screen.getByTestId("accept-offer"));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toContain("/offers/o-1/accept");
+    expect(calls[0].ifMatch).toBe("3");
+    expect(await screen.findByText("accepted")).toBeTruthy();
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["deal", "d-1"] }),
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["deal-offers", "d-1"] }),
+    );
+  });
+
+  it("rejects the offer with an optional reason and never touches the deal queries", async () => {
+    const calls: { url: string; body: unknown; ifMatch: string | null }[] = [];
+    stubOfferWithLifecycle(
+      { ...baseOffer, status: "sent" },
+      "reject",
+      { body: { ...baseOffer, status: "rejected" }, status: 200 },
+      calls,
+    );
+    const { client } = render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+
+    await userEvent.click(screen.getByTestId("reject-offer"));
+    await userEvent.type(screen.getByTestId("reject-reason"), "budget cut");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toContain("/offers/o-1/reject");
+    expect(calls[0].body).toMatchObject({ reason: "budget cut" });
+    expect(await screen.findByText("rejected")).toBeTruthy();
+    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

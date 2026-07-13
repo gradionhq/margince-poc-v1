@@ -294,6 +294,13 @@ export const de = {
   "offer.unpriced": "kein Preis — von der Summe ausgeschlossen",
   "offer.removeLine": "Entfernen",
   "offer.pickProduct": "Produkt wählen",
+  "offer.send": "Senden",
+  "offer.sendConfirm": "Dieses Angebot an den Käufer senden?",
+  "offer.accept": "Annehmen",
+  "offer.acceptConfirm": "Dieses Angebot als angenommen markieren?",
+  "offer.reject": "Ablehnen",
+  "offer.rejectConfirm": "Dieses Angebot als abgelehnt markieren?",
+  "offer.rejectReason": "Grund (optional)",
 
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",

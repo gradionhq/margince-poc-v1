@@ -288,6 +288,13 @@ export const en = {
   "offer.unpriced": "unpriced — excluded from total",
   "offer.removeLine": "Remove",
   "offer.pickProduct": "Pick product",
+  "offer.send": "Send",
+  "offer.sendConfirm": "Send this offer to the buyer?",
+  "offer.accept": "Accept",
+  "offer.acceptConfirm": "Mark this offer as accepted?",
+  "offer.reject": "Reject",
+  "offer.rejectConfirm": "Mark this offer as rejected?",
+  "offer.rejectReason": "Reason (optional)",
 
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",
