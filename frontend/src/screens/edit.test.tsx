@@ -55,7 +55,7 @@ describe("edit record flow", () => {
   });
 
   it("submits only the typed values", async () => {
-    const update = vi.fn(async () => record);
+    const update = vi.fn(async (_values: Record<string, unknown>) => record);
     render(
       <EditAction
         label="Edit"
