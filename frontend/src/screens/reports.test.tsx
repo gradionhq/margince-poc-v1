@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { ReportsScreen } from "./reports";
+import { parseDerivationQuery, ReportsScreen } from "./reports";
 
 // D2 acceptance: a report picker over deals-by-stage (unchanged), forecast
 // (unweighted category tiles + a weighted-vs-unweighted banner), and
@@ -45,6 +45,7 @@ type ReportsStubOpts = {
   stageRows?: Record<string, unknown>[];
   forecastRows?: Record<string, unknown>[];
   companyRows?: Record<string, unknown>[];
+  derivation?: Record<string, unknown>;
 };
 
 function reportsStub(opts: ReportsStubOpts = {}) {
@@ -52,6 +53,9 @@ function reportsStub(opts: ReportsStubOpts = {}) {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (method === "GET" && url.includes("/derivation")) {
+      return jsonResponse(opts.derivation ?? {});
+    }
     if (url.includes("/pipelines")) {
       return jsonResponse({
         data: [
@@ -166,5 +170,39 @@ describe("ReportsScreen", () => {
       await screen.findByRole("button", { name: "Open deals per company" }),
     );
     await waitFor(() => expect(screen.getByText("o1")).toBeTruthy());
+  });
+
+  it("explain fetches the derivation and renders source rows, not raw JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        derivation: {
+          report: "deals-by-stage",
+          definition: "Sum over open deals",
+          plan: {},
+          columns: ["name"],
+          rows: [{ name: "Fleet retrofit" }],
+        },
+      }),
+    );
+    render(<ReportsScreen />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Explain/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+    expect(screen.queryByText(/"plan":/)).toBeNull();
+  });
+});
+
+describe("parseDerivationQuery", () => {
+  it("pulls by/agg + predicate params from a derivation_url", () => {
+    const q = parseDerivationQuery(
+      "/v1/reports/deals-by-stage/derivation?by=stage_id&agg=sum:amount_minor:raw&stage_id=s1",
+    );
+    expect(q.by).toEqual(["stage_id"]);
+    expect(q.agg).toEqual(["sum:amount_minor:raw"]);
+    expect(q.stage_id).toBe("s1");
   });
 });

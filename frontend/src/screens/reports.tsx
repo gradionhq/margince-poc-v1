@@ -7,6 +7,7 @@ import {
   DataTable,
   SectionHeader,
   SegmentedControl,
+  Skeleton,
 } from "../design-system/atoms";
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -37,6 +38,28 @@ const REPORT_GROUP_BY: Record<ReportKey, string> = {
   forecast: "forecast_category",
   "open-deals-per-company": "organization_id",
 };
+
+// Parse a server-minted `derivation_url` into the typed derivation query.
+// The generated client's derivation query is ONLY `{ by?, agg? }` (no
+// predicate params, no index signature), so callers forward just those two;
+// the extra predicate keys ride along on the return value for inspection
+// only (spec constraint 6: never raw-fetch the URL itself).
+export function parseDerivationQuery(
+  url: string,
+): { by: string[]; agg: string[] } & Record<string, unknown> {
+  const qs = new URLSearchParams(url.split("?")[1] ?? "");
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of qs.entries()) {
+    if (k !== "by" && k !== "agg") extra[k] = v;
+  }
+  return { ...extra, by: qs.getAll("by"), agg: qs.getAll("agg") };
+}
+
+// The derivation URL's path names the report key (prebuilt or saved-report
+// id) the typed path param expects.
+function derivationReportKey(url: string): string {
+  return url.match(/reports\/([^/?]+)\/derivation/)?.[1] ?? "";
+}
 
 const FORECAST_CATEGORIES = [
   { key: "commit", labelKey: "deal.fcCommit" },
@@ -99,6 +122,28 @@ export function ReportsScreen() {
             { fn: "sum", field: "amount_minor", as: "raw_minor" },
             { fn: "count", as: "deal_count" },
           ],
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+
+  // Hooks can't run inside the QueryGate render-prop callback (the run
+  // result lives there), so the derivation handle is lifted to the top
+  // level from the already-top-level run query.
+  const derivationUrl = reportQuery.data?.derivation_url ?? null;
+  const derivationQuery = useQuery({
+    queryKey: ["derivation", derivationUrl],
+    enabled: explain && derivationUrl != null,
+    queryFn: async () => {
+      const parsed = parseDerivationQuery(derivationUrl ?? "");
+      const { data, error } = await api.GET("/reports/{report}/derivation", {
+        params: {
+          path: { report: derivationReportKey(derivationUrl ?? "") },
+          query: { by: parsed.by, agg: parsed.agg },
         },
       });
       if (error) {
@@ -278,18 +323,64 @@ export function ReportsScreen() {
                 >
                   <SectionHeader
                     title={t("explain.title")}
-                    sub={t("reports.planNote")}
+                    sub={
+                      derivationQuery.data?.definition ?? t("reports.planNote")
+                    }
                   />
-                  <pre
-                    className="t-mono"
-                    style={{ overflowX: "auto", fontSize: 11 }}
-                  >
-                    {JSON.stringify(
-                      { plan: report_.plan, rows: report_.rows },
-                      null,
-                      2,
-                    )}
-                  </pre>
+                  {derivationQuery.isPending && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                        marginTop: 8,
+                      }}
+                    >
+                      <Skeleton width="60%" />
+                      <Skeleton width="90%" />
+                    </div>
+                  )}
+                  {derivationQuery.isError && (
+                    <div style={{ marginTop: 8 }}>
+                      <p className="t-caption">
+                        {derivationQuery.error instanceof Error
+                          ? derivationQuery.error.message
+                          : t("common.error")}
+                      </p>
+                      <Button
+                        small
+                        onClick={() => derivationQuery.refetch()}
+                        style={{ marginTop: 6 }}
+                      >
+                        {t("common.retry")}
+                      </Button>
+                    </div>
+                  )}
+                  {derivationQuery.data &&
+                    (() => {
+                      const derivation = derivationQuery.data;
+                      return (
+                        <div style={{ marginTop: 10 }}>
+                          <SectionHeader title={t("explain.sources")} />
+                          {derivation.rows.length === 0 ? (
+                            <p className="t-caption">{t("common.empty")}</p>
+                          ) : (
+                            <DataTable
+                              columns={derivation.columns.map((col) => ({
+                                key: col,
+                                header: col,
+                                render: (row: Record<string, unknown>) =>
+                                  String(row[col] ?? ""),
+                              }))}
+                              rows={derivation.rows}
+                              rowKey={(row) =>
+                                derivation.rows.indexOf(row).toString()
+                              }
+                            />
+                          )}
+                        </div>
+                      );
+                    })()}
                 </section>
               )}
             </div>
