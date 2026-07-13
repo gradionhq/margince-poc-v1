@@ -733,20 +733,8 @@ textarea.ob-in {
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
-.meterbar {
-  height: 8px;
-  background: var(--bgCard);
-  border-radius: var(--r-full);
-  overflow: hidden;
-  margin: 10px 0 8px;
-}
-.meterbar span {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--away));
-  border-radius: var(--r-full);
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
+/* .meterbar lives in design-system/composed.css — shared with StrengthCard
+ * (screens/strength.tsx), which has no onboarding.css import of its own. */
 .regmix {
   display: flex;
   gap: 14px;

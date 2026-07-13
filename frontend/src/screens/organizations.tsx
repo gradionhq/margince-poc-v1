@@ -1,12 +1,17 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   SectionHeader,
+  SegmentedControl,
+  Skeleton,
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import {
@@ -15,82 +20,243 @@ import {
   EvidenceChip,
   ProvenanceTag,
 } from "../design-system/trust";
-import { useT } from "../i18n";
+import { formatDateTime, formatMoney } from "../format/format";
+import { useLocale, useT } from "../i18n";
+import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
   problemMessage,
   provenanceOf,
   QueryGate,
+  throwProblem,
 } from "./common";
-import { CreateAction } from "./create";
+import { CreateAction, type CreateField, type FormRows } from "./create";
+import { EditAction } from "./edit";
 import { confidenceLevel } from "./inbox";
+import {
+  ListGate,
+  type ListPage,
+  type ListQuery,
+  ListToolbar,
+  useListQuery,
+} from "./listquery";
 import { LogActivity } from "./logactivity";
+import { MergeAction } from "./merge";
+import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
+import { RelationshipsTab } from "./relationships";
+import { StrengthCard } from "./strength";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
+// Search/filter/sort/pagination (P-14), the rich create modal (P-15), the
+// If-Match edit form (P-1), and the dedupe view-existing link (P-16) are
+// wired in here the same way as contacts (people.tsx) — the enrich flow,
+// firmographics card, and timeline stay exactly as they were.
 
 type Organization = components["schemas"]["Organization"];
+type CreateOrganizationRequest =
+  components["schemas"]["CreateOrganizationRequest"];
+type UpdateOrganizationRequest =
+  components["schemas"]["UpdateOrganizationRequest"];
+
+const SIZE_BAND_OPTIONS = [
+  "1-10",
+  "11-50",
+  "51-200",
+  "201-500",
+  "501-1000",
+  "1001-5000",
+  "5000+",
+] as const;
+
+async function fetchOrganizationsPage(
+  query: ListQuery,
+  cursor: string | null,
+): Promise<ListPage<Organization>> {
+  const { data, error } = await api.GET("/organizations", {
+    params: {
+      query: {
+        q: query.q || undefined,
+        sort: query.sort || undefined,
+        include_archived: query.includeArchived || undefined,
+        cursor: cursor || undefined,
+        limit: 50,
+        ...query.filters,
+      },
+    },
+  });
+  if (error) {
+    throw new Error(problemMessage(error));
+  }
+  return {
+    data: data.data,
+    page: {
+      next_cursor: data.page.next_cursor ?? null,
+      has_more: data.page.has_more,
+    },
+  };
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+// Merge-target search (P-2): mirrors searchPeopleTargets (people.tsx) — the
+// caller filters out the source row.
+async function searchOrgTargets(
+  q: string,
+): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await api.GET("/organizations", {
+    params: { query: { q, limit: 10 } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data.data.map((candidate) => ({
+    id: candidate.id,
+    name: candidate.display_name,
+  }));
+}
+
+function asSizeBand(
+  value: string | undefined,
+): CreateOrganizationRequest["size_band"] {
+  return (SIZE_BAND_OPTIONS as readonly string[]).includes(value ?? "")
+    ? (value as CreateOrganizationRequest["size_band"])
+    : undefined;
+}
+
+// Builds the create-company request body: `domains[]` rows carry
+// `{domain, is_primary}` keyed off the repeatable rows channel, scalar
+// fields trim to undefined when blank.
+export function mapOrgBody(
+  values: Record<string, string>,
+  rows: FormRows,
+): CreateOrganizationRequest {
+  const domains = (rows.domains ?? [])
+    .filter((row) => (row.domain ?? "").trim().length > 0)
+    .map((row) => ({
+      domain: row.domain.trim().toLowerCase(),
+      is_primary: row.is_primary === "true",
+    }));
+  return {
+    display_name: values.display_name.trim(),
+    legal_name: values.legal_name?.trim() || undefined,
+    industry: values.industry?.trim() || undefined,
+    size_band: asSizeBand(values.size_band),
+    domains: domains.length > 0 ? domains : undefined,
+    source: "manual",
+  };
+}
+
+// Builds the PATCH body: only the UpdateOrganizationRequest fields (never
+// domains — not in the contract's update shape).
+export function mapOrgUpdate(
+  values: Record<string, unknown>,
+): UpdateOrganizationRequest {
+  return {
+    display_name: stringField(values.display_name).trim() || undefined,
+    legal_name: stringField(values.legal_name).trim() || undefined,
+    industry: stringField(values.industry).trim() || undefined,
+    size_band: asSizeBand(stringField(values.size_band)),
+  };
+}
+
+const companyCreateFields: CreateField[] = [
+  { key: "display_name", label: "create.displayName", required: true },
+  { key: "legal_name", label: "create.legalName" },
+  { key: "industry", label: "create.industry" },
+  {
+    key: "size_band",
+    label: "create.sizeBand",
+    type: "select",
+    options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
+  },
+  {
+    key: "domains",
+    label: "org.domains",
+    type: "repeatable",
+    addLabel: "field.addDomain",
+    rowFields: [{ key: "domain", label: "field.domain", required: true }],
+    primaryKey: "is_primary",
+  },
+];
+
+const companyEditFields: CreateField[] = [
+  { key: "display_name", label: "create.displayName", required: true },
+  { key: "legal_name", label: "create.legalName" },
+  { key: "industry", label: "create.industry" },
+  {
+    key: "size_band",
+    label: "create.sizeBand",
+    type: "select",
+    options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
+  },
+];
+
+async function createCompany(
+  values: Record<string, string>,
+  rows?: FormRows,
+): Promise<Organization> {
+  const { data, error } = await api.POST("/organizations", {
+    body: mapOrgBody(values, rows ?? {}),
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data;
+}
 
 export function CompaniesScreen() {
   const t = useT();
-  const query = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/organizations", {
-        params: { query: { limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
+  const state = useListQuery<Organization>({
+    key: "organizations",
+    initialSort: "-created_at",
+    fetchPage: fetchOrganizationsPage,
   });
-  const createCompany = async (values: Record<string, string>) => {
-    const domain = values.domain?.trim().toLowerCase();
-    const { data, error } = await api.POST("/organizations", {
-      body: {
-        display_name: values.display_name.trim(),
-        industry: values.industry?.trim() || null,
-        ...(domain ? { domains: [{ domain, is_primary: true }] } : {}),
-        source: "manual",
-      },
-    });
-    if (error) {
-      throw new Error(problemMessage(error));
-    }
-    return data;
-  };
+  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.companies")} />
-        <CreateAction
-          label={t("create.company")}
-          invalidate="organizations"
-          screen="companies"
-          create={createCompany}
-          fields={[
-            {
-              key: "display_name",
-              label: "create.displayName",
-              required: true,
-            },
-            { key: "industry", label: "create.industry" },
-            { key: "domain", label: "create.domain", placeholder: "acme.com" },
-          ]}
-        />
+        <div className="list-head-actions">
+          <Button small onClick={() => navigate({ screen: "partners" })}>
+            {t("nav.partners")}
+          </Button>
+          <CreateAction
+            label={t("create.company")}
+            invalidate="organizations"
+            screen="companies"
+            create={createCompany}
+            resolveExisting={(_code, id) => ({ screen: "companies", id })}
+            fields={companyCreateFields}
+          />
+        </div>
       </div>
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        sortOptions={[
+          { value: "display_name", label: "org.name" },
+          { value: "-created_at", label: "list.sortNewest" },
+        ]}
+      />
+      <ListGate state={state} empty={t("common.empty")}>
+        {(rows) => (
           <DataTable
             columns={[
               {
                 key: "name",
                 header: t("org.name"),
                 render: (org: Organization) => (
-                  <strong>{org.display_name}</strong>
+                  <span>
+                    <strong>{org.display_name}</strong>
+                    {org.archived_at && (
+                      <Badge tone="warn">{t("record.archived")}</Badge>
+                    )}
+                  </span>
                 ),
               },
               {
@@ -119,12 +285,12 @@ export function CompaniesScreen() {
                 ),
               },
             ]}
-            rows={page.data}
+            rows={rows}
             rowKey={(org) => org.id}
             onRowClick={(org) => navigate({ screen: "companies", id: org.id })}
           />
         )}
-      </QueryGate>
+      </ListGate>
     </div>
   );
 }
@@ -220,8 +386,209 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
+type OrganizationHierarchyRollup =
+  components["schemas"]["OrganizationHierarchyRollup"];
+
+// A missing stored FX rate fails the whole rollup read with 422
+// fx_rate_unavailable (never a rate-of-1 substitute, never zeros) — this
+// marker lets the render branch on that ONE cause without re-parsing the
+// problem body a second time.
+class FxUnavailableError extends Error {}
+
+async function fetchHierarchyRollup(
+  orgId: string,
+): Promise<OrganizationHierarchyRollup> {
+  const { data, error } = await api.GET(
+    "/organizations/{id}/hierarchy-rollup",
+    {
+      params: { path: { id: orgId }, query: { scope: "tree" } },
+    },
+  );
+  if (error) {
+    if (error.code === "fx_rate_unavailable") {
+      throw new FxUnavailableError();
+    }
+    throw new Error(problemMessage(error));
+  }
+  return data;
+}
+
+// P-7: the org hierarchy roll-up (weighted pipeline, current-quarter
+// closed-won, 30-day activity, aggregated account count), read-only. Money
+// renders only when both amount_minor and currency are present (Money's
+// fields are individually optional on the wire) — never a hand-formatted or
+// zero-filled figure.
+function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const rollupQuery = useQuery({
+    queryKey: ["rollup", orgId],
+    queryFn: () => fetchHierarchyRollup(orgId),
+  });
+
+  if (rollupQuery.isPending) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Skeleton width="60%" />
+        <Skeleton width="90%" />
+        <Skeleton width="75%" />
+      </div>
+    );
+  }
+  if (rollupQuery.isError) {
+    if (rollupQuery.error instanceof FxUnavailableError) {
+      return <EmptyState>{t("rollup.fxUnavailable")}</EmptyState>;
+    }
+    return <EmptyState>{rollupQuery.error.message}</EmptyState>;
+  }
+
+  const rollup = rollupQuery.data;
+  const money = (value: OrganizationHierarchyRollup["weighted_pipeline"]) =>
+    value.amount_minor != null && value.currency
+      ? formatMoney(value.amount_minor, value.currency, locale)
+      : "—";
+
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <SectionHeader title={t("tab.rollup")} />
+      <dl className="firmo">
+        <div>
+          <dt>{t("rollup.weightedPipeline")}</dt>
+          <dd className="t-mono">{money(rollup.weighted_pipeline)}</dd>
+        </div>
+        <div>
+          <dt>{t("rollup.closedWon")}</dt>
+          <dd className="t-mono">{money(rollup.closed_won)}</dd>
+        </div>
+        <div>
+          <dt>{t("rollup.activity30d")}</dt>
+          <dd>{rollup.activity_count_30d}</dd>
+        </div>
+        <div>
+          <dt>{t("rollup.accounts")}</dt>
+          <dd>{rollup.aggregated_account_count}</dd>
+        </div>
+      </dl>
+      {rollup.restricted_excluded.length > 0 && (
+        <p className="t-caption" style={{ marginTop: 10 }}>
+          {t("rollup.excluded", { count: rollup.restricted_excluded.length })}
+        </p>
+      )}
+      <p className="t-caption" style={{ marginTop: 10 }}>
+        {t("rollup.computedAt", {
+          when: formatDateTime(rollup.computed_at, locale, "Europe/Berlin"),
+        })}
+      </p>
+    </section>
+  );
+}
+
+const COMPANY_TABS = [
+  "overview",
+  "relationships",
+  "partner",
+  "rollup",
+] as const;
+type CompanyTab = (typeof COMPANY_TABS)[number];
+
+// The company 360 badge/action bar. Archived records are read-only: the
+// backend rejects edit/merge/archive on a non-live row (there is no unarchive
+// path), so those buttons would only 404 — the Archived badge is the whole
+// affordance. Extracted from CompanyScreen so its render stays legible.
+function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  return (
+    <>
+      {org.classification && <Badge>{org.classification}</Badge>}
+      <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+      {org.archived_at ? (
+        <Badge tone="warn">{t("record.archived")}</Badge>
+      ) : (
+        <>
+          <EditAction
+            label={t("record.edit")}
+            fields={companyEditFields}
+            record={{
+              id: org.id,
+              version: org.version,
+              display_name: org.display_name,
+              legal_name: org.legal_name ?? "",
+              industry: org.industry ?? "",
+              size_band: org.size_band ?? "",
+            }}
+            update={async (values) => {
+              const { data, error } = await api.PATCH("/organizations/{id}", {
+                params: {
+                  path: { id: org.id },
+                  ...ifMatch(org.version),
+                },
+                body: mapOrgUpdate(values),
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            resolveExisting={(_code, existingId) => ({
+              screen: "companies",
+              id: existingId,
+            })}
+          />
+          <MergeAction
+            label={t("merge.org")}
+            sourceId={org.id}
+            sourceName={org.display_name}
+            searchTargets={searchOrgTargets}
+            merge={async (targetId) => {
+              const { data, error } = await api.POST(
+                "/organizations/{id}/merge",
+                {
+                  params: {
+                    path: { id: org.id },
+                    ...ifMatch(org.version),
+                  },
+                  body: { target_id: targetId },
+                },
+              );
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            survivorRoute={(targetId) => ({
+              screen: "companies",
+              id: targetId,
+            })}
+          />
+          <ArchiveAction
+            label={t("record.archive")}
+            confirmText={t("record.archiveConfirm")}
+            archive={async () => {
+              const { data, error } = await api.DELETE("/organizations/{id}", {
+                params: { path: { id: org.id } },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            onArchived={() => navigate({ screen: "companies" })}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
+  const [tab, setTab] = useState<CompanyTab>("overview");
   const orgQuery = useQuery({
     queryKey: ["organization", id],
     queryFn: async () => {
@@ -257,48 +624,68 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
             name={org.display_name}
             subtitle={org.legal_name ?? undefined}
             zone="Europe/Berlin"
-            badges={
-              <>
-                {org.classification && <Badge>{org.classification}</Badge>}
-                <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
-              </>
-            }
+            badges={<CompanyActionBadges org={org} />}
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(timelineQuery.data.data)
                 : []
             }
           >
-            <section className="card" style={{ marginBottom: 16 }}>
-              <SectionHeader
-                title={t("org.firmographics")}
-                sub={t("org.evidenceOrOmit")}
+            <div style={{ marginBottom: 16 }}>
+              <SegmentedControl
+                options={COMPANY_TABS}
+                value={tab}
+                onChange={setTab}
+                labels={{
+                  overview: t("tab.overview"),
+                  relationships: t("tab.relationships"),
+                  partner: t("tab.partner"),
+                  rollup: t("tab.rollup"),
+                }}
               />
-              <dl className="firmo">
-                {org.industry && (
-                  <div>
-                    <dt>{t("org.industry")}</dt>
-                    <dd>{org.industry}</dd>
-                  </div>
-                )}
-                {org.size_band && (
-                  <div>
-                    <dt>{t("org.size")}</dt>
-                    <dd>{org.size_band}</dd>
-                  </div>
-                )}
-                {org.domains && org.domains.length > 0 && (
-                  <div>
-                    <dt>{t("org.domains")}</dt>
-                    <dd className="t-mono">
-                      {org.domains.map((domain) => domain.domain).join(", ")}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </section>
-            <EnrichCard orgId={org.id} />
-            <LogActivity entityType="organization" entityId={org.id} />
+            </div>
+            {tab === "overview" && (
+              <>
+                <StrengthCard kind="organization" id={org.id} />
+                <section className="card" style={{ marginBottom: 16 }}>
+                  <SectionHeader
+                    title={t("org.firmographics")}
+                    sub={t("org.evidenceOrOmit")}
+                  />
+                  <dl className="firmo">
+                    {org.industry && (
+                      <div>
+                        <dt>{t("org.industry")}</dt>
+                        <dd>{org.industry}</dd>
+                      </div>
+                    )}
+                    {org.size_band && (
+                      <div>
+                        <dt>{t("org.size")}</dt>
+                        <dd>{org.size_band}</dd>
+                      </div>
+                    )}
+                    {org.domains && org.domains.length > 0 && (
+                      <div>
+                        <dt>{t("org.domains")}</dt>
+                        <dd className="t-mono">
+                          {org.domains
+                            .map((domain) => domain.domain)
+                            .join(", ")}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </section>
+                <EnrichCard orgId={org.id} />
+                <LogActivity entityType="organization" entityId={org.id} />
+              </>
+            )}
+            {tab === "relationships" && (
+              <RelationshipsTab scope={{ organization_id: org.id }} />
+            )}
+            {tab === "partner" && <PartnerTab organizationId={org.id} />}
+            {tab === "rollup" && <HierarchyRollupCard orgId={org.id} />}
           </RecordView>
         )}
       </QueryGate>

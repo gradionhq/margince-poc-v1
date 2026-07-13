@@ -277,7 +277,9 @@ test("AC-create-1: a contact is created from the list and lands on its 360", asy
   await page.goto("/#/contacts");
   await page.getByRole("button", { name: "Neuer Kontakt" }).click();
   await page.getByLabel("Vollständiger Name").fill("Peter Neu");
-  await page.getByLabel("E-Mail").fill("peter@neu.example");
+  // Email is now a repeatable row group (P-15): add a row, then fill it.
+  await page.getByRole("button", { name: "E-Mail hinzufügen" }).click();
+  await page.getByLabel("E-Mail *").fill("peter@neu.example");
   await page.getByRole("button", { name: "Anlegen" }).click();
   await expect(page).toHaveURL(/#\/contacts\/p-new$/);
 });
