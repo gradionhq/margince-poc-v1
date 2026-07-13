@@ -207,6 +207,23 @@
   border: 1px solid var(--accentMed);
 }
 
+/* Strength meter bar — shared by StrengthCard (screens/strength.tsx) and
+ * onboarding (screens/onboarding.tsx); onboarding.css no longer defines it. */
+.meterbar {
+  height: 8px;
+  background: var(--bgCard);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  margin: 10px 0 8px;
+}
+.meterbar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--away));
+  border-radius: var(--r-full);
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 .firmo {
   display: flex;
   gap: 24px;
@@ -225,6 +242,26 @@
   color: var(--textMeta);
 }
 .firmo dd {
+  font-size: 13.5px;
+  color: var(--textContent);
+}
+
+/* Partner detail's longer field list (partners.tsx PartnerDetail) wraps
+ * unevenly in .firmo's flex-wrap layout — a two-column definition grid reads
+ * cleaner for a taller, denser field set. */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 16px;
+}
+.detail-grid dt {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--textMeta);
+}
+.detail-grid dd {
   font-size: 13.5px;
   color: var(--textContent);
 }

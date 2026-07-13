@@ -418,7 +418,7 @@ function PartnerDetail({
   }
 
   return (
-    <div>
+    <section className="card">
       <div className="list-head">
         <SectionHeader title={t("tab.partner")} />
         <Button
@@ -429,41 +429,37 @@ function PartnerDetail({
           {t("record.edit")}
         </Button>
       </div>
-      <dl className="firmo">
+      <dl className="detail-grid">
         {partner.partner_role && (
-          <div>
+          <>
             <dt>{t("partner.role")}</dt>
             <dd>{t(ROLE_LABELS[partner.partner_role])}</dd>
-          </div>
+          </>
         )}
-        <div>
-          <dt>{t("partner.certStatus")}</dt>
-          <dd>{t(CERT_LABELS[partner.cert_status])}</dd>
-        </div>
+        <dt>{t("partner.certStatus")}</dt>
+        <dd>{t(CERT_LABELS[partner.cert_status])}</dd>
         {partner.margin_tier && (
-          <div>
+          <>
             <dt>{t("partner.marginTier")}</dt>
             <dd>{t(MARGIN_TIER_LABELS[partner.margin_tier])}</dd>
-          </div>
+          </>
         )}
-        <div>
-          <dt>{t("partner.stage")}</dt>
-          <dd>{t(STAGE_LABELS[partner.relationship_stage])}</dd>
-        </div>
+        <dt>{t("partner.stage")}</dt>
+        <dd>{t(STAGE_LABELS[partner.relationship_stage])}</dd>
         {partner.next_step && (
-          <div>
+          <>
             <dt>{t("partner.nextStep")}</dt>
             <dd>{partner.next_step}</dd>
-          </div>
+          </>
         )}
         {partner.served_segments && partner.served_segments.length > 0 && (
-          <div>
+          <>
             <dt>{t("partner.servedSegments")}</dt>
             <dd>{partner.served_segments.join(", ")}</dd>
-          </div>
+          </>
         )}
       </dl>
-    </div>
+    </section>
   );
 }
 
@@ -495,7 +491,7 @@ export function PartnerTab({
             onSaved={invalidateAfterSave}
           />
         ) : (
-          <div>
+          <section className="card">
             <SectionHeader title={t("tab.partner")} />
             <EmptyState>{t("partner.none")}</EmptyState>
             <div style={{ marginTop: 16 }}>
@@ -506,7 +502,7 @@ export function PartnerTab({
                 onSaved={invalidateAfterSave}
               />
             </div>
-          </div>
+          </section>
         )
       }
     </QueryGate>

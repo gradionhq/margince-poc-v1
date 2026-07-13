@@ -91,7 +91,7 @@ export function ArchiveAction<Archived extends { id: string }>({
             {mutation.error instanceof Error ? mutation.error.message : null}
           </p>
         )}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div className="actions">
           <Button
             small
             onClick={() => setConfirming(false)}

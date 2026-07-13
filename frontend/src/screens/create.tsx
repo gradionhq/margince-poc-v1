@@ -246,7 +246,7 @@ function RepeatableRowsField({
   }
 
   return (
-    <div className="field">
+    <div className="field-repeatable">
       <span className="t-label">
         {t(field.label)}
         {field.required ? " *" : ""}
@@ -266,7 +266,6 @@ function RepeatableRowsField({
               flexWrap: "wrap",
               gap: 8,
               alignItems: "center",
-              padding: 8,
             }}
           >
             {rowFields.map((subField) => {
@@ -363,7 +362,7 @@ export function RecordFormBody({
         event.preventDefault();
         onSubmit(values, rows);
       }}
-      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+      className="form-stack"
     >
       {fields.map((field) => {
         const fieldId = `${formId}-${field.key}`;
@@ -399,12 +398,13 @@ export function RecordFormBody({
         <Button
           small
           type="button"
+          style={{ alignSelf: "flex-start" }}
           onClick={() => navigate(resolveExisting(existing.code, existing.id))}
         >
           {t("dedupe.viewExisting")}
         </Button>
       )}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <div className="actions">
         <Button small type="button" onClick={onClose}>
           {t("create.cancel")}
         </Button>

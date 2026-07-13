@@ -41,9 +41,48 @@
   flex: 1;
   min-width: 0;
 }
-.list-head > button {
+.list-head > button,
+.list-head > .list-head-actions {
   margin-top: 4px;
   flex: none;
+}
+.list-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* List toolbar row: search grows, sort/filters/toggle sit fixed-width beside
+ * it. `select.input`/`input.input` default to width:100% (base.css), so the
+ * width:auto override is required or they fight the search field for width. */
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+.list-toolbar > .input-icon {
+  flex: 1 1 260px;
+  max-width: 360px;
+}
+.list-toolbar > select.input,
+.list-toolbar > input.input {
+  width: auto;
+  flex: 0 1 200px;
+}
+.list-toolbar > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+@media (max-width: 520px) {
+  .list-toolbar > .input-icon,
+  .list-toolbar > select.input,
+  .list-toolbar > input.input {
+    flex-basis: 100%;
+    max-width: none;
+  }
 }
 
 .rail {

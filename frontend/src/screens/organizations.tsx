@@ -221,7 +221,7 @@ export function CompaniesScreen() {
     <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.companies")} />
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="list-head-actions">
           <Button small onClick={() => navigate({ screen: "partners" })}>
             {t("nav.partners")}
           </Button>

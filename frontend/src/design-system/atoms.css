@@ -215,6 +215,22 @@
   gap: 5px;
 }
 
+/* Repeatable-row form group (create.tsx RepeatableRowsField): label → rows →
+ * "Add" button at 8px rhythm — a distinct wrapper from bare .field's tighter
+ * 5px, since a row group needs more breathing room than a single input. */
+.field-repeatable {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Form field stack (create.tsx RecordFormBody): the 8/12 spacing scale. */
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .input {
   font-family: var(--f-body);
   font-size: 13.5px;

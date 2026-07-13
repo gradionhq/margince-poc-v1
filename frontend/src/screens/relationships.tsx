@@ -357,7 +357,7 @@ export function RelationshipsTab({
   });
 
   return (
-    <div>
+    <section className="card">
       <div className="list-head">
         <SectionHeader title={t("tab.relationships")} />
         <AddRelationshipAction scope={scope} />
@@ -489,6 +489,6 @@ export function RelationshipsTab({
           </Button>
         </div>
       </Modal>
-    </div>
+    </section>
   );
 }

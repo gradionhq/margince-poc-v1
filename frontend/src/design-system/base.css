@@ -48,3 +48,37 @@
   font-size: 12px;
   color: var(--textMeta);
 }
+
+/* Conservative type-scale realizing the hierarchy already implied by usage
+ * across the app (record headings, field labels, captions, mono figures) —
+ * no new sizes invented, just named. */
+.t-display {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--textPrimary);
+}
+.t-h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+.t-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--textMeta);
+}
+.t-caption {
+  font-size: 12.5px;
+  color: var(--textMeta);
+}
+.t-sub {
+  font-size: 13px;
+  color: var(--textMeta);
+}
+.t-body {
+  font-size: 14px;
+  color: var(--textContent);
+}
+.t-mono {
+  font-family: var(--f-mono);
+}
