@@ -737,6 +737,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   <SectionHeader title={t("deal.offers")} />
                   <Button
                     small
+                    disabled={createOffer.isPending}
                     onClick={() => createOffer.mutate(deal.currency ?? "EUR")}
                   >
                     {t("deal.newOffer")}

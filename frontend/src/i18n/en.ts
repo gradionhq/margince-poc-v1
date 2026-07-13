@@ -790,7 +790,7 @@ export const en = {
   "strength.computedFrom": "Computed from {count} activities",
 
   "product.title": "Products",
-  "product.settingsSub": "Rate-card entries offer lines snapshot from.",
+  "product.settingsSub": "Rate-card entries that offer lines snapshot from.",
   "product.open": "Open products",
   "product.new": "New product",
   "product.edit": "Edit product",
