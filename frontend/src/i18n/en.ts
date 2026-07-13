@@ -213,6 +213,8 @@ export const en = {
   "field.primary": "Primary",
   "field.removeRow": "Remove",
 
+  "dedupe.viewExisting": "View existing record",
+
   "log.title": "Log activity",
   "log.sub": "a note or task, straight onto this timeline",
   "log.kind": "Type",

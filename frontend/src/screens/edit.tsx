@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
+import type { Route } from "../app/router";
 import { Button, Modal } from "../design-system/atoms";
+import { ProblemError, problemExistingId } from "./common";
 import { type CreateField, type FormRows, RecordFormBody } from "./create";
 
 // The shared post-update choreography: run the screen-supplied PATCH, then
@@ -51,6 +53,8 @@ export function EditRecordModal({
   record,
   pending,
   error,
+  existing,
+  resolveExisting,
   onSubmit,
 }: Readonly<{
   open: boolean;
@@ -60,6 +64,8 @@ export function EditRecordModal({
   record: Record<string, unknown> & { id: string; version?: number };
   pending: boolean;
   error: string | null;
+  existing?: { id: string; code: string } | null;
+  resolveExisting?: (code: string, id: string) => Route;
   onSubmit: (values: Record<string, string>, rows?: FormRows) => void;
 }>) {
   const headingId = useId();
@@ -96,6 +102,8 @@ export function EditRecordModal({
         setRows={setRows}
         pending={pending}
         error={error}
+        existing={existing}
+        resolveExisting={resolveExisting}
         onSubmit={onSubmit}
         onClose={onClose}
         submitLabelKey="record.save"
@@ -115,6 +123,7 @@ export function EditAction<Updated extends { id: string }>({
   update,
   invalidate,
   recordKey,
+  resolveExisting,
 }: Readonly<{
   label: string;
   fields: CreateField[];
@@ -125,6 +134,9 @@ export function EditAction<Updated extends { id: string }>({
   ) => Promise<Updated>;
   invalidate: string;
   recordKey: string;
+  // Symmetric with CreateAction's dedupe link — edit rarely collides, but the
+  // API stays uniform for the screens that adopt it.
+  resolveExisting?: (code: string, id: string) => Route;
 }>) {
   const [editing, setEditing] = useState(false);
   const mutation = useUpdateRecord({
@@ -133,6 +145,10 @@ export function EditAction<Updated extends { id: string }>({
     recordKey,
     onDone: () => setEditing(false),
   });
+  const existing =
+    mutation.error instanceof ProblemError
+      ? problemExistingId(mutation.error.problem)
+      : null;
   return (
     <>
       <Button small onClick={() => setEditing(true)} data-testid="edit-record">
@@ -146,6 +162,8 @@ export function EditAction<Updated extends { id: string }>({
         record={record}
         pending={mutation.isPending}
         error={mutation.isError ? mutation.error.message : null}
+        existing={existing}
+        resolveExisting={resolveExisting}
         onSubmit={(values, rows) =>
           mutation.mutate({ values, rows: rows ?? {} })
         }

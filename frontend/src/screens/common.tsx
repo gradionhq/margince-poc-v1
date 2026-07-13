@@ -104,6 +104,42 @@ export function problemMessage(problem: unknown): string {
   return "request failed";
 }
 
+// A create/update whose server error we want to keep STRUCTURED (not just its
+// message) throws this — the raw RFC-7807 body rides along so the form can read
+// details.existing_id for the dedupe "view existing" link.
+export class ProblemError extends Error {
+  readonly problem: unknown;
+  constructor(problem: unknown) {
+    super(problemMessage(problem));
+    this.name = "ProblemError";
+    this.problem = problem;
+  }
+}
+
+export function throwProblem(problem: unknown): never {
+  throw new ProblemError(problem);
+}
+
+// Pull the collided record's id + code out of a duplicate (409) problem body,
+// or null when absent / not a duplicate / the row isn't caller-visible.
+export function problemExistingId(
+  problem: unknown,
+): { id: string; code: string } | null {
+  if (!problem || typeof problem !== "object") return null;
+  const record = problem as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : null;
+  const details =
+    record.details && typeof record.details === "object"
+      ? (record.details as Record<string, unknown>)
+      : null;
+  const id =
+    details && typeof details.existing_id === "string"
+      ? details.existing_id
+      : null;
+  if (code && id) return { id, code };
+  return null;
+}
+
 // The cold-start / enrichment field vocabulary (compose/enrichextract.go)
 // rendered as human labels; an unmapped field falls back to its key with the
 // underscores spaced out — readable, never raw snake_case.

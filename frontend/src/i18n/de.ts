@@ -217,6 +217,8 @@ export const de = {
   "field.primary": "Primär",
   "field.removeRow": "Entfernen",
 
+  "dedupe.viewExisting": "Vorhandenen Eintrag anzeigen",
+
   "log.title": "Aktivität erfassen",
   "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",
   "log.kind": "Art",

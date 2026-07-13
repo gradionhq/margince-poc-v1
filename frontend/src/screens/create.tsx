@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
-import { navigate } from "../app/router";
+import { navigate, type Route } from "../app/router";
 import { Button, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { ProblemError, problemExistingId } from "./common";
 
 // The shared create-record form (contacts, companies, leads, deals): each
 // list screen declares its fields; the transport (which endpoint, how values
@@ -108,6 +109,7 @@ export function CreateAction<Created extends { id: string }>({
   invalidate,
   screen,
   startOpen = false,
+  resolveExisting,
 }: Readonly<{
   label: string;
   fields: CreateField[];
@@ -115,6 +117,10 @@ export function CreateAction<Created extends { id: string }>({
   invalidate: string;
   screen: string;
   startOpen?: boolean;
+  // Duplicate (409) dedupe: given the problem's code + collided record id,
+  // builds the route to that record. Absent screens simply never show the
+  // "view existing" link.
+  resolveExisting?: (code: string, id: string) => Route;
 }>) {
   const [creating, setCreating] = useState(startOpen);
   const mutation = useCreateRecord({
@@ -123,6 +129,10 @@ export function CreateAction<Created extends { id: string }>({
     screen,
     onDone: () => setCreating(false),
   });
+  const existing =
+    mutation.error instanceof ProblemError
+      ? problemExistingId(mutation.error.problem)
+      : null;
   return (
     <>
       <NewRecordButton label={label} onClick={() => setCreating(true)} />
@@ -133,6 +143,8 @@ export function CreateAction<Created extends { id: string }>({
         fields={fields}
         pending={mutation.isPending}
         error={mutation.isError ? mutation.error.message : null}
+        existing={existing}
+        resolveExisting={resolveExisting}
         onSubmit={(values, rows) =>
           mutation.mutate({ values, rows: rows ?? {} })
         }
@@ -313,6 +325,8 @@ export function RecordFormBody({
   setRows,
   pending,
   error,
+  existing,
+  resolveExisting,
   onSubmit,
   onClose,
   submitLabelKey,
@@ -324,6 +338,11 @@ export function RecordFormBody({
   setRows: (next: FormRows) => void;
   pending: boolean;
   error: string | null;
+  // The collided record from a duplicate (409) problem, and the screen's
+  // mapping from its code + id to a Route — both present renders the "view
+  // existing" link right under the error message.
+  existing?: { id: string; code: string } | null;
+  resolveExisting?: (code: string, id: string) => Route;
   onSubmit: (values: Record<string, string>, rows?: FormRows) => void;
   onClose: () => void;
   submitLabelKey: MessageKey;
@@ -376,6 +395,15 @@ export function RecordFormBody({
           {error}
         </p>
       )}
+      {existing && resolveExisting && (
+        <Button
+          small
+          type="button"
+          onClick={() => navigate(resolveExisting(existing.code, existing.id))}
+        >
+          {t("dedupe.viewExisting")}
+        </Button>
+      )}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <Button small type="button" onClick={onClose}>
           {t("create.cancel")}
@@ -400,6 +428,8 @@ export function CreateRecordModal({
   fields,
   pending,
   error,
+  existing,
+  resolveExisting,
   onSubmit,
 }: Readonly<{
   open: boolean;
@@ -408,6 +438,8 @@ export function CreateRecordModal({
   fields: CreateField[];
   pending: boolean;
   error: string | null;
+  existing?: { id: string; code: string } | null;
+  resolveExisting?: (code: string, id: string) => Route;
   onSubmit: (values: Record<string, string>, rows?: FormRows) => void;
 }>) {
   const headingId = useId();
@@ -442,6 +474,8 @@ export function CreateRecordModal({
         setRows={setRows}
         pending={pending}
         error={error}
+        existing={existing}
+        resolveExisting={resolveExisting}
         onSubmit={onSubmit}
         onClose={onClose}
         submitLabelKey="create.save"
