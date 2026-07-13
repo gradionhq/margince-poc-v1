@@ -738,6 +738,26 @@ export const en = {
   "strength.none": "No interactions yet",
   "strength.inout": "{in} in · {out} out (90d)",
   "strength.computedFrom": "Computed from {count} activities",
+
+  "product.title": "Products",
+  "product.settingsSub": "Rate-card entries offer lines snapshot from.",
+  "product.open": "Open products",
+  "product.new": "New product",
+  "product.edit": "Edit product",
+  "product.archive": "Archive product",
+  "product.archiveConfirm": "Archive this product? Existing offer lines keep their snapshot.",
+  "product.name": "Name",
+  "product.sku": "SKU",
+  "product.description": "Description",
+  "product.unit": "Unit",
+  "product.unitPrice": "Unit price",
+  "product.currency": "Currency",
+  "product.taxRate": "Default tax rate %",
+  "product.active": "Active",
+  "product.activeFilter": "Active only",
+  "product.sortName": "Name",
+  "product.sortCreated": "Newest",
+  "product.empty": "No products yet.",
 } as const;
 
 export type MessageKey = keyof typeof en;
