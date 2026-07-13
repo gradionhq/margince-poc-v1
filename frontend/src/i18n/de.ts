@@ -771,6 +771,8 @@ export const de = {
   "product.taxRate": "Standard-Steuersatz %",
   "product.active": "Aktiv",
   "product.activeFilter": "Nur aktive",
+  "product.inactive": "Inaktiv",
+  "product.archived": "Archiviert",
   "product.sortName": "Name",
   "product.sortCreated": "Neueste",
   "product.empty": "Noch keine Produkte.",

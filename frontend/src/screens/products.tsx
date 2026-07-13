@@ -120,7 +120,7 @@ export function ProductsScreen() {
               { key: "price", header: t("product.unitPrice"),
                 render: (p: Product) => (<span className="t-mono">{formatMoney(p.unit_price_minor, p.currency, locale)}</span>) },
               { key: "active", header: t("product.active"),
-                render: (p: Product) => (p.archived_at ? <Badge tone="danger">–</Badge> : p.active ? <Badge tone="success">✓</Badge> : <Badge>–</Badge>) },
+                render: (p: Product) => (p.archived_at ? <Badge tone="danger">{t("product.archived")}</Badge> : p.active ? <Badge tone="success">{t("product.active")}</Badge> : <Badge>{t("product.inactive")}</Badge>) },
               { key: "actions", header: "",
                 render: (p: Product) => (
                   <div style={{ display: "flex", gap: 6 }}>

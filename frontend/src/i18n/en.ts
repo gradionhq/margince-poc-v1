@@ -755,6 +755,8 @@ export const en = {
   "product.taxRate": "Default tax rate %",
   "product.active": "Active",
   "product.activeFilter": "Active only",
+  "product.inactive": "Inactive",
+  "product.archived": "Archived",
   "product.sortName": "Name",
   "product.sortCreated": "Newest",
   "product.empty": "No products yet.",
