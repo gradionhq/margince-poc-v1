@@ -125,6 +125,11 @@ export const en = {
   "people.email": "Email",
   "people.capturedBy": "Captured by",
   "person.consent": "Consent by purpose",
+  "consent.grant": "Grant",
+  "consent.withdraw": "Withdraw",
+  "consent.doubleOptIn": "Double opt-in",
+  "consent.doiIssued": "One-time token (shown once):",
+  "consent.doiExpires": "Expires",
 
   "org.name": "Company",
   "org.industry": "Industry",

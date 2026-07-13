@@ -315,6 +315,119 @@ describe("ContactsScreen — dedupe view-existing link (P-16)", () => {
   });
 });
 
+describe("PersonScreen — consent grant/withdraw + double opt-in (P-8/P-9)", () => {
+  const personWithConsent = {
+    ...anna,
+    consent: [
+      { purpose_id: "pu-1", purpose_key: "marketing_email", state: "granted" },
+      { purpose_id: "pu-2", purpose_key: "profiling", state: "withdrawn" },
+    ],
+  };
+
+  it("shows Withdraw for a granted purpose and POSTs new_state:withdrawn", async () => {
+    let consentBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (
+        method === "POST" &&
+        url.includes("/people/p-1/consent") &&
+        !url.includes("double-opt-in")
+      ) {
+        consentBody = JSON.parse(await request.text());
+        return jsonResponse({
+          purpose_id: "pu-1",
+          purpose_key: "marketing_email",
+          state: "withdrawn",
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(personWithConsent);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("marketing_email: granted")).toBeTruthy(),
+    );
+    const withdrawButtons = screen.getAllByRole("button", {
+      name: "Withdraw",
+    });
+    await userEvent.click(withdrawButtons[0]);
+
+    await waitFor(() => expect(consentBody).toBeTruthy());
+    expect(consentBody).toMatchObject({
+      purpose_id: "pu-1",
+      new_state: "withdrawn",
+    });
+  });
+
+  it("shows Grant for a non-granted purpose and POSTs new_state:granted", async () => {
+    let consentBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (
+        method === "POST" &&
+        url.includes("/people/p-1/consent") &&
+        !url.includes("double-opt-in")
+      ) {
+        consentBody = JSON.parse(await request.text());
+        return jsonResponse({
+          purpose_id: "pu-2",
+          purpose_key: "profiling",
+          state: "granted",
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(personWithConsent);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("profiling: withdrawn")).toBeTruthy(),
+    );
+    const grantButtons = screen.getAllByRole("button", { name: "Grant" });
+    await userEvent.click(grantButtons[0]);
+
+    await waitFor(() => expect(consentBody).toBeTruthy());
+    expect(consentBody).toMatchObject({
+      purpose_id: "pu-2",
+      new_state: "granted",
+    });
+  });
+
+  it("issues a double opt-in token and renders it plus its expiry", async () => {
+    let doiBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/consent/double-opt-in")) {
+        doiBody = JSON.parse(await request.text());
+        return jsonResponse(
+          { token: "doi-plaintext-token", expires_at: "2026-07-16T00:00:00Z" },
+          201,
+        );
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(personWithConsent);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("marketing_email: granted")).toBeTruthy(),
+    );
+    const doiButtons = screen.getAllByRole("button", {
+      name: "Double opt-in",
+    });
+    await userEvent.click(doiButtons[0]);
+
+    await waitFor(() => expect(doiBody).toBeTruthy());
+    expect(doiBody).toMatchObject({ purpose_id: "pu-1" });
+    expect(screen.getByText("doi-plaintext-token")).toBeTruthy();
+    expect(screen.getByText(/2026-07-16T00:00:00Z/)).toBeTruthy();
+  });
+});
+
 describe("PersonScreen — merge into target (P-2)", () => {
   const otto = { ...anna, id: "p-2", full_name: "Otto Fischer" };
 

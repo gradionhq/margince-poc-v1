@@ -1,9 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
-import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  DataTable,
+  SectionHeader,
+} from "../design-system/atoms";
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -37,6 +42,7 @@ type Person = components["schemas"]["Person"];
 type Activity = components["schemas"]["Activity"];
 type CreatePersonRequest = components["schemas"]["CreatePersonRequest"];
 type UpdatePersonRequest = components["schemas"]["UpdatePersonRequest"];
+type PersonConsentState = components["schemas"]["PersonConsentState"];
 
 async function fetchPeoplePage(
   query: ListQuery,
@@ -346,6 +352,109 @@ export function ContactsScreen() {
   );
 }
 
+// One consent-purpose row on the Person 360 (P-8/P-9): the state badge, a
+// Grant/Withdraw toggle that writes an append-only consent_event through
+// POST /people/{id}/consent, and a Double opt-in issuance that mints the
+// one-time DOI token a requires_double_opt_in purpose needs before a grant
+// takes effect. lawful_basis is intentionally omitted from the toggle body —
+// it's optional in RecordConsentRequest and this control has no field for it
+// yet. Errors surface verbatim (a DOI-required purpose 422s here rather than
+// silently no-opping) so the human sees exactly why the toggle didn't take.
+function ConsentRow({
+  personId,
+  entry,
+}: Readonly<{ personId: string; entry: PersonConsentState }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const granted = entry.state === "granted";
+
+  const setState = useMutation({
+    mutationFn: async (newState: "granted" | "withdrawn") => {
+      const { data, error } = await api.POST("/people/{id}/consent", {
+        params: { path: { id: personId } },
+        body: { purpose_id: entry.purpose_id, new_state: newState },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["person", personId] });
+    },
+  });
+
+  const issueDoi = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST(
+        "/people/{id}/consent/double-opt-in",
+        {
+          params: { path: { id: personId } },
+          body: { purpose_id: entry.purpose_id },
+        },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        marginBottom: 10,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <Badge tone={granted ? "success" : "warn"}>
+          {entry.purpose_key ?? entry.purpose_id}: {entry.state}
+        </Badge>
+        <Button
+          small
+          disabled={setState.isPending}
+          onClick={() => setState.mutate(granted ? "withdrawn" : "granted")}
+        >
+          {granted ? t("consent.withdraw") : t("consent.grant")}
+        </Button>
+        <Button
+          small
+          disabled={issueDoi.isPending}
+          onClick={() => issueDoi.mutate()}
+        >
+          {t("consent.doubleOptIn")}
+        </Button>
+      </div>
+      {setState.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {setState.error instanceof Error ? setState.error.message : null}
+        </p>
+      )}
+      {issueDoi.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {issueDoi.error instanceof Error ? issueDoi.error.message : null}
+        </p>
+      )}
+      {issueDoi.data && (
+        <p className="t-caption">
+          {t("consent.doiIssued")} <code>{issueDoi.data.token}</code> ·{" "}
+          {t("consent.doiExpires")}: {issueDoi.data.expires_at}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PersonScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const personQuery = useQuery({
@@ -463,14 +572,13 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 style={{ marginBottom: 16 }}
               >
                 <SectionHeader title={t("person.consent")} />
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div>
                   {person.consent.map((entry) => (
-                    <Badge
+                    <ConsentRow
                       key={entry.purpose_id}
-                      tone={entry.state === "granted" ? "success" : "warn"}
-                    >
-                      {entry.purpose_key ?? entry.purpose_id}: {entry.state}
-                    </Badge>
+                      personId={person.id}
+                      entry={entry}
+                    />
                   ))}
                 </div>
               </section>

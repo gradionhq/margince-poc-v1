@@ -129,6 +129,11 @@ export const de = {
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",
   "person.consent": "Einwilligung pro Zweck",
+  "consent.grant": "Erteilen",
+  "consent.withdraw": "Widerrufen",
+  "consent.doubleOptIn": "Double-Opt-in",
+  "consent.doiIssued": "Einmal-Token (nur einmal sichtbar):",
+  "consent.doiExpires": "Läuft ab",
 
   "org.name": "Firma",
   "org.industry": "Branche",
