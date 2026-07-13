@@ -413,6 +413,14 @@ export const en = {
   "reports.weighted": "Weighted",
   "reports.planNote":
     "the executed plan and the rows this number reconciles to",
+  "reports.reportDeals": "Deals by stage",
+  "reports.reportForecast": "Forecast",
+  "reports.reportOpenByCompany": "Open deals per company",
+  "reports.forecastBanner": "Category totals are unweighted; the board's weighted figure is Σ(amount × stage probability) — two different numbers on purpose.",
+  "reports.company": "Company",
+  "reports.openDeals": "Open deals",
+  "explain.sources": "Source rows",
+  "explain.definition": "How this number is derived",
 
   "ai.sub": "bring your own agent — governed by the two-tier contract",
   "ai.fromPalette": "From the palette",

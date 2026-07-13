@@ -419,6 +419,14 @@ export const de = {
   "reports.weighted": "Gewichtet",
   "reports.planNote":
     "der ausgeführte Plan und die Zeilen, auf die sich die Zahl zurückrechnet",
+  "reports.reportDeals": "Deals nach Phase",
+  "reports.reportForecast": "Forecast",
+  "reports.reportOpenByCompany": "Offene Deals pro Firma",
+  "reports.forecastBanner": "Kategoriesummen sind ungewichtet; die gewichtete Zahl des Boards ist Σ(Betrag × Phasenwahrscheinlichkeit) — bewusst zwei verschiedene Zahlen.",
+  "reports.company": "Firma",
+  "reports.openDeals": "Offene Deals",
+  "explain.sources": "Quellzeilen",
+  "explain.definition": "Wie diese Zahl hergeleitet wird",
 
   "ai.sub": "bring deinen eigenen Agenten mit — geregelt über die zwei Stufen",
   "ai.fromPalette": "Aus der Palette",
