@@ -327,7 +327,12 @@ export function ReportsScreen() {
                       derivationQuery.data?.definition ?? t("reports.planNote")
                     }
                   />
-                  {derivationQuery.isPending && (
+                  {derivationUrl == null && (
+                    <p className="t-caption" style={{ marginTop: 8 }}>
+                      {t("common.empty")}
+                    </p>
+                  )}
+                  {derivationUrl != null && derivationQuery.isPending && (
                     <div
                       style={{
                         display: "flex",
