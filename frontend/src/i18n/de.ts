@@ -301,6 +301,11 @@ export const de = {
   "offer.reject": "Ablehnen",
   "offer.rejectConfirm": "Dieses Angebot als abgelehnt markieren?",
   "offer.rejectReason": "Grund (optional)",
+  "offer.regenerate": "Revision neu generieren",
+  "offer.aiDisclosureTitle": "KI-gestützter Hinweis",
+  "offer.diffAdded": "{count} Position(en) hinzugefügt",
+  "offer.diffRemoved": "{count} Position(en) entfernt",
+  "offer.diffChanged": "{count} Position(en) geändert",
 
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",

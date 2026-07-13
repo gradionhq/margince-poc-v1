@@ -21,6 +21,7 @@ import { OfferScreen } from "./offers";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.location.hash = "";
 });
 
 function render(ui: ReactNode) {
@@ -349,6 +350,136 @@ describe("OfferLineEditor (OP-7/OP-13)", () => {
       2,
     );
     expect(screen.queryByText("€0.00")).toBeNull();
+  });
+});
+
+// A method-aware backend for the regenerate action (Task 4.1, OP-11): GETs
+// read the offer fixture, a POST against .../regenerate is served from the
+// caller-supplied response (success or an RFC-7807 problem) and recorded so
+// a test can assert on the exact request sent.
+function stubOfferWithRegenerate(
+  offer: Record<string, unknown>,
+  response: { body: Record<string, unknown>; status: number },
+  calls: { url: string }[],
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request ? request.method : (init?.method ?? "GET");
+      if (url.includes("/offers/o-1/regenerate") && method === "POST") {
+        calls.push({ url });
+        return jsonResponse(response.body, response.status);
+      }
+      if (url.includes("/offers/")) {
+        return jsonResponse(offer);
+      }
+      return jsonResponse({ data: [], page: { has_more: false } });
+    }),
+  );
+}
+
+describe("AI disclosure/diff banner (OP-11)", () => {
+  it("renders the Art. 50 disclosure and diff summary when ai_generated is true", async () => {
+    stubOffer({
+      ...baseOffer,
+      status: "sent",
+      ai_generated: true,
+      ai_disclosure: "This offer revision was drafted with AI assistance.",
+      diff_from_previous: {
+        added: [{ ...existingLine, id: "li-added", description: "Onboarding" }],
+        removed: [
+          { ...existingLine, id: "li-removed", description: "Legacy setup" },
+        ],
+        changed: [
+          {
+            before: { ...existingLine, description: "Consulting hours" },
+            after: {
+              ...existingLine,
+              description: "Consulting hours (revised)",
+            },
+          },
+        ],
+      },
+    });
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    expect(
+      screen.getByText("This offer revision was drafted with AI assistance."),
+    ).toBeTruthy();
+    expect(screen.getByText("1 line(s) added")).toBeTruthy();
+    expect(screen.getByText("1 line(s) removed")).toBeTruthy();
+    expect(screen.getByText("1 line(s) changed")).toBeTruthy();
+    expect(screen.getByText("Onboarding")).toBeTruthy();
+    expect(screen.getByText("Legacy setup")).toBeTruthy();
+    expect(screen.getByText("Consulting hours (revised)")).toBeTruthy();
+  });
+
+  it("omits the disclosure banner entirely when ai_generated is false (mechanical regenerate)", async () => {
+    stubOffer({
+      ...baseOffer,
+      status: "sent",
+      ai_generated: false,
+      ai_disclosure: null,
+      diff_from_previous: null,
+    });
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    expect(screen.queryByTestId("ai-disclosure-banner")).toBeNull();
+  });
+});
+
+describe("regenerate action (OP-11)", () => {
+  it("regenerates a sent offer, seeds the new draft's cache, and navigates to it", async () => {
+    const calls: { url: string }[] = [];
+    const newDraft = {
+      ...baseOffer,
+      id: "o-2",
+      revision: 3,
+      status: "draft",
+      ai_generated: true,
+      ai_disclosure: "This offer revision was drafted with AI assistance.",
+      diff_from_previous: { added: [], removed: [], changed: [] },
+    };
+    stubOfferWithRegenerate(
+      { ...baseOffer, status: "sent" },
+      { body: newDraft, status: 201 },
+      calls,
+    );
+    const { client } = render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("regenerate-offer"));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toContain("/offers/o-1/regenerate");
+    expect(client.getQueryData(["offer", "o-2"])).toEqual(newDraft);
+    expect(globalThis.location.hash).toBe("#/offers/o-2");
+  });
+
+  it("renders a 422 detail verbatim when regenerate is rejected (e.g. a stale sent offer)", async () => {
+    const calls: { url: string }[] = [];
+    stubOfferWithRegenerate(
+      { ...baseOffer, status: "sent" },
+      {
+        body: {
+          title: "Unprocessable",
+          detail: "offer is not in sent status",
+          code: "offer_not_sent",
+        },
+        status: 422,
+      },
+      calls,
+    );
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("regenerate-offer"));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(await screen.findByText("offer is not in sent status")).toBeTruthy();
   });
 });
 

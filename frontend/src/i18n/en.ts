@@ -295,6 +295,11 @@ export const en = {
   "offer.reject": "Reject",
   "offer.rejectConfirm": "Mark this offer as rejected?",
   "offer.rejectReason": "Reason (optional)",
+  "offer.regenerate": "Regenerate revision",
+  "offer.aiDisclosureTitle": "AI-assisted disclosure",
+  "offer.diffAdded": "{count} line(s) added",
+  "offer.diffRemoved": "{count} line(s) removed",
+  "offer.diffChanged": "{count} line(s) changed",
 
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",

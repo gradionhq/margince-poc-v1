@@ -19,7 +19,7 @@ import {
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { formatMoney } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import {
   isVersionSkew,
   ProblemError,
@@ -991,6 +991,166 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   );
 }
 
+// Task 4.1 (OP-11): regenerate a new draft revision from a sent offer. The
+// 201 response is the ONLY place the Art. 50 disclosure and diff summary
+// ever appear (every later read of the same offer returns them null), so
+// the cache for the NEW draft's id is seeded directly from this response —
+// before navigating — rather than letting OfferScreen's own useQuery
+// re-fetch a plain GET that would come back with the disclosure/diff wiped.
+// Regenerate is non-destructive to the current (sent) offer, which stays
+// sent/superseded server-side rather than being deleted, so unlike Send it
+// isn't gated behind a confirm modal — a plain action, per the plan.
+function RegenerateOfferAction({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/offers/{id}/regenerate", {
+        params: { path: { id: offer.id } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (newDraft) => {
+      queryClient.setQueryData(["offer", newDraft.id], newDraft);
+      navigate({ screen: "offers", id: newDraft.id });
+    },
+  });
+
+  const errorMessage = mutation.isError ? mutation.error?.message : null;
+
+  return (
+    <>
+      <Button
+        small
+        data-testid="regenerate-offer"
+        disabled={mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
+        {t("offer.regenerate")}
+      </Button>
+      {errorMessage && (
+        <p
+          className="t-caption"
+          style={{ color: "var(--danger)", marginTop: 4 }}
+        >
+          {errorMessage}
+        </p>
+      )}
+    </>
+  );
+}
+
+// The Art. 50 disclosure + diff-from-previous summary (OP-11). Both fields
+// are transient — populated only on the regenerate response that produced
+// this draft — but the offer object here may be a stale/refetched read
+// (ai_generated back to false), so the banner degrades to nothing rather
+// than an empty/broken shell whenever ai_generated isn't true. The
+// disclosure text is a compliance-mandated string: rendered verbatim, never
+// reworded or wrapped in translated copy.
+function DiffLine({
+  line,
+  currency,
+  locale,
+}: Readonly<{ line: OfferLineItem; currency: string; locale: Locale }>) {
+  return (
+    <li>
+      <span>{line.description}</span>
+      {line.price_grounded === false ? null : (
+        <>
+          {" — "}
+          <span className="t-mono">
+            {formatMoney(line.line_total_minor, currency, locale)}
+          </span>
+        </>
+      )}
+    </li>
+  );
+}
+
+function AiDisclosureBanner({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  if (!offer.ai_generated) {
+    return null;
+  }
+  const diff = offer.diff_from_previous;
+  const added = diff?.added ?? [];
+  const removed = diff?.removed ?? [];
+  const changed = diff?.changed ?? [];
+
+  return (
+    <section
+      className="card"
+      data-testid="ai-disclosure-banner"
+      style={{ marginBottom: 16 }}
+    >
+      <SectionHeader title={t("offer.aiDisclosureTitle")} />
+      {offer.ai_disclosure && <p className="t-body">{offer.ai_disclosure}</p>}
+      {diff && (
+        <div data-testid="offer-diff-summary" style={{ marginTop: 8 }}>
+          {added.length > 0 && (
+            <div>
+              <p className="t-label">
+                {t("offer.diffAdded", { count: added.length })}
+              </p>
+              <ul>
+                {added.map((line) => (
+                  <DiffLine
+                    key={line.id}
+                    line={line}
+                    currency={offer.currency}
+                    locale={locale}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+          {removed.length > 0 && (
+            <div>
+              <p className="t-label">
+                {t("offer.diffRemoved", { count: removed.length })}
+              </p>
+              <ul>
+                {removed.map((line) => (
+                  <DiffLine
+                    key={line.id}
+                    line={line}
+                    currency={offer.currency}
+                    locale={locale}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+          {changed.length > 0 && (
+            <div>
+              <p className="t-label">
+                {t("offer.diffChanged", { count: changed.length })}
+              </p>
+              <ul>
+                {changed.map((pair) =>
+                  pair.after ? (
+                    <DiffLine
+                      key={pair.after.id}
+                      line={pair.after}
+                      currency={offer.currency}
+                      locale={locale}
+                    />
+                  ) : null,
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function OfferScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1046,10 +1206,12 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
                   <>
                     <AcceptOfferAction offer={offer} />
                     <RejectOfferAction offer={offer} />
+                    <RegenerateOfferAction offer={offer} />
                   </>
                 )}
               </div>
             </section>
+            <AiDisclosureBanner offer={offer} />
             <section className="card" style={{ marginBottom: 16 }}>
               <SectionHeader title={t("offer.totals")} />
               <div style={{ display: "flex", gap: 24 }}>
