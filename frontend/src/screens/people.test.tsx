@@ -213,6 +213,53 @@ describe("ContactsScreen — rich create (P-15)", () => {
     expect(screen.getByText("Add phone")).toBeTruthy();
   });
 
+  // Regression: the email/phone "Type" select's options are keyed messages
+  // (field.emailWork/…) resolved by contactCreateFields via useT() — the
+  // rendered option text must be the translated word, never the raw
+  // MessageKey string (fieldControl in create.tsx renders option.label
+  // verbatim, so an untranslated key would leak straight to the DOM).
+  it("shows translated Type option text, not the raw i18n key", async () => {
+    stubFetch(async () => emptyPage());
+    render(<ContactsScreen />);
+    await userEvent.click(screen.getByTestId("new-record"));
+    await userEvent.click(screen.getByText("Add email"));
+    await userEvent.click(screen.getByText("Add phone"));
+    const [emailType, phoneType] = screen.getAllByLabelText("Type");
+
+    const emailOptionText = within(emailType as HTMLElement)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(emailOptionText).toEqual(["", "Work", "Personal", "Other"]);
+    expect(emailOptionText).not.toContain("field.emailWork");
+
+    const phoneOptionText = within(phoneType as HTMLElement)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(phoneOptionText).toEqual(["", "Work", "Mobile", "Home", "Other"]);
+    expect(phoneOptionText).not.toContain("field.phoneWork");
+  });
+
+  it("shows German Type option text under the de locale", async () => {
+    stubFetch(async () => emptyPage());
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="de">
+          <ContactsScreen />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByTestId("new-record"));
+    await userEvent.click(screen.getByText("E-Mail hinzufügen"));
+    const emailType = screen.getByLabelText("Typ");
+    const optionText = within(emailType)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(optionText).toEqual(["", "Geschäftlich", "Privat", "Sonstige"]);
+  });
+
   it("posts full_name + emails + source:manual on submit", async () => {
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {

@@ -32,8 +32,8 @@ const emailsField: CreateField = {
       label: "field.emailType",
       type: "select",
       options: [
-        { value: "work", label: "field.emailWork" },
-        { value: "personal", label: "field.emailPersonal" },
+        { value: "work", label: "Work" },
+        { value: "personal", label: "Personal" },
       ],
     },
   ],

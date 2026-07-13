@@ -164,54 +164,66 @@ export function mapPersonUpdate(
   };
 }
 
-const contactCreateFields: CreateField[] = [
-  { key: "full_name", label: "create.fullName", required: true },
-  { key: "first_name", label: "create.firstName" },
-  { key: "last_name", label: "create.lastName" },
-  { key: "title", label: "create.personTitle" },
-  { key: "social.linkedin", label: "create.linkedin" },
-  {
-    key: "emails",
-    label: "create.email",
-    type: "repeatable",
-    addLabel: "field.addEmail",
-    rowFields: [
-      { key: "email", label: "create.email", type: "email", required: true },
-      {
-        key: "email_type",
-        label: "field.emailType",
-        type: "select",
-        options: [
-          { value: "work", label: "field.emailWork" },
-          { value: "personal", label: "field.emailPersonal" },
-          { value: "other", label: "field.emailOther" },
-        ],
-      },
-    ],
-    primaryKey: "is_primary",
-  },
-  {
-    key: "phones",
-    label: "create.phone",
-    type: "repeatable",
-    addLabel: "field.addPhone",
-    rowFields: [
-      { key: "phone", label: "create.phone", required: true },
-      {
-        key: "phone_type",
-        label: "field.phoneType",
-        type: "select",
-        options: [
-          { value: "work", label: "field.phoneWork" },
-          { value: "mobile", label: "field.phoneMobile" },
-          { value: "home", label: "field.phoneHome" },
-          { value: "other", label: "field.phoneOther" },
-        ],
-      },
-    ],
-    primaryKey: "is_primary",
-  },
-];
+// Built inside ContactsScreen (not module-level) because the email/phone
+// "Type" options are display text, not raw values — fieldControl (create.tsx)
+// renders option.label verbatim, so the human-readable string has to be
+// resolved via useT() before it reaches CreateField, unlike organizations.tsx's
+// size_band options, which are already display-ready raw labels ("1-10").
+function contactCreateFields(t: ReturnType<typeof useT>): CreateField[] {
+  return [
+    { key: "full_name", label: "create.fullName", required: true },
+    { key: "first_name", label: "create.firstName" },
+    { key: "last_name", label: "create.lastName" },
+    { key: "title", label: "create.personTitle" },
+    { key: "social.linkedin", label: "create.linkedin" },
+    {
+      key: "emails",
+      label: "create.email",
+      type: "repeatable",
+      addLabel: "field.addEmail",
+      rowFields: [
+        {
+          key: "email",
+          label: "create.email",
+          type: "email",
+          required: true,
+        },
+        {
+          key: "email_type",
+          label: "field.emailType",
+          type: "select",
+          options: [
+            { value: "work", label: t("field.emailWork") },
+            { value: "personal", label: t("field.emailPersonal") },
+            { value: "other", label: t("field.emailOther") },
+          ],
+        },
+      ],
+      primaryKey: "is_primary",
+    },
+    {
+      key: "phones",
+      label: "create.phone",
+      type: "repeatable",
+      addLabel: "field.addPhone",
+      rowFields: [
+        { key: "phone", label: "create.phone", required: true },
+        {
+          key: "phone_type",
+          label: "field.phoneType",
+          type: "select",
+          options: [
+            { value: "work", label: t("field.phoneWork") },
+            { value: "mobile", label: t("field.phoneMobile") },
+            { value: "home", label: t("field.phoneHome") },
+            { value: "other", label: t("field.phoneOther") },
+          ],
+        },
+      ],
+      primaryKey: "is_primary",
+    },
+  ];
+}
 
 const personEditFields: CreateField[] = [
   { key: "full_name", label: "create.fullName", required: true },
@@ -293,7 +305,7 @@ export function ContactsScreen() {
           screen="contacts"
           create={createContact}
           resolveExisting={(_code, id) => ({ screen: "contacts", id })}
-          fields={contactCreateFields}
+          fields={contactCreateFields(t)}
         />
       </div>
       <ListToolbar
