@@ -92,11 +92,15 @@ export function ListToolbar({
   setQuery,
   sortOptions,
   filters,
+  searchable = true,
+  showArchivedToggle = true,
 }: Readonly<{
   query: ListQuery;
   setQuery: Dispatch<SetStateAction<ListQuery>>;
   sortOptions: SortOption[];
   filters?: FilterSpec[];
+  searchable?: boolean;
+  showArchivedToggle?: boolean;
 }>) {
   const t = useT();
   const [localSearch, setLocalSearch] = useState(query.q);
@@ -105,23 +109,30 @@ export function ListToolbar({
   // timer was scheduled: a concurrent sort/filter/includeArchived toggle
   // (which sets query immediately, before this timer fires) is preserved
   // instead of being silently reverted by a stale closure over `query`.
+  // Skipped entirely when the screen isn't searchable (e.g. /partners, whose
+  // GET has no `q` param) — there is no debounce to race in that case.
   useEffect(() => {
+    if (!searchable) {
+      return;
+    }
     const timer = setTimeout(() => {
       setQuery((prev) =>
         prev.q === localSearch ? prev : { ...prev, q: localSearch },
       );
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [localSearch, setQuery]);
+  }, [localSearch, setQuery, searchable]);
 
   return (
     <div className="list-toolbar">
-      <SearchField
-        placeholder={t("list.search")}
-        aria-label={t("list.search")}
-        value={localSearch}
-        onChange={(event) => setLocalSearch(event.target.value)}
-      />
+      {searchable && (
+        <SearchField
+          placeholder={t("list.search")}
+          aria-label={t("list.search")}
+          value={localSearch}
+          onChange={(event) => setLocalSearch(event.target.value)}
+        />
+      )}
       <select
         className="input"
         aria-label={t("list.sort")}
@@ -134,16 +145,18 @@ export function ListToolbar({
           </option>
         ))}
       </select>
-      <label>
-        <input
-          type="checkbox"
-          checked={query.includeArchived}
-          onChange={(event) =>
-            setQuery({ ...query, includeArchived: event.target.checked })
-          }
-        />
-        {t("list.showArchived")}
-      </label>
+      {showArchivedToggle && (
+        <label>
+          <input
+            type="checkbox"
+            checked={query.includeArchived}
+            onChange={(event) =>
+              setQuery({ ...query, includeArchived: event.target.checked })
+            }
+          />
+          {t("list.showArchived")}
+        </label>
+      )}
       {filters?.map((filter) =>
         filter.kind === "select" ? (
           <select

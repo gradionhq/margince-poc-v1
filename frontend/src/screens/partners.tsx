@@ -113,6 +113,18 @@ function asCertStatus(value: string): CertStatus | undefined {
     : undefined;
 }
 
+function asMarginTier(value: string): MarginTier | undefined {
+  return (MARGIN_TIERS as readonly string[]).includes(value)
+    ? (value as MarginTier)
+    : undefined;
+}
+
+function asRelationshipStage(value: string): RelationshipStage | undefined {
+  return (RELATIONSHIP_STAGES as readonly string[]).includes(value)
+    ? (value as RelationshipStage)
+    : undefined;
+}
+
 async function fetchPartner(organizationId: string): Promise<Partner | null> {
   const { data, error, response } = await api.GET(
     "/organizations/{id}/partner",
@@ -275,7 +287,9 @@ function PartnerForm({
           onChange={(event) =>
             setValues({
               ...values,
-              margin_tier: (event.target.value || "") as "" | MarginTier,
+              margin_tier: event.target.value
+                ? (asMarginTier(event.target.value) ?? values.margin_tier)
+                : "",
             })
           }
         >
@@ -298,8 +312,9 @@ function PartnerForm({
           onChange={(event) =>
             setValues({
               ...values,
-              relationship_stage: (event.target.value ||
-                values.relationship_stage) as RelationshipStage,
+              relationship_stage:
+                asRelationshipStage(event.target.value) ??
+                values.relationship_stage,
             })
           }
         >
@@ -543,6 +558,8 @@ export function PartnersScreen() {
         query={query}
         setQuery={setQuery}
         sortOptions={[{ value: "-created_at", label: "list.sortNewest" }]}
+        searchable={false}
+        showArchivedToggle={false}
         filters={[
           {
             kind: "select",

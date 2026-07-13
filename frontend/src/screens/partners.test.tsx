@@ -163,6 +163,23 @@ describe("PartnersScreen", () => {
     );
   });
 
+  it("renders no search box (GET /partners has no q param) but keeps the role/cert filters", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [partner],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<PartnersScreen />);
+
+    await waitFor(() => expect(screen.getByText("o-1")).toBeTruthy());
+
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByLabelText("Show archived")).toBeNull();
+    expect(screen.getByLabelText("Partner role")).toBeTruthy();
+    expect(screen.getByLabelText("Certification status")).toBeTruthy();
+  });
+
   it("navigates to the org's 360 on row click", async () => {
     stubFetch(async () =>
       jsonResponse({
