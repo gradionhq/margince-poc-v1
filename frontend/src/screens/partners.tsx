@@ -17,6 +17,7 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate, throwProblem } from "./common";
+import { EntityRef } from "./entityref";
 import {
   ListGate,
   type ListPage,
@@ -584,12 +585,12 @@ export function PartnersScreen() {
             columns={[
               {
                 key: "org",
-                // The Partner payload only carries organization_id (no name
-                // join available) — label the column as an id reference
-                // rather than implying it's the company name.
                 header: t("partner.organization"),
+                // The Partner payload carries only organization_id; EntityRef
+                // hydrates the company name off the org read and backlinks to
+                // its 360.
                 render: (partner: Partner) => (
-                  <span className="t-mono">{partner.organization_id}</span>
+                  <EntityRef kind="organization" id={partner.organization_id} />
                 ),
               },
               {

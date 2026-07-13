@@ -491,6 +491,101 @@ const COMPANY_TABS = [
 ] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
+// The company 360 badge/action bar. Archived records are read-only: the
+// backend rejects edit/merge/archive on a non-live row (there is no unarchive
+// path), so those buttons would only 404 — the Archived badge is the whole
+// affordance. Extracted from CompanyScreen so its render stays legible.
+function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
+  const t = useT();
+  return (
+    <>
+      {org.classification && <Badge>{org.classification}</Badge>}
+      <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+      {org.archived_at ? (
+        <Badge tone="warn">{t("record.archived")}</Badge>
+      ) : (
+        <>
+          <EditAction
+            label={t("record.edit")}
+            fields={companyEditFields}
+            record={{
+              id: org.id,
+              version: org.version,
+              display_name: org.display_name,
+              legal_name: org.legal_name ?? "",
+              industry: org.industry ?? "",
+              size_band: org.size_band ?? "",
+            }}
+            update={async (values) => {
+              const { data, error } = await api.PATCH("/organizations/{id}", {
+                params: {
+                  path: { id: org.id },
+                  ...ifMatch(org.version),
+                },
+                body: mapOrgUpdate(values),
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            resolveExisting={(_code, existingId) => ({
+              screen: "companies",
+              id: existingId,
+            })}
+          />
+          <MergeAction
+            label={t("merge.org")}
+            sourceId={org.id}
+            sourceName={org.display_name}
+            searchTargets={searchOrgTargets}
+            merge={async (targetId) => {
+              const { data, error } = await api.POST(
+                "/organizations/{id}/merge",
+                {
+                  params: {
+                    path: { id: org.id },
+                    ...ifMatch(org.version),
+                  },
+                  body: { target_id: targetId },
+                },
+              );
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            survivorRoute={(targetId) => ({
+              screen: "companies",
+              id: targetId,
+            })}
+          />
+          <ArchiveAction
+            label={t("record.archive")}
+            confirmText={t("record.archiveConfirm")}
+            archive={async () => {
+              const { data, error } = await api.DELETE("/organizations/{id}", {
+                params: { path: { id: org.id } },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            onArchived={() => navigate({ screen: "companies" })}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const [tab, setTab] = useState<CompanyTab>("overview");
@@ -529,94 +624,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
             name={org.display_name}
             subtitle={org.legal_name ?? undefined}
             zone="Europe/Berlin"
-            badges={
-              <>
-                {org.classification && <Badge>{org.classification}</Badge>}
-                <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
-                {org.archived_at && (
-                  <Badge tone="warn">{t("record.archived")}</Badge>
-                )}
-                <EditAction
-                  label={t("record.edit")}
-                  fields={companyEditFields}
-                  record={{
-                    id: org.id,
-                    version: org.version,
-                    display_name: org.display_name,
-                    legal_name: org.legal_name ?? "",
-                    industry: org.industry ?? "",
-                    size_band: org.size_band ?? "",
-                  }}
-                  update={async (values) => {
-                    const { data, error } = await api.PATCH(
-                      "/organizations/{id}",
-                      {
-                        params: {
-                          path: { id },
-                          ...ifMatch(org.version),
-                        },
-                        body: mapOrgUpdate(values),
-                      },
-                    );
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="organizations"
-                  recordKey="organization"
-                  resolveExisting={(_code, existingId) => ({
-                    screen: "companies",
-                    id: existingId,
-                  })}
-                />
-                <MergeAction
-                  label={t("merge.org")}
-                  sourceId={org.id}
-                  sourceName={org.display_name}
-                  searchTargets={searchOrgTargets}
-                  merge={async (targetId) => {
-                    const { data, error } = await api.POST(
-                      "/organizations/{id}/merge",
-                      {
-                        params: {
-                          path: { id: org.id },
-                          ...ifMatch(org.version),
-                        },
-                        body: { target_id: targetId },
-                      },
-                    );
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="organizations"
-                  recordKey="organization"
-                  survivorRoute={(targetId) => ({
-                    screen: "companies",
-                    id: targetId,
-                  })}
-                />
-                <ArchiveAction
-                  label={t("record.archive")}
-                  confirmText={t("record.archiveConfirm")}
-                  archive={async () => {
-                    const { data, error } = await api.DELETE(
-                      "/organizations/{id}",
-                      { params: { path: { id } } },
-                    );
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="organizations"
-                  recordKey="organization"
-                  onArchived={() => navigate({ screen: "companies" })}
-                />
-              </>
-            }
+            badges={<CompanyActionBadges org={org} />}
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(timelineQuery.data.data)

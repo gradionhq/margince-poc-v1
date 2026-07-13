@@ -502,81 +502,94 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             badges={
               <>
                 <ProvenanceTag provenance={provenanceOf(person.captured_by)} />
-                {person.archived_at && (
+                {person.archived_at ? (
+                  // An archived record is read-only: the backend rejects
+                  // edit/merge/archive on a non-live row (there is no
+                  // unarchive path), so offering those buttons would only
+                  // 404. The badge is the whole affordance.
                   <Badge tone="warn">{t("record.archived")}</Badge>
+                ) : (
+                  <>
+                    <EditAction
+                      label={t("record.edit")}
+                      fields={personEditFields}
+                      record={{
+                        id: person.id,
+                        version: person.version,
+                        full_name: person.full_name,
+                        first_name: person.first_name ?? "",
+                        last_name: person.last_name ?? "",
+                        title: person.title ?? "",
+                        "social.linkedin": stringField(person.social?.linkedin),
+                      }}
+                      update={async (values) => {
+                        const { data, error } = await api.PATCH(
+                          "/people/{id}",
+                          {
+                            params: {
+                              path: { id },
+                              ...ifMatch(person.version),
+                            },
+                            body: mapPersonUpdate(values),
+                          },
+                        );
+                        if (error) {
+                          throwProblem(error);
+                        }
+                        return data;
+                      }}
+                      invalidate="people"
+                      recordKey="person"
+                    />
+                    <MergeAction
+                      label={t("merge.person")}
+                      sourceId={person.id}
+                      sourceName={person.full_name}
+                      searchTargets={searchPeopleTargets}
+                      merge={async (targetId) => {
+                        const { data, error } = await api.POST(
+                          "/people/{id}/merge",
+                          {
+                            params: {
+                              path: { id: person.id },
+                              ...ifMatch(person.version),
+                            },
+                            body: { target_id: targetId },
+                          },
+                        );
+                        if (error) {
+                          throwProblem(error);
+                        }
+                        return data;
+                      }}
+                      invalidate="people"
+                      recordKey="person"
+                      survivorRoute={(targetId) => ({
+                        screen: "contacts",
+                        id: targetId,
+                      })}
+                    />
+                    <ArchiveAction
+                      label={t("record.archive")}
+                      confirmText={t("record.archiveConfirm")}
+                      archive={async () => {
+                        const { data, error } = await api.DELETE(
+                          "/people/{id}",
+                          {
+                            params: { path: { id } },
+                          },
+                        );
+                        if (error) {
+                          throwProblem(error);
+                        }
+                        return data;
+                      }}
+                      invalidate="people"
+                      recordKey="person"
+                      onArchived={() => navigate({ screen: "contacts" })}
+                    />
+                  </>
                 )}
-                <EditAction
-                  label={t("record.edit")}
-                  fields={personEditFields}
-                  record={{
-                    id: person.id,
-                    version: person.version,
-                    full_name: person.full_name,
-                    first_name: person.first_name ?? "",
-                    last_name: person.last_name ?? "",
-                    title: person.title ?? "",
-                    "social.linkedin": stringField(person.social?.linkedin),
-                  }}
-                  update={async (values) => {
-                    const { data, error } = await api.PATCH("/people/{id}", {
-                      params: {
-                        path: { id },
-                        ...ifMatch(person.version),
-                      },
-                      body: mapPersonUpdate(values),
-                    });
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="people"
-                  recordKey="person"
-                />
-                <MergeAction
-                  label={t("merge.person")}
-                  sourceId={person.id}
-                  sourceName={person.full_name}
-                  searchTargets={searchPeopleTargets}
-                  merge={async (targetId) => {
-                    const { data, error } = await api.POST(
-                      "/people/{id}/merge",
-                      {
-                        params: {
-                          path: { id: person.id },
-                          ...ifMatch(person.version),
-                        },
-                        body: { target_id: targetId },
-                      },
-                    );
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="people"
-                  recordKey="person"
-                  survivorRoute={(targetId) => ({
-                    screen: "contacts",
-                    id: targetId,
-                  })}
-                />
-                <ArchiveAction
-                  label={t("record.archive")}
-                  confirmText={t("record.archiveConfirm")}
-                  archive={async () => {
-                    const { data, error } = await api.DELETE("/people/{id}", {
-                      params: { path: { id } },
-                    });
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  invalidate="people"
-                  recordKey="person"
-                  onArchived={() => navigate({ screen: "contacts" })}
-                />
               </>
             }
             timeline={

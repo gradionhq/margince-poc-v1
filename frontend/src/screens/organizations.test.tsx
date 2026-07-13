@@ -656,3 +656,83 @@ describe("CompanyScreen — relationship-strength card (P-4)", () => {
     expect(screen.getByText("Direction")).toBeTruthy();
   });
 });
+
+describe("CompanyScreen — archived is read-only (P-3)", () => {
+  it("hides edit/merge/archive and shows the Archived badge on an archived company", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ ...org, archived_at: "2026-07-13T00:00:00Z" });
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
+    expect(screen.queryByTestId("edit-record")).toBeNull();
+    expect(screen.queryByTestId("merge-record")).toBeNull();
+    expect(screen.queryByTestId("archive-record")).toBeNull();
+  });
+});
+
+describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
+  it("offers org↔org kinds (not deal_stakeholder) from a company and POSTs counterparty_org_id", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/relationships")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...employmentRel, id: "rel-new" }, 201);
+      }
+      if (
+        url.includes("/relationships") &&
+        url.includes("organization_id=o-1")
+      ) {
+        return emptyPage();
+      }
+      if (url.includes("/organizations?") && url.includes("q=acme")) {
+        return jsonResponse({
+          data: [{ id: "o-2", display_name: "Acme Corp" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("add-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("add-relationship"));
+
+    // An org anchors employment + the org↔org kinds; deal_stakeholder needs a
+    // person endpoint and must not be offered here.
+    const kind = screen.getByLabelText("Kind");
+    expect(within(kind).queryByText("Deal stakeholder")).toBeNull();
+    await userEvent.selectOptions(kind, "partner_of");
+
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+    await userEvent.click(screen.getByText("Acme Corp"));
+    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      organization_id: "o-1",
+      counterparty_org_id: "o-2",
+      kind: "partner_of",
+      source: "manual",
+    });
+    expect(posted).not.toHaveProperty("person_id");
+  });
+});

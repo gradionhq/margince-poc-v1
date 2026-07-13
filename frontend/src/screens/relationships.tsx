@@ -21,6 +21,7 @@ import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate, throwProblem } from "./common";
 import type { CreateField } from "./create";
 import { EditAction } from "./edit";
+import { EntityRef, type EntityRefKind } from "./entityref";
 
 // The Relationships tab (P-5): the one surface a person/company 360 renders
 // its relationship edges through (employment, deal stakeholder, partner-of,
@@ -38,14 +39,6 @@ type RelationshipKind = Relationship["kind"];
 export type RelationshipScope =
   | { person_id: string }
   | { organization_id: string };
-
-const RELATIONSHIP_KINDS: readonly RelationshipKind[] = [
-  "employment",
-  "deal_stakeholder",
-  "partner_of",
-  "referred_by",
-  "co_sell_with",
-];
 
 const KIND_LABELS: Record<RelationshipKind, MessageKey> = {
   employment: "rel.kind.employment",
@@ -84,15 +77,27 @@ async function fetchRelationships(
   return data.data;
 }
 
-// The other side of an edge from this scope's point of view. A plain id is
-// rendered when no display name is available — there is no batch person/org
-// name lookup in the PoC and no GET /relationships/{id} to hydrate one from.
-function counterpartyOf(rel: Relationship, scope: RelationshipScope): string {
-  const other =
-    "person_id" in scope
-      ? (rel.organization_id ?? rel.counterparty_org_id ?? rel.deal_id)
-      : (rel.person_id ?? rel.counterparty_org_id ?? rel.deal_id);
-  return other ?? "—";
+// The other side of an edge from this scope's point of view, as a typed
+// record reference EntityRef can hydrate into a name + backlink. Which field
+// carries it follows the edge shape (migration 0007 rel_*_shape): a deal edge
+// uses deal_id, an org↔org edge uses counterparty_org_id, and an employment
+// edge uses whichever of person/org this scope is NOT the anchor of.
+export function counterpartyRef(
+  rel: Relationship,
+  scope: RelationshipScope,
+): { kind: EntityRefKind; id: string } | null {
+  if (rel.deal_id) {
+    return { kind: "deal", id: rel.deal_id };
+  }
+  if (rel.counterparty_org_id) {
+    return { kind: "organization", id: rel.counterparty_org_id };
+  }
+  if ("person_id" in scope) {
+    return rel.organization_id
+      ? { kind: "organization", id: rel.organization_id }
+      : null;
+  }
+  return rel.person_id ? { kind: "person", id: rel.person_id } : null;
 }
 
 function dateRange(rel: Relationship, t: (key: MessageKey) => string): string {
@@ -122,15 +127,97 @@ async function searchPersonCandidates(q: string): Promise<Candidate[]> {
   return data.data.map((person) => ({ id: person.id, name: person.full_name }));
 }
 
-// The other side of the edge to search: an org-scoped tab picks a person,
-// a person-scoped tab picks an org.
-function searchOtherSideCandidates(
-  isPersonScope: boolean,
+// /deals has no free-text `q` in the contract (only structured filters), so
+// the stakeholder picker fetches a recent page and matches the typed term
+// against the deal name client-side. Deals past that page aren't reached — an
+// accepted PoC limit, scoped to the manual deal_stakeholder edge.
+const DEAL_PICKER_PAGE = 50;
+
+async function searchDealCandidates(q: string): Promise<Candidate[]> {
+  const { data, error } = await api.GET("/deals", {
+    params: { query: { limit: DEAL_PICKER_PAGE } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  const needle = q.toLowerCase();
+  return data.data
+    .filter((deal) => deal.name.toLowerCase().includes(needle))
+    .slice(0, 10)
+    .map((deal) => ({ id: deal.id, name: deal.name }));
+}
+
+function searchByEntity(
+  entity: EntityRefKind,
   query: string,
 ): Promise<Candidate[]> {
-  return isPersonScope
-    ? searchOrganizationCandidates(query)
-    : searchPersonCandidates(query);
+  switch (entity) {
+    case "organization":
+      return searchOrganizationCandidates(query);
+    case "person":
+      return searchPersonCandidates(query);
+    case "deal":
+      return searchDealCandidates(query);
+  }
+}
+
+// A creatable edge from this scope: the kind, which entity fills the picked
+// endpoint, and which request field carries its id — all fixed by (scope,
+// kind) per the rel_*_shape CHECKs (migration 0007). The anchor endpoint
+// comes from scope (scopeQuery); this describes the rest.
+export type EdgeOption = {
+  kind: RelationshipKind;
+  entity: EntityRefKind;
+  field: "organization_id" | "person_id" | "counterparty_org_id" | "deal_id";
+};
+
+// Only the kinds a scope can actually anchor are offered — a person anchors
+// employment (→org) and deal_stakeholder (→deal); an org anchors employment
+// (→person) and the three org↔org kinds (→counterparty org). Offering the
+// rest would only earn an endpoint-shape 422.
+export function edgeOptions(scope: RelationshipScope): EdgeOption[] {
+  if ("person_id" in scope) {
+    return [
+      { kind: "employment", entity: "organization", field: "organization_id" },
+      { kind: "deal_stakeholder", entity: "deal", field: "deal_id" },
+    ];
+  }
+  return [
+    { kind: "employment", entity: "person", field: "person_id" },
+    {
+      kind: "partner_of",
+      entity: "organization",
+      field: "counterparty_org_id",
+    },
+    {
+      kind: "referred_by",
+      entity: "organization",
+      field: "counterparty_org_id",
+    },
+    {
+      kind: "co_sell_with",
+      entity: "organization",
+      field: "counterparty_org_id",
+    },
+  ];
+}
+
+// Typed carrier for the picked endpoint id — a computed-key spread would
+// widen to an index signature the request type won't accept.
+export function endpointBody(
+  field: EdgeOption["field"],
+  id: string,
+): Partial<CreateRelationshipRequest> {
+  switch (field) {
+    case "organization_id":
+      return { organization_id: id };
+    case "person_id":
+      return { person_id: id };
+    case "counterparty_org_id":
+      return { counterparty_org_id: id };
+    case "deal_id":
+      return { deal_id: id };
+  }
 }
 
 // The "add relationship" affordance: kind + role + start date, plus the
@@ -143,15 +230,19 @@ function AddRelationshipAction({
   const t = useT();
   const queryClient = useQueryClient();
   const headingId = useId();
-  const isPersonScope = "person_id" in scope;
+  const options = edgeOptions(scope);
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<RelationshipKind>("employment");
+  const [kind, setKind] = useState<RelationshipKind>(options[0].kind);
   const [role, setRole] = useState("");
   const [startedAt, setStartedAt] = useState("");
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [target, setTarget] = useState<Candidate | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  // Kind fixes the picked endpoint; a stale kind can't outlive its scope
+  // because the tab remounts per record, so the first option is always valid.
+  const endpoint = options.find((o) => o.kind === kind) ?? options[0];
+  const entity = endpoint.entity;
 
   useEffect(() => {
     if (!open) {
@@ -166,7 +257,7 @@ function AddRelationshipAction({
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const results = await searchOtherSideCandidates(isPersonScope, query);
+        const results = await searchByEntity(entity, query);
         if (!cancelled) {
           setCandidates(results);
           setSearchError(null);
@@ -184,7 +275,7 @@ function AddRelationshipAction({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [open, term, isPersonScope]);
+  }, [open, term, entity]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -200,9 +291,7 @@ function AddRelationshipAction({
         source: "manual",
         is_current_primary: false,
         ...scopeQuery(scope),
-        ...(isPersonScope
-          ? { organization_id: target.id }
-          : { person_id: target.id }),
+        ...endpointBody(endpoint.field, target.id),
       };
       const { data, error } = await api.POST("/relationships", { body });
       if (error) {
@@ -216,9 +305,19 @@ function AddRelationshipAction({
     },
   });
 
+  // Switching kind can switch the target entity (org→deal→person), so any
+  // pending pick and search results from the old entity must clear.
+  function selectKind(next: RelationshipKind) {
+    setKind(next);
+    setTerm("");
+    setCandidates([]);
+    setTarget(null);
+    setSearchError(null);
+  }
+
   function close() {
     setOpen(false);
-    setKind("employment");
+    setKind(options[0].kind);
     setRole("");
     setStartedAt("");
     setTerm("");
@@ -251,12 +350,12 @@ function AddRelationshipAction({
               className="input"
               value={kind}
               onChange={(event) =>
-                setKind(event.target.value as RelationshipKind)
+                selectKind(event.target.value as RelationshipKind)
               }
             >
-              {RELATIONSHIP_KINDS.map((option) => (
-                <option key={option} value={option}>
-                  {t(KIND_LABELS[option])}
+              {options.map((option) => (
+                <option key={option.kind} value={option.kind}>
+                  {t(KIND_LABELS[option.kind])}
                 </option>
               ))}
             </select>
@@ -312,6 +411,14 @@ function AddRelationshipAction({
               </li>
             ))}
           </ul>
+          {target && (
+            <p style={{ marginBottom: 4 }}>
+              {t("rel.addConfirm", {
+                target: target.name,
+                kind: t(KIND_LABELS[kind]),
+              })}
+            </p>
+          )}
           {mutation.isError && (
             <p className="t-caption" style={{ color: "var(--danger)" }}>
               {mutation.error instanceof Error ? mutation.error.message : null}
@@ -416,9 +523,14 @@ export function RelationshipsTab({
                 {
                   key: "counterparty",
                   header: t("rel.counterparty"),
-                  render: (rel: Relationship) => (
-                    <span className="t-mono">{counterpartyOf(rel, scope)}</span>
-                  ),
+                  render: (rel: Relationship) => {
+                    const ref = counterpartyRef(rel, scope);
+                    return ref ? (
+                      <EntityRef kind={ref.kind} id={ref.id} />
+                    ) : (
+                      <span className="t-mono">—</span>
+                    );
+                  },
                 },
                 {
                   key: "dates",

@@ -126,12 +126,32 @@
   box-shadow: var(--shadow-pop);
   padding: 22px;
   width: min(440px, calc(100vw - 40px));
+  /* A form taller than the viewport (create/edit with repeatable rows) must
+     scroll inside the dialog — without a bound the overlay centres it and the
+     action buttons overflow off-screen, unreachable. */
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
 }
 .modal .actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 18px;
+}
+
+/* A cross-record reference rendered inline as a text link (EntityRef): the
+   accent colour + hover underline read as navigable, with no button chrome. */
+.entity-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.entity-link:hover {
+  text-decoration: underline;
 }
 
 .toast {

@@ -813,3 +813,85 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
     expect(screen.queryByText(/^0$/)).toBeNull();
   });
 });
+
+describe("PersonScreen — archived is read-only (P-3)", () => {
+  it("hides edit/merge/archive and shows the Archived badge on an archived person", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ ...anna, archived_at: "2026-07-13T00:00:00Z" });
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
+    expect(screen.queryByTestId("edit-record")).toBeNull();
+    expect(screen.queryByTestId("merge-record")).toBeNull();
+    expect(screen.queryByTestId("archive-record")).toBeNull();
+  });
+});
+
+describe("PersonScreen — relationship kinds by scope (P-5)", () => {
+  it("offers deal_stakeholder (not org↔org) from a person, searches deals, confirms, and POSTs deal_id", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/relationships")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...employmentRel, id: "rel-new" }, 201);
+      }
+      if (url.includes("/relationships") && url.includes("person_id=p-1")) {
+        return emptyPage();
+      }
+      if (url.includes("/deals")) {
+        return jsonResponse({
+          data: [{ id: "d-1", name: "Q3 Renewal" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("add-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("add-relationship"));
+
+    // A person can anchor employment + deal_stakeholder; the org↔org kinds
+    // (partner_of/…) need two orgs and must not be offered here.
+    const kind = screen.getByLabelText("Kind");
+    expect(within(kind).queryByText("Partner of")).toBeNull();
+    await userEvent.selectOptions(kind, "deal_stakeholder");
+
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "q3");
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => expect(screen.getByText("Q3 Renewal")).toBeTruthy());
+    await userEvent.click(screen.getByText("Q3 Renewal"));
+
+    // A meaningful confirmation after select, consistent with merge.
+    expect(
+      screen.getByText("Add a Deal stakeholder link to Q3 Renewal."),
+    ).toBeTruthy();
+
+    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      person_id: "p-1",
+      deal_id: "d-1",
+      kind: "deal_stakeholder",
+      source: "manual",
+    });
+    expect(posted).not.toHaveProperty("organization_id");
+  });
+});

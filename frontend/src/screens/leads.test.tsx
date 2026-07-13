@@ -12,7 +12,13 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { LeadScreen, LeadsScreen, promoteEligible, scoreTone } from "./leads";
+import {
+  LeadScreen,
+  LeadsScreen,
+  promoteEligible,
+  scoreTone,
+  terminalBadge,
+} from "./leads";
 
 // The status/score-override/assign-to-me controls (Phase 4) resolve the
 // session principal via /v1/me, which needs a workspace slug before it will
@@ -674,5 +680,64 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
       expect(urls.some((url) => url.endsWith("/v1/me"))).toBe(true),
     );
     expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
+  });
+});
+
+describe("terminalBadge (archived/terminal labelling)", () => {
+  it("labels disqualified and promoted distinctly and leaves open leads unbadged", () => {
+    expect(terminalBadge("disqualified")).toEqual({
+      label: "lead.disqualified",
+      tone: "warn",
+    });
+    // A promoted lead IS archived, but reads "Archived" — never "Disqualified".
+    expect(terminalBadge("promoted")).toEqual({
+      label: "record.archived",
+      tone: "warn",
+    });
+    expect(terminalBadge("new")).toBeNull();
+    expect(terminalBadge("working")).toBeNull();
+  });
+});
+
+describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
+  it("a promoted lead reads Archived (not Disqualified) and hides edit/disqualify/promote/override", async () => {
+    stubFetchWithMe(async () =>
+      jsonResponse({
+        ...lead,
+        status: "promoted",
+        archived_at: "2026-07-13T00:00:00Z",
+      }),
+    );
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
+    expect(screen.queryByText("Disqualified")).toBeNull();
+    expect(screen.queryByTestId("edit-record")).toBeNull();
+    expect(screen.queryByTestId("archive-record")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Promote to contact" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Override score" })).toBeNull();
+  });
+
+  it("shows an 'overridden' badge when the score is human-overridden", async () => {
+    stubFetchWithMe(async () =>
+      jsonResponse({
+        ...lead,
+        score_override_reason: "Strong buying signal",
+        score_computed: 50,
+      }),
+    );
+    render(<LeadScreen id="l-1" />);
+    await waitFor(() => expect(screen.getByText("overridden")).toBeTruthy());
+  });
+
+  it("names the owner 'you' when the lead is owned by the current user", async () => {
+    stubFetchWithMe(
+      async () => jsonResponse({ ...lead, owner_id: "u-9" }),
+      "u-9",
+    );
+    render(<LeadScreen id="l-1" />);
+    await waitFor(() => expect(screen.getByText("Owner: you")).toBeTruthy());
   });
 });
