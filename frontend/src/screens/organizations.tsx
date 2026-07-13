@@ -45,6 +45,7 @@ import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
+import { StrengthCard } from "./strength";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
@@ -637,6 +638,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
             </div>
             {tab === "overview" && (
               <>
+                <StrengthCard kind="organization" id={org.id} />
                 <section className="card" style={{ marginBottom: 16 }}>
                   <SectionHeader
                     title={t("org.firmographics")}

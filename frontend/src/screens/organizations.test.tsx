@@ -61,6 +61,17 @@ const org = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
+// The dormant/no-interactions strength response — the default backstop for
+// every fetch stub below that isn't itself exercising the strength card
+// (P-4): the Company Overview now fires this GET unconditionally, and none
+// of the pre-existing tests below care about its shape.
+const dormantStrength = {
+  score: 0,
+  bucket: "dormant",
+  factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+  last_interaction: null,
+};
+
 const proposal = {
   proposal_id: "pr-1",
   organization_id: "o-1",
@@ -89,6 +100,9 @@ function stubApi(enrich: () => Response) {
       const method = request?.method ?? init?.method ?? "GET";
       if (method === "POST" && url.pathname.endsWith("/enrich")) {
         return enrich();
+      }
+      if (url.pathname.endsWith("/strength")) {
+        return jsonResponse(dormantStrength);
       }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -140,17 +154,24 @@ describe("company-360 enrichment", () => {
 
 // A URL-capturing fetch stub shared across the P-14/15/16 wiring tests
 // below: every request is recorded so a test can assert the params it
-// carried, and a caller-supplied responder decides what comes back.
+// carried, and a caller-supplied responder decides what comes back. Strength
+// requests are answered with the dormant default up front (overridable via
+// `strength`) so tests that don't care about relationship strength don't have
+// to plumb a branch for it.
 function stubFetch(
   responder: (
     url: string,
     method: string,
     request: Request,
   ) => Promise<Response>,
+  options?: Readonly<{ strength?: unknown }>,
 ): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
+    if (new URL(request.url).pathname.endsWith("/strength")) {
+      return jsonResponse(options?.strength ?? dormantStrength);
+    }
     return responder(request.url, request.method, request);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -599,5 +620,39 @@ describe("CompanyScreen — Roll-up tab (P-7)", () => {
         screen.getByText("1 account(s) not visible to you were excluded"),
       ).toBeTruthy(),
     );
+  });
+});
+
+describe("CompanyScreen — relationship-strength card (P-4)", () => {
+  it("renders the org's strength bucket, score, and factor breakdown", async () => {
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(org);
+      },
+      {
+        strength: {
+          score: 41,
+          bucket: "weak",
+          factors: {
+            recency: 0.3,
+            frequency: 0.2,
+            reciprocity: 0.4,
+            direction: 0.5,
+          },
+          last_interaction: "2026-06-20T12:00:00Z",
+        },
+      },
+    );
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Weak")).toBeTruthy());
+    expect(screen.getByText("Score 41/100")).toBeTruthy();
+    expect(screen.getByText("Recency")).toBeTruthy();
+    expect(screen.getByText("Frequency")).toBeTruthy();
+    expect(screen.getByText("Reciprocity")).toBeTruthy();
+    expect(screen.getByText("Direction")).toBeTruthy();
   });
 });

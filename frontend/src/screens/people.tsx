@@ -33,6 +33,7 @@ import {
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
 import { RelationshipsTab } from "./relationships";
+import { StrengthCard } from "./strength";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -585,6 +586,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             </div>
             {tab === "overview" ? (
               <>
+                <StrengthCard kind="person" id={person.id} />
                 {person.consent && person.consent.length > 0 && (
                   <section
                     aria-label={t("person.consent")}

@@ -694,6 +694,21 @@ export const en = {
   "auto.delete": "Delete",
   "auto.statusEnabled": "enabled",
   "auto.statusPaused": "paused",
+
+  "strength.title": "Relationship strength",
+  "strength.score": "Score {score}/100",
+  "strength.bucket.dormant": "Dormant",
+  "strength.bucket.weak": "Weak",
+  "strength.bucket.warm": "Warm",
+  "strength.bucket.strong": "Strong",
+  "strength.factor.recency": "Recency",
+  "strength.factor.frequency": "Frequency",
+  "strength.factor.reciprocity": "Reciprocity",
+  "strength.factor.direction": "Direction",
+  "strength.lastInteraction": "Last interaction: {when}",
+  "strength.none": "No interactions yet",
+  "strength.inout": "{in} in · {out} out (90d)",
+  "strength.computedFrom": "Computed from {count} activities",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -109,19 +109,39 @@ describe("ContactsScreen (B-EP09.10a)", () => {
   });
 });
 
+// The dormant/no-interactions strength response — the default backstop for
+// every stubFetch call below that isn't itself exercising the strength card
+// (P-4): the Person Overview now fires this GET unconditionally, and none of
+// those pre-existing tests care about its shape, so they get an honest
+// zero/dormant reading rather than a mismatched shape from the person-fixture
+// catch-all.
+const dormantStrength = {
+  score: 0,
+  bucket: "dormant",
+  factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+  last_interaction: null,
+};
+
 // A URL-capturing fetch stub shared across the P-14/15/16 wiring tests
 // below: every request is recorded so a test can assert the params it
-// carried, and a caller-supplied responder decides what comes back.
+// carried, and a caller-supplied responder decides what comes back. Strength
+// requests are answered with the dormant default up front (overridable via
+// `strength`) so tests that don't care about relationship strength don't have
+// to plumb a branch for it.
 function stubFetch(
   responder: (
     url: string,
     method: string,
     request: Request,
   ) => Promise<Response>,
+  options?: Readonly<{ strength?: unknown }>,
 ): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
+    if (new URL(request.url).pathname.endsWith("/strength")) {
+      return jsonResponse(options?.strength ?? dormantStrength);
+    }
     return responder(request.url, request.method, request);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -609,5 +629,63 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
     await userEvent.click(screen.getByTestId("remove-relationship"));
 
     await waitFor(() => expect(deleted).toBe(true));
+  });
+});
+
+describe("PersonScreen — relationship-strength card (P-4)", () => {
+  it("renders the bucket badge, score, and all four factor labels", async () => {
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(anna);
+      },
+      {
+        strength: {
+          score: 72,
+          bucket: "strong",
+          factors: {
+            recency: 0.9,
+            frequency: 0.6,
+            reciprocity: 0.5,
+            direction: 0.8,
+          },
+          last_interaction: "2026-07-01T09:00:00Z",
+          inbound_90d: 5,
+          outbound_90d: 7,
+          contributing_activity_ids: ["a-1", "a-2", "a-3"],
+        },
+      },
+    );
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByText("Strong")).toBeTruthy());
+    expect(screen.getByText("Score 72/100")).toBeTruthy();
+    expect(screen.getByText("Recency")).toBeTruthy();
+    expect(screen.getByText("Frequency")).toBeTruthy();
+    expect(screen.getByText("Reciprocity")).toBeTruthy();
+    expect(screen.getByText("Direction")).toBeTruthy();
+    expect(screen.getByText("90%")).toBeTruthy();
+    expect(screen.getByText("5 in · 7 out (90d)")).toBeTruthy();
+    expect(screen.getByText("Computed from 3 activities")).toBeTruthy();
+  });
+
+  it("renders an honest 'no interactions yet' state for a dormant/score-0 record", async () => {
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(anna);
+      },
+      { strength: dormantStrength },
+    );
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByText("Dormant")).toBeTruthy());
+    expect(screen.getByText("Score 0/100")).toBeTruthy();
+    expect(screen.getByText("No interactions yet")).toBeTruthy();
+    expect(screen.queryByText(/^0$/)).toBeNull();
   });
 });
