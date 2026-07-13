@@ -141,7 +141,7 @@ function EditOfferHeaderModal({
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
-      : (mutation.error as Error).message
+      : mutation.error?.message
     : null;
 
   return (
