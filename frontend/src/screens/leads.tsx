@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -8,6 +9,8 @@ import {
   Button,
   DataTable,
   SectionHeader,
+  SegmentedControl,
+  TextInput,
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -17,6 +20,7 @@ import {
   provenanceOf,
   QueryGate,
   throwProblem,
+  useMe,
 } from "./common";
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
@@ -244,6 +248,194 @@ export function LeadsScreen() {
   );
 }
 
+const LEAD_OPEN_STATUSES = ["new", "working"] as const;
+type LeadOpenStatus = (typeof LEAD_OPEN_STATUSES)[number];
+
+function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
+  return status === "new" || status === "working";
+}
+
+// Phase 4 lifecycle controls (P-10/11/12): status (new↔working only —
+// promoted/disqualified are terminal and stay badge-only), the score
+// explain/override panel (the read carries no per-factor breakdown, so
+// "explain" here is honestly just the override-vs-machine story), and the
+// owner display + "Assign to me" (no user-list endpoint exists yet, so
+// reassigning to an arbitrary OTHER user isn't buildable here). All three
+// share one PATCH /leads/{id} + If-Match(lead.version) mutation.
+function LeadLifecycle({
+  lead,
+  id,
+  onChanged,
+}: Readonly<{ lead: Lead; id: string; onChanged: () => void }>) {
+  const t = useT();
+  const me = useMe();
+  const scoreFieldId = useId();
+  const reasonFieldId = useId();
+  const [overriding, setOverriding] = useState(false);
+  const [scoreValue, setScoreValue] = useState("");
+  const [reasonValue, setReasonValue] = useState("");
+
+  const patch = useMutation({
+    mutationFn: async (body: UpdateLeadRequest) => {
+      const { data, error } = await api.PATCH("/leads/{id}", {
+        params: { path: { id }, ...ifMatch(lead.version) },
+        body,
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      onChanged();
+      setOverriding(false);
+      setScoreValue("");
+      setReasonValue("");
+    },
+  });
+
+  const reasonBlank = reasonValue.trim() === "";
+  const scoreBlank = scoreValue.trim() === "";
+  const meId = me.data?.user?.id;
+
+  return (
+    <div
+      className="card card-inset"
+      style={{
+        marginTop: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+      }}
+    >
+      {isOpenStatus(lead.status) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span className="t-caption">{t("lead.setStatus")}</span>
+          <SegmentedControl
+            options={LEAD_OPEN_STATUSES}
+            value={lead.status}
+            labels={{
+              new: t("lead.status.new"),
+              working: t("lead.status.working"),
+            }}
+            onChange={(status) => patch.mutate({ status })}
+          />
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span className="t-caption">{t("lead.explainScore")}</span>
+        {lead.score_override_reason ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <p>
+              {t("lead.scoreOverridden", {
+                reason: lead.score_override_reason,
+              })}
+            </p>
+            {lead.score_computed != null && (
+              <p className="t-caption">
+                {t("lead.machineScore", { score: lead.score_computed })}
+              </p>
+            )}
+            <Button
+              small
+              disabled={patch.isPending}
+              onClick={() => patch.mutate({ score: null })}
+            >
+              {t("lead.clearOverride")}
+            </Button>
+          </div>
+        ) : overriding ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              maxWidth: 320,
+            }}
+          >
+            <div
+              className="t-caption"
+              style={{ display: "flex", flexDirection: "column", gap: 4 }}
+            >
+              <label htmlFor={scoreFieldId}>
+                {t("lead.overrideScoreValue")}
+              </label>
+              <TextInput
+                id={scoreFieldId}
+                type="number"
+                min={0}
+                max={100}
+                value={scoreValue}
+                onChange={(event) => setScoreValue(event.target.value)}
+              />
+            </div>
+            <div
+              className="t-caption"
+              style={{ display: "flex", flexDirection: "column", gap: 4 }}
+            >
+              <label htmlFor={reasonFieldId}>{t("lead.overrideReason")}</label>
+              <TextInput
+                id={reasonFieldId}
+                value={reasonValue}
+                onChange={(event) => setReasonValue(event.target.value)}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button
+                variant="primary"
+                small
+                disabled={reasonBlank || scoreBlank || patch.isPending}
+                onClick={() =>
+                  patch.mutate({
+                    score: Number(scoreValue),
+                    score_override_reason: reasonValue.trim(),
+                  })
+                }
+              >
+                {t("lead.saveOverride")}
+              </Button>
+              <Button small onClick={() => setOverriding(false)}>
+                {t("create.cancel")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span className="t-caption">{t("lead.machineComputed")}</span>
+            <Button small onClick={() => setOverriding(true)}>
+              {t("lead.overrideScore")}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span className="t-caption">
+          {lead.owner_id
+            ? t("lead.owner", { owner: lead.owner_id })
+            : t("lead.unassigned")}
+        </span>
+        {meId && meId !== lead.owner_id && (
+          <Button
+            small
+            disabled={patch.isPending}
+            onClick={() => patch.mutate({ owner_id: meId })}
+          >
+            {t("lead.assignToMe")}
+          </Button>
+        )}
+      </div>
+
+      {patch.isError && (
+        <span className="t-caption" style={{ color: "var(--danger)" }}>
+          {patch.error instanceof Error ? patch.error.message : null}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -378,6 +570,14 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 </span>
               )}
             </div>
+            <LeadLifecycle
+              lead={lead}
+              id={id}
+              onChanged={() => {
+                queryClient.invalidateQueries({ queryKey: ["leads"] });
+                queryClient.invalidateQueries({ queryKey: ["lead", id] });
+              }}
+            />
           </div>
         )}
       </QueryGate>

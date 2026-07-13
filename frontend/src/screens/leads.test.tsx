@@ -10,9 +10,16 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { LeadScreen, LeadsScreen, promoteEligible, scoreTone } from "./leads";
+
+// The status/score-override/assign-to-me controls (Phase 4) resolve the
+// session principal via /v1/me, which needs a workspace slug before it will
+// even ask — set on every test, cleared after (mirrors automations.test.tsx).
+beforeEach(() => {
+  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+});
 
 // Leads (B-EP09.10a/b, §3.5 segregation): visually SEGREGATED from the
 // contact graph — the ≥60/40–59/<40 score thresholds, eligibility-gated
@@ -26,6 +33,7 @@ import { LeadScreen, LeadsScreen, promoteEligible, scoreTone } from "./leads";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  globalThis.localStorage.clear();
   window.location.hash = "";
 });
 
@@ -395,5 +403,184 @@ describe("LeadsScreen — dedupe view-existing link (P-16)", () => {
     );
     await userEvent.click(screen.getByText("View existing record"));
     expect(window.location.hash).toBe("#/leads/01X");
+  });
+});
+
+// A URL-capturing fetch stub that also answers /v1/me — the three Phase-4
+// lifecycle controls (status, score override, assign-to-me) all need the
+// session principal resolved, so every test below sets a workspace slug and
+// serves /v1/me alongside the lead responses.
+function stubFetchWithMe(
+  responder: (
+    url: string,
+    method: string,
+    request: Request,
+  ) => Promise<Response | undefined>,
+  meId = "u-9",
+): { urls: string[] } {
+  const urls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      urls.push(request.url);
+      if (request.url.endsWith("/v1/me")) {
+        return jsonResponse({
+          user: { id: meId, display_name: "Me" },
+          roles: ["rep"],
+          teams: [],
+        });
+      }
+      const answer = await responder(request.url, request.method, request);
+      return answer ?? jsonResponse(lead);
+    }),
+  );
+  return { urls };
+}
+
+describe("LeadScreen — status control (P-12)", () => {
+  it("shows the status control for a new/working lead and PATCHes status with If-Match", async () => {
+    let patchHeader: string | null = null;
+    let patchBody: unknown = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PATCH" && url.includes("/leads/l-1")) {
+        patchHeader = request.headers.get("If-Match");
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...lead, status: "working", version: 2 });
+      }
+      return undefined;
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Working" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Working" }));
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchHeader).toBe("1");
+    expect(patchBody).toMatchObject({ status: "working" });
+  });
+
+  it("hides the status control for a promoted/disqualified lead", async () => {
+    stubFetchWithMe(async () => jsonResponse({ ...lead, status: "promoted" }));
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Working" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New" })).toBeNull();
+  });
+});
+
+describe("LeadScreen — score explain + override (P-10)", () => {
+  it("shows Override score for a non-overridden lead; submit requires a reason and PATCHes score + reason", async () => {
+    let patchBody: unknown = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PATCH" && url.includes("/leads/l-1")) {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({
+          ...lead,
+          score: 90,
+          score_override_reason: "Strong buying signal",
+          score_computed: 72,
+          version: 2,
+        });
+      }
+      return undefined;
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Override score" }),
+      ).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Override score" }),
+    );
+
+    const submit = screen.getByRole("button", { name: "Save override" });
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+
+    const scoreInput = screen.getByLabelText("Score");
+    const reasonInput = screen.getByLabelText("Reason");
+    await userEvent.clear(scoreInput);
+    await userEvent.type(scoreInput, "90");
+    await userEvent.type(reasonInput, "Strong buying signal");
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(submit);
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({
+      score: 90,
+      score_override_reason: "Strong buying signal",
+    });
+  });
+
+  it("shows the reason + machine value and Clear override for an overridden lead", async () => {
+    let patchBody: unknown = null;
+    const overridden = {
+      ...lead,
+      score: 90,
+      score_override_reason: "Strong buying signal",
+      score_computed: 72,
+    };
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PATCH" && url.includes("/leads/l-1")) {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...lead, score: 72, version: 2 });
+      }
+      return jsonResponse(overridden);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Strong buying signal/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/72/)).toBeTruthy();
+    const clear = screen.getByRole("button", { name: "Clear override" });
+    await userEvent.click(clear);
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({ score: null });
+  });
+});
+
+describe("LeadScreen — owner display + assign to me (P-11)", () => {
+  it("shows Unassigned and Assign to me PATCHes owner_id to the current user", async () => {
+    let patchBody: unknown = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PATCH" && url.includes("/leads/l-1")) {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...lead, owner_id: "u-9", version: 2 });
+      }
+      return undefined;
+    }, "u-9");
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByText("Unassigned")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Assign to me" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Assign to me" }));
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({ owner_id: "u-9" });
+  });
+
+  it("hides Assign to me when the lead is already owned by the current user", async () => {
+    const { urls } = stubFetchWithMe(
+      async () => jsonResponse({ ...lead, owner_id: "u-9" }),
+      "u-9",
+    );
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() => expect(screen.getByText(/u-9/)).toBeTruthy());
+    // Wait past the me-probe resolving too, so the assertion below isn't a
+    // false negative from the button not having had a chance to render yet.
+    await waitFor(() =>
+      expect(urls.some((url) => url.endsWith("/v1/me"))).toBe(true),
+    );
+    expect(screen.queryByRole("button", { name: "Assign to me" })).toBeNull();
   });
 });
