@@ -31,6 +31,10 @@ type ollamaWire struct {
 	Tools    []ollamaToolWire `json:"tools,omitempty"`
 	Stream   bool             `json:"stream"`
 	Options  *ollamaOptions   `json:"options,omitempty"`
+	// Format constrains decoding to a JSON Schema (Ollama's structured-output
+	// mode). Sent only when the request carries a ResponseSchema; omitted
+	// otherwise so ordinary free-text calls are unaffected.
+	Format json.RawMessage `json:"format,omitempty"`
 }
 
 type ollamaOptions struct {
@@ -133,6 +137,9 @@ func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream b
 	}
 	if req.MaxTokens > 0 {
 		wire.Options = &ollamaOptions{NumPredict: req.MaxTokens}
+	}
+	if len(req.ResponseSchema) > 0 {
+		wire.Format = req.ResponseSchema
 	}
 	// Ollama has no top-level system field; the system prompt travels as
 	// the leading message.

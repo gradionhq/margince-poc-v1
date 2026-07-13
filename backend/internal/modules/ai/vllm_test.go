@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -24,6 +25,66 @@ func newVLLMForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func TestVLLMCarriesResponseSchemaAsJSONSchemaResponseFormatAndOmitsItOtherwise(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`)
+	capture := func(t *testing.T, req model.Request) map[string]json.RawMessage {
+		t.Helper()
+		var received []byte
+		client := newVLLMForTest(t, func(w http.ResponseWriter, r *http.Request) {
+			received, _ = io.ReadAll(r.Body)
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{map[string]any{"message": map[string]string{"content": "{}"}}},
+			}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Complete(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(received, &wire); err != nil {
+			t.Fatalf("wire not JSON: %v", err)
+		}
+		return wire
+	}
+
+	// With a schema, response_format carries the OpenAI json_schema shape
+	// with the schema verbatim.
+	withSchema := capture(t, model.Request{
+		Messages:       []model.Message{{Role: "user", Content: "hi"}},
+		ResponseSchema: schema,
+	})
+	rf, ok := withSchema["response_format"]
+	if !ok {
+		t.Fatalf("response_format absent when ResponseSchema set: %v", withSchema)
+	}
+	var got struct {
+		Type       string `json:"type"`
+		JSONSchema struct {
+			Name   string          `json:"name"`
+			Schema json.RawMessage `json:"schema"`
+			Strict bool            `json:"strict"`
+		} `json:"json_schema"`
+	}
+	if err := json.Unmarshal(rf, &got); err != nil {
+		t.Fatal(err)
+	}
+	// strict is deliberately false (see sendChat) so lenient guided-decoding
+	// backends accept schemas that aren't OpenAI-exact-strict.
+	if got.Type != "json_schema" || got.JSONSchema.Name == "" || got.JSONSchema.Strict {
+		t.Fatalf("response_format shape wrong: %+v", got)
+	}
+	if !bytes.Equal(bytes.TrimSpace(got.JSONSchema.Schema), bytes.TrimSpace(schema)) {
+		t.Fatalf("schema not verbatim: %s", got.JSONSchema.Schema)
+	}
+
+	// Without a schema, response_format MUST be omitted.
+	noSchema := capture(t, model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if _, present := noSchema["response_format"]; present {
+		t.Fatalf("response_format present when no ResponseSchema: %v", noSchema)
+	}
 }
 
 func TestVLLMCompleteSpeaksOpenAICompatibleWire(t *testing.T) {

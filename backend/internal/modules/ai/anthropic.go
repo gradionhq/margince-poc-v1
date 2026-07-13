@@ -36,18 +36,34 @@ const anthropicAPIVersion = "2023-06-01"
 const anthropicMaxTokensDefault = 1024
 
 type anthropicWire struct {
-	Model     string              `json:"model"`
-	MaxTokens int                 `json:"max_tokens"`
-	System    string              `json:"system,omitempty"`
-	Messages  []wireMessage       `json:"messages"`
-	Tools     []anthropicToolWire `json:"tools,omitempty"`
-	Stream    bool                `json:"stream,omitempty"`
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       string                 `json:"system,omitempty"`
+	Messages     []wireMessage          `json:"messages"`
+	Tools        []anthropicToolWire    `json:"tools,omitempty"`
+	Stream       bool                   `json:"stream,omitempty"`
+	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
 }
 
 type anthropicToolWire struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+// anthropicOutputConfig / anthropicResponseFormat carry Anthropic's native
+// structured-output constraint (output_config.format). A json_schema format
+// constrains the completion to the schema at generation — the same guardrail
+// Ollama's `format` and vLLM's response_format provide — and the completion
+// still arrives as an ordinary text block of JSON, so no response handling
+// changes. Sent only when the request carries a schema.
+type anthropicOutputConfig struct {
+	Format *anthropicResponseFormat `json:"format,omitempty"`
+}
+
+type anthropicResponseFormat struct {
+	Type   string          `json:"type"`
+	Schema json.RawMessage `json:"schema"`
 }
 
 func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
@@ -140,6 +156,11 @@ func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bo
 		wire.Tools = append(wire.Tools, anthropicToolWire{
 			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
 		})
+	}
+	if len(req.ResponseSchema) > 0 {
+		wire.OutputConfig = &anthropicOutputConfig{
+			Format: &anthropicResponseFormat{Type: jsonSchemaFormatType, Schema: req.ResponseSchema},
+		}
 	}
 	payload, _, err := sendablePayload(ctx, wire, req.SecretStripper)
 	if err != nil {

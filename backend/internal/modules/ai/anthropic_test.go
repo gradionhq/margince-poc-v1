@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,62 @@ func newAnthropicForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func TestAnthropicCarriesResponseSchemaAsOutputConfigFormatAndOmitsItOtherwise(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"ok":{"type":"boolean"}},"required":["ok"]}`)
+	capture := func(t *testing.T, req model.Request) map[string]json.RawMessage {
+		t.Helper()
+		var received []byte
+		client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+			received, _ = io.ReadAll(r.Body)
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "{}"}},
+				"usage":   map[string]int{"input_tokens": 1, "output_tokens": 1},
+			}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Complete(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(received, &wire); err != nil {
+			t.Fatalf("wire not JSON: %v", err)
+		}
+		return wire
+	}
+
+	// With a schema, output_config.format carries json_schema + the schema verbatim.
+	withSchema := capture(t, model.Request{
+		Messages:       []model.Message{{Role: "user", Content: "hi"}},
+		ResponseSchema: schema,
+	})
+	oc, ok := withSchema["output_config"]
+	if !ok {
+		t.Fatalf("output_config absent when ResponseSchema set: %v", withSchema)
+	}
+	var got struct {
+		Format struct {
+			Type   string          `json:"type"`
+			Schema json.RawMessage `json:"schema"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(oc, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Format.Type != "json_schema" {
+		t.Fatalf("format type wrong: %+v", got)
+	}
+	if !bytes.Equal(bytes.TrimSpace(got.Format.Schema), bytes.TrimSpace(schema)) {
+		t.Fatalf("schema not verbatim: %s", got.Format.Schema)
+	}
+
+	// Without a schema, output_config MUST be omitted.
+	noSchema := capture(t, model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if _, present := noSchema["output_config"]; present {
+		t.Fatalf("output_config present when no ResponseSchema: %v", noSchema)
+	}
 }
 
 func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {

@@ -36,6 +36,11 @@ const (
 	defaultVLLMModel   = "google/gemma-3-12b-it"
 )
 
+// jsonSchemaFormatType is the structured-output format discriminator both the
+// vLLM (OpenAI-compatible) and Anthropic adapters send for a schema-constrained
+// completion.
+const jsonSchemaFormatType = "json_schema"
+
 // requestTimeout bounds a single model call. Generous because premium
 // completions on long context are legitimately slow; per-call contexts
 // tighten it where a caller has a real deadline.
