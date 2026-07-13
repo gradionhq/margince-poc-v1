@@ -91,6 +91,10 @@ export const en = {
   "deal.singleThreaded": "single-threaded",
   "deal.staged": "staged",
   "record.timeline": "Timeline",
+  "record.edit": "Edit",
+  "record.save": "Save",
+  "edit.versionSkew":
+    "This record changed since you opened it — reload and try again.",
 
   "common.error": "Couldn't load this view.",
   "common.retry": "Retry",

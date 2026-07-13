@@ -94,6 +94,10 @@ export const de = {
   "deal.singleThreaded": "nur ein Kontakt",
   "deal.staged": "vorgemerkt",
   "record.timeline": "Verlauf",
+  "record.edit": "Bearbeiten",
+  "record.save": "Speichern",
+  "edit.versionSkew":
+    "Dieser Datensatz hat sich geändert, seit du ihn geöffnet hast — neu laden und erneut versuchen.",
 
   "common.error": "Konnten diese Ansicht nicht laden.",
   "common.retry": "Erneut versuchen",

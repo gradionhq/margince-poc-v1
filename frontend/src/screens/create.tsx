@@ -99,7 +99,7 @@ export function NewRecordButton({
   );
 }
 
-function fieldControl(
+export function fieldControl(
   field: CreateField,
   fieldId: string,
   value: string,
@@ -135,6 +135,80 @@ function fieldControl(
   );
 }
 
+// The shared modal form body: fields → controls, the error paragraph, and
+// the Cancel/Save row. Both create and edit render this identically — only
+// the values' origin (empty defaults vs. a prefilled record) and the submit
+// label differ, and those stay with each modal's owner.
+export function RecordFormBody({
+  fields,
+  values,
+  setValues,
+  pending,
+  error,
+  onSubmit,
+  onClose,
+  submitLabelKey,
+}: Readonly<{
+  fields: CreateField[];
+  values: Record<string, string>;
+  setValues: (next: Record<string, string>) => void;
+  pending: boolean;
+  error: string | null;
+  onSubmit: (values: Record<string, string>) => void;
+  onClose: () => void;
+  submitLabelKey: MessageKey;
+}>) {
+  const t = useT();
+  const formId = useId();
+
+  const requiredMissing = fields.some(
+    (field) => field.required && !(values[field.key] ?? "").trim(),
+  );
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit(values);
+      }}
+      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+    >
+      {fields.map((field) => {
+        const fieldId = `${formId}-${field.key}`;
+        return (
+          <div className="field" key={field.key}>
+            <label className="t-label" htmlFor={fieldId}>
+              {t(field.label)}
+              {field.required ? " *" : ""}
+            </label>
+            {fieldControl(field, fieldId, values[field.key] ?? "", (next) =>
+              setValues({ ...values, [field.key]: next }),
+            )}
+          </div>
+        );
+      })}
+      {error && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {error}
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <Button small type="button" onClick={onClose}>
+          {t("create.cancel")}
+        </Button>
+        <Button
+          small
+          variant="primary"
+          type="submit"
+          disabled={pending || requiredMissing}
+        >
+          {pending ? t("create.saving") : t(submitLabelKey)}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export function CreateRecordModal({
   open,
   onClose,
@@ -152,7 +226,6 @@ export function CreateRecordModal({
   error: string | null;
   onSubmit: (values: Record<string, string>) => void;
 }>) {
-  const t = useT();
   const headingId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
 
@@ -170,55 +243,21 @@ export function CreateRecordModal({
     }
   }, [open, fields]);
 
-  const requiredMissing = fields.some(
-    (field) => field.required && !(values[field.key] ?? "").trim(),
-  );
-
   return (
     <Modal open={open} onClose={onClose} labelledBy={headingId}>
       <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
         {title}
       </h2>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit(values);
-        }}
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
-      >
-        {fields.map((field) => {
-          const fieldId = `${headingId}-${field.key}`;
-          return (
-            <div className="field" key={field.key}>
-              <label className="t-label" htmlFor={fieldId}>
-                {t(field.label)}
-                {field.required ? " *" : ""}
-              </label>
-              {fieldControl(field, fieldId, values[field.key] ?? "", (next) =>
-                setValues((current) => ({ ...current, [field.key]: next })),
-              )}
-            </div>
-          );
-        })}
-        {error && (
-          <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
-        )}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <Button small type="button" onClick={onClose}>
-            {t("create.cancel")}
-          </Button>
-          <Button
-            small
-            variant="primary"
-            type="submit"
-            disabled={pending || requiredMissing}
-          >
-            {pending ? t("create.saving") : t("create.save")}
-          </Button>
-        </div>
-      </form>
+      <RecordFormBody
+        fields={fields}
+        values={values}
+        setValues={setValues}
+        pending={pending}
+        error={error}
+        onSubmit={onSubmit}
+        onClose={onClose}
+        submitLabelKey="create.save"
+      />
     </Modal>
   );
 }
