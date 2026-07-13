@@ -778,4 +778,21 @@ export const de = {
   "product.sortName": "Name",
   "product.sortCreated": "Neueste",
   "product.empty": "Noch keine Produkte.",
+
+  "template.title": "Angebotsvorlagen",
+  "template.settingsSub": "Markenkonforme DE/EN-PDF-Layouts für Angebote.",
+  "template.open": "Angebotsvorlagen öffnen",
+  "template.new": "Neue Vorlage",
+  "template.edit": "Vorlage bearbeiten",
+  "template.archive": "Vorlage archivieren",
+  "template.archiveConfirm":
+    "Diese Vorlage archivieren? Angebote, die sie referenzieren, fallen auf die Standardvorlage der Sprache zurück.",
+  "template.name": "Name",
+  "template.locale": "Sprache",
+  "template.isDefault": "Standard für Sprache",
+  "template.header": "Kopftext",
+  "template.footer": "Fußtext",
+  "template.localeFilter": "Sprache",
+  "template.sortName": "Name",
+  "template.empty": "Noch keine Angebotsvorlagen.",
 } as const satisfies Record<MessageKey, string>;

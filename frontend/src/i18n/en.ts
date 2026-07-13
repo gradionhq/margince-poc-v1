@@ -761,6 +761,23 @@ export const en = {
   "product.sortName": "Name",
   "product.sortCreated": "Newest",
   "product.empty": "No products yet.",
+
+  "template.title": "Offer templates",
+  "template.settingsSub": "Branded DE/EN PDF layouts for offers.",
+  "template.open": "Open offer templates",
+  "template.new": "New template",
+  "template.edit": "Edit template",
+  "template.archive": "Archive template",
+  "template.archiveConfirm":
+    "Archive this template? Offers that reference it fall back to the locale default.",
+  "template.name": "Name",
+  "template.locale": "Locale",
+  "template.isDefault": "Default for locale",
+  "template.header": "Header text",
+  "template.footer": "Footer text",
+  "template.localeFilter": "Locale",
+  "template.sortName": "Name",
+  "template.empty": "No offer templates yet.",
 } as const;
 
 export type MessageKey = keyof typeof en;
