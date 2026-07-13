@@ -277,6 +277,14 @@ export const en = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Omitted",
 
+  "deals.pipeline": "Pipeline",
+  "deals.filterStalled": "Stalled only",
+  "deals.filterOwnerMe": "My deals",
+  "deals.filterPartnerSourced": "Partner-sourced",
+  "deals.sortNewest": "Newest",
+  "deals.sortClose": "Close date",
+  "deals.sortAmount": "Largest",
+
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",
   "inbox.expires": "expires {at}",

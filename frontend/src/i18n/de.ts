@@ -283,6 +283,14 @@ export const de = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Ausgeschlossen",
 
+  "deals.pipeline": "Pipeline",
+  "deals.filterStalled": "Nur ins Stocken geraten",
+  "deals.filterOwnerMe": "Meine Deals",
+  "deals.filterPartnerSourced": "Über Partner",
+  "deals.sortNewest": "Neueste",
+  "deals.sortClose": "Abschlussdatum",
+  "deals.sortAmount": "Größte",
+
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",
   "inbox.expires": "läuft ab {at}",
