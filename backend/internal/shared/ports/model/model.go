@@ -11,6 +11,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 )
 
@@ -44,6 +45,17 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolDef
 	MaxTokens int
+	// ResponseSchema, when non-nil, is a JSON Schema the completion must
+	// conform to. Providers with schema-constrained decoding enforce it at
+	// GENERATION so a weak model cannot emit the wrong shape — Ollama via
+	// `format`, vLLM via the OpenAI `response_format` json_schema, and
+	// Anthropic via `output_config.format`. Providers without a native mode
+	// (the offline fake) ignore it and the caller's parse→validate→retry
+	// policy still catches malformed output. It is a shape guardrail, never a
+	// substitute for that policy or the domain evidence gate. It is a
+	// json.RawMessage (not []byte) so it is carried as a JSON value, never
+	// base64-encoded, if a wire embeds it.
+	ResponseSchema json.RawMessage
 	// SecretStripper runs over the OUTBOUND payload before it leaves the
 	// process. Hygiene only — credentials and secrets, not PII
 	// pseudonymization (A8 revised); privacy is the location ladder. In

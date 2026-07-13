@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -32,7 +33,7 @@ func TestOllamaCompleteCarriesSystemAsLeadingMessage(t *testing.T) {
 		if r.URL.Path != "/api/chat" {
 			t.Fatalf("wrong path %s", r.URL.Path)
 		}
-		received, _ = io.ReadAll(r.Body)
+		received = readBody(t, r.Body)
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"message": map[string]string{"content": "local hello"},
 			"done":    true, "prompt_eval_count": 7, "eval_count": 2,
@@ -64,6 +65,51 @@ func TestOllamaCompleteCarriesSystemAsLeadingMessage(t *testing.T) {
 	// The stripper runs on the LOCAL path too (B-EP06.5: cloud or local).
 	if strings.Contains(string(received), "verysecretpw") {
 		t.Fatalf("secret reached the local wire: %s", received)
+	}
+}
+
+func TestOllamaCarriesResponseSchemaAsFormatWhenSetAndOmitsItOtherwise(t *testing.T) {
+	schema := []byte(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`)
+	capture := func(t *testing.T, req model.Request) map[string]json.RawMessage {
+		t.Helper()
+		var received []byte
+		client := newOllamaForTest(t, func(w http.ResponseWriter, r *http.Request) {
+			received = readBody(t, r.Body)
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"message": map[string]string{"content": "{}"}, "done": true,
+			}); err != nil {
+				t.Errorf("encoding fixture response: %v", err)
+			}
+		})
+		if _, err := client.Complete(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(received, &wire); err != nil {
+			t.Fatalf("wire not JSON: %v", err)
+		}
+		return wire
+	}
+
+	// With a schema, the wire carries it VERBATIM as `format` so Ollama
+	// constrains decoding to it.
+	withSchema := capture(t, model.Request{
+		Messages:       []model.Message{{Role: "user", Content: "hi"}},
+		ResponseSchema: schema,
+	})
+	got, ok := withSchema["format"]
+	if !ok {
+		t.Fatalf("format absent when ResponseSchema set: %v", withSchema)
+	}
+	if !bytes.Equal(bytes.TrimSpace(got), bytes.TrimSpace(schema)) {
+		t.Fatalf("format not the schema verbatim: %s", got)
+	}
+
+	// Without a schema, `format` MUST be omitted — an empty/`null` format
+	// would make Ollama reject or misparse every ordinary call.
+	noSchema := capture(t, model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if _, present := noSchema["format"]; present {
+		t.Fatalf("format present when no ResponseSchema: %v", noSchema)
 	}
 }
 

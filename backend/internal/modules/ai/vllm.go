@@ -27,12 +27,33 @@ type vllmClient struct {
 	defaultModel string
 }
 
+// vllmSchemaName labels the structured-output schema; OpenAI's
+// response_format requires a name, and the value is otherwise opaque.
+const vllmSchemaName = "structured_output"
+
 type vllmChatWire struct {
 	Model     string           `json:"model"`
 	Messages  []wireMessage    `json:"messages"`
 	Tools     []ollamaToolWire `json:"tools,omitempty"`
 	MaxTokens int              `json:"max_tokens,omitempty"`
 	Stream    bool             `json:"stream"`
+	// ResponseFormat carries the OpenAI-compatible json_schema structured
+	// output (vLLM guided decoding); set only when the request asks for a
+	// schema, so ordinary free-text calls are unchanged.
+	ResponseFormat *vllmResponseFormat `json:"response_format,omitempty"`
+}
+
+// vllmResponseFormat / vllmJSONSchema mirror the OpenAI response_format
+// json_schema shape vLLM accepts to constrain decoding to a schema.
+type vllmResponseFormat struct {
+	Type       string         `json:"type"` // "json_schema"
+	JSONSchema vllmJSONSchema `json:"json_schema"`
+}
+
+type vllmJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 type vllmChatResponse struct {
@@ -124,6 +145,17 @@ func (c *vllmClient) sendChat(ctx context.Context, req model.Request, stream boo
 	// The OpenAI-compatible surface carries the system prompt as the
 	// leading message, same as Ollama's chat shape.
 	wire.Messages = wireMessages(req.System, req.Messages)
+	if len(req.ResponseSchema) > 0 {
+		// strict:false: vLLM's guided-decoding backends still constrain to the
+		// schema, but this avoids the OpenAI-exact strict rules (every object
+		// needs additionalProperties:false + all-required) rejecting a schema
+		// the callers don't write that way. The parse→validate→retry policy
+		// and the evidence gate remain the real authority regardless.
+		wire.ResponseFormat = &vllmResponseFormat{
+			Type:       jsonSchemaFormatType,
+			JSONSchema: vllmJSONSchema{Name: vllmSchemaName, Schema: req.ResponseSchema, Strict: false},
+		}
+	}
 	for _, tool := range req.Tools {
 		var tw ollamaToolWire
 		tw.Type = "function"
