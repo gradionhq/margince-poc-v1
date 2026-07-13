@@ -145,6 +145,7 @@ export function OfferTemplatesScreen() {
             kind: "select",
             key: "locale",
             label: "template.localeFilter",
+            // @ts-expect-error - locale options have raw string labels, not i18n keys
             options: LOCALE_OPTIONS,
           },
         ]}
