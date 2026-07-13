@@ -422,7 +422,8 @@ export const de = {
   "reports.reportDeals": "Deals nach Phase",
   "reports.reportForecast": "Forecast",
   "reports.reportOpenByCompany": "Offene Deals pro Firma",
-  "reports.forecastBanner": "Kategoriesummen sind ungewichtet; die gewichtete Zahl des Boards ist Σ(Betrag × Phasenwahrscheinlichkeit) — bewusst zwei verschiedene Zahlen.",
+  "reports.forecastBanner":
+    "Kategoriesummen sind ungewichtet; die gewichtete Zahl des Boards ist Σ(Betrag × Phasenwahrscheinlichkeit) — bewusst zwei verschiedene Zahlen.",
   "reports.company": "Firma",
   "reports.openDeals": "Offene Deals",
   "explain.sources": "Quellzeilen",
@@ -488,7 +489,8 @@ export const de = {
   "settings.due": "fällig {date}",
 
   "settings.pipelines": "Pipelines",
-  "settings.pipelinesSub": "Pipelines und ihre Phasen konfigurieren (Admin/Ops).",
+  "settings.pipelinesSub":
+    "Pipelines und ihre Phasen konfigurieren (Admin/Ops).",
   "pipeline.new": "Neue Pipeline",
   "pipeline.edit": "Pipeline bearbeiten",
   "pipeline.name": "Name",

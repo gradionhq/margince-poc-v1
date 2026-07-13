@@ -416,7 +416,8 @@ export const en = {
   "reports.reportDeals": "Deals by stage",
   "reports.reportForecast": "Forecast",
   "reports.reportOpenByCompany": "Open deals per company",
-  "reports.forecastBanner": "Category totals are unweighted; the board's weighted figure is Σ(amount × stage probability) — two different numbers on purpose.",
+  "reports.forecastBanner":
+    "Category totals are unweighted; the board's weighted figure is Σ(amount × stage probability) — two different numbers on purpose.",
   "reports.company": "Company",
   "reports.openDeals": "Open deals",
   "explain.sources": "Source rows",
