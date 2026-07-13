@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: BUSL-1.1
-// SPDX-FileCopyrightText: 2026 Gradion
-
 import { useEffect, useState } from "react";
 import { SearchField } from "./atoms";
 
