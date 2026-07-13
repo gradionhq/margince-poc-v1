@@ -419,6 +419,21 @@ function stageSemanticLabel(
   return t("stage.semOpen");
 }
 
+// Tone-less Badge shares the card-inset background it sits on (both resolve
+// to var(--bgCard)) — the semantic pill needs an explicit tone to be visible.
+function stageSemanticTone(
+  semantic: Stage["semantic"],
+): "success" | "danger" | "accent" {
+  switch (semantic) {
+    case "won":
+      return "success";
+    case "lost":
+      return "danger";
+    default:
+      return "accent"; // open
+  }
+}
+
 // The bespoke per-pipeline "new stage" trigger: CreateAction's testid
 // (`new-record`) can't disambiguate multiple pipelines on one screen, so
 // this composes the same Button + CreateRecordModal pieces directly rather
@@ -475,12 +490,18 @@ function StageRow({
 }>) {
   return (
     <li
-      key={stage.id}
-      style={{ display: "flex", gap: 8, alignItems: "center" }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) 88px 56px auto",
+        gap: 8,
+        alignItems: "center",
+      }}
     >
       <span>{stage.name}</span>
-      <Badge>{stageSemanticLabel(stage.semantic, t)}</Badge>
-      <span className="t-small">{stage.win_probability}%</span>
+      <Badge tone={stageSemanticTone(stage.semantic)}>
+        {stageSemanticLabel(stage.semantic, t)}
+      </Badge>
+      <span className="t-mono t-small">{stage.win_probability}%</span>
       {canConfig && (
         <EditAction
           label={t("stage.edit")}
@@ -532,7 +553,7 @@ function PipelineRow({
           flexWrap: "wrap",
         }}
       >
-        <SectionHeader title={pipeline.name} />
+        <span className="t-h2">{pipeline.name}</span>
         <Badge tone={pipeline.is_default ? "success" : undefined}>
           {pipeline.is_default
             ? t("pipeline.default")

@@ -864,7 +864,6 @@ export function FxLine({
   locale,
 }: Readonly<{
   amountMinor: number;
-  currency: string;
   fxRateToBase: string;
   fxRateDate: string | null;
   locale: Locale;
@@ -1235,7 +1234,6 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               {deal.fx_rate_to_base != null && (
                 <FxLine
                   amountMinor={deal.amount_minor ?? 0}
-                  currency={deal.currency ?? "EUR"}
                   fxRateToBase={deal.fx_rate_to_base}
                   fxRateDate={deal.fx_rate_date ?? null}
                   locale={locale}

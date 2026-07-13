@@ -27,7 +27,6 @@ export const FxConverted: Story = {
   render: () => (
     <FxLine
       amountMinor={100000}
-      currency="USD"
       fxRateToBase="0.92"
       fxRateDate="2026-07-01"
       locale="en"
@@ -39,7 +38,6 @@ export const FxNoDate: Story = {
   render: () => (
     <FxLine
       amountMinor={250000}
-      currency="GBP"
       fxRateToBase="1.17"
       fxRateDate={null}
       locale="en"

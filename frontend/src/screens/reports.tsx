@@ -85,7 +85,7 @@ export function ForecastTile({
   return (
     <Card>
       <span className="t-label">{label}</span>
-      <p className="t-mono" style={{ fontSize: 22 }}>
+      <p className="t-mono t-display">
         {formatMoney(amountMinor, currency, locale)}
       </p>
     </Card>

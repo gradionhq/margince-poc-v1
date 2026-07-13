@@ -264,7 +264,6 @@ export const de = {
   "deal.pendingApprovals": "Wartet auf deine Bestätigung",
   "deal.stakeholders": "Beteiligte",
   "deal.edit": "Deal bearbeiten",
-  "deal.ownerCurrent": "Aktueller Inhaber",
   "deal.ownerKeep": "Aktuellen Inhaber behalten",
   "deal.ownerMe": "Mir zuweisen",
   "deal.ownerUnassign": "Zuweisung aufheben",

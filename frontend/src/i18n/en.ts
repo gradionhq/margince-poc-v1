@@ -258,7 +258,6 @@ export const en = {
   "deal.pendingApprovals": "Awaiting your confirmation",
   "deal.stakeholders": "Stakeholders",
   "deal.edit": "Edit deal",
-  "deal.ownerCurrent": "Current owner",
   "deal.ownerKeep": "Keep current owner",
   "deal.ownerMe": "Assign to me",
   "deal.ownerUnassign": "Unassign",
