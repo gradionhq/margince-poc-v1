@@ -292,13 +292,11 @@ routed, not lost:
   decisions/, so a reviewer can separate "the spec says"
   from "we chose".
 - **Spec/ticket defects** — a contradiction, an omission, a vocabulary
-  gap, an unimplementable acceptance criterion found while building — get
-  a local note in `feedback/`, each naming the spec section and a
-  suggested fix. Notes in `feedback/` are git-ignored — local session
-  scratch for reconciling defects upstream (only its
-  [README](feedback/README.md) is tracked). Once a defect is resolved in
-  the spec, its note is deleted — the durable record is the spec's own
-  amendment (ADR/DECISIONS), not this folder.
+  gap, an unimplementable acceptance criterion found while building — are
+  reconciled upstream against the spec (`../margince/specs/`), naming the
+  spec section and a suggested fix. The durable record is the spec's own
+  amendment (ADR/DECISIONS); contract-first (P3), a spec defect is
+  reconciled upstream, never silently worked around in this source.
 - **Session state** — progress, in-flight work, pickup point — goes in
   [STATUS.md](STATUS.md), updated at the end of every working session.
 

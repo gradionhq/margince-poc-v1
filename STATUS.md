@@ -219,5 +219,4 @@ Open work, roughly in priority order:
 
 Next product arcs beyond the baseline groom live in the spec's build
 backlog; route findings as you work — implementation decisions to
-`decisions/`, spec/ticket defects to a local note in `feedback/`
-(git-ignored).
+`decisions/`; spec/ticket defects reconciled upstream against the spec.

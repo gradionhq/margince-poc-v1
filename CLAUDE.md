@@ -30,13 +30,13 @@ The normative spec is the sibling repo, at **`../margince/specs/`**
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.
 The spec is under active cleanup by another session: some docs still show the old
-`crm-*` layout. Don't edit the spec from here — jot discrepancies as local
-notes in `feedback/` (git-ignored, not committed).
+`crm-*` layout. Don't edit the spec from here — raise discrepancies for
+upstream reconciliation against `../margince/specs/`.
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the session-pickup
 point; update it at the end of every working session. Route findings as you work:
-implementation decisions → decisions/; spec/ticket defects → a local note
-in `feedback/` (git-ignored session scratch — see [feedback/README.md](feedback/README.md)).
+implementation decisions → decisions/; spec/ticket defects are reconciled
+upstream against the spec (contract-first, P3), never worked around in this source.
 
 ## Build / test / seed
 
