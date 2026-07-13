@@ -140,6 +140,16 @@ export function problemExistingId(
   return null;
 }
 
+// A 409 whose code names the If-Match precondition failure — the record
+// changed under the caller since the form was opened. Distinguished from
+// problemExistingId's duplicate-collision code so the edit form can show the
+// "reload and retry" copy instead of the raw server detail.
+export function isVersionSkew(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  const record = problem as Record<string, unknown>;
+  return record.code === "version_skew";
+}
+
 // The cold-start / enrichment field vocabulary (compose/enrichextract.go)
 // rendered as human labels; an unmapped field falls back to its key with the
 // underscores spaced out — readable, never raw snake_case.

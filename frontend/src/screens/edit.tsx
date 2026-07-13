@@ -2,7 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import type { Route } from "../app/router";
 import { Button, Modal } from "../design-system/atoms";
-import { ProblemError, problemExistingId } from "./common";
+import { useT } from "../i18n";
+import { isVersionSkew, ProblemError, problemExistingId } from "./common";
 import { type CreateField, type FormRows, RecordFormBody } from "./create";
 
 // The shared post-update choreography: run the screen-supplied PATCH, then
@@ -138,6 +139,7 @@ export function EditAction<Updated extends { id: string }>({
   // API stays uniform for the screens that adopt it.
   resolveExisting?: (code: string, id: string) => Route;
 }>) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const mutation = useUpdateRecord({
     update,
@@ -149,6 +151,9 @@ export function EditAction<Updated extends { id: string }>({
     mutation.error instanceof ProblemError
       ? problemExistingId(mutation.error.problem)
       : null;
+  const skew =
+    mutation.error instanceof ProblemError &&
+    isVersionSkew(mutation.error.problem);
   return (
     <>
       <Button small onClick={() => setEditing(true)} data-testid="edit-record">
@@ -161,7 +166,13 @@ export function EditAction<Updated extends { id: string }>({
         fields={fields}
         record={record}
         pending={mutation.isPending}
-        error={mutation.isError ? mutation.error.message : null}
+        error={
+          mutation.isError
+            ? skew
+              ? t("edit.versionSkew")
+              : mutation.error.message
+            : null
+        }
         existing={existing}
         resolveExisting={resolveExisting}
         onSubmit={(values, rows) =>

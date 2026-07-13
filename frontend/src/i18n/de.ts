@@ -168,6 +168,8 @@ export const de = {
   "rel.endedAt": "Ende",
   "rel.current": "aktuell",
   "rel.remove": "Entfernen",
+  "rel.removeConfirm":
+    "Bist du sicher? Das entfernt die Beziehung — es gibt keine Rückgängig-Funktion.",
   "rel.empty": "Noch keine Beziehungen",
   "rel.counterparty": "Verknüpft mit",
   "rel.dates": "Zeitraum",

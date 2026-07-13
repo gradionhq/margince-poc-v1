@@ -50,6 +50,7 @@ export function MergeAction<Survivor extends { id: string }>({
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [target, setTarget] = useState<MergeCandidate | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -58,13 +59,26 @@ export function MergeAction<Survivor extends { id: string }>({
     const query = term.trim();
     if (!query) {
       setCandidates([]);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const results = await searchTargets(query);
-      if (!cancelled) {
-        setCandidates(results.filter((candidate) => candidate.id !== sourceId));
+      try {
+        const results = await searchTargets(query);
+        if (!cancelled) {
+          setCandidates(
+            results.filter((candidate) => candidate.id !== sourceId),
+          );
+          setSearchError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCandidates([]);
+          setSearchError(
+            error instanceof Error ? error.message : "request failed",
+          );
+        }
       }
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -89,6 +103,7 @@ export function MergeAction<Survivor extends { id: string }>({
     setTerm("");
     setCandidates([]);
     setTarget(null);
+    setSearchError(null);
     mutation.reset();
   };
 
@@ -113,6 +128,11 @@ export function MergeAction<Survivor extends { id: string }>({
             setTarget(null);
           }}
         />
+        {searchError && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {searchError}
+          </p>
+        )}
         <ul style={{ listStyle: "none", margin: "8px 0", padding: 0 }}>
           {candidates.map((candidate) => (
             <li key={candidate.id}>

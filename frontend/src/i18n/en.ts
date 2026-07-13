@@ -163,6 +163,8 @@ export const en = {
   "rel.endedAt": "Ended",
   "rel.current": "current",
   "rel.remove": "Remove",
+  "rel.removeConfirm":
+    "Are you sure? This removes the relationship — there is no undo control.",
   "rel.empty": "No relationships yet",
   "rel.counterparty": "Linked to",
   "rel.dates": "Dates",

@@ -273,6 +273,45 @@ describe("PersonScreen — edit with If-Match (P-1)", () => {
     expect(patchHeader).toBe("1");
     expect(patchBody).toMatchObject({ title: "New title" });
   });
+
+  it("shows the friendly version-skew copy on a 409 code:version_skew, not the raw detail", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "PATCH") {
+        return jsonResponse(
+          {
+            type: "about:blank",
+            title: "Conflict",
+            detail: "if-match version 1 does not match current version 2",
+            code: "version_skew",
+          },
+          409,
+        );
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    const title = await screen.findByLabelText("Title");
+    await userEvent.clear(title);
+    await userEvent.type(title, "New title");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This record changed since you opened it — reload and try again.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.queryByText("if-match version 1 does not match current version 2"),
+    ).toBeNull();
+  });
 });
 
 describe("PersonScreen — archive (P-3)", () => {
@@ -520,6 +559,40 @@ describe("PersonScreen — merge into target (P-2)", () => {
     expect(mergeHeader).toBe("1");
     expect(window.location.hash).toBe("#/contacts/p-2");
   });
+
+  it("shows a search error instead of an unhandled rejection when the target search fails", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/people?") && url.includes("q=otto")) {
+        return jsonResponse(
+          { type: "about:blank", title: "server error", detail: "boom" },
+          500,
+        );
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("merge-record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("merge-record"));
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "otto");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByText("boom")).toBeTruthy());
+  });
 });
 
 describe("PersonScreen — Relationships tab (P-5)", () => {
@@ -627,6 +700,10 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
       expect(screen.getByTestId("remove-relationship")).toBeTruthy(),
     );
     await userEvent.click(screen.getByTestId("remove-relationship"));
+    await waitFor(() =>
+      expect(screen.getByTestId("remove-relationship-confirm")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("remove-relationship-confirm"));
 
     await waitFor(() => expect(deleted).toBe(true));
   });

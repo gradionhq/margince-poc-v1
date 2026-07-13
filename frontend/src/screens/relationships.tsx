@@ -330,10 +330,15 @@ export function RelationshipsTab({
 }: Readonly<{ scope: RelationshipScope }>) {
   const t = useT();
   const queryClient = useQueryClient();
+  const headingId = useId();
   const query = useQuery({
     queryKey: scopeQueryKey(scope),
     queryFn: () => fetchRelationships(scope),
   });
+
+  // Two-step confirm, mirroring ArchiveAction (archive.tsx) — Remove is a
+  // hard DELETE with no restore path, so it never fires from a single click.
+  const [removing, setRemoving] = useState<string | null>(null);
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
@@ -347,6 +352,7 @@ export function RelationshipsTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["relationships"] });
+      setRemoving(null);
     },
   });
 
@@ -428,8 +434,7 @@ export function RelationshipsTab({
                       <Button
                         small
                         variant="danger"
-                        disabled={remove.isPending}
-                        onClick={() => remove.mutate(rel.id)}
+                        onClick={() => setRemoving(rel.id)}
                         data-testid="remove-relationship"
                       >
                         {t("rel.remove")}
@@ -444,6 +449,46 @@ export function RelationshipsTab({
           )
         }
       </QueryGate>
+      <Modal
+        open={removing !== null}
+        onClose={() => {
+          setRemoving(null);
+          remove.reset();
+        }}
+        labelledBy={headingId}
+      >
+        <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
+          {t("rel.remove")}
+        </h2>
+        <p style={{ marginBottom: 16 }}>{t("rel.removeConfirm")}</p>
+        {remove.isError && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {remove.error instanceof Error ? remove.error.message : null}
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Button
+            small
+            onClick={() => setRemoving(null)}
+            disabled={remove.isPending}
+          >
+            {t("create.cancel")}
+          </Button>
+          <Button
+            small
+            variant="danger"
+            onClick={() => {
+              if (removing) {
+                remove.mutate(removing);
+              }
+            }}
+            disabled={remove.isPending}
+            data-testid="remove-relationship-confirm"
+          >
+            {t("rel.remove")}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
