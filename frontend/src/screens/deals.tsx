@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -20,11 +21,13 @@ import {
 } from "../design-system/composed";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatMoney } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate } from "./common";
+import { ArchiveAction } from "./archive";
+import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
 import type { CreateField } from "./create";
 import { CreateAction } from "./create";
+import { EditAction } from "./edit";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
@@ -636,6 +639,169 @@ function DealTable({
   );
 }
 
+// The FX-converted base-currency sub-line (D-14): shown only when the deal
+// carries a frozen fx_rate_to_base (won/lost deals freeze it at close; open
+// deals in a non-base currency may not have one yet). Prop-driven and
+// exported so a later Storybook task can render it without a live fetch.
+export function FxLine({
+  amountMinor,
+  fxRateToBase,
+  fxRateDate,
+  locale,
+}: Readonly<{
+  amountMinor: number;
+  currency: string;
+  fxRateToBase: string;
+  fxRateDate: string | null;
+  locale: Locale;
+}>) {
+  const t = useT();
+  const baseMinor = Math.round(amountMinor * Number(fxRateToBase));
+  return (
+    <p className="t-caption">
+      {t("deal.fxBase", {
+        value: formatMoney(baseMinor, "EUR", locale),
+        rate: fxRateToBase,
+        date: fxRateDate
+          ? formatDate(fxRateDate, locale, "Europe/Berlin")
+          : "—",
+      })}
+    </p>
+  );
+}
+
+// The status badge plus the edit/archive affordances — split out of
+// DealScreen's render so the record-view callback stays readably small. An
+// archived deal is read-only (no edit/merge/archive path exists server-side
+// for a non-live row), so it renders the status badge alone.
+function DealBadges({
+  deal,
+  orgs,
+  meId,
+}: Readonly<{
+  deal: Deal;
+  orgs: { id: string; display_name: string }[];
+  meId: string;
+}>) {
+  const t = useT();
+  if (deal.archived_at != null) {
+    return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
+  }
+  return (
+    <>
+      <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
+      <EditAction
+        label={t("deal.edit")}
+        fields={dealEditFields(t, {
+          orgs,
+          me: meId,
+          currentOwner: deal.owner_id ?? null,
+          currency: deal.currency ?? "EUR",
+        })}
+        record={{
+          id: deal.id,
+          version: deal.version,
+          name: deal.name,
+          amount:
+            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
+          currency: deal.currency ?? "EUR",
+          owner_id: deal.owner_id ?? "",
+          organization_id: deal.organization_id ?? "",
+          partner_org_id: deal.partner_org_id ?? "",
+          forecast_category: deal.forecast_category ?? "",
+          expected_close_date: deal.expected_close_date ?? "",
+          wait_until: deal.wait_until ?? "",
+        }}
+        update={async (values) => {
+          const { data, error } = await api.PATCH("/deals/{id}", {
+            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+            body: mapDealUpdate(values),
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="deals"
+        recordKey="deal"
+      />
+      <ArchiveAction
+        label={t("deal.archive")}
+        confirmText={t("deal.archiveConfirm")}
+        archive={async () => {
+          const { data, error } = await api.DELETE("/deals/{id}", {
+            params: { path: { id: deal.id } },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="deals"
+        recordKey="deal"
+        onArchived={() => navigate({ screen: "deals" })}
+      />
+    </>
+  );
+}
+
+type Approval = components["schemas"]["Approval"];
+
+// The live 🟡 confirm-first staging queue for this deal — split out of
+// DealScreen's render for the same readability reason as DealBadges above.
+function DealApprovals({
+  approvals,
+  decide,
+}: Readonly<{
+  approvals: Approval[];
+  decide: (input: {
+    approvalId: string;
+    verdict: "approve" | "reject";
+  }) => void;
+}>) {
+  const t = useT();
+  if (approvals.length === 0) {
+    return null;
+  }
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <SectionHeader title={t("deal.pendingApprovals")} />
+      {approvals.map((approval) => (
+        <div
+          key={approval.id}
+          className="staging-card"
+          style={{ marginBottom: 8 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <AutonomyDot tier="confirm" />
+            <span className="t-label">{approval.kind}</span>
+            <span className="t-small">{approval.proposed_by}</span>
+          </div>
+          <div className="approval-gate">
+            <Button
+              variant="primary"
+              small
+              onClick={() =>
+                decide({ approvalId: approval.id, verdict: "approve" })
+              }
+            >
+              {t("trust.accept")}
+            </Button>
+            <Button
+              small
+              onClick={() =>
+                decide({ approvalId: approval.id, verdict: "reject" })
+              }
+            >
+              {t("trust.dismiss")}
+            </Button>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function DealScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -653,6 +819,19 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const pipelineQuery = usePipeline();
+  const me = useMe();
+  const orgs = useQuery({
+    queryKey: ["organizations"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations", {
+        params: { query: { limit: 50 } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
   const stakeholdersQuery = useQuery({
     queryKey: ["deal-stakeholders", id],
     queryFn: async () => {
@@ -729,7 +908,11 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               }
               zone="Europe/Berlin"
               badges={
-                <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
+                <DealBadges
+                  deal={deal}
+                  orgs={orgs.data?.data ?? []}
+                  meId={me.data?.user.id ?? ""}
+                />
               }
               timeline={
                 timelineQuery.isSuccess
@@ -737,6 +920,15 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   : []
               }
             >
+              {deal.fx_rate_to_base != null && (
+                <FxLine
+                  amountMinor={deal.amount_minor ?? 0}
+                  currency={deal.currency ?? "EUR"}
+                  fxRateToBase={deal.fx_rate_to_base}
+                  fxRateDate={deal.fx_rate_date ?? null}
+                  locale={locale}
+                />
+              )}
               {stages.length > 0 && (
                 <nav className="stepper" aria-label={t("deals.stage")}>
                   {stages.map((stage) => (
@@ -754,55 +946,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   ))}
                 </nav>
               )}
-              {dealApprovals.length > 0 && (
-                <section className="card" style={{ marginBottom: 16 }}>
-                  <SectionHeader title={t("deal.pendingApprovals")} />
-                  {dealApprovals.map((approval) => (
-                    <div
-                      key={approval.id}
-                      className="staging-card"
-                      style={{ marginBottom: 8 }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <AutonomyDot tier="confirm" />
-                        <span className="t-label">{approval.kind}</span>
-                        <span className="t-small">{approval.proposed_by}</span>
-                      </div>
-                      <div className="approval-gate">
-                        <Button
-                          variant="primary"
-                          small
-                          onClick={() =>
-                            decide.mutate({
-                              approvalId: approval.id,
-                              verdict: "approve",
-                            })
-                          }
-                        >
-                          {t("trust.accept")}
-                        </Button>
-                        <Button
-                          small
-                          onClick={() =>
-                            decide.mutate({
-                              approvalId: approval.id,
-                              verdict: "reject",
-                            })
-                          }
-                        >
-                          {t("trust.dismiss")}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-              )}
+              <DealApprovals
+                approvals={dealApprovals}
+                decide={(input) => decide.mutate(input)}
+              />
               {stakeholdersQuery.isSuccess &&
                 stakeholdersQuery.data.data.length > 0 && (
                   <section className="card" style={{ marginBottom: 16 }}>

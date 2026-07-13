@@ -8,10 +8,10 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { buildColumns, DealsScreen, mapDealUpdate } from "./deals";
+import { buildColumns, DealScreen, DealsScreen, mapDealUpdate } from "./deals";
 
 // B-EP09.11 acceptance: board renders per-column sub-lines from the fetched
 // set, mixed-currency columns refuse a sum, the board↔table control keeps
@@ -22,6 +22,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.location.hash = "";
+  localStorage.clear();
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -109,7 +110,15 @@ describe("buildColumns", () => {
   });
 });
 
-function stubBackend(deals: Deal[], onAdvance?: (body: unknown) => void) {
+function stubBackend(
+  deals: Deal[],
+  opts: {
+    onAdvance?: (body: unknown) => void;
+    single?: Deal;
+    onPatch?: (body: unknown, ifMatch: string | null) => void;
+    onDelete?: () => void;
+  } = {},
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
@@ -133,8 +142,44 @@ function stubBackend(deals: Deal[], onAdvance?: (body: unknown) => void) {
       const body = request
         ? await request.json()
         : JSON.parse(String(init?.body));
-      onAdvance?.(body);
+      opts.onAdvance?.(body);
       return jsonResponse(deal({ stage_id: body.to_stage_id }));
+    }
+    if (method === "GET" && /\/deals\/[^/?]+(\?.*)?$/.test(url)) {
+      return jsonResponse(opts.single ?? deals[0]);
+    }
+    if (method === "PATCH") {
+      const body = request
+        ? await request.json()
+        : JSON.parse(String(init?.body));
+      const ifMatch = request ? request.headers.get("If-Match") : null;
+      opts.onPatch?.(body, ifMatch);
+      return jsonResponse(opts.single ?? deals[0]);
+    }
+    if (method === "DELETE") {
+      opts.onDelete?.();
+      return jsonResponse(opts.single ?? deals[0]);
+    }
+    if (url.includes("/me")) {
+      return jsonResponse({
+        user: {
+          id: "u-me",
+          email: "me@acme.test",
+          display_name: "Me",
+          workspace_id: "w",
+          timezone: "UTC",
+          status: "active",
+          is_agent: false,
+        },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (url.includes("/organizations")) {
+      return jsonResponse({
+        data: [{ id: "o1", display_name: "Acme" }],
+        page: { next_cursor: null },
+      });
     }
     if (url.includes("/deals")) {
       return jsonResponse({ data: deals, page: { next_cursor: null } });
@@ -194,7 +239,7 @@ describe("DealsScreen", () => {
     const advances: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      stubBackend([deal({})], (body) => advances.push(body)),
+      stubBackend([deal({})], { onAdvance: (body) => advances.push(body) }),
     );
     render(<DealsScreen />);
     await waitFor(() =>
@@ -223,7 +268,7 @@ describe("DealsScreen", () => {
     const advances: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      stubBackend([deal({})], (body) => advances.push(body)),
+      stubBackend([deal({})], { onAdvance: (body) => advances.push(body) }),
     );
     render(<DealsScreen />);
     await waitFor(() =>
@@ -245,5 +290,57 @@ describe("DealsScreen", () => {
     await waitFor(() =>
       expect(screen.getByText("Moved to Proposal")).toBeTruthy(),
     );
+  });
+});
+
+describe("DealScreen — edit, archive, FX line (A3)", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  it("edit prefills and PATCHes with If-Match", async () => {
+    const patches: { body: unknown; ifMatch: string | null }[] = [];
+    const d = deal({ id: "x", version: 4, owner_id: null });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onPatch: (b, h) => patches.push({ body: b, ifMatch: h }),
+      }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("edit-record"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches.length).toBe(1));
+    expect(patches[0].ifMatch).toBe("4");
+  });
+
+  it("shows the FX base line only when fx_rate_to_base is set", async () => {
+    const d = deal({
+      id: "x",
+      amount_minor: 100_000,
+      currency: "USD",
+      fx_rate_to_base: "0.92",
+      fx_rate_date: "2026-07-01",
+    });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="x" />);
+    await waitFor(() => expect(screen.getByText(/rate 0.92/)).toBeTruthy());
+  });
+
+  it("archive confirms then DELETEs", async () => {
+    let deleted = false;
+    const d = deal({ id: "x", version: 1 });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onDelete: () => {
+          deleted = true;
+        },
+      }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("archive-record"));
+    await userEvent.click(screen.getByTestId("archive-confirm"));
+    await waitFor(() => expect(deleted).toBe(true));
   });
 });
