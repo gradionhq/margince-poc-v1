@@ -257,6 +257,11 @@ export const en = {
   "deals.advanced": "Moved to {stage}",
   "deal.pendingApprovals": "Awaiting your confirmation",
   "deal.stakeholders": "Stakeholders",
+  "deal.offers": "Offers",
+  "deal.newOffer": "New offer",
+  "deal.offerNumber": "Offer #",
+  "deal.offerRevision": "Rev.",
+  "deal.offersEmpty": "No offers yet",
 
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",

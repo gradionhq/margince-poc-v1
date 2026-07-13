@@ -263,6 +263,11 @@ export const de = {
   "deals.advanced": "Nach {stage} verschoben",
   "deal.pendingApprovals": "Wartet auf deine Bestätigung",
   "deal.stakeholders": "Beteiligte",
+  "deal.offers": "Angebote",
+  "deal.newOffer": "Neues Angebot",
+  "deal.offerNumber": "Angebots-Nr.",
+  "deal.offerRevision": "Rev.",
+  "deal.offersEmpty": "Noch keine Angebote",
 
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",
