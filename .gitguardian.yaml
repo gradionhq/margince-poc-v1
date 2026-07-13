@@ -1,0 +1,16 @@
+# GitGuardian / ggshield config. The dev stack's credentials are shared,
+# throwaway, localhost-only defaults (the same literals docker-compose.dev.yml
+# declares) — not real secrets. Scoped exclusions keep the secret scan honest
+# without blanket-ignoring the tree. (The GitGuardian GitHub App reads its
+# exclusions from the dashboard; this file governs ggshield runs and documents
+# the intent.)
+version: 2
+secret:
+  ignored-paths:
+    - "dev/**"
+    - "scripts/uat-env.sh"
+    - "scripts/db-init.sql"
+    - ".env.template"
+  ignored-matches:
+    - name: throwaway localhost dev DB password (margince_app_dev)
+      match: margince_app_dev

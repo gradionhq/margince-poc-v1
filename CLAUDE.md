@@ -44,15 +44,30 @@ All Go code lives under `backend/` (one Go module,
 `github.com/gradionhq/margince/backend`); the root Makefile delegates there.
 
 ```
+make install            # one-shot fresh-worktree setup: FE deps + gate tools + hooks
 make db-up              # start PG16 + Redis 7 containers, create the app role
 make migrate            # apply core + custom migrations (owner DSN)
-make check              # the merge gate. Backend: build, vet, lint (baseline +
-                        # new-code strict), arch-lint, unit tests, contract drift.
-                        # Root adds: craft drift, image pins, contract
-                        # breaking-change, test-lanes, file-length
-make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up)
+make check              # the full merge gate = check-backend + check-fe
+make check-backend      # backend half: build, vet, lint (baseline + new-code
+                        # strict), arch-lint, unit + fitness tests, contract drift,
+                        # plus the root script gates (craft drift, image pins,
+                        # contract-breaking, test-lanes, file-length, rls-store-path,
+                        # no-jurisdiction). This is what CI's deterministic-gates runs.
+make check-fe           # frontend half (biome + vitest + tsc + build)
+make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
+                        # Parallel — each package on its own throwaway clone db; ends
+                        # with `OK: integration passed with 0 skips`, never skips silently
 make dev                # db-up + migrate + api on :8080
+make uat_env UAT_SLUG=x # per-worktree live UAT stack on a private margince_uat_<slug> db
 ```
+
+`check-q` (quiet), `check-go` (backend-only), `fe-typecheck`, `fe-uat`
+(change-scoped Storybook render gate), and `infra-up`/`infra-down` round out
+the golden-command set. Full table:
+[docs/reference/make-targets.md](docs/reference/make-targets.md). The CI
+pipeline that runs these gates as required checks — the change classifier, the
+job graph, and the SonarCloud coverage flow — is documented in
+[infra/ci-pipeline.md](infra/ci-pipeline.md).
 
 Four process-role binaries (decisions/0011), all wired through
 `internal/compose`: `cmd/api` (HTTP; inline outbox relay behind

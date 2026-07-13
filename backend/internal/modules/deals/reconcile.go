@@ -127,6 +127,7 @@ func NewFollowUpReconciler(pool *pgxpool.Pool, stager FollowUpStager, log *slog.
 // corrector, the workspace list is bounded by fleet size, and one
 // tenant's failure must not starve the rest.
 func (r *FollowUpReconciler) Reconcile(ctx context.Context) error {
+	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering a per-workspace tx.
 	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return err

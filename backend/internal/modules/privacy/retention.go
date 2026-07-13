@@ -107,6 +107,7 @@ var retentionSelectors = map[string]string{
 // workspace list is fine here: it is bounded by fleet size (tenants per
 // install), not by tenant data volume.
 func (s *RetentionService) Evaluate(ctx context.Context) error {
+	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering a per-workspace tx.
 	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return err

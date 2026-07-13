@@ -40,3 +40,10 @@ if ! go run -C "$root/cli/craft" . static "${args[@]}"; then
 	echo "genuine false positive in-source:  //craft:ignore <check> <reason>"
 	exit 1
 fi
+
+# The whole-tree deterministic gates that are cheap enough to run on every
+# push (sub-second greps): catch an RLS-bypassing store statement or a
+# jurisdiction string in core locally, before CI does. The heavier gates
+# (build, lint, tests, drift) stay in `make check` / CI.
+"$root/scripts/check-rls-store-path.sh"
+"$root/scripts/check-no-jurisdiction.sh"
