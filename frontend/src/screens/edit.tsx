@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { Button, Modal } from "../design-system/atoms";
-import { type CreateField, RecordFormBody } from "./create";
+import { type CreateField, type FormRows, RecordFormBody } from "./create";
 
 // The shared post-update choreography: run the screen-supplied PATCH, then
 // refresh both the list and the specific record so the 360 reflects the new
@@ -13,14 +13,23 @@ export function useUpdateRecord<Updated extends { id: string }>({
   recordKey,
   onDone,
 }: Readonly<{
-  update: (values: Record<string, unknown>) => Promise<Updated>;
+  update: (
+    values: Record<string, unknown>,
+    rows?: FormRows,
+  ) => Promise<Updated>;
   invalidate: string;
   recordKey: string;
   onDone: () => void;
 }>) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: update,
+    mutationFn: ({
+      values,
+      rows,
+    }: {
+      values: Record<string, unknown>;
+      rows: FormRows;
+    }) => update(values, rows),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: [invalidate] });
       queryClient.invalidateQueries({ queryKey: [recordKey, updated.id] });
@@ -51,10 +60,14 @@ export function EditRecordModal({
   record: Record<string, unknown> & { id: string; version?: number };
   pending: boolean;
   error: string | null;
-  onSubmit: (values: Record<string, string>) => void;
+  onSubmit: (values: Record<string, string>, rows?: FormRows) => void;
 }>) {
   const headingId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
+  // Repeatable-row fields aren't populated from the record yet (no edit
+  // screen uses them) — the state exists so the modal's shape matches
+  // create's, ready for a future screen to prefill.
+  const [rows, setRows] = useState<FormRows>({});
 
   useEffect(() => {
     if (open) {
@@ -66,6 +79,7 @@ export function EditRecordModal({
         prefilled[field.key] = current == null ? "" : String(current);
       }
       setValues(prefilled);
+      setRows({});
     }
   }, [open, fields, record]);
 
@@ -78,6 +92,8 @@ export function EditRecordModal({
         fields={fields}
         values={values}
         setValues={setValues}
+        rows={rows}
+        setRows={setRows}
         pending={pending}
         error={error}
         onSubmit={onSubmit}
@@ -103,7 +119,10 @@ export function EditAction<Updated extends { id: string }>({
   label: string;
   fields: CreateField[];
   record: Record<string, unknown> & { id: string; version?: number };
-  update: (values: Record<string, unknown>) => Promise<Updated>;
+  update: (
+    values: Record<string, unknown>,
+    rows?: FormRows,
+  ) => Promise<Updated>;
   invalidate: string;
   recordKey: string;
 }>) {
@@ -127,7 +146,9 @@ export function EditAction<Updated extends { id: string }>({
         record={record}
         pending={mutation.isPending}
         error={mutation.isError ? mutation.error.message : null}
-        onSubmit={(values) => mutation.mutate(values)}
+        onSubmit={(values, rows) =>
+          mutation.mutate({ values, rows: rows ?? {} })
+        }
       />
     </>
   );

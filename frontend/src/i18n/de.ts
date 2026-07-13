@@ -208,6 +208,15 @@ export const de = {
   "create.organization": "Firma",
   "create.expectedClose": "Erwarteter Abschluss",
 
+  "field.addEmail": "E-Mail hinzufügen",
+  "field.addPhone": "Telefon hinzufügen",
+  "field.addDomain": "Domain hinzufügen",
+  "field.emailType": "Typ",
+  "field.emailWork": "Geschäftlich",
+  "field.emailPersonal": "Privat",
+  "field.primary": "Primär",
+  "field.removeRow": "Entfernen",
+
   "log.title": "Aktivität erfassen",
   "log.sub": "eine Notiz oder Aufgabe, direkt auf diese Timeline",
   "log.kind": "Art",

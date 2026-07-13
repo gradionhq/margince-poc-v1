@@ -14,7 +14,10 @@ import type { MessageKey } from "../i18n/en";
 
 export type CreateFieldOption = { value: string; label: string };
 
-export type CreateField = {
+// One subfield within a repeatable row (e.g. an emails row's `email` and
+// `email_type`) — reuses the same control types as a top-level CreateField,
+// minus repeatable-ness itself (rows don't nest).
+export type SubField = {
   key: string;
   label: MessageKey;
   type?: "text" | "email" | "number" | "date" | "datetime-local" | "select";
@@ -22,6 +25,48 @@ export type CreateField = {
   options?: CreateFieldOption[];
   placeholder?: string;
 };
+
+export type CreateField = {
+  key: string;
+  label: MessageKey;
+  type?:
+    | "text"
+    | "email"
+    | "number"
+    | "date"
+    | "datetime-local"
+    | "select"
+    | "repeatable";
+  required?: boolean;
+  options?: CreateFieldOption[];
+  placeholder?: string;
+  // repeatable-only: the subfields each row renders, the "add row" button's
+  // label, and (if set) which subfield key holds the row's primary flag.
+  rowFields?: SubField[];
+  addLabel?: MessageKey;
+  primaryKey?: string;
+};
+
+// One repeatable-row field's collected rows, e.g. `{ email: "a@x", email_type:
+// "work", is_primary: "true" }`.
+export type FormRow = Record<string, string>;
+// Repeatable-row values, keyed by the field's key — the SECOND channel: it
+// exists alongside `values: Record<string, string>` (never merged into it) so
+// every existing scalar-only screen and its single-arg create callback keeps
+// working untouched.
+export type FormRows = Record<string, FormRow[]>;
+
+function rowsRequirementMet(field: CreateField, rows: FormRow[]): boolean {
+  if (!field.required) {
+    return true;
+  }
+  const required = field.rowFields ?? [];
+  return rows.some((row) =>
+    required.every(
+      (sub) => !sub.required || (row[sub.key] ?? "").trim().length > 0,
+    ),
+  );
+}
 
 // The shared post-create choreography: refresh the list, close the modal,
 // open the fresh record's 360. Screens supply only their transport.
@@ -31,14 +76,20 @@ export function useCreateRecord<Created extends { id: string }>({
   screen,
   onDone,
 }: Readonly<{
-  create: (values: Record<string, string>) => Promise<Created>;
+  create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
   screen: string;
   onDone: () => void;
 }>) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: create,
+    mutationFn: ({
+      values,
+      rows,
+    }: {
+      values: Record<string, string>;
+      rows: FormRows;
+    }) => create(values, rows),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: [invalidate] });
       onDone();
@@ -60,7 +111,7 @@ export function CreateAction<Created extends { id: string }>({
 }: Readonly<{
   label: string;
   fields: CreateField[];
-  create: (values: Record<string, string>) => Promise<Created>;
+  create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
   screen: string;
   startOpen?: boolean;
@@ -82,7 +133,9 @@ export function CreateAction<Created extends { id: string }>({
         fields={fields}
         pending={mutation.isPending}
         error={mutation.isError ? mutation.error.message : null}
-        onSubmit={(values) => mutation.mutate(values)}
+        onSubmit={(values, rows) =>
+          mutation.mutate({ values, rows: rows ?? {} })
+        }
       />
     </>
   );
@@ -100,7 +153,7 @@ export function NewRecordButton({
 }
 
 export function fieldControl(
-  field: CreateField,
+  field: CreateField | SubField,
   fieldId: string,
   value: string,
   setValue: (next: string) => void,
@@ -135,6 +188,119 @@ export function fieldControl(
   );
 }
 
+// A repeatable-row field (emails/phones/domains): each existing row renders
+// its subfields via the same fieldControl every scalar field uses, plus an
+// optional "primary" radio (selecting one clears it on every other row) and a
+// remove button; an "Add" button appends a blank row. Rows live in the
+// second `rows` channel — never merged into `values` — so scalar-only
+// screens stay untouched.
+function RepeatableRowsField({
+  field,
+  formId,
+  rows,
+  setRows,
+}: Readonly<{
+  field: CreateField;
+  formId: string;
+  rows: FormRow[];
+  setRows: (next: FormRow[]) => void;
+}>) {
+  const t = useT();
+  const rowFields = field.rowFields ?? [];
+  const primaryKey = field.primaryKey;
+
+  function updateRow(index: number, key: string, value: string) {
+    setRows(
+      rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [key]: value } : row,
+      ),
+    );
+  }
+
+  function markPrimary(index: number) {
+    if (!primaryKey) {
+      return;
+    }
+    setRows(
+      rows.map((row, rowIndex) => ({
+        ...row,
+        [primaryKey]: rowIndex === index ? "true" : "",
+      })),
+    );
+  }
+
+  function removeRow(index: number) {
+    setRows(rows.filter((_, rowIndex) => rowIndex !== index));
+  }
+
+  return (
+    <div className="field">
+      <span className="t-label">
+        {t(field.label)}
+        {field.required ? " *" : ""}
+      </span>
+      {rows.map((row, index) => {
+        const rowId = `${formId}-${field.key}-${index}`;
+        return (
+          // Rows have no stable identity until saved — index is the only key
+          // available, and reordering never happens (add appends, remove
+          // filters), so it's safe here.
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are unordered-append/remove only
+            key={index}
+            className="card"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+              padding: 8,
+            }}
+          >
+            {rowFields.map((subField) => {
+              const subFieldId = `${rowId}-${subField.key}`;
+              return (
+                <div className="field" key={subField.key}>
+                  <label className="t-label" htmlFor={subFieldId}>
+                    {t(subField.label)}
+                    {subField.required ? " *" : ""}
+                  </label>
+                  {fieldControl(
+                    subField,
+                    subFieldId,
+                    row[subField.key] ?? "",
+                    (next) => updateRow(index, subField.key, next),
+                  )}
+                </div>
+              );
+            })}
+            {primaryKey && (
+              <label
+                className="t-label"
+                style={{ display: "flex", alignItems: "center", gap: 4 }}
+              >
+                <input
+                  type="radio"
+                  name={`${formId}-${field.key}-primary`}
+                  checked={row[primaryKey] === "true"}
+                  onChange={() => markPrimary(index)}
+                />
+                {t("field.primary")}
+              </label>
+            )}
+            <Button small type="button" onClick={() => removeRow(index)}>
+              {t("field.removeRow")}
+            </Button>
+          </div>
+        );
+      })}
+      <Button small type="button" onClick={() => setRows([...rows, {}])}>
+        {t(field.addLabel ?? field.label)}
+      </Button>
+    </div>
+  );
+}
+
 // The shared modal form body: fields → controls, the error paragraph, and
 // the Cancel/Save row. Both create and edit render this identically — only
 // the values' origin (empty defaults vs. a prefilled record) and the submit
@@ -143,6 +309,8 @@ export function RecordFormBody({
   fields,
   values,
   setValues,
+  rows,
+  setRows,
   pending,
   error,
   onSubmit,
@@ -152,29 +320,45 @@ export function RecordFormBody({
   fields: CreateField[];
   values: Record<string, string>;
   setValues: (next: Record<string, string>) => void;
+  rows: FormRows;
+  setRows: (next: FormRows) => void;
   pending: boolean;
   error: string | null;
-  onSubmit: (values: Record<string, string>) => void;
+  onSubmit: (values: Record<string, string>, rows?: FormRows) => void;
   onClose: () => void;
   submitLabelKey: MessageKey;
 }>) {
   const t = useT();
   const formId = useId();
 
-  const requiredMissing = fields.some(
-    (field) => field.required && !(values[field.key] ?? "").trim(),
-  );
+  const requiredMissing = fields.some((field) => {
+    if (field.type === "repeatable") {
+      return !rowsRequirementMet(field, rows[field.key] ?? []);
+    }
+    return field.required && !(values[field.key] ?? "").trim();
+  });
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit(values);
+        onSubmit(values, rows);
       }}
       style={{ display: "flex", flexDirection: "column", gap: 10 }}
     >
       {fields.map((field) => {
         const fieldId = `${formId}-${field.key}`;
+        if (field.type === "repeatable") {
+          return (
+            <RepeatableRowsField
+              key={field.key}
+              field={field}
+              formId={formId}
+              rows={rows[field.key] ?? []}
+              setRows={(next) => setRows({ ...rows, [field.key]: next })}
+            />
+          );
+        }
         return (
           <div className="field" key={field.key}>
             <label className="t-label" htmlFor={fieldId}>
@@ -224,10 +408,11 @@ export function CreateRecordModal({
   fields: CreateField[];
   pending: boolean;
   error: string | null;
-  onSubmit: (values: Record<string, string>) => void;
+  onSubmit: (values: Record<string, string>, rows?: FormRows) => void;
 }>) {
   const headingId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
+  const [rows, setRows] = useState<FormRows>({});
 
   useEffect(() => {
     if (open) {
@@ -240,6 +425,7 @@ export function CreateRecordModal({
         }
       }
       setValues(defaults);
+      setRows({});
     }
   }, [open, fields]);
 
@@ -252,6 +438,8 @@ export function CreateRecordModal({
         fields={fields}
         values={values}
         setValues={setValues}
+        rows={rows}
+        setRows={setRows}
         pending={pending}
         error={error}
         onSubmit={onSubmit}

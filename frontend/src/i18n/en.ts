@@ -204,6 +204,15 @@ export const en = {
   "create.organization": "Company",
   "create.expectedClose": "Expected close",
 
+  "field.addEmail": "Add email",
+  "field.addPhone": "Add phone",
+  "field.addDomain": "Add domain",
+  "field.emailType": "Type",
+  "field.emailWork": "Work",
+  "field.emailPersonal": "Personal",
+  "field.primary": "Primary",
+  "field.removeRow": "Remove",
+
   "log.title": "Log activity",
   "log.sub": "a note or task, straight onto this timeline",
   "log.kind": "Type",
