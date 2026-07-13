@@ -793,6 +793,8 @@ export const de = {
   "template.header": "Kopftext",
   "template.footer": "Fußtext",
   "template.localeFilter": "Sprache",
+  "template.localeDE": "Deutsch (DE)",
+  "template.localeEN": "Englisch (US)",
   "template.sortName": "Name",
   "template.empty": "Noch keine Angebotsvorlagen.",
 } as const satisfies Record<MessageKey, string>;

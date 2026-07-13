@@ -3,6 +3,7 @@ import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { Badge, DataTable, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import { problemMessage, throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
@@ -47,6 +48,11 @@ async function fetchTemplatesPage(
 const LOCALE_OPTIONS = [
   { value: "de-DE", label: "de-DE" },
   { value: "en-US", label: "en-US" },
+];
+
+const LOCALE_FILTER_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "de-DE", label: "template.localeDE" },
+  { value: "en-US", label: "template.localeEN" },
 ];
 
 const TEMPLATE_FIELDS: CreateField[] = [
@@ -145,8 +151,7 @@ export function OfferTemplatesScreen() {
             kind: "select",
             key: "locale",
             label: "template.localeFilter",
-            // @ts-expect-error - locale options have raw string labels, not i18n keys
-            options: LOCALE_OPTIONS,
+            options: LOCALE_FILTER_OPTIONS,
           },
         ]}
       />

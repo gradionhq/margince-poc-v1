@@ -776,6 +776,8 @@ export const en = {
   "template.header": "Header text",
   "template.footer": "Footer text",
   "template.localeFilter": "Locale",
+  "template.localeDE": "German (DE)",
+  "template.localeEN": "English (US)",
   "template.sortName": "Name",
   "template.empty": "No offer templates yet.",
 } as const;
