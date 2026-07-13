@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 import { SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -81,27 +81,25 @@ export function ListToolbar({
   filters,
 }: Readonly<{
   query: ListQuery;
-  setQuery: (next: ListQuery) => void;
+  setQuery: Dispatch<SetStateAction<ListQuery>>;
   sortOptions: SortOption[];
   filters?: FilterSpec[];
 }>) {
   const t = useT();
   const [localSearch, setLocalSearch] = useState(query.q);
 
-  // query and setQuery are intentionally excluded from the dependency list:
-  // query changes on every keystroke commit below, which would restart the
-  // debounce timer this effect just scheduled; setQuery is the caller's
-  // stable setState.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+  // A functional updater reads the query at commit time, not at the time the
+  // timer was scheduled: a concurrent sort/filter/includeArchived toggle
+  // (which sets query immediately, before this timer fires) is preserved
+  // instead of being silently reverted by a stale closure over `query`.
   useEffect(() => {
-    if (localSearch === query.q) {
-      return;
-    }
     const timer = setTimeout(() => {
-      setQuery({ ...query, q: localSearch });
+      setQuery((prev) =>
+        prev.q === localSearch ? prev : { ...prev, q: localSearch },
+      );
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [localSearch]);
+  }, [localSearch, setQuery]);
 
   return (
     <div className="list-toolbar">

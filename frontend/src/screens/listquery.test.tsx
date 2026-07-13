@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render as rtlRender,
@@ -8,6 +9,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
@@ -121,15 +123,70 @@ describe("ListToolbar", () => {
       const search = screen.getByRole("searchbox");
       fireEvent.change(search, { target: { value: "acme" } });
 
-      expect(setQuery).not.toHaveBeenCalledWith(
-        expect.objectContaining({ q: "acme" }),
-      );
+      expect(setQuery).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(250);
 
-      expect(setQuery).toHaveBeenCalledWith(
+      // setQuery is now called with a functional updater (see the
+      // stale-query race regression test below), not a plain object.
+      expect(setQuery).toHaveBeenCalledTimes(1);
+      const updater = setQuery.mock.calls[0][0] as (
+        prev: ListQuery,
+      ) => ListQuery;
+      expect(updater(baseQuery())).toEqual(
         expect.objectContaining({ q: "acme" }),
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not revert a concurrent toggle when the debounced search commits", () => {
+    // Regression: the debounce timer used to close over the `query` prop at
+    // the time it was scheduled. Typing into search, then toggling
+    // include-archived before the 250ms debounce fires, used to overwrite
+    // the toggle with the stale query captured before it happened.
+    function ControlledToolbar() {
+      const [query, setQuery] = useState<ListQuery>(baseQuery());
+      return (
+        <>
+          <ListToolbar
+            query={query}
+            setQuery={setQuery}
+            sortOptions={sortOptions}
+          />
+          <div data-testid="query-json">{JSON.stringify(query)}</div>
+        </>
+      );
+    }
+
+    vi.useFakeTimers();
+    try {
+      render(<ControlledToolbar />);
+
+      const search = screen.getByRole("searchbox");
+      fireEvent.change(search, { target: { value: "acme" } });
+
+      // Still inside the debounce window: toggle include-archived, which
+      // commits to query immediately.
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      const archived = screen.getByLabelText(
+        "Show archived",
+      ) as HTMLInputElement;
+      fireEvent.click(archived);
+
+      // Let the pending debounce timer fire.
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+
+      const finalQuery = JSON.parse(
+        screen.getByTestId("query-json").textContent ?? "{}",
+      ) as ListQuery;
+      expect(finalQuery.q).toBe("acme");
+      expect(finalQuery.includeArchived).toBe(true);
     } finally {
       vi.useRealTimers();
     }
