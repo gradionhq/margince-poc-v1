@@ -117,6 +117,17 @@ export const de = {
   "tab.overview": "Übersicht",
   "tab.relationships": "Beziehungen",
   "tab.partner": "Partner",
+  "tab.rollup": "Roll-up",
+
+  "rollup.weightedPipeline": "Gewichtete Pipeline",
+  "rollup.closedWon": "Abgeschlossen (aktuelles Quartal)",
+  "rollup.activity30d": "Aktivität (30 Tage)",
+  "rollup.accounts": "Zusammengefasste Accounts",
+  "rollup.excluded":
+    "{count} für dich nicht sichtbare Account(s) wurden ausgeschlossen",
+  "rollup.fxUnavailable":
+    "Ein Wechselkurs fehlt — das Roll-up kann nicht berechnet werden.",
+  "rollup.computedAt": "Berechnet am {when}",
 
   "nav.partners": "Partner",
   "partner.setup": "Zum Partner machen",

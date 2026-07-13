@@ -512,3 +512,92 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
     });
   });
 });
+
+const rollup = {
+  root_id: "o-1",
+  scope: "tree",
+  weighted_pipeline: { amount_minor: 4_800_000, currency: "EUR" },
+  closed_won: { amount_minor: 1_200_000, currency: "EUR" },
+  activity_count_30d: 12,
+  aggregated_account_count: 3,
+  restricted_excluded: [],
+  computed_at: "2026-07-01T09:30:00Z",
+};
+
+describe("CompanyScreen — Roll-up tab (P-7)", () => {
+  it("shows the weighted pipeline, closed-won, activity, and account figures", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/hierarchy-rollup")) {
+        return jsonResponse(rollup);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Roll-up"));
+
+    await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
+    expect(screen.getByText("€12,000.00")).toBeTruthy();
+    expect(screen.getByText("12")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+  });
+
+  it("renders the honest FX-unavailable message instead of zeros on a 422", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/hierarchy-rollup")) {
+        return jsonResponse(
+          { title: "Unprocessable", code: "fx_rate_unavailable" },
+          422,
+        );
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Roll-up"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "A currency conversion rate is missing — the roll-up cannot be computed.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("€0.00")).toBeNull();
+  });
+
+  it("discloses accounts excluded because the viewer cannot read them", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/hierarchy-rollup")) {
+        return jsonResponse({
+          ...rollup,
+          restricted_excluded: [
+            { id: "o-9", display_name: "Hidden Subsidiary GmbH" },
+          ],
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Roll-up"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("1 account(s) not visible to you were excluded"),
+      ).toBeTruthy(),
+    );
+  });
+});

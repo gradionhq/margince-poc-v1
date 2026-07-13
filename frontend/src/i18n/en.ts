@@ -113,6 +113,16 @@ export const en = {
   "tab.overview": "Overview",
   "tab.relationships": "Relationships",
   "tab.partner": "Partner",
+  "tab.rollup": "Roll-up",
+
+  "rollup.weightedPipeline": "Weighted pipeline",
+  "rollup.closedWon": "Closed-won (current quarter)",
+  "rollup.activity30d": "Activity (30d)",
+  "rollup.accounts": "Aggregated accounts",
+  "rollup.excluded": "{count} account(s) not visible to you were excluded",
+  "rollup.fxUnavailable":
+    "A currency conversion rate is missing — the roll-up cannot be computed.",
+  "rollup.computedAt": "Computed at {when}",
 
   "nav.partners": "Partners",
   "partner.setup": "Make this a partner",

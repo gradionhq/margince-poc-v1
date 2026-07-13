@@ -8,8 +8,10 @@ import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   SectionHeader,
   SegmentedControl,
+  Skeleton,
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import {
@@ -18,7 +20,8 @@ import {
   EvidenceChip,
   ProvenanceTag,
 } from "../design-system/trust";
-import { useT } from "../i18n";
+import { formatDateTime, formatMoney } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
@@ -382,7 +385,109 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
-const COMPANY_TABS = ["overview", "relationships", "partner"] as const;
+type OrganizationHierarchyRollup =
+  components["schemas"]["OrganizationHierarchyRollup"];
+
+// A missing stored FX rate fails the whole rollup read with 422
+// fx_rate_unavailable (never a rate-of-1 substitute, never zeros) — this
+// marker lets the render branch on that ONE cause without re-parsing the
+// problem body a second time.
+class FxUnavailableError extends Error {}
+
+async function fetchHierarchyRollup(
+  orgId: string,
+): Promise<OrganizationHierarchyRollup> {
+  const { data, error } = await api.GET(
+    "/organizations/{id}/hierarchy-rollup",
+    {
+      params: { path: { id: orgId }, query: { scope: "tree" } },
+    },
+  );
+  if (error) {
+    if (error.code === "fx_rate_unavailable") {
+      throw new FxUnavailableError();
+    }
+    throw new Error(problemMessage(error));
+  }
+  return data;
+}
+
+// P-7: the org hierarchy roll-up (weighted pipeline, current-quarter
+// closed-won, 30-day activity, aggregated account count), read-only. Money
+// renders only when both amount_minor and currency are present (Money's
+// fields are individually optional on the wire) — never a hand-formatted or
+// zero-filled figure.
+function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const rollupQuery = useQuery({
+    queryKey: ["rollup", orgId],
+    queryFn: () => fetchHierarchyRollup(orgId),
+  });
+
+  if (rollupQuery.isPending) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Skeleton width="60%" />
+        <Skeleton width="90%" />
+        <Skeleton width="75%" />
+      </div>
+    );
+  }
+  if (rollupQuery.isError) {
+    if (rollupQuery.error instanceof FxUnavailableError) {
+      return <EmptyState>{t("rollup.fxUnavailable")}</EmptyState>;
+    }
+    return <EmptyState>{rollupQuery.error.message}</EmptyState>;
+  }
+
+  const rollup = rollupQuery.data;
+  const money = (value: OrganizationHierarchyRollup["weighted_pipeline"]) =>
+    value.amount_minor != null && value.currency
+      ? formatMoney(value.amount_minor, value.currency, locale)
+      : "—";
+
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <SectionHeader title={t("tab.rollup")} />
+      <dl className="firmo">
+        <div>
+          <dt>{t("rollup.weightedPipeline")}</dt>
+          <dd className="t-mono">{money(rollup.weighted_pipeline)}</dd>
+        </div>
+        <div>
+          <dt>{t("rollup.closedWon")}</dt>
+          <dd className="t-mono">{money(rollup.closed_won)}</dd>
+        </div>
+        <div>
+          <dt>{t("rollup.activity30d")}</dt>
+          <dd>{rollup.activity_count_30d}</dd>
+        </div>
+        <div>
+          <dt>{t("rollup.accounts")}</dt>
+          <dd>{rollup.aggregated_account_count}</dd>
+        </div>
+      </dl>
+      {rollup.restricted_excluded.length > 0 && (
+        <p className="t-caption" style={{ marginTop: 10 }}>
+          {t("rollup.excluded", { count: rollup.restricted_excluded.length })}
+        </p>
+      )}
+      <p className="t-caption" style={{ marginTop: 10 }}>
+        {t("rollup.computedAt", {
+          when: formatDateTime(rollup.computed_at, locale, "Europe/Berlin"),
+        })}
+      </p>
+    </section>
+  );
+}
+
+const COMPANY_TABS = [
+  "overview",
+  "relationships",
+  "partner",
+  "rollup",
+] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
@@ -526,6 +631,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                   overview: t("tab.overview"),
                   relationships: t("tab.relationships"),
                   partner: t("tab.partner"),
+                  rollup: t("tab.rollup"),
                 }}
               />
             </div>
@@ -569,6 +675,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
               <RelationshipsTab scope={{ organization_id: org.id }} />
             )}
             {tab === "partner" && <PartnerTab organizationId={org.id} />}
+            {tab === "rollup" && <HierarchyRollupCard orgId={org.id} />}
           </RecordView>
         )}
       </QueryGate>
