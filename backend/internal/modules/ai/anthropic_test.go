@@ -84,6 +84,73 @@ func TestAnthropicCarriesResponseSchemaAsOutputConfigFormatAndOmitsItOtherwise(t
 	}
 }
 
+func TestAnthropicDropsSchemaAndRetriesWhenOutputConfigRejected(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"ok":{"type":"boolean"}},"required":["ok"]}`)
+	var calls int
+	var sawSchemaThenPlain []bool
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(readBody(t, r.Body), &wire); err != nil {
+			t.Errorf("wire not JSON: %v", err)
+		}
+		_, hasOutputConfig := wire["output_config"]
+		sawSchemaThenPlain = append(sawSchemaThenPlain, hasOutputConfig)
+		if hasOutputConfig {
+			// Simulate a model/endpoint that does not support structured output.
+			w.WriteHeader(http.StatusBadRequest)
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]string{"type": "invalid_request_error", "message": "output_config is not supported for this model"},
+			}); err != nil {
+				t.Errorf("encoding error fixture: %v", err)
+			}
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]any{{"type": "text", "text": "grounded"}},
+			"usage":   map[string]int{"input_tokens": 1, "output_tokens": 1},
+		}); err != nil {
+			t.Errorf("encoding response fixture: %v", err)
+		}
+	})
+
+	resp, err := client.Complete(context.Background(), model.Request{
+		Messages:       []model.Message{{Role: "user", Content: "hi"}},
+		ResponseSchema: schema,
+	})
+	if err != nil {
+		t.Fatalf("schema-rejection fallback should have succeeded, got: %v", err)
+	}
+	if resp.Text != "grounded" {
+		t.Fatalf("unexpected text after fallback: %q", resp.Text)
+	}
+	// First attempt carries the schema (rejected), second drops it (accepted).
+	if calls != 2 || len(sawSchemaThenPlain) != 2 || !sawSchemaThenPlain[0] || sawSchemaThenPlain[1] {
+		t.Fatalf("expected schema attempt then unconstrained retry, got %d calls: %v", calls, sawSchemaThenPlain)
+	}
+}
+
+func TestAnthropicDoesNotRetryA400WhenNoSchemaWasSent(t *testing.T) {
+	var calls int
+	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{"type": "invalid_request_error", "message": "bad request"},
+		}); err != nil {
+			t.Errorf("encoding error fixture: %v", err)
+		}
+	})
+	if _, err := client.Complete(context.Background(), model.Request{
+		Messages: []model.Message{{Role: "user", Content: "hi"}},
+	}); err == nil {
+		t.Fatal("expected the 400 to surface")
+	}
+	if calls != 1 {
+		t.Fatalf("a 400 with no schema attached must not be retried, got %d calls", calls)
+	}
+}
+
 func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 	var received []byte
 	var gotKey, gotVersion string

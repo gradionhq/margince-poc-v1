@@ -25,7 +25,7 @@ func decode(t *testing.T, n schema.Node) map[string]any {
 
 func TestObjectIsClosedWithItsRequiredAndProperties(t *testing.T) {
 	m := decode(t, schema.Object(
-		map[string]schema.Node{"name": schema.String(), "age": schema.Integer()},
+		map[string]schema.Node{"name": schema.String(), "age": schema.Number()},
 		"name",
 	))
 
@@ -50,10 +50,8 @@ func TestObjectIsClosedWithItsRequiredAndProperties(t *testing.T) {
 
 func TestScalarLeavesMarshalToTheirType(t *testing.T) {
 	cases := map[string]schema.Node{
-		"string":  schema.String(),
-		"number":  schema.Number(),
-		"integer": schema.Integer(),
-		"boolean": schema.Boolean(),
+		"string": schema.String(),
+		"number": schema.Number(),
 	}
 	for want, node := range cases {
 		m := decode(t, node)

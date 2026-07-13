@@ -82,11 +82,18 @@ type extractedField struct {
 	Confidence      float32 `json:"confidence"`
 }
 
-// extractionFieldNames is the shared company-fact vocabulary, sourced from the
-// contract's ColdStartField enum — the same authority the gate uses via
-// coldStartFieldValid. One source feeds the model prompt AND the schema `field`
-// enum below, so the three cannot disagree: a renamed or removed contract value
-// fails to compile here rather than drifting past the gate.
+// extractionFieldNames is the shared company-fact vocabulary. One source feeds
+// the model prompt AND the schema `field` enum below. Every entry is a contract
+// ColdStartField constant, so a renamed or removed value fails to compile here,
+// and the fitness test (enrichfields_test.go) pins that every entry is a
+// gate-valid, unique ColdStartField — an entry can never drift AHEAD of the
+// gate the model's output passes through (coldStartFieldValid).
+//
+// The one gap Go can't close: a contract value ADDED but not listed here is
+// gate-valid yet never offered to the model or admitted by the schema enum, so
+// it is silently never extracted. There is no generated ColdStartField values
+// slice to iterate, so this direction can't be auto-gated — KEEP IN SYNC with
+// the ColdStartField enum whenever a field is added to it.
 var extractionFieldNames = []string{
 	string(crmcontracts.Icp),
 	string(crmcontracts.BuyingCenter),

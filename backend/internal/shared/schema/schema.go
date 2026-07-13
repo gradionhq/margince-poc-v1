@@ -46,12 +46,6 @@ func String() Node { return Node{Type: "string"} }
 // Number is a JSON number leaf (integer or float).
 func Number() Node { return Node{Type: "number"} }
 
-// Integer is a JSON integer leaf.
-func Integer() Node { return Node{Type: "integer"} }
-
-// Boolean is a JSON boolean leaf.
-func Boolean() Node { return Node{Type: "boolean"} }
-
 // Array is a list whose every item matches items.
 func Array(items Node) Node { return Node{Type: "array", Items: &items} }
 
