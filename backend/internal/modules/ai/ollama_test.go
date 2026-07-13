@@ -33,7 +33,7 @@ func TestOllamaCompleteCarriesSystemAsLeadingMessage(t *testing.T) {
 		if r.URL.Path != "/api/chat" {
 			t.Fatalf("wrong path %s", r.URL.Path)
 		}
-		received, _ = io.ReadAll(r.Body)
+		received = readBody(t, r.Body)
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"message": map[string]string{"content": "local hello"},
 			"done":    true, "prompt_eval_count": 7, "eval_count": 2,
@@ -74,7 +74,7 @@ func TestOllamaCarriesResponseSchemaAsFormatWhenSetAndOmitsItOtherwise(t *testin
 		t.Helper()
 		var received []byte
 		client := newOllamaForTest(t, func(w http.ResponseWriter, r *http.Request) {
-			received, _ = io.ReadAll(r.Body)
+			received = readBody(t, r.Body)
 			if err := json.NewEncoder(w).Encode(map[string]any{
 				"message": map[string]string{"content": "{}"}, "done": true,
 			}); err != nil {

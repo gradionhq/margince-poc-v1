@@ -33,7 +33,7 @@ func TestVLLMCarriesResponseSchemaAsJSONSchemaResponseFormatAndOmitsItOtherwise(
 		t.Helper()
 		var received []byte
 		client := newVLLMForTest(t, func(w http.ResponseWriter, r *http.Request) {
-			received, _ = io.ReadAll(r.Body)
+			received = readBody(t, r.Body)
 			if err := json.NewEncoder(w).Encode(map[string]any{
 				"choices": []any{map[string]any{"message": map[string]string{"content": "{}"}}},
 			}); err != nil {
@@ -93,7 +93,7 @@ func TestVLLMCompleteSpeaksOpenAICompatibleWire(t *testing.T) {
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("wrong path %s", r.URL.Path)
 		}
-		received, _ = io.ReadAll(r.Body)
+		received = readBody(t, r.Body)
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"content": "local hello"}}},
 			"usage":   map[string]int{"prompt_tokens": 7, "completion_tokens": 2},

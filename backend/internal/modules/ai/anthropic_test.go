@@ -34,7 +34,7 @@ func TestAnthropicCarriesResponseSchemaAsOutputConfigFormatAndOmitsItOtherwise(t
 		t.Helper()
 		var received []byte
 		client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
-			received, _ = io.ReadAll(r.Body)
+			received = readBody(t, r.Body)
 			if err := json.NewEncoder(w).Encode(map[string]any{
 				"content": []map[string]any{{"type": "text", "text": "{}"}},
 				"usage":   map[string]int{"input_tokens": 1, "output_tokens": 1},
@@ -88,7 +88,7 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 	var received []byte
 	var gotKey, gotVersion string
 	client := newAnthropicForTest(t, func(w http.ResponseWriter, r *http.Request) {
-		received, _ = io.ReadAll(r.Body)
+		received = readBody(t, r.Body)
 		gotKey = r.Header.Get("X-Api-Key")
 		gotVersion = r.Header.Get("Anthropic-Version")
 		if err := json.NewEncoder(w).Encode(map[string]any{
