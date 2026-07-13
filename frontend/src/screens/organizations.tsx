@@ -1,12 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   SectionHeader,
+  Skeleton,
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import {
@@ -21,46 +24,181 @@ import {
   problemMessage,
   provenanceOf,
   QueryGate,
+  throwProblem,
 } from "./common";
-import { CreateAction } from "./create";
+import { CreateAction, type CreateField, type FormRows } from "./create";
+import { EditAction } from "./edit";
 import { confidenceLevel } from "./inbox";
+import {
+  type ListPage,
+  type ListQuery,
+  ListToolbar,
+  useListQuery,
+} from "./listquery";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
+// Search/filter/sort/pagination (P-14), the rich create modal (P-15), the
+// If-Match edit form (P-1), and the dedupe view-existing link (P-16) are
+// wired in here the same way as contacts (people.tsx) — the enrich flow,
+// firmographics card, and timeline stay exactly as they were.
 
 type Organization = components["schemas"]["Organization"];
+type CreateOrganizationRequest =
+  components["schemas"]["CreateOrganizationRequest"];
+type UpdateOrganizationRequest =
+  components["schemas"]["UpdateOrganizationRequest"];
+
+const SIZE_BAND_OPTIONS = [
+  "1-10",
+  "11-50",
+  "51-200",
+  "201-500",
+  "501-1000",
+  "1001-5000",
+  "5000+",
+] as const;
+
+async function fetchOrganizationsPage(
+  query: ListQuery,
+  cursor: string | null,
+): Promise<ListPage<Organization>> {
+  const { data, error } = await api.GET("/organizations", {
+    params: {
+      query: {
+        q: query.q || undefined,
+        sort: query.sort || undefined,
+        include_archived: query.includeArchived || undefined,
+        cursor: cursor || undefined,
+        limit: 50,
+        ...query.filters,
+      },
+    },
+  });
+  if (error) {
+    throw new Error(problemMessage(error));
+  }
+  return {
+    data: data.data,
+    page: {
+      next_cursor: data.page.next_cursor ?? null,
+      has_more: data.page.has_more,
+    },
+  };
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function asSizeBand(
+  value: string | undefined,
+): CreateOrganizationRequest["size_band"] {
+  return (SIZE_BAND_OPTIONS as readonly string[]).includes(value ?? "")
+    ? (value as CreateOrganizationRequest["size_band"])
+    : undefined;
+}
+
+// Builds the create-company request body: `domains[]` rows carry
+// `{domain, is_primary}` keyed off the repeatable rows channel, scalar
+// fields trim to undefined when blank.
+export function mapOrgBody(
+  values: Record<string, string>,
+  rows: FormRows,
+): CreateOrganizationRequest {
+  const domains = (rows.domains ?? [])
+    .filter((row) => (row.domain ?? "").trim().length > 0)
+    .map((row) => ({
+      domain: row.domain.trim().toLowerCase(),
+      is_primary: row.is_primary === "true",
+    }));
+  return {
+    display_name: values.display_name.trim(),
+    legal_name: values.legal_name?.trim() || undefined,
+    industry: values.industry?.trim() || undefined,
+    size_band: asSizeBand(values.size_band),
+    domains: domains.length > 0 ? domains : undefined,
+    source: "manual",
+  };
+}
+
+// Builds the PATCH body: only the UpdateOrganizationRequest fields (never
+// domains — not in the contract's update shape).
+export function mapOrgUpdate(
+  values: Record<string, unknown>,
+): UpdateOrganizationRequest {
+  return {
+    display_name: stringField(values.display_name).trim() || undefined,
+    legal_name: stringField(values.legal_name).trim() || undefined,
+    industry: stringField(values.industry).trim() || undefined,
+    size_band: asSizeBand(stringField(values.size_band)),
+  };
+}
+
+const companyCreateFields: CreateField[] = [
+  { key: "display_name", label: "create.displayName", required: true },
+  { key: "legal_name", label: "create.legalName" },
+  { key: "industry", label: "create.industry" },
+  {
+    key: "size_band",
+    label: "create.sizeBand",
+    type: "select",
+    options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
+  },
+  {
+    key: "domains",
+    label: "org.domains",
+    type: "repeatable",
+    addLabel: "field.addDomain",
+    rowFields: [{ key: "domain", label: "field.domain", required: true }],
+    primaryKey: "is_primary",
+  },
+];
+
+const companyEditFields: CreateField[] = [
+  { key: "display_name", label: "create.displayName", required: true },
+  { key: "legal_name", label: "create.legalName" },
+  { key: "industry", label: "create.industry" },
+  {
+    key: "size_band",
+    label: "create.sizeBand",
+    type: "select",
+    options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
+  },
+];
+
+async function createCompany(
+  values: Record<string, string>,
+  rows?: FormRows,
+): Promise<Organization> {
+  const { data, error } = await api.POST("/organizations", {
+    body: mapOrgBody(values, rows ?? {}),
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data;
+}
 
 export function CompaniesScreen() {
   const t = useT();
-  const query = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/organizations", {
-        params: { query: { limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
+  const {
+    rows,
+    query,
+    setQuery,
+    hasMore,
+    loadMore,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useListQuery<Organization>({
+    key: "organizations",
+    initialSort: "-created_at",
+    fetchPage: fetchOrganizationsPage,
   });
-  const createCompany = async (values: Record<string, string>) => {
-    const domain = values.domain?.trim().toLowerCase();
-    const { data, error } = await api.POST("/organizations", {
-      body: {
-        display_name: values.display_name.trim(),
-        industry: values.industry?.trim() || null,
-        ...(domain ? { domains: [{ domain, is_primary: true }] } : {}),
-        source: "manual",
-      },
-    });
-    if (error) {
-      throw new Error(problemMessage(error));
-    }
-    return data;
-  };
 
   return (
     <div className="wrap">
@@ -71,19 +209,41 @@ export function CompaniesScreen() {
           invalidate="organizations"
           screen="companies"
           create={createCompany}
-          fields={[
-            {
-              key: "display_name",
-              label: "create.displayName",
-              required: true,
-            },
-            { key: "industry", label: "create.industry" },
-            { key: "domain", label: "create.domain", placeholder: "acme.com" },
-          ]}
+          resolveExisting={(_code, id) => ({ screen: "companies", id })}
+          fields={companyCreateFields}
         />
       </div>
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        sortOptions={[
+          { value: "display_name", label: "org.name" },
+          { value: "-created_at", label: "list.sortNewest" },
+        ]}
+      />
+      {isPending && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton width="60%" />
+          <Skeleton width="90%" />
+          <Skeleton width="75%" />
+        </div>
+      )}
+      {!isPending && isError && (
+        <EmptyState>
+          <p>{t("common.error")}</p>
+          <p className="t-mono" style={{ marginTop: 6 }}>
+            {error instanceof Error ? error.message : null}
+          </p>
+          <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
+            {t("common.retry")}
+          </Button>
+        </EmptyState>
+      )}
+      {!isPending && !isError && rows.length === 0 && (
+        <EmptyState>{t("common.empty")}</EmptyState>
+      )}
+      {!isPending && !isError && rows.length > 0 && (
+        <>
           <DataTable
             columns={[
               {
@@ -119,12 +279,17 @@ export function CompaniesScreen() {
                 ),
               },
             ]}
-            rows={page.data}
+            rows={rows}
             rowKey={(org) => org.id}
             onRowClick={(org) => navigate({ screen: "companies", id: org.id })}
           />
-        )}
-      </QueryGate>
+          {hasMore && (
+            <Button small onClick={() => loadMore()} style={{ marginTop: 10 }}>
+              {t("list.loadMore")}
+            </Button>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -261,6 +426,40 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
               <>
                 {org.classification && <Badge>{org.classification}</Badge>}
                 <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+                <EditAction
+                  label={t("record.edit")}
+                  fields={companyEditFields}
+                  record={{
+                    id: org.id,
+                    version: org.version,
+                    display_name: org.display_name,
+                    legal_name: org.legal_name ?? "",
+                    industry: org.industry ?? "",
+                    size_band: org.size_band ?? "",
+                  }}
+                  update={async (values) => {
+                    const { data, error } = await api.PATCH(
+                      "/organizations/{id}",
+                      {
+                        params: {
+                          path: { id },
+                          ...ifMatch(org.version),
+                        },
+                        body: mapOrgUpdate(values),
+                      },
+                    );
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="organizations"
+                  recordKey="organization"
+                  resolveExisting={(_code, existingId) => ({
+                    screen: "companies",
+                    id: existingId,
+                  })}
+                />
               </>
             }
             timeline={
