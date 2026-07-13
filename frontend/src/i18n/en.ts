@@ -105,6 +105,7 @@ export const en = {
   "list.showArchived": "Show archived",
   "list.loadMore": "Load more",
   "list.sortNewest": "Newest",
+  "list.sortScore": "Score",
 
   "people.name": "Name",
   "people.email": "Email",
@@ -124,6 +125,11 @@ export const en = {
   "lead.segregated": "leads live apart from the contact graph until promoted",
   "lead.promote": "Promote to contact",
   "lead.promoteIneligible": "needs an email and an open status",
+  "lead.filterStatus": "Status",
+  "lead.statusNew": "New",
+  "lead.statusWorking": "Working",
+  "lead.statusPromoted": "Promoted",
+  "lead.statusDisqualified": "Disqualified",
 
   "deals.viewBoard": "Board",
   "deals.viewTable": "Table",
@@ -203,6 +209,8 @@ export const en = {
   "create.email": "Email",
   "create.phone": "Phone",
   "create.linkedin": "LinkedIn",
+  "create.linkedinUrl": "LinkedIn URL",
+  "create.candidateOrgKey": "Candidate org key",
   "create.displayName": "Company name",
   "create.legalName": "Legal name",
   "create.industry": "Industry",

@@ -1,24 +1,46 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   SectionHeader,
+  Skeleton,
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
-import { problemMessage, provenanceOf, QueryGate } from "./common";
-import { CreateAction } from "./create";
+import {
+  problemMessage,
+  provenanceOf,
+  QueryGate,
+  throwProblem,
+} from "./common";
+import { CreateAction, type CreateField } from "./create";
+import { EditAction } from "./edit";
+import {
+  type ListPage,
+  type ListQuery,
+  ListToolbar,
+  useListQuery,
+} from "./listquery";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
 // lead surface is accent-tinted, lead detail is its own screen (never
 // person.html — gap §3.5), and promote is eligibility-gated. Lead score is
 // lead-local; the ≥60 / 40–59 / <40 colour thresholds are pinned by test.
+// Search/filter/sort/pagination (P-14), the rich create modal (P-15), the
+// If-Match edit form (P-1), and the dedupe view-existing link (P-16) are
+// wired in here the same way as contacts (people.tsx) — the Promote button
+// and score/status/company badges on the lead 360 stay exactly as they
+// were. Status-change and score-override are Phase 4, not surfaced here.
 
 type Lead = components["schemas"]["Lead"];
+type CreateLeadRequest = components["schemas"]["CreateLeadRequest"];
+type UpdateLeadRequest = components["schemas"]["UpdateLeadRequest"];
 
 export function scoreTone(score: number): "success" | "warn" | "danger" {
   if (score >= 60) {
@@ -36,35 +58,122 @@ export function promoteEligible(lead: Lead): boolean {
   );
 }
 
-export function LeadsScreen() {
-  const t = useT();
-  const query = useQuery({
-    queryKey: ["leads"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/leads", {
-        params: { query: { limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
+async function fetchLeadsPage(
+  query: ListQuery,
+  cursor: string | null,
+): Promise<ListPage<Lead>> {
+  const { data, error } = await api.GET("/leads", {
+    params: {
+      query: {
+        q: query.q || undefined,
+        sort: query.sort || undefined,
+        include_archived: query.includeArchived || undefined,
+        cursor: cursor || undefined,
+        limit: 50,
+        ...query.filters,
+      },
     },
   });
-  const createLead = async (values: Record<string, string>) => {
-    const { data, error } = await api.POST("/leads", {
-      body: {
-        full_name: values.full_name?.trim() || null,
-        email: values.email?.trim() || null,
-        company_name: values.company_name?.trim() || null,
-        status: "new",
-        source: "manual",
-      },
-    });
-    if (error) {
-      throw new Error(problemMessage(error));
-    }
-    return data;
+  if (error) {
+    // A LIST read's honest-error path only needs a message to render — the
+    // dedupe "view existing" link is a create/update-only concern.
+    throw new Error(problemMessage(error));
+  }
+  return {
+    data: data.data,
+    page: {
+      next_cursor: data.page.next_cursor ?? null,
+      has_more: data.page.has_more,
+    },
   };
+}
+
+// Builds the create-lead request body: scalar fields trim to undefined when
+// blank (never sent rather than sent empty). Lead email is a single string —
+// not a repeatable list — so no rows channel is used here.
+export function mapLeadBody(values: Record<string, string>): CreateLeadRequest {
+  return {
+    full_name: values.full_name?.trim() || undefined,
+    email: values.email?.trim() || undefined,
+    linkedin_url: values.linkedin_url?.trim() || undefined,
+    title: values.title?.trim() || undefined,
+    company_name: values.company_name?.trim() || undefined,
+    candidate_org_key: values.candidate_org_key?.trim() || undefined,
+    status: "new",
+    source: "manual",
+  };
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+// Builds the PATCH body: only the five scalar fields this task surfaces —
+// status and score are Phase 4 and never sent from this form.
+export function mapLeadUpdate(
+  values: Record<string, unknown>,
+): UpdateLeadRequest {
+  return {
+    full_name: stringField(values.full_name).trim() || undefined,
+    email: stringField(values.email).trim() || undefined,
+    title: stringField(values.title).trim() || undefined,
+    company_name: stringField(values.company_name).trim() || undefined,
+    candidate_org_key:
+      stringField(values.candidate_org_key).trim() || undefined,
+  };
+}
+
+const leadCreateFields: CreateField[] = [
+  { key: "full_name", label: "create.fullName", required: true },
+  { key: "email", label: "create.email", type: "email" },
+  { key: "linkedin_url", label: "create.linkedinUrl" },
+  { key: "title", label: "create.personTitle" },
+  { key: "company_name", label: "create.companyName" },
+  { key: "candidate_org_key", label: "create.candidateOrgKey" },
+];
+
+const leadEditFields: CreateField[] = [
+  { key: "full_name", label: "create.fullName", required: true },
+  { key: "email", label: "create.email", type: "email" },
+  { key: "title", label: "create.personTitle" },
+  { key: "company_name", label: "create.companyName" },
+  { key: "candidate_org_key", label: "create.candidateOrgKey" },
+];
+
+const leadStatusFilterOptions = [
+  { value: "new", label: "lead.statusNew" },
+  { value: "working", label: "lead.statusWorking" },
+  { value: "promoted", label: "lead.statusPromoted" },
+  { value: "disqualified", label: "lead.statusDisqualified" },
+] as const;
+
+async function createLead(values: Record<string, string>): Promise<Lead> {
+  const { data, error } = await api.POST("/leads", {
+    body: mapLeadBody(values),
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data;
+}
+
+export function LeadsScreen() {
+  const t = useT();
+  const {
+    rows,
+    query,
+    setQuery,
+    hasMore,
+    loadMore,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useListQuery<Lead>({
+    key: "leads",
+    initialSort: "-created_at",
+    fetchPage: fetchLeadsPage,
+  });
 
   return (
     <div className="wrap lead-surface">
@@ -75,15 +184,49 @@ export function LeadsScreen() {
           invalidate="leads"
           screen="leads"
           create={createLead}
-          fields={[
-            { key: "full_name", label: "create.fullName", required: true },
-            { key: "email", label: "create.email", type: "email" },
-            { key: "company_name", label: "create.companyName" },
-          ]}
+          resolveExisting={(_code, id) => ({ screen: "leads", id })}
+          fields={leadCreateFields}
         />
       </div>
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        sortOptions={[
+          { value: "-score", label: "list.sortScore" },
+          { value: "-created_at", label: "list.sortNewest" },
+        ]}
+        filters={[
+          {
+            kind: "select",
+            key: "status",
+            label: "lead.filterStatus",
+            options: leadStatusFilterOptions.map((option) => ({ ...option })),
+          },
+        ]}
+      />
+      {isPending && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton width="60%" />
+          <Skeleton width="90%" />
+          <Skeleton width="75%" />
+        </div>
+      )}
+      {!isPending && isError && (
+        <EmptyState>
+          <p>{t("common.error")}</p>
+          <p className="t-mono" style={{ marginTop: 6 }}>
+            {error instanceof Error ? error.message : null}
+          </p>
+          <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
+            {t("common.retry")}
+          </Button>
+        </EmptyState>
+      )}
+      {!isPending && !isError && rows.length === 0 && (
+        <EmptyState>{t("common.empty")}</EmptyState>
+      )}
+      {!isPending && !isError && rows.length > 0 && (
+        <>
           <DataTable
             columns={[
               {
@@ -118,12 +261,17 @@ export function LeadsScreen() {
                 ),
               },
             ]}
-            rows={page.data}
+            rows={rows}
             rowKey={(lead) => lead.id}
             onRowClick={(lead) => navigate({ screen: "leads", id: lead.id })}
           />
-        )}
-      </QueryGate>
+          {hasMore && (
+            <Button small onClick={() => loadMore()} style={{ marginTop: 10 }}>
+              {t("list.loadMore")}
+            </Button>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -167,10 +315,40 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       <QueryGate query={leadQuery}>
         {(lead) => (
           <div className="card lead-detail">
-            <SectionHeader
-              title={lead.full_name ?? lead.email ?? t("nav.leads")}
-              sub={t("lead.segregated")}
-            />
+            <div className="list-head">
+              <SectionHeader
+                title={lead.full_name ?? lead.email ?? t("nav.leads")}
+                sub={t("lead.segregated")}
+              />
+              <EditAction
+                label={t("record.edit")}
+                fields={leadEditFields}
+                record={{
+                  id: lead.id,
+                  version: lead.version,
+                  full_name: lead.full_name ?? "",
+                  email: lead.email ?? "",
+                  title: lead.title ?? "",
+                  company_name: lead.company_name ?? "",
+                  candidate_org_key: lead.candidate_org_key ?? "",
+                }}
+                update={async (values) => {
+                  const { data, error } = await api.PATCH("/leads/{id}", {
+                    params: {
+                      path: { id },
+                      ...ifMatch(lead.version),
+                    },
+                    body: mapLeadUpdate(values),
+                  });
+                  if (error) {
+                    throwProblem(error);
+                  }
+                  return data;
+                }}
+                invalidate="leads"
+                recordKey="lead"
+              />
+            </div>
             <div
               style={{
                 display: "flex",

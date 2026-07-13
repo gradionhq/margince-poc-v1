@@ -108,6 +108,7 @@ export const de = {
   "list.showArchived": "Archivierte anzeigen",
   "list.loadMore": "Mehr laden",
   "list.sortNewest": "Neueste",
+  "list.sortScore": "Score",
 
   "people.name": "Name",
   "people.email": "E-Mail",
@@ -128,6 +129,11 @@ export const de = {
     "Leads bleiben vom Kontaktgraphen getrennt, bis du sie übernimmst",
   "lead.promote": "Zum Kontakt machen",
   "lead.promoteIneligible": "braucht eine E-Mail und einen offenen Status",
+  "lead.filterStatus": "Status",
+  "lead.statusNew": "Neu",
+  "lead.statusWorking": "In Bearbeitung",
+  "lead.statusPromoted": "Übernommen",
+  "lead.statusDisqualified": "Disqualifiziert",
 
   "deals.viewBoard": "Board",
   "deals.viewTable": "Tabelle",
@@ -207,6 +213,8 @@ export const de = {
   "create.email": "E-Mail",
   "create.phone": "Telefon",
   "create.linkedin": "LinkedIn",
+  "create.linkedinUrl": "LinkedIn-URL",
+  "create.candidateOrgKey": "Firmen-Schlüssel (Kandidat)",
   "create.displayName": "Firmenname",
   "create.legalName": "Rechtlicher Name",
   "create.industry": "Branche",
