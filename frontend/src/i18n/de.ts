@@ -479,6 +479,23 @@ export const de = {
   "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
   "settings.due": "fällig {date}",
 
+  "settings.pipelines": "Pipelines",
+  "settings.pipelinesSub": "Pipelines und ihre Phasen konfigurieren (Admin/Ops).",
+  "pipeline.new": "Neue Pipeline",
+  "pipeline.edit": "Pipeline bearbeiten",
+  "pipeline.name": "Name",
+  "pipeline.default": "Standard",
+  "pipeline.notDefault": "Kein Standard",
+  "pipeline.position": "Position",
+  "stage.new": "Neue Phase",
+  "stage.edit": "Phase bearbeiten",
+  "stage.name": "Name",
+  "stage.semantic": "Semantik",
+  "stage.winProb": "Gewinnwahrscheinlichkeit",
+  "stage.semOpen": "Offen",
+  "stage.semWon": "Gewonnen",
+  "stage.semLost": "Verloren",
+
   "ob.title": "Willkommen bei Margince",
   "ob.sub":
     "erst der Nutzen — dein Postfach verbindest du zuletzt, nicht zuerst",
