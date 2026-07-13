@@ -198,9 +198,9 @@ Open work, roughly in priority order:
   (riding `modules/ai`) reads unvetted content.
 - **§0 baseline ratification** (founder decision): confirm this repo as
   the OSS baseline and reconcile the foundation spec tree with this
-  repo's actual architecture. Until it lands, the spec-path references in
-  CLAUDE.md / AGENTS.md / README (`../margince/specs/`) are left as-is;
-  they repoint together once the canonical public spec home is decided.
+  repo's actual architecture. Until it lands, the docs refer to the spec
+  as "a separate spec repo" without a literal path; they gain a concrete
+  public spec URL once the canonical public spec home is decided.
 - **EP05 §B capture-connection reshape** — now unblocked by the keyvault
   seam: multiple per-user connections, the connection-management contract
   surface + UI, and connector credential *rotation* (the ref/AAD scheme

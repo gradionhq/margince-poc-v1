@@ -3,7 +3,7 @@
 React 19 + Vite + TypeScript (strict) + Tailwind 4 + Biome + Vitest +
 Playwright, per spec ADR-0001/ADR-0054. Margince's **own** design system —
 no gw-ui/Dispact reuse (founder decision 2026-07-05; the design source of
-truth is the foundation at `../../margince/specs/design/design-system/`).
+truth is the foundation's design-system spec).
 
 ## Commands
 

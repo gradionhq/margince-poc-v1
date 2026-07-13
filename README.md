@@ -40,7 +40,7 @@ doesn't ship
 
 This is the build repo: the running Go code. The full specification
 (product, architecture, OpenAPI contract, data model, a ~700-ticket
-work breakdown) lives in a separate spec repo at `../margince/specs/`.
+work breakdown) lives in a separate spec repo.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
@@ -293,7 +293,7 @@ routed, not lost:
   from "we chose".
 - **Spec/ticket defects** — a contradiction, an omission, a vocabulary
   gap, an unimplementable acceptance criterion found while building — are
-  reconciled upstream against the spec (`../margince/specs/`), naming the
+  reconciled upstream against the spec, naming the
   spec section and a suggested fix. The durable record is the spec's own
   amendment (ADR/DECISIONS); contract-first (P3), a spec defect is
   reconciled upstream, never silently worked around in this source.
@@ -351,6 +351,6 @@ source is public and free to read, run, and modify.
 The Additional Use Grant fills only BUSL's parameter fields; the license body is
 the verbatim canonical text, so SPDX/GitHub detect it as `BUSL-1.1`. The full
 model, rationale, and enforcement design live in the spec's
-[`business/12-license.md`](../margince/specs/business/12-license.md). Each tagged
+`business/12-license.md`. Each tagged
 release restamps the Change Date to its publication date + 2 years — the rule is
 [docs/reference/license-release-rule.md](docs/reference/license-release-rule.md).

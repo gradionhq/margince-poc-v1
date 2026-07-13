@@ -13,12 +13,11 @@ open one file and trace one flow — *"would I enjoy working in this? can I find
 
 ## Your reference (read it first, every run)
 
-`/Users/lars/develop/margince/specs/research/craftsmanship-loved-and-anti-patterns.md`
-— the normative dossier of loved patterns (✅) and anti-patterns (❌) across architecture,
-naming, comments, error handling, the public interface, tests, dependencies, and docs.
-Also honor the repo's own binding rules in `CLAUDE.md` ("The write shape",
-"Craftsmanship" T1–T11, "Rules learned from the review loop") and, where a change
-touches spec-governed behavior, the contract-first principle (spec wins).
+The repo's own binding rules in `CLAUDE.md` — "The write shape", "Craftsmanship"
+T1–T11, and "Rules learned from the review loop" — are your normative checklist of
+loved patterns (✅) and anti-patterns (❌) across architecture, naming, comments,
+error handling, the public interface, tests, dependencies, and docs. Where a change
+touches spec-governed behavior, the contract-first principle also binds (spec wins).
 
 ## Scope — only what this push changes
 
@@ -55,6 +54,6 @@ invariant a change touches (rule 1: fix the invariant, not the one call site).
 ## Output
 
 Report **only** what you would block or change, most-load-bearing first. For each:
-`file:line` · one-sentence defect · the concrete fix · which dossier tell or CLAUDE.md
+`file:line` · one-sentence defect · the concrete fix · which CLAUDE.md
 rule it violates. If the diff is clean at this layer, say so plainly in one line — do
 not invent findings. You do not edit; the main agent applies fixes.
