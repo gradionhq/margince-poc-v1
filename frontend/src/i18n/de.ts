@@ -756,12 +756,14 @@ export const de = {
   "strength.computedFrom": "Berechnet aus {count} Aktivitäten",
 
   "product.title": "Produkte",
-  "product.settingsSub": "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",
+  "product.settingsSub":
+    "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",
   "product.open": "Produkte öffnen",
   "product.new": "Neues Produkt",
   "product.edit": "Produkt bearbeiten",
   "product.archive": "Produkt archivieren",
-  "product.archiveConfirm": "Dieses Produkt archivieren? Bestehende Angebotszeilen behalten ihren Snapshot.",
+  "product.archiveConfirm":
+    "Dieses Produkt archivieren? Bestehende Angebotszeilen behalten ihren Snapshot.",
   "product.name": "Name",
   "product.sku": "SKU",
   "product.description": "Beschreibung",

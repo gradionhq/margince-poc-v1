@@ -745,7 +745,8 @@ export const en = {
   "product.new": "New product",
   "product.edit": "Edit product",
   "product.archive": "Archive product",
-  "product.archiveConfirm": "Archive this product? Existing offer lines keep their snapshot.",
+  "product.archiveConfirm":
+    "Archive this product? Existing offer lines keep their snapshot.",
   "product.name": "Name",
   "product.sku": "SKU",
   "product.description": "Description",
