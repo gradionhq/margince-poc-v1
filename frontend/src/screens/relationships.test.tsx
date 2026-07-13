@@ -89,11 +89,29 @@ describe("counterpartyRef — the other end of an existing edge, typed for Entit
     });
   });
 
-  it("an org↔org edge resolves to the counterparty org", () => {
-    const rel = baseRel({ kind: "partner_of", counterparty_org_id: "o-2" });
+  it("an org↔org edge resolves to the counterparty org from the anchor side", () => {
+    const rel = baseRel({
+      kind: "partner_of",
+      organization_id: "o-1",
+      counterparty_org_id: "o-2",
+    });
     expect(counterpartyRef(rel, orgScope)).toEqual({
       kind: "organization",
       id: "o-2",
+    });
+  });
+
+  it("resolves to the OTHER org when the same edge is viewed from the counterparty side", () => {
+    // The org list filter matches on either end, so this partner_of edge also
+    // appears on o-2's tab; the far end there is the anchor o-1, never o-2.
+    const rel = baseRel({
+      kind: "partner_of",
+      organization_id: "o-1",
+      counterparty_org_id: "o-2",
+    });
+    expect(counterpartyRef(rel, { organization_id: "o-2" })).toEqual({
+      kind: "organization",
+      id: "o-1",
     });
   });
 

@@ -78,26 +78,32 @@ async function fetchRelationships(
 }
 
 // The other side of an edge from this scope's point of view, as a typed
-// record reference EntityRef can hydrate into a name + backlink. Which field
-// carries it follows the edge shape (migration 0007 rel_*_shape): a deal edge
-// uses deal_id, an org↔org edge uses counterparty_org_id, and an employment
-// edge uses whichever of person/org this scope is NOT the anchor of.
+// record reference EntityRef can hydrate into a name + backlink. The far end
+// follows the edge shape (migration 0007 rel_*_shape) AND the scope: a
+// person's 360 sees its employment (→org) and deal_stakeholder (→deal) edges;
+// an org's 360 sees employment (→person) and the org↔org edges. Critically,
+// the org list filter matches an org↔org edge on EITHER end
+// (organization_id OR counterparty_org_id), so the far org is whichever id is
+// not this scope's own — never the record itself.
 export function counterpartyRef(
   rel: Relationship,
   scope: RelationshipScope,
 ): { kind: EntityRefKind; id: string } | null {
-  if (rel.deal_id) {
-    return { kind: "deal", id: rel.deal_id };
-  }
-  if (rel.counterparty_org_id) {
-    return { kind: "organization", id: rel.counterparty_org_id };
-  }
   if ("person_id" in scope) {
+    if (rel.deal_id) {
+      return { kind: "deal", id: rel.deal_id };
+    }
     return rel.organization_id
       ? { kind: "organization", id: rel.organization_id }
       : null;
   }
-  return rel.person_id ? { kind: "person", id: rel.person_id } : null;
+  if (rel.person_id) {
+    return { kind: "person", id: rel.person_id };
+  }
+  const far = [rel.counterparty_org_id, rel.organization_id].find(
+    (orgId) => orgId != null && orgId !== scope.organization_id,
+  );
+  return far ? { kind: "organization", id: far } : null;
 }
 
 function dateRange(rel: Relationship, t: (key: MessageKey) => string): string {
