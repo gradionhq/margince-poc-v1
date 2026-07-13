@@ -216,7 +216,7 @@ codegen, and the store shape above into one checklist:
 | | |
 |---|---|
 | Go module | `github.com/gradionhq/margince/backend` (root `backend/`) |
-| API port | `:8080` (HTTP under `make dev`; HTTPS front door under `make dev-tls`) |
+| API port | `:8080` (HTTP; `make dev` also runs the Vite SPA on `:5173`) |
 | Postgres / Redis / MinIO | `localhost:55432` / `56379` / `59000` |
 | Owner DSN (migrate) | `postgres://margince_owner:dev@localhost:55432/margince` |
 | App DSN (api/worker) | `postgres://margince_app:margince_app_dev@localhost:55432/margince` |

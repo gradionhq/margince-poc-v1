@@ -11,7 +11,8 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 |---|---|
 | `help` | List targets (the default goal) |
 | `install` | One-shot fresh-worktree setup (frontend deps + Go gate binaries + git hooks). The factory's `worktree-init` runs this by name |
-| `dev` | db-up + migrate + `cmd/api` on `:8080` |
+| `dev` | Full local stack: db-up + migrate + `cmd/api` + API-seed + the Vite SPA, on `http://localhost:8080` (FE `:5173`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Reads an optional Anthropic BYOK key from `.env.local` for the live cold-start read-back |
+| `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — stop the stack started by `make dev` and free its ports; `DROP=1` also drops an isolated `margince_dev_<slug>` database |
 | `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is a skeleton-compatible alias) |
 | `db-init` | (Re)apply `scripts/db-init.sql` to the running Postgres |
 | `migrate` | Apply core + custom migrations with the owner DSN |
@@ -73,20 +74,18 @@ root gates (each is a small script; all merge-blocking):
 |---|---|
 | `frontend-check` | `pnpm install --frozen-lockfile && pnpm check` in `frontend/` (needs node + pnpm) |
 | `frontend-e2e` | The screen-acceptance UAT harness: AC-named tests + 390px sweep + axe WCAG 2.2 AA + perceived-perf budgets, against the built app over the seed mock (`BASE_URL=…` targets a live backend). Wired into CI as the `uat` job |
-| `frontend-dev` | `pnpm install && pnpm dev` in `frontend/` |
 | `storybook` | The component workbench on `:6006` — the design-system catalog and the story surface `fe-uat` renders. Stories live beside their component as `<name>.stories.tsx` |
 | `fe-uat` | Change-scoped Storybook render+capture UAT for frontend-only diffs: renders THIS branch's changed component's stories in headless Chromium and screenshots them (no live stack, no DB). Fails on an unclean render, an unregistered story, or a changed component with no story. Artifact: `.tmp/fe-uat/manifest.json`. Deliberately **not** in `make check` — the fe-only UAT lane a coordinator runs instead of the full stack. `ARGS="--allow-missing"` |
 
-## Root-only (isolated UAT env, per worktree)
+## Isolated stack per worktree
 
-A live UAT stack that won't collide with another worktree's: the ONE shared
-infra (Postgres/Redis on `55432`/`56379`), but a private database
-`margince_uat_<slug>` and api/FE ports derived deterministically from the slug.
-
-| Target | What it does |
-|---|---|
-| `uat_env` | `make uat_env UAT_SLUG=<slug>` — create + migrate + API-seed `margince_uat_<slug>`, then boot the api and Vite on slug-derived ports (the FE's `/v1` proxy follows the api via `BACKEND_PORT`). Logs + stop handle under `.tmp/uat/<slug>/` |
-| `uat_env_stop` | `make uat_env_stop UAT_SLUG=<slug> [DROP=1]` — stop the servers and free the ports; `DROP=1` also drops the database |
+`make dev DEV_SLUG=<slug>` runs a full stack that won't collide with another
+worktree's: the ONE shared infra (Postgres/Redis on `55432`/`56379`), but a
+private database `margince_dev_<slug>` and api/FE ports derived
+deterministically from the slug (the FE's `/v1` proxy follows the api via
+`BACKEND_PORT`). Logs + stop handle live under `.tmp/dev/<slug>/`. Bare
+`make dev` uses the shared `margince` database on the base `:8080`/`:5173`
+ports. Stop either with `make dev-stop [DEV_SLUG=<slug>] [DROP=1]`.
 
 ## Root-only (craftsmanship gate)
 

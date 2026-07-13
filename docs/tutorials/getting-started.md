@@ -40,9 +40,11 @@ fork-owned custom namespace. Migrations are reversible; see
 make dev
 ```
 
-`make dev` re-runs db-up + migrate and then boots `cmd/api` on `:8080`
-with the app-role DSN. By default the outbox relay runs inline in the
-same process, so this one command is a complete install.
+`make dev` brings up the infra, re-runs db-up + migrate, API-seeds the demo
+workspace, and boots `cmd/api` on `:8080` with the app-role DSN (plus the
+Vite SPA on `:5173`). By default the outbox relay runs inline in the api
+process, so this one command is a complete install; it returns when ready
+and the servers run in the background — stop them with `make dev-stop`.
 
 ## 4. Bootstrap a workspace
 
@@ -50,8 +52,9 @@ Open <http://localhost:8080> — the embedded web UI. The first screen
 lets you bootstrap a workspace (name, slug, your admin user). After
 login you have people, leads, the deal board, and the activity timeline.
 
-Prefer the API? The same bootstrap is `POST /v1/workspaces`. For a ready-made demo workspace and admin,
-run `make seed-dev` (creates `demo-workspace` with `admin@demo.test` / `demo-password-123`).
+Prefer the API? The same bootstrap is `POST /v1/workspaces`. A ready-made demo workspace already exists —
+`make dev` API-seeds `demo-workspace` (`admin@demo.test` / `demo-password-123`) on boot; `make seed-dev`
+re-runs the same idempotent seed if you need it.
 
 Then log in over the API and reuse the session. The `crm_session` cookie is `Secure`, so pull it out of
 the login response rather than relying on curl's jar; local calls also need the `X-Workspace-Slug`

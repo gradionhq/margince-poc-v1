@@ -57,8 +57,9 @@ make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends
                         # with `OK: integration passed with 0 skips`, never skips silently
-make dev                # db-up + migrate + api on :8080
-make uat_env UAT_SLUG=x # per-worktree live UAT stack on a private margince_uat_<slug> db
+make dev                # full local stack: db + api + Vite SPA on http://localhost:8080
+                        # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
+make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
 ```
 
 `check-q` (quiet), `check-go` (backend-only), `fe-typecheck`, `fe-uat`
@@ -87,7 +88,7 @@ Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen
 tool chain is pure Go, in its own module `backend/tools/`).
 
 Local API calls need the workspace header (prod uses the subdomain):
-`curl -k https://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=…'`
+`curl http://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=…'`
 
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus
@@ -197,7 +198,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   gen-stubs, gen-agentpolicy); its own Go module so the generators'
   dependencies stay out of the product module's go.mod.
 - `frontend/` — an in-flight Vite/React workspace tracked by a parallel
-  session (decisions/0014); `make frontend-check` / `make frontend-dev`
+  session (decisions/0014); `make frontend-check` / `make dev`
   exist at the repo root.
 
 ## DO NOT TOUCH

@@ -33,7 +33,7 @@ while IFS= read -r f; do
   fi
 # Search roots: every hand-written Go tree. cli/craft is vendored verbatim
 # from the foundation (hash-pinned); its lane discipline is upstream's job.
-done < <(find backend dev -name '*_test.go' 2>/dev/null | sort)
+done < <(find backend -name '*_test.go' 2>/dev/null | sort)
 
 if [ "$violations" -ne 0 ]; then
   echo "FAIL: test-lanes — real-infra tests must carry //go:build integration."
