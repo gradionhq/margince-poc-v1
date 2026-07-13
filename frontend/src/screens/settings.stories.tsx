@@ -67,8 +67,16 @@ function me(roles: string[]) {
   };
 }
 
+// useMe() fails fast without a workspace slug (there is no tenant to ask), which
+// would leave canConfigureAutomations false and collapse the Admin state into the
+// read-only one. Seed the slug so /me resolves and the admin affordances render.
+function seedWorkspace() {
+  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+}
+
 export const Admin: Story = {
   render: () => {
+    seedWorkspace();
     installFetchStub({
       "GET /me": () => jsonResponse(me(["admin"])),
       "GET /pipelines": () => jsonResponse(pipelines),
@@ -83,6 +91,7 @@ export const Admin: Story = {
 
 export const ReadOnly: Story = {
   render: () => {
+    seedWorkspace();
     installFetchStub({
       "GET /me": () => jsonResponse(me(["rep"])),
       "GET /pipelines": () => jsonResponse(pipelines),
