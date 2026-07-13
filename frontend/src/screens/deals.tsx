@@ -670,6 +670,95 @@ export function FxLine({
   );
 }
 
+// Reopens a won/lost deal back to an open-semantic stage — the same advance
+// mutation shape the board drag uses, with status:"open" forced. Split out
+// of DealBadges for the same readability reason as the other header actions.
+function ReopenAction({
+  dealId,
+  openStages,
+}: Readonly<{ dealId: string; openStages: Stage[] }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [stageId, setStageId] = useState<string | null>(null);
+  const reopen = useMutation({
+    mutationFn: async (toStageId: string) => {
+      const { data, error } = await api.POST("/deals/{id}/advance", {
+        params: { path: { id: dealId } },
+        body: { to_stage_id: toStageId, status: "open" },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: () => {
+      setOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["deal", dealId] });
+      queryClient.invalidateQueries({ queryKey: ["deals"] });
+    },
+  });
+  return (
+    <>
+      <Button small data-testid="reopen-open" onClick={() => setOpen(true)}>
+        {t("deal.reopen")}
+      </Button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        labelledBy="reopen-title"
+      >
+        <p className="t-sub" id="reopen-title">
+          {t("deal.reopenPick")}
+        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            margin: "10px 0",
+          }}
+        >
+          {openStages.map((s) => (
+            <Button
+              key={s.id}
+              small
+              aria-pressed={stageId === s.id}
+              data-testid={`reopen-stage-${s.id}`}
+              onClick={() => setStageId(s.id)}
+            >
+              {s.name}
+            </Button>
+          ))}
+        </div>
+        {reopen.isError && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {reopen.error instanceof Error ? reopen.error.message : null}
+          </p>
+        )}
+        <div className="actions">
+          <Button small onClick={() => setOpen(false)}>
+            {t("deals.cancel")}
+          </Button>
+          <Button
+            small
+            variant="primary"
+            data-testid="reopen-confirm"
+            disabled={!stageId || reopen.isPending}
+            onClick={() => {
+              if (stageId) {
+                reopen.mutate(stageId);
+              }
+            }}
+          >
+            {t("deal.reopenConfirm")}
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
 // The status badge plus the edit/archive affordances — split out of
 // DealScreen's render so the record-view callback stays readably small. An
 // archived deal is read-only (no edit/merge/archive path exists server-side
@@ -678,10 +767,12 @@ function DealBadges({
   deal,
   orgs,
   meId,
+  openStages,
 }: Readonly<{
   deal: Deal;
   orgs: { id: string; display_name: string }[];
   meId: string;
+  openStages: Stage[];
 }>) {
   const t = useT();
   if (deal.archived_at != null) {
@@ -741,6 +832,9 @@ function DealBadges({
         recordKey="deal"
         onArchived={() => navigate({ screen: "deals" })}
       />
+      {(deal.status === "won" || deal.status === "lost") && (
+        <ReopenAction dealId={deal.id} openStages={openStages} />
+      )}
     </>
   );
 }
@@ -895,6 +989,9 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
           const stages = [...(pipelineQuery.data?.stages ?? [])].sort(
             (a, b) => a.position - b.position,
           );
+          const openStages = stages.filter(
+            (stage) => stage.semantic === "open",
+          );
           const dealApprovals = (approvalsQuery.data?.data ?? []).filter(
             (approval) => approval.target_entity_id === deal.id,
           );
@@ -912,6 +1009,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   deal={deal}
                   orgs={orgs.data?.data ?? []}
                   meId={me.data?.user.id ?? ""}
+                  openStages={openStages}
                 />
               }
               timeline={

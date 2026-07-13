@@ -344,3 +344,30 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
     await waitFor(() => expect(deleted).toBe(true));
   });
 });
+
+describe("DealScreen reopen", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  it("reopen is shown only for won/lost and advances to an open stage with status open", async () => {
+    const advances: unknown[] = [];
+    const d = deal({ id: "x", status: "won", stage_id: "s3" });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], { single: d, onAdvance: (b) => advances.push(b) }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("reopen-open"));
+    await userEvent.click(screen.getByTestId("reopen-stage-s1"));
+    await userEvent.click(screen.getByTestId("reopen-confirm"));
+    await waitFor(() => expect(advances.length).toBe(1));
+    expect(advances[0]).toMatchObject({ to_stage_id: "s1", status: "open" });
+  });
+
+  it("reopen is not offered for an open deal", async () => {
+    const d = deal({ id: "y", status: "open" });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="y" />);
+    await screen.findByTestId("edit-record"); // 360 rendered
+    expect(screen.queryByTestId("reopen-open")).toBeNull();
+  });
+});
