@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -8,6 +9,7 @@ import {
   Button,
   DataTable,
   SectionHeader,
+  SegmentedControl,
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import {
@@ -38,6 +40,7 @@ import {
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
 import { activityTimeline } from "./people";
+import { RelationshipsTab } from "./relationships";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
@@ -373,8 +376,12 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
+const COMPANY_TABS = ["overview", "relationships"] as const;
+type CompanyTab = (typeof COMPANY_TABS)[number];
+
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
+  const [tab, setTab] = useState<CompanyTab>("overview");
   const orgQuery = useQuery({
     queryKey: ["organization", id],
     queryFn: async () => {
@@ -504,36 +511,55 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                 : []
             }
           >
-            <section className="card" style={{ marginBottom: 16 }}>
-              <SectionHeader
-                title={t("org.firmographics")}
-                sub={t("org.evidenceOrOmit")}
+            <div style={{ marginBottom: 16 }}>
+              <SegmentedControl
+                options={COMPANY_TABS}
+                value={tab}
+                onChange={setTab}
+                labels={{
+                  overview: t("tab.overview"),
+                  relationships: t("tab.relationships"),
+                }}
               />
-              <dl className="firmo">
-                {org.industry && (
-                  <div>
-                    <dt>{t("org.industry")}</dt>
-                    <dd>{org.industry}</dd>
-                  </div>
-                )}
-                {org.size_band && (
-                  <div>
-                    <dt>{t("org.size")}</dt>
-                    <dd>{org.size_band}</dd>
-                  </div>
-                )}
-                {org.domains && org.domains.length > 0 && (
-                  <div>
-                    <dt>{t("org.domains")}</dt>
-                    <dd className="t-mono">
-                      {org.domains.map((domain) => domain.domain).join(", ")}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </section>
-            <EnrichCard orgId={org.id} />
-            <LogActivity entityType="organization" entityId={org.id} />
+            </div>
+            {tab === "overview" ? (
+              <>
+                <section className="card" style={{ marginBottom: 16 }}>
+                  <SectionHeader
+                    title={t("org.firmographics")}
+                    sub={t("org.evidenceOrOmit")}
+                  />
+                  <dl className="firmo">
+                    {org.industry && (
+                      <div>
+                        <dt>{t("org.industry")}</dt>
+                        <dd>{org.industry}</dd>
+                      </div>
+                    )}
+                    {org.size_band && (
+                      <div>
+                        <dt>{t("org.size")}</dt>
+                        <dd>{org.size_band}</dd>
+                      </div>
+                    )}
+                    {org.domains && org.domains.length > 0 && (
+                      <div>
+                        <dt>{t("org.domains")}</dt>
+                        <dd className="t-mono">
+                          {org.domains
+                            .map((domain) => domain.domain)
+                            .join(", ")}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </section>
+                <EnrichCard orgId={org.id} />
+                <LogActivity entityType="organization" entityId={org.id} />
+              </>
+            ) : (
+              <RelationshipsTab scope={{ organization_id: org.id }} />
+            )}
           </RecordView>
         )}
       </QueryGate>

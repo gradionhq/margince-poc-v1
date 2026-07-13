@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -8,6 +9,7 @@ import {
   Button,
   DataTable,
   SectionHeader,
+  SegmentedControl,
 } from "../design-system/atoms";
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
@@ -30,6 +32,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
+import { RelationshipsTab } from "./relationships";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -455,8 +458,12 @@ function ConsentRow({
   );
 }
 
+const PERSON_TABS = ["overview", "relationships"] as const;
+type PersonTab = (typeof PERSON_TABS)[number];
+
 export function PersonScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
+  const [tab, setTab] = useState<PersonTab>("overview");
   const personQuery = useQuery({
     queryKey: ["person", id],
     queryFn: async () => {
@@ -565,25 +572,42 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 : []
             }
           >
-            {person.consent && person.consent.length > 0 && (
-              <section
-                aria-label={t("person.consent")}
-                className="card"
-                style={{ marginBottom: 16 }}
-              >
-                <SectionHeader title={t("person.consent")} />
-                <div>
-                  {person.consent.map((entry) => (
-                    <ConsentRow
-                      key={entry.purpose_id}
-                      personId={person.id}
-                      entry={entry}
-                    />
-                  ))}
-                </div>
-              </section>
+            <div style={{ marginBottom: 16 }}>
+              <SegmentedControl
+                options={PERSON_TABS}
+                value={tab}
+                onChange={setTab}
+                labels={{
+                  overview: t("tab.overview"),
+                  relationships: t("tab.relationships"),
+                }}
+              />
+            </div>
+            {tab === "overview" ? (
+              <>
+                {person.consent && person.consent.length > 0 && (
+                  <section
+                    aria-label={t("person.consent")}
+                    className="card"
+                    style={{ marginBottom: 16 }}
+                  >
+                    <SectionHeader title={t("person.consent")} />
+                    <div>
+                      {person.consent.map((entry) => (
+                        <ConsentRow
+                          key={entry.purpose_id}
+                          personId={person.id}
+                          entry={entry}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+                <LogActivity entityType="person" entityId={person.id} />
+              </>
+            ) : (
+              <RelationshipsTab scope={{ person_id: person.id }} />
             )}
-            <LogActivity entityType="person" entityId={person.id} />
           </RecordView>
         )}
       </QueryGate>

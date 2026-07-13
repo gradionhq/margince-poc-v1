@@ -413,3 +413,102 @@ describe("CompanyScreen — merge into target (P-2)", () => {
     expect(window.location.hash).toBe("#/companies/o-2");
   });
 });
+
+const employmentRel = {
+  id: "rel-1",
+  workspace_id: "w",
+  kind: "employment",
+  person_id: "p-1",
+  organization_id: "o-1",
+  role: "cto",
+  is_current_primary: true,
+  started_at: "2024-01-01",
+  ended_at: null,
+  source: "manual",
+  captured_by: "human:u1",
+  version: 1,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+describe("CompanyScreen — Relationships tab (P-5)", () => {
+  it("shows an Overview/Relationships tab bar and lists relationships by organization_id", async () => {
+    stubFetch(async (url) => {
+      if (
+        url.includes("/relationships") &&
+        url.includes("organization_id=o-1")
+      ) {
+        return jsonResponse({
+          data: [employmentRel],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+
+    await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
+    expect(screen.getByText("cto")).toBeTruthy();
+    expect(screen.getByText("p-1")).toBeTruthy();
+  });
+
+  it("adding a relationship from the company side POSTs organization_id + the picked person_id", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/relationships")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...employmentRel, id: "rel-new" }, 201);
+      }
+      if (
+        url.includes("/relationships") &&
+        url.includes("organization_id=o-1")
+      ) {
+        return emptyPage();
+      }
+      if (url.includes("/people?") && url.includes("q=anna")) {
+        return jsonResponse({
+          data: [{ id: "p-1", full_name: "Anna Weber" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("add-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("add-relationship"));
+
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "anna");
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
+    await userEvent.click(screen.getByText("Anna Weber"));
+    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      organization_id: "o-1",
+      person_id: "p-1",
+      kind: "employment",
+      source: "manual",
+    });
+  });
+});

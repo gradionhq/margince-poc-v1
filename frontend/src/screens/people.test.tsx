@@ -55,6 +55,23 @@ const anna = {
   version: 1,
 };
 
+const employmentRel = {
+  id: "rel-1",
+  workspace_id: "w-1",
+  kind: "employment",
+  person_id: "p-1",
+  organization_id: "o-1",
+  role: "cto",
+  is_current_primary: true,
+  started_at: "2024-01-01",
+  ended_at: null,
+  source: "manual",
+  captured_by: "human:u1",
+  version: 1,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
 describe("ContactsScreen (B-EP09.10a)", () => {
   it("renders rows with provenance chips and navigates to the person 360", async () => {
     vi.stubGlobal(
@@ -482,5 +499,115 @@ describe("PersonScreen — merge into target (P-2)", () => {
     expect(mergeBody).toMatchObject({ target_id: "p-2" });
     expect(mergeHeader).toBe("1");
     expect(window.location.hash).toBe("#/contacts/p-2");
+  });
+});
+
+describe("PersonScreen — Relationships tab (P-5)", () => {
+  it("shows an Overview/Relationships tab bar and lists relationships by person_id", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/relationships") && url.includes("person_id=p-1")) {
+        return jsonResponse({
+          data: [employmentRel],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+
+    await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
+    expect(screen.getByText("cto")).toBeTruthy();
+    expect(screen.getByText("o-1")).toBeTruthy();
+  });
+
+  it("adding a relationship POSTs /relationships with the scope id + kind + source", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/relationships")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...employmentRel, id: "rel-new" }, 201);
+      }
+      if (url.includes("/relationships") && url.includes("person_id=p-1")) {
+        return emptyPage();
+      }
+      if (url.includes("/organizations?") && url.includes("q=brandt")) {
+        return jsonResponse({
+          data: [{ id: "o-1", display_name: "Brandt Automotive GmbH" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("add-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("add-relationship"));
+
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "brandt");
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByText("Brandt Automotive GmbH"));
+    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      person_id: "p-1",
+      organization_id: "o-1",
+      kind: "employment",
+      source: "manual",
+    });
+  });
+
+  it("removing a relationship calls DELETE /relationships/{id}", async () => {
+    let deleted = false;
+    stubFetch(async (url, method) => {
+      if (method === "DELETE" && url.includes("/relationships/rel-1")) {
+        deleted = true;
+        return jsonResponse({
+          ...employmentRel,
+          archived_at: "2026-07-13T00:00:00Z",
+        });
+      }
+      if (url.includes("/relationships") && url.includes("person_id=p-1")) {
+        return jsonResponse({
+          data: [employmentRel],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("remove-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("remove-relationship"));
+
+    await waitFor(() => expect(deleted).toBe(true));
   });
 });
