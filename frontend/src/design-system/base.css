@@ -24,6 +24,15 @@
   filter: brightness(1.05);
   transform: translateY(-1px);
 }
+.btn-danger {
+  background: var(--danger);
+  color: var(--textOnAccent);
+  box-shadow: 0 2px 8px var(--dangerBg);
+}
+.btn-danger:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
 .btn-ghost {
   background: transparent;
   color: var(--textMeta);

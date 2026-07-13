@@ -299,6 +299,7 @@ function DescriptionCell({
   return (
     <TextInput
       data-testid={`line-description-${line.id}`}
+      style={{ width: 180 }}
       value={value}
       onChange={(event) => setValue(event.target.value)}
       onBlur={() => {
@@ -321,6 +322,7 @@ function UnitCell({
   return (
     <TextInput
       data-testid={`line-unit-${line.id}`}
+      style={{ width: 70 }}
       value={value}
       onChange={(event) => setValue(event.target.value)}
       onBlur={() => {
@@ -372,7 +374,7 @@ function QuantityCell({
       type="number"
       step="0.001"
       className="input"
-      style={{ width: 80 }}
+      style={{ width: 90 }}
       data-testid={`line-quantity-${line.id}`}
       value={value}
       onChange={(event) => setValue(event.target.value)}
@@ -399,7 +401,7 @@ function DiscountCell({
       type="number"
       step="0.01"
       className="input"
-      style={{ width: 70 }}
+      style={{ width: 90 }}
       data-testid={`line-discount-${line.id}`}
       value={value}
       onChange={(event) => setValue(event.target.value)}
@@ -426,7 +428,7 @@ function TaxRateCell({
       type="number"
       step="0.01"
       className="input"
-      style={{ width: 70 }}
+      style={{ width: 90 }}
       data-testid={`line-tax-rate-${line.id}`}
       value={value}
       onChange={(event) => setValue(event.target.value)}
@@ -683,6 +685,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
             <TextInput
               aria-labelledby="new-line-description-label"
               data-testid="new-line-description"
+              style={{ width: 180 }}
               value={newLine.description}
               onChange={(event) =>
                 setNewLine((prev) => ({
@@ -699,6 +702,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
             <TextInput
               aria-labelledby="new-line-unit-label"
               data-testid="new-line-unit"
+              style={{ width: 70 }}
               value={newLine.unit}
               onChange={(event) =>
                 setNewLine((prev) => ({ ...prev, unit: event.target.value }))
@@ -750,7 +754,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
               type="number"
               step="0.01"
               className="input"
-              style={{ width: 70 }}
+              style={{ width: 90 }}
               value={newLine.discount_pct}
               onChange={(event) =>
                 setNewLine((prev) => ({
@@ -770,7 +774,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
               type="number"
               step="0.01"
               className="input"
-              style={{ width: 70 }}
+              style={{ width: 90 }}
               value={newLine.tax_rate}
               onChange={(event) =>
                 setNewLine((prev) => ({
@@ -869,7 +873,12 @@ function SendOfferAction({ offer }: Readonly<{ offer: Offer }>) {
 
   return (
     <>
-      <Button small data-testid="send-offer" onClick={() => setOpen(true)}>
+      <Button
+        variant="primary"
+        small
+        data-testid="send-offer"
+        onClick={() => setOpen(true)}
+      >
         {t("offer.send")}
       </Button>
       <ConfirmModal
@@ -929,7 +938,12 @@ function AcceptOfferAction({ offer }: Readonly<{ offer: Offer }>) {
 
   return (
     <>
-      <Button small data-testid="accept-offer" onClick={() => setOpen(true)}>
+      <Button
+        variant="primary"
+        small
+        data-testid="accept-offer"
+        onClick={() => setOpen(true)}
+      >
         {t("offer.accept")}
       </Button>
       <ConfirmModal
@@ -988,7 +1002,12 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
 
   return (
     <>
-      <Button small data-testid="reject-offer" onClick={() => setOpen(true)}>
+      <Button
+        variant="danger"
+        small
+        data-testid="reject-offer"
+        onClick={() => setOpen(true)}
+      >
         {t("offer.reject")}
       </Button>
       <ConfirmModal
