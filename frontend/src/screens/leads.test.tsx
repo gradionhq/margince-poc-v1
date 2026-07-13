@@ -114,29 +114,75 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(window.location.hash).toBe("#/leads/l-1");
   });
 
-  it("promote posts and lands on the resulting person 360", async () => {
+  it("opening the promote dialog defaults the trigger to human_qualify", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(lead)),
+    );
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    expect(
+      (screen.getByLabelText("Promotion trigger") as HTMLSelectElement).value,
+    ).toBe("human_qualify");
+  });
+
+  it("promote posts the picked trigger + note and lands on the resulting person 360", async () => {
+    let promoteBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/leads/l-1/promote")) {
+        promoteBody = JSON.parse(await request.text());
+        return jsonResponse({ person: anna, merged: false, lead_id: "l-1" });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Promotion trigger"),
+      "meeting_booked",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Evidence note (optional)"),
+      "Booked via calendly",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-1"));
+    expect(promoteBody).toEqual({
+      trigger: "meeting_booked",
+      evidence: { note: "Booked via calendly" },
+    });
+  });
+
+  it("a 409 already_promoted navigates to the existing person instead of erroring", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input instanceof Request ? input.url : input);
         const method =
           input instanceof Request ? input.method : (init?.method ?? "GET");
         if (method === "POST" && url.includes("/leads/l-1/promote")) {
-          return jsonResponse({ person: anna, merged: false, lead_id: "l-1" });
+          return jsonResponse(
+            {
+              title: "already promoted",
+              code: "already_promoted",
+              details: { promoted_person_id: "p-9" },
+            },
+            409,
+          );
         }
         return jsonResponse(lead);
       },
     );
     vi.stubGlobal("fetch", fetchMock);
     render(<LeadScreen id="l-1" />);
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: "Promote to contact" }),
-      ).toBeTruthy(),
-    );
     await userEvent.click(
-      screen.getByRole("button", { name: "Promote to contact" }),
+      await screen.findByRole("button", { name: "Promote to contact" }),
     );
-    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-1"));
+    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-9"));
   });
 
   it("promote is disabled for an ineligible lead", async () => {

@@ -8,14 +8,17 @@ import {
   Badge,
   Button,
   DataTable,
+  Modal,
   SectionHeader,
   SegmentedControl,
   TextInput,
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
+  ProblemError,
   problemMessage,
   provenanceOf,
   QueryGate,
@@ -45,6 +48,8 @@ import {
 type Lead = components["schemas"]["Lead"];
 type CreateLeadRequest = components["schemas"]["CreateLeadRequest"];
 type UpdateLeadRequest = components["schemas"]["UpdateLeadRequest"];
+type PromoteLeadRequest = components["schemas"]["PromoteLeadRequest"];
+type PromoteTrigger = PromoteLeadRequest["trigger"];
 
 export function scoreTone(score: number): "success" | "warn" | "danger" {
   if (score >= 60) {
@@ -60,6 +65,38 @@ export function promoteEligible(lead: Lead): boolean {
   return (
     (lead.status === "new" || lead.status === "working") && Boolean(lead.email)
   );
+}
+
+// The 4 genuine-engagement triggers the server accepts (PromoteLeadRequest).
+// cold_outbound_no_reply is deliberately absent — promotion is engagement,
+// not an outbound touch, and the server rejects it with 422.
+const PROMOTE_TRIGGERS: readonly {
+  value: PromoteTrigger;
+  label: MessageKey;
+}[] = [
+  { value: "human_qualify", label: "lead.trigger.humanQualify" },
+  { value: "inbound_reply", label: "lead.trigger.inboundReply" },
+  { value: "meeting_booked", label: "lead.trigger.meetingBooked" },
+  { value: "meeting_held", label: "lead.trigger.meetingHeld" },
+];
+
+// Pulls the collided person's id out of a 409 already_promoted problem body —
+// the promote dialog navigates there instead of showing an error, mirroring
+// the create/update dedupe "view existing" pattern (problemExistingId).
+function alreadyPromotedPersonId(error: unknown): string | null {
+  if (!(error instanceof ProblemError)) {
+    return null;
+  }
+  const problem = error.problem;
+  if (!problem || typeof problem !== "object") {
+    return null;
+  }
+  const details = (problem as Record<string, unknown>).details;
+  if (!details || typeof details !== "object") {
+    return null;
+  }
+  const promotedId = (details as Record<string, unknown>).promoted_person_id;
+  return typeof promotedId === "string" ? promotedId : null;
 }
 
 async function fetchLeadsPage(
@@ -439,6 +476,7 @@ function LeadLifecycle({
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const queryClient = useQueryClient();
+  const headingId = useId();
   const leadQuery = useQuery({
     queryKey: ["lead", id],
     queryFn: async () => {
@@ -451,24 +489,51 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  const [trigger, setTrigger] = useState<PromoteTrigger>("human_qualify");
+  const [note, setNote] = useState("");
+
+  const closePromote = () => {
+    setPromoteOpen(false);
+    setTrigger("human_qualify");
+    setNote("");
+    promote.reset();
+  };
+
   const promote = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (body: PromoteLeadRequest) => {
       const { data, error } = await api.POST("/leads/{id}/promote", {
         params: { path: { id } },
-        body: { trigger: "human_qualify" },
+        body,
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
-      if (result.person?.id) {
-        navigate({ screen: "contacts", id: result.person.id });
+      queryClient.invalidateQueries({ queryKey: ["lead", id] });
+      setPromoteOpen(false);
+      navigate({ screen: "contacts", id: result.person.id });
+    },
+    onError: (error) => {
+      const existingPersonId = alreadyPromotedPersonId(error);
+      if (existingPersonId) {
+        setPromoteOpen(false);
+        navigate({ screen: "contacts", id: existingPersonId });
       }
     },
   });
+
+  // already_promoted is handled by navigating away (onError above), so it
+  // never renders as an error — anything else surfaces verbatim.
+  const promoteErrorMessage =
+    promote.isError && !alreadyPromotedPersonId(promote.error)
+      ? promote.error instanceof Error
+        ? promote.error.message
+        : null
+      : null;
 
   return (
     <div className="wrap lead-surface">
@@ -555,20 +620,106 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
               <Button
                 variant="primary"
                 disabled={!promoteEligible(lead) || promote.isPending}
-                onClick={() => promote.mutate()}
+                onClick={() => setPromoteOpen(true)}
               >
                 {t("lead.promote")}
               </Button>
               {!promoteEligible(lead) && (
                 <span className="t-caption">{t("lead.promoteIneligible")}</span>
               )}
-              {promote.isError && (
-                <span className="t-caption" style={{ color: "var(--danger)" }}>
-                  {promote.error instanceof Error
-                    ? promote.error.message
-                    : null}
-                </span>
-              )}
+              <Modal
+                open={promoteOpen}
+                onClose={closePromote}
+                labelledBy={headingId}
+              >
+                <h2
+                  id={headingId}
+                  className="t-h2"
+                  style={{ marginBottom: 12 }}
+                >
+                  {t("lead.promoteDialog")}
+                </h2>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                    marginBottom: 16,
+                  }}
+                >
+                  <label
+                    className="t-caption"
+                    style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                  >
+                    {t("lead.trigger")}
+                    <select
+                      className="input"
+                      aria-label={t("lead.trigger")}
+                      value={trigger}
+                      onChange={(event) =>
+                        setTrigger(event.target.value as PromoteTrigger)
+                      }
+                    >
+                      {PROMOTE_TRIGGERS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label
+                    className="t-caption"
+                    style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                  >
+                    {t("lead.evidenceNote")}
+                    <textarea
+                      className="input"
+                      aria-label={t("lead.evidenceNote")}
+                      value={note}
+                      onChange={(event) => setNote(event.target.value)}
+                    />
+                  </label>
+                </div>
+                {promoteErrorMessage && (
+                  <p
+                    className="t-caption"
+                    style={{ color: "var(--danger)", marginBottom: 12 }}
+                  >
+                    {promoteErrorMessage}
+                  </p>
+                )}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <Button
+                    small
+                    onClick={closePromote}
+                    disabled={promote.isPending}
+                  >
+                    {t("create.cancel")}
+                  </Button>
+                  <Button
+                    small
+                    variant="primary"
+                    disabled={promote.isPending}
+                    onClick={() => {
+                      const trimmedNote = note.trim();
+                      promote.mutate({
+                        trigger,
+                        evidence: trimmedNote
+                          ? { note: trimmedNote }
+                          : undefined,
+                      });
+                    }}
+                  >
+                    {t("lead.promoteConfirm")}
+                  </Button>
+                </div>
+              </Modal>
             </div>
             <LeadLifecycle
               lead={lead}
