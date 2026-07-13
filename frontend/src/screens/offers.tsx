@@ -7,10 +7,12 @@ import { navigate } from "../app/router";
 import {
   Badge,
   Button,
+  DataTable,
   Modal,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { MoneyInput } from "../design-system/moneyinput";
 import {
   RecordPicker,
   type RecordPickerCandidate,
@@ -24,6 +26,7 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import { searchProductCandidates } from "./products";
 
 // Task 2.3 (OP-5/OP-6, Phase 2 close-out): the offer 360 skeleton — header,
 // read-only totals, and a draft-only header edit. buyer_org_id needs the
@@ -36,6 +39,10 @@ import {
 
 type Offer = components["schemas"]["Offer"];
 type OfferTemplate = components["schemas"]["OfferTemplate"];
+type OfferLineItem = components["schemas"]["OfferLineItem"];
+type OfferLineItemInput = components["schemas"]["OfferLineItemInput"];
+type UpdateOfferLineItemRequest =
+  components["schemas"]["UpdateOfferLineItemRequest"];
 
 async function searchOrganizationCandidates(
   q: string,
@@ -243,6 +250,559 @@ function EditOfferHeaderModal({
   );
 }
 
+// Task 3.3 (OP-7/OP-13): the line-item editor. The server-driven-totals
+// invariant (P11) governs every mutation below — add/edit/remove all return
+// the FULL updated Offer (recomputed line_items + net/tax/gross), and the
+// only thing this component ever does with that response is
+// queryClient.setQueryData(["offer", ...]) it straight through. Nothing here
+// sums, multiplies, or otherwise derives a money figure client-side.
+
+const EMPTY_NEW_LINE = {
+  description: "",
+  unit: "",
+  quantity: "",
+  unit_price_minor: 0,
+  discount_pct: "",
+  tax_rate: "",
+};
+
+type NewLineState = typeof EMPTY_NEW_LINE;
+
+function DescriptionCell({
+  line,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [value, setValue] = useState(line.description);
+  return (
+    <TextInput
+      data-testid={`line-description-${line.id}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        if (value !== line.description) {
+          onSave({ description: value });
+        }
+      }}
+    />
+  );
+}
+
+function UnitCell({
+  line,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [value, setValue] = useState(line.unit);
+  return (
+    <TextInput
+      data-testid={`line-unit-${line.id}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        if (value !== line.unit) {
+          onSave({ unit: value });
+        }
+      }}
+    />
+  );
+}
+
+function PositionCell({
+  line,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [value, setValue] = useState(String(line.position));
+  return (
+    <input
+      type="number"
+      step="1"
+      className="input"
+      style={{ width: 60 }}
+      data-testid={`line-position-${line.id}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        const num = Number(value);
+        if (!Number.isNaN(num) && num !== line.position) {
+          onSave({ position: num });
+        }
+      }}
+    />
+  );
+}
+
+function QuantityCell({
+  line,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [value, setValue] = useState(String(line.quantity));
+  return (
+    <input
+      type="number"
+      step="0.001"
+      className="input"
+      style={{ width: 80 }}
+      data-testid={`line-quantity-${line.id}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        const num = Number(value);
+        if (!Number.isNaN(num) && num !== line.quantity) {
+          onSave({ quantity: num });
+        }
+      }}
+    />
+  );
+}
+
+function DiscountCell({
+  line,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [value, setValue] = useState(String(line.discount_pct));
+  return (
+    <input
+      type="number"
+      step="0.01"
+      className="input"
+      style={{ width: 70 }}
+      data-testid={`line-discount-${line.id}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        const num = Number(value);
+        if (!Number.isNaN(num) && num !== line.discount_pct) {
+          onSave({ discount_pct: num });
+        }
+      }}
+    />
+  );
+}
+
+function TaxRateCell({
+  line,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [value, setValue] = useState(String(line.tax_rate));
+  return (
+    <input
+      type="number"
+      step="0.01"
+      className="input"
+      style={{ width: 70 }}
+      data-testid={`line-tax-rate-${line.id}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        const num = Number(value);
+        if (!Number.isNaN(num) && num !== line.tax_rate) {
+          onSave({ tax_rate: num });
+        }
+      }}
+    />
+  );
+}
+
+function UnitPriceCell({
+  line,
+  currency,
+  onSave,
+}: Readonly<{
+  line: OfferLineItem;
+  currency: string;
+  onSave: (patch: UpdateOfferLineItemRequest) => void;
+}>) {
+  const [minor, setMinor] = useState(line.unit_price_minor);
+  return (
+    <MoneyInput
+      data-testid={`line-unit-price-${line.id}`}
+      valueMinor={minor}
+      currency={currency}
+      onChangeMinor={setMinor}
+      onBlur={() => {
+        if (minor !== line.unit_price_minor) {
+          onSave({ unit_price_minor: minor });
+        }
+      }}
+    />
+  );
+}
+
+function UnpricedCaption({ label }: Readonly<{ label: string }>) {
+  return (
+    <span className="t-caption" style={{ color: "var(--muted)" }}>
+      {label}
+    </span>
+  );
+}
+
+function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const queryClient = useQueryClient();
+  const [newLine, setNewLine] = useState<NewLineState>(EMPTY_NEW_LINE);
+  const [priceTouched, setPriceTouched] = useState(false);
+  const [product, setProduct] = useState<RecordPickerCandidate | null>(null);
+
+  const applyOffer = (updated: Offer) => {
+    queryClient.setQueryData(["offer", offer.id], updated);
+  };
+
+  const addMutation = useMutation({
+    mutationFn: async (input: OfferLineItemInput) => {
+      const { data, error } = await api.POST("/offers/{id}/line-items", {
+        params: { path: { id: offer.id } },
+        body: input,
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      applyOffer(data);
+      setNewLine(EMPTY_NEW_LINE);
+      setPriceTouched(false);
+      setProduct(null);
+    },
+  });
+
+  // The generated contract (crm.yaml: updateOfferLineItem) declares no
+  // If-Match parameter on this operation — unlike the header-level Offer
+  // PATCH, a line item's own `version` is not a concurrency precondition
+  // the API accepts here. Sending one would fail to type-check against the
+  // generated client; contract wins over an assumed convention (P3).
+  const updateMutation = useMutation({
+    mutationFn: async (variables: {
+      lineItemId: string;
+      patch: UpdateOfferLineItemRequest;
+    }) => {
+      const { data, error } = await api.PATCH(
+        "/offers/{id}/line-items/{lineItemId}",
+        {
+          params: { path: { id: offer.id, lineItemId: variables.lineItemId } },
+          body: variables.patch,
+        },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      applyOffer(data);
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (lineItemId: string) => {
+      const { data, error } = await api.DELETE(
+        "/offers/{id}/line-items/{lineItemId}",
+        { params: { path: { id: offer.id, lineItemId } } },
+      );
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      applyOffer(data);
+    },
+  });
+
+  const activeError =
+    addMutation.error ?? updateMutation.error ?? removeMutation.error;
+  const skew =
+    activeError instanceof ProblemError && isVersionSkew(activeError.problem);
+  const errorMessage = activeError
+    ? skew
+      ? t("edit.versionSkew")
+      : activeError.message
+    : null;
+
+  const saveLine =
+    (lineItemId: string) => (patch: UpdateOfferLineItemRequest) => {
+      updateMutation.mutate({ lineItemId, patch });
+    };
+
+  const columns = [
+    {
+      key: "position",
+      header: t("offer.position"),
+      render: (line: OfferLineItem) => (
+        <PositionCell line={line} onSave={saveLine(line.id)} />
+      ),
+    },
+    {
+      key: "description",
+      header: t("offer.description"),
+      render: (line: OfferLineItem) => (
+        <DescriptionCell line={line} onSave={saveLine(line.id)} />
+      ),
+    },
+    {
+      key: "unit",
+      header: t("offer.unit"),
+      render: (line: OfferLineItem) => (
+        <UnitCell line={line} onSave={saveLine(line.id)} />
+      ),
+    },
+    {
+      key: "quantity",
+      header: t("offer.quantity"),
+      render: (line: OfferLineItem) => (
+        <QuantityCell line={line} onSave={saveLine(line.id)} />
+      ),
+    },
+    {
+      key: "unitPrice",
+      header: t("offer.unitPrice"),
+      render: (line: OfferLineItem) =>
+        line.price_grounded === false ? (
+          <UnpricedCaption label={t("offer.unpriced")} />
+        ) : (
+          <UnitPriceCell
+            line={line}
+            currency={offer.currency}
+            onSave={saveLine(line.id)}
+          />
+        ),
+    },
+    {
+      key: "discountPct",
+      header: t("offer.discountPct"),
+      render: (line: OfferLineItem) => (
+        <DiscountCell line={line} onSave={saveLine(line.id)} />
+      ),
+    },
+    {
+      key: "taxRate",
+      header: t("offer.taxRate"),
+      render: (line: OfferLineItem) => (
+        <TaxRateCell line={line} onSave={saveLine(line.id)} />
+      ),
+    },
+    {
+      key: "lineTotal",
+      header: t("offer.lineTotal"),
+      render: (line: OfferLineItem) =>
+        line.price_grounded === false ? (
+          <UnpricedCaption label={t("offer.unpriced")} />
+        ) : (
+          <span className="t-mono">
+            {formatMoney(line.line_total_minor, offer.currency, locale)}
+          </span>
+        ),
+    },
+    {
+      key: "remove",
+      header: "",
+      render: (line: OfferLineItem) => (
+        <Button
+          small
+          data-testid={`remove-line-${line.id}`}
+          disabled={removeMutation.isPending}
+          onClick={() => removeMutation.mutate(line.id)}
+        >
+          {t("offer.removeLine")}
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <section
+      className="card"
+      data-testid="offer-line-editor"
+      style={{ marginBottom: 16 }}
+    >
+      <SectionHeader title={t("offer.lines")} />
+      <DataTable
+        columns={columns}
+        rows={offer.line_items}
+        rowKey={(line) => `${line.id}:${line.version ?? 0}`}
+      />
+      <div style={{ marginTop: 16 }}>
+        <span className="t-label">{t("offer.addLine")}</span>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+            marginTop: 8,
+          }}
+        >
+          <div className="field">
+            <span className="t-label" id="new-line-description-label">
+              {t("offer.description")}
+            </span>
+            <TextInput
+              aria-labelledby="new-line-description-label"
+              data-testid="new-line-description"
+              value={newLine.description}
+              onChange={(event) =>
+                setNewLine((prev) => ({
+                  ...prev,
+                  description: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="field">
+            <span className="t-label" id="new-line-unit-label">
+              {t("offer.unit")}
+            </span>
+            <TextInput
+              aria-labelledby="new-line-unit-label"
+              data-testid="new-line-unit"
+              value={newLine.unit}
+              onChange={(event) =>
+                setNewLine((prev) => ({ ...prev, unit: event.target.value }))
+              }
+            />
+          </div>
+          <div className="field">
+            <span className="t-label" id="new-line-quantity-label">
+              {t("offer.quantity")}
+            </span>
+            <input
+              aria-labelledby="new-line-quantity-label"
+              data-testid="new-line-quantity"
+              type="number"
+              step="0.001"
+              className="input"
+              style={{ width: 90 }}
+              value={newLine.quantity}
+              onChange={(event) =>
+                setNewLine((prev) => ({
+                  ...prev,
+                  quantity: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="field">
+            <span className="t-label" id="new-line-price-label">
+              {t("offer.unitPrice")}
+            </span>
+            <MoneyInput
+              aria-labelledby="new-line-price-label"
+              data-testid="new-line-unit-price"
+              valueMinor={newLine.unit_price_minor}
+              currency={offer.currency}
+              onChangeMinor={(minor) => {
+                setPriceTouched(true);
+                setNewLine((prev) => ({ ...prev, unit_price_minor: minor }));
+              }}
+            />
+          </div>
+          <div className="field">
+            <span className="t-label" id="new-line-discount-label">
+              {t("offer.discountPct")}
+            </span>
+            <input
+              aria-labelledby="new-line-discount-label"
+              data-testid="new-line-discount"
+              type="number"
+              step="0.01"
+              className="input"
+              style={{ width: 70 }}
+              value={newLine.discount_pct}
+              onChange={(event) =>
+                setNewLine((prev) => ({
+                  ...prev,
+                  discount_pct: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="field">
+            <span className="t-label" id="new-line-tax-label">
+              {t("offer.taxRate")}
+            </span>
+            <input
+              aria-labelledby="new-line-tax-label"
+              data-testid="new-line-tax"
+              type="number"
+              step="0.01"
+              className="input"
+              style={{ width: 70 }}
+              value={newLine.tax_rate}
+              onChange={(event) =>
+                setNewLine((prev) => ({
+                  ...prev,
+                  tax_rate: event.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="field" style={{ minWidth: 220 }}>
+            <span className="t-label">{t("offer.pickProduct")}</span>
+            <RecordPicker
+              label={t("offer.pickProduct")}
+              searchTargets={searchProductCandidates}
+              selected={product}
+              onPick={setProduct}
+            />
+          </div>
+          <Button
+            variant="primary"
+            data-testid="add-line"
+            disabled={addMutation.isPending}
+            onClick={() =>
+              addMutation.mutate({
+                product_id: product?.id ?? undefined,
+                description: newLine.description || undefined,
+                unit: newLine.unit || undefined,
+                quantity: Number(newLine.quantity),
+                unit_price_minor: priceTouched
+                  ? newLine.unit_price_minor
+                  : undefined,
+                discount_pct:
+                  newLine.discount_pct === ""
+                    ? undefined
+                    : Number(newLine.discount_pct),
+                tax_rate:
+                  newLine.tax_rate === ""
+                    ? undefined
+                    : Number(newLine.tax_rate),
+              })
+            }
+          >
+            {t("offer.addLine")}
+          </Button>
+        </div>
+        {errorMessage && (
+          <p
+            className="t-caption"
+            style={{ color: "var(--danger)", marginTop: 10 }}
+          >
+            {errorMessage}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function OfferScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -318,6 +878,7 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
                 </div>
               </div>
             </section>
+            {offer.status === "draft" && <OfferLineEditor offer={offer} />}
             {offer.status === "draft" && (
               <EditOfferHeaderModal
                 open={editing}
