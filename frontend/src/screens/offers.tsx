@@ -453,6 +453,7 @@ function UnitPriceCell({
   return (
     <MoneyInput
       data-testid={`line-unit-price-${line.id}`}
+      style={{ width: 90 }}
       valueMinor={minor}
       currency={currency}
       onChangeMinor={setMinor}
