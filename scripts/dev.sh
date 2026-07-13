@@ -22,6 +22,9 @@
 #   scripts/dev.sh up   [slug]            # spin infra + db + api + FE
 #   scripts/dev.sh stop [slug] [--drop]   # stop servers; --drop also drops the db
 set -euo pipefail
+# Runtime state under .tmp/dev/ includes the scratch ai-routing.yaml with the
+# injected BYOK key — keep everything this script writes owner-only.
+umask 077
 
 cmd="${1:-}"
 slug="${2:-}"
@@ -74,11 +77,11 @@ log="${rundir}/dev.log"
 state="${rundir}/env"
 routing="${rundir}/ai-routing.yaml"
 
-wait_ready() { # url timeout_s — any HTTP response (even 401) means the port is serving.
+wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is not).
   local url="$1" timeout="$2"
   for _ in $(seq 1 "$timeout"); do
     code=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || true)
-    [[ -n "$code" && "$code" != "000" ]] && return 0
+    [[ "$code" =~ ^2[0-9]{2}$ ]] && return 0
     sleep 1
   done
   return 1
@@ -149,8 +152,14 @@ up)
     kill "$be_pid" 2>/dev/null || true
     exit 1
   fi
-  # Seed the demo workspace through the public API (idempotent).
-  API_BASE="http://localhost:${api_port}" bash scripts/seed-dev.sh >>"$log" 2>&1 || true
+  # Seed the demo workspace through the public API (idempotent). A seed failure
+  # is fatal: `make dev` must not report ready while promising a login that the
+  # unseeded workspace can't serve.
+  if ! API_BASE="http://localhost:${api_port}" bash scripts/seed-dev.sh >>"$log" 2>&1; then
+    echo "FAIL: $label API seed failed — see ${log}" >&2
+    kill "$be_pid" 2>/dev/null || true
+    exit 1
+  fi
 
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
@@ -199,7 +208,9 @@ stop)
     if [[ -z "$slug" ]]; then
       echo "refusing to drop the shared 'margince' database — pass DEV_SLUG=<slug> to drop an isolated env" >&2
     else
-      psql "$admin_url" -c "DROP DATABASE IF EXISTS \"${db}\"" >/dev/null 2>&1 || true
+      # WITH (FORCE) (PG13+) terminates any lingering connection so the drop
+      # doesn't fail on a slow-to-close api/vite child.
+      psql "$admin_url" -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" >/dev/null 2>&1 || true
       echo "dropped ${db}"
     fi
   fi

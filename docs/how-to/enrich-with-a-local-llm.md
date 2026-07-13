@@ -43,14 +43,24 @@ Edit the tiers only to:
 
 ## 3. Start the stack
 
-`scripts/dev.sh` (`make dev`) only injects the routing file when
-`ANTHROPIC_API_KEY` is set; otherwise it falls back to the offline fake. Since
-the AI lanes are on Ollama, the key is never called — a placeholder flips it on:
+`scripts/dev.sh` (`make dev`) only activates the real routing when
+`ANTHROPIC_API_KEY` is set; otherwise it uses the offline fake (which would also
+fake the *Ollama* call). A placeholder key flips it into real routing so the
+Ollama-bound `local_small` tier is actually exercised:
 
 ```sh
-printf 'ANTHROPIC_API_KEY=ollama-not-used\n' > .env.local   # .env.local is git-ignored
-make dev                                                    # look for: "using real Anthropic model"
+ANTHROPIC_API_KEY=ollama-not-used make dev   # look for: "using real Anthropic model"
 ```
+
+> The inline assignment avoids clobbering an existing `.env.local`; `make dev`
+> reads `ANTHROPIC_API_KEY` from the environment. (Persist it in `.env.local`
+> instead if you prefer — it is git-ignored.)
+>
+> ⚠️ The placeholder is **not a valid Anthropic credential**. Enrich starts on
+> `local_small` (Ollama), so it stays local — but any flow that ladders up to a
+> still-Anthropic tier (the cold-start read-back runs `cheap_cloud` → `premium`)
+> will call Anthropic and fail. Rebind those tiers to Ollama first (§2) if you
+> exercise them.
 
 `make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
 and runs the Vite SPA on `:5173`. Open **http://localhost:8080** (the embedded

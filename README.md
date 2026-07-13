@@ -66,7 +66,7 @@ Compose infra (Postgres 16 + Redis 7), migrations, the api, a seeded demo
 workspace, and the Vite SPA — then prints the URLs and returns (the servers
 run in the background; stop them with `make dev-stop`):
 
-```
+```sh
 make dev
 ```
 
@@ -86,7 +86,7 @@ tears it down (`DROP=1` also drops the database).
 seeded people visible, frontend production build — fails loudly on the
 first broken step):
 
-```
+```sh
 make verify-boot
 ```
 

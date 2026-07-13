@@ -88,7 +88,7 @@ Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen
 tool chain is pure Go, in its own module `backend/tools/`).
 
 Local API calls need the workspace header (prod uses the subdomain):
-`curl -k https://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=…'`
+`curl http://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=…'`
 
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus
