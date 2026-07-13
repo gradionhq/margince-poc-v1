@@ -46,6 +46,13 @@ import (
 	"github.com/gradionhq/margince/backend/web"
 )
 
+// fallback pushes the generated stubs one embedding level deeper than
+// the module handlers, so a module method always wins promotion and the
+// stub only answers operations nothing implements yet (the mechanism
+// this repo uses whenever a contract operation lands ahead of its module
+// handler — see ce80714, c109000, f0c2cdc, 98c60a5, 1fa23b5).
+type fallback struct{ stubs }
+
 // Aliases give the embedded handler sets distinct field names; each
 // alias carries its module's full method set.
 type (
@@ -91,6 +98,7 @@ type Server struct {
 	customfieldsHandlers
 	quotasHandlers
 	attachmentExtractionHandlers
+	fallback
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
