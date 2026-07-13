@@ -7,6 +7,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -353,5 +354,62 @@ describe("CompaniesScreen — dedupe view-existing link (P-16)", () => {
     );
     await userEvent.click(screen.getByText("View existing record"));
     expect(window.location.hash).toBe("#/companies/01X");
+  });
+});
+
+describe("CompanyScreen — merge into target (P-2)", () => {
+  const acme = { ...org, id: "o-2", display_name: "Acme Corp" };
+
+  it("searches, excludes the source row, and merges into the picked target", async () => {
+    let mergeBody: unknown = null;
+    let mergeHeader: string | null = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/organizations/o-1/merge")) {
+        mergeHeader = request.headers.get("If-Match");
+        mergeBody = JSON.parse(await request.text());
+        return jsonResponse({ ...acme, version: 2 });
+      }
+      if (url.includes("/organizations?") && url.includes("q=acme")) {
+        return jsonResponse({
+          data: [org, acme],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("merge-record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("merge-record"));
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText("Acme Corp")).toBeTruthy(),
+    );
+    // The source row must never appear as a mergeable target.
+    expect(within(dialog).queryByText("Brandt Automotive GmbH")).toBeNull();
+
+    await userEvent.click(within(dialog).getByText("Acme Corp"));
+    await userEvent.click(screen.getByTestId("merge-confirm"));
+
+    await waitFor(() => expect(mergeBody).toBeTruthy());
+    expect(mergeBody).toMatchObject({ target_id: "o-2" });
+    expect(mergeHeader).toBe("1");
+    expect(window.location.hash).toBe("#/companies/o-2");
   });
 });

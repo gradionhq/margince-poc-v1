@@ -24,6 +24,7 @@ import {
   useListQuery,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
+import { MergeAction } from "./merge";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -65,6 +66,24 @@ async function fetchPeoplePage(
       has_more: data.page.has_more,
     },
   };
+}
+
+// Merge-target search (P-2): reuses the list read, mapped down to the
+// {id, name} shape MergeAction renders — the caller filters out the source
+// row since this fetch has no notion of "the record being merged away".
+async function searchPeopleTargets(
+  q: string,
+): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await api.GET("/people", {
+    params: { query: { q, limit: 10 } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data.data.map((candidate) => ({
+    id: candidate.id,
+    name: candidate.full_name,
+  }));
 }
 
 function asEmailType(value: string | undefined): "work" | "personal" | "other" {
@@ -384,6 +403,34 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   }}
                   invalidate="people"
                   recordKey="person"
+                />
+                <MergeAction
+                  label={t("merge.person")}
+                  sourceId={person.id}
+                  sourceName={person.full_name}
+                  searchTargets={searchPeopleTargets}
+                  merge={async (targetId) => {
+                    const { data, error } = await api.POST(
+                      "/people/{id}/merge",
+                      {
+                        params: {
+                          path: { id: person.id },
+                          ...ifMatch(person.version),
+                        },
+                        body: { target_id: targetId },
+                      },
+                    );
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="people"
+                  recordKey="person"
+                  survivorRoute={(targetId) => ({
+                    screen: "contacts",
+                    id: targetId,
+                  })}
                 />
                 <ArchiveAction
                   label={t("record.archive")}

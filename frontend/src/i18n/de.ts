@@ -106,6 +106,14 @@ export const de = {
   "edit.versionSkew":
     "Dieser Datensatz hat sich geändert, seit du ihn geöffnet hast — neu laden und erneut versuchen.",
 
+  "merge.person": "Kontakt zusammenführen",
+  "merge.org": "Firma zusammenführen",
+  "merge.searchPlaceholder": "Suchen…",
+  "merge.pickTarget": "Überlebenden Datensatz auswählen",
+  "merge.confirm":
+    "{source} in {target} zusammenführen? {source} wird archiviert.",
+  "merge.submit": "Zusammenführen",
+
   "common.error": "Konnten diese Ansicht nicht laden.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",

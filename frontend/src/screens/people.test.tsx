@@ -7,6 +7,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -311,5 +312,62 @@ describe("ContactsScreen — dedupe view-existing link (P-16)", () => {
     );
     await userEvent.click(screen.getByText("View existing record"));
     expect(window.location.hash).toBe("#/contacts/01X");
+  });
+});
+
+describe("PersonScreen — merge into target (P-2)", () => {
+  const otto = { ...anna, id: "p-2", full_name: "Otto Fischer" };
+
+  it("searches, excludes the source row, and merges into the picked target", async () => {
+    let mergeBody: unknown = null;
+    let mergeHeader: string | null = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/people/p-1/merge")) {
+        mergeHeader = request.headers.get("If-Match");
+        mergeBody = JSON.parse(await request.text());
+        return jsonResponse({ ...otto, version: 2 });
+      }
+      if (url.includes("/people?") && url.includes("q=otto")) {
+        return jsonResponse({
+          data: [anna, otto],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("merge-record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("merge-record"));
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "otto");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText("Otto Fischer")).toBeTruthy(),
+    );
+    // The source row must never appear as a mergeable target.
+    expect(within(dialog).queryByText("Anna Weber")).toBeNull();
+
+    await userEvent.click(within(dialog).getByText("Otto Fischer"));
+    await userEvent.click(screen.getByTestId("merge-confirm"));
+
+    await waitFor(() => expect(mergeBody).toBeTruthy());
+    expect(mergeBody).toMatchObject({ target_id: "p-2" });
+    expect(mergeHeader).toBe("1");
+    expect(window.location.hash).toBe("#/contacts/p-2");
   });
 });

@@ -36,6 +36,7 @@ import {
   useListQuery,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
+import { MergeAction } from "./merge";
 import { activityTimeline } from "./people";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -91,6 +92,23 @@ async function fetchOrganizationsPage(
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+// Merge-target search (P-2): mirrors searchPeopleTargets (people.tsx) — the
+// caller filters out the source row.
+async function searchOrgTargets(
+  q: string,
+): Promise<{ id: string; name: string }[]> {
+  const { data, error } = await api.GET("/organizations", {
+    params: { query: { q, limit: 10 } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data.data.map((candidate) => ({
+    id: candidate.id,
+    name: candidate.display_name,
+  }));
 }
 
 function asSizeBand(
@@ -431,6 +449,34 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                   resolveExisting={(_code, existingId) => ({
                     screen: "companies",
                     id: existingId,
+                  })}
+                />
+                <MergeAction
+                  label={t("merge.org")}
+                  sourceId={org.id}
+                  sourceName={org.display_name}
+                  searchTargets={searchOrgTargets}
+                  merge={async (targetId) => {
+                    const { data, error } = await api.POST(
+                      "/organizations/{id}/merge",
+                      {
+                        params: {
+                          path: { id: org.id },
+                          ...ifMatch(org.version),
+                        },
+                        body: { target_id: targetId },
+                      },
+                    );
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="organizations"
+                  recordKey="organization"
+                  survivorRoute={(targetId) => ({
+                    screen: "companies",
+                    id: targetId,
                   })}
                 />
                 <ArchiveAction

@@ -103,6 +103,13 @@ export const en = {
   "edit.versionSkew":
     "This record changed since you opened it — reload and try again.",
 
+  "merge.person": "Merge contact",
+  "merge.org": "Merge company",
+  "merge.searchPlaceholder": "Search…",
+  "merge.pickTarget": "Select the surviving record",
+  "merge.confirm": "Merge {source} into {target}? {source} will be archived.",
+  "merge.submit": "Merge",
+
   "common.error": "Couldn't load this view.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
