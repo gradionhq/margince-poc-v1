@@ -13,7 +13,9 @@ missing=0
 
 # %H is the full hash; the trailer is matched case-insensitively against the
 # whole commit message body via git log's grep, per commit.
-for sha in $(git rev-list "$range"); do
+# --no-merges: skip merge commits — notably the ephemeral merge commit GitHub
+# synthesizes for pull_request runs, which has no sign-off and never can.
+for sha in $(git rev-list --no-merges "$range"); do
 	if ! git log -1 --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
 		subject="$(git log -1 --format='%s' "$sha")"
 		echo "DCO: commit ${sha} missing Signed-off-by trailer: ${subject}" >&2

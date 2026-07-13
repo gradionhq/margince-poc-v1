@@ -263,6 +263,7 @@ func (r *Registry) BackfillCredentials(ctx context.Context) (int, error) {
 	if r.vault == nil {
 		return 0, errors.New("capture: cannot backfill connector credentials without a keyvault")
 	}
+	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
 	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return 0, fmt.Errorf("capture: listing workspaces for credential backfill: %w", err)

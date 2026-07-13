@@ -75,7 +75,14 @@ describe("design-system conformance gates (B-EP09.1)", () => {
     const violations: string[] = [];
 
     for (const file of files) {
-      if (!file.endsWith(".tsx") || /\.test\.tsx$/.test(file)) {
+      // Stories (like tests) are catalog fixtures, not shipped UI: their demo
+      // copy is deliberately literal — they still stay subject to the emoji and
+      // colour-purity checks below, only this i18n-copy rule exempts them.
+      if (
+        !file.endsWith(".tsx") ||
+        /\.test\.tsx$/.test(file) ||
+        /\.stories\.tsx$/.test(file)
+      ) {
         continue;
       }
       const source = ts.createSourceFile(

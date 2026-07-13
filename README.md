@@ -91,11 +91,21 @@ make verify-boot
 ```
 
 Toolchain: Go ≥ 1.26, Docker (Compose), `jq`, `golangci-lint`, and
-node+pnpm for the frontend lane. `make -C backend help` lists every
-target; `make -C backend hooks` installs the pre-commit hook (gofmt +
-the license-header gate). A step-by-step walkthrough and the full
-flag/env reference live in [docs/](docs/) (tutorials, how-to,
-reference, explanation — see below).
+node+pnpm for the frontend lane. On a fresh worktree, `make install`
+does the one-shot setup (frontend deps + the Go gate binaries + the git
+hooks); after it, `make check` runs immediately. `make help` lists the
+root commands and `make -C backend help` every backend target.
+
+The merge gate is `make check` = `check-backend` (build, vet, lint,
+arch-lint, unit + fitness tests, contract drift, and the deterministic
+script gates) + `check-fe` (the frontend lane). The real-Postgres lane
+is `make test-integration` (parallel, per-package clone DBs; needs
+`make db-up`). Full target table:
+[docs/reference/make-targets.md](docs/reference/make-targets.md); the CI
+pipeline that runs these as required checks:
+[infra/ci-pipeline.md](infra/ci-pipeline.md). A step-by-step walkthrough
+and the full flag/env reference live in [docs/](docs/) (tutorials,
+how-to, reference, explanation — see below).
 
 The embedded web UI is a hash-routed, dependency-free SPA served from
 the binary (`backend/web/`), and a plain client of the same `/v1`

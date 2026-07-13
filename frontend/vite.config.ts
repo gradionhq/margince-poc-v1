@@ -14,6 +14,14 @@ import { defineConfig } from "vitest/config";
 // the front door the api is reached same-origin, so it is inert.
 const behindFrontDoor = process.env.MARGINCE_DEV_TLS === "1";
 
+// A per-worktree UAT env (scripts/uat-env.sh) runs the api on a slug-derived
+// port and sets BACKEND_PORT so this /v1 proxy follows it (plain http). With no
+// BACKEND_PORT the default dev target — the :8080 front door — is used.
+const backendPort = process.env.BACKEND_PORT;
+const proxyTarget = backendPort
+  ? `http://localhost:${backendPort}`
+  : "https://localhost:8080";
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
@@ -23,7 +31,7 @@ export default defineConfig({
       : undefined,
     proxy: {
       "/v1": {
-        target: "https://localhost:8080",
+        target: proxyTarget,
         changeOrigin: false,
         secure: false,
       },

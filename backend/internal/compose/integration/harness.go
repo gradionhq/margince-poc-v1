@@ -23,10 +23,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // Env is the migrated-database fixture every integration suite starts
@@ -43,9 +42,12 @@ type Env struct {
 	Team1, Team2     ids.UUID
 }
 
-// Setup drops and remigrates the schema, seeds the workspace/user/team
-// fixture, and returns the ready Env. Integration tests fail loudly
-// without a database — they never skip.
+// Setup gives each test a clean, migrated database and seeds the
+// workspace/user/team fixture, returning the ready Env. The schema is migrated
+// once per test process (testdb.EnsureSchema); every later test resets via a
+// fast TRUNCATE (testdb.Truncate) instead of remigrating — see package testdb
+// for why that dominated the lane. Integration tests fail loudly without a
+// database — they never skip.
 func Setup(t *testing.T) *Env {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -64,18 +66,10 @@ func Setup(t *testing.T) *Env {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatal(err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
+	if err := testdb.Truncate(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
 

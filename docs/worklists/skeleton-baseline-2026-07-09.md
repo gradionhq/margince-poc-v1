@@ -252,10 +252,20 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       settings; `FieldGuard` masks the never-re-disclosed passport token as
       "withheld, not absent". Client-side is UX honesty only — the server's
       auth.Require stays the authority.)
-- [ ] `DECISION (frontend)` **Storybook + component test lane** — skeleton
-      has 10 stories + storybook-in-vitest browser project + `ui-shots`
-      capture. We have none. Valuable for the design-system surface; adds a
-      toolchain. Recommend adopt when the design system stabilizes.
+- [x] **Storybook + component test lane** (§0b D4: adopt now, infra only) —
+      Storybook 9 (react-vite) adopted, **version-matched to this repo's
+      Vite 6 / Vitest 3** (the skeleton runs Storybook 10 on Vite 8 / Vitest
+      4; staying on 9 leaves the existing FE test lanes + the AC/axe UAT
+      harness untouched). Kept the bespoke DS (D2), not Forge, so the
+      preview decorator loads `app.css` (tokens) rather than Forge classes.
+      Landed: `.storybook/` config, a design-system story catalog
+      (`atoms.stories.tsx`), `make storybook`, and `make fe-uat` — the
+      change-scoped render+capture UAT lane (`frontend/scripts/fe-uat.mjs`
+      + `lib/storybook-harness.mjs`, ported and adapted to plain `frontend/`
+      + `@playwright/test` Chromium). CI builds the catalog; `fe-uat` stays
+      a coordinator lane, not a required gate (skeleton parity). The
+      storybook-in-vitest browser project + `ui-shots` visual baselines are
+      the deferred remainder.
 - [x] **Design-token purity gates** — `ds-purity` (no raw hex/px),
       `font-lock`, `icon-lint`. We already have token conformance *tests*;
       the skeleton's are cheap greps wired as gates. Port and adapt to our
@@ -301,6 +311,69 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       (never a required/blocking check), gated on wiring an Anthropic
       API-key CI secret; complements `craft static`. Only the
       implementation remains — hence still an open checkbox.)
+
+### 1f. Deterministic gates ported from `margince-poc` (beyond the skeleton)
+
+The skeleton is not the only sibling worth harvesting: the older, gate-heavy
+`margince-poc` carries deterministic gates the skeleton never had. These were
+ported and **adapted to this repo's layout** (`backend/internal/modules/*`,
+`backend/api/crm.yaml`, `backend/migrations/core/`, the `WithWorkspaceTx`
+seam) rather than copied. Landed on `chore/deterministic-gate-parity`:
+
+- [x] **`audit_log` enum coherence** — a Go fitness test
+      (`backend/auditcoherence_test.go`) asserting `crm.yaml`
+      `AuditLogEntry.action`/`.actor_type` equal the `audit_log` CHECK
+      constraints (last-wins migration). `enumsync_test.go` pins the
+      Go-enum-backed columns; `audit_log` carries no Go enum type, so this
+      is its floor. crm.yaml is the source of truth (P3), with a
+      self-cleaning `auditActionDBOnly` waiver for DB-only verbs pending
+      spec adoption (today: `resolve`, live since migration 0047). Runs in
+      the existing unit lane — no CI wiring.
+- [x] **Contract `$ref` pre-flight** — a Go fitness test
+      (`backend/contractrefs_test.go`) that resolves every local `$ref` in
+      `crm.yaml` and fails on a dangling pointer with a readable
+      `pointer -> missing target` message, ahead of the cryptic codegen
+      abort the same typo produces in `gen`/`drift`.
+- [x] **`rls-store-path`** — a DB-free static gate
+      (`scripts/check-rls-store-path.sh`, root `make check`) that fails when
+      an `internal/modules` statement addresses the superuser pool directly
+      (bypassing FORCE RLS) instead of routing through `WithWorkspaceTx`. The
+      cheap deterministic-lane floor under `rls_coverage_integration_test.go`;
+      a genuinely cross-workspace query (the three fleet-enumeration worker
+      sweeps) carries a `// rls-exempt: <reason>` line.
+- [x] **`no-jurisdiction`** — a static pack-boundary gate
+      (`scripts/check-no-jurisdiction.sh`, root `make check`) that fails on a
+      country-specific regulatory identifier or ISO-3166 code in core
+      **code** (comments citing a statute for a generic, parameterized
+      mechanism are allowed; the seam `internal/modules/de` +
+      `internal/shared/ports/jurisdiction` is exempt). Case-sensitive with
+      word boundaries so `DATEV` does not false-fire inside `UpdateVoice`.
+
+Not ported: `check-audit-coverage` (covered by `writeshape_test.go`),
+`check-subsystem-doc-style` (this repo uses Diátaxis docs, not the
+foundation's subsystem-chapter format — the open §1b item stays deferred).
+
+### 1g. UAT mechanisms ported from the foundation skeleton
+
+The skeleton's README pins two UAT lanes we lacked; both landed on
+`chore/deterministic-gate-parity`, adapted to this repo's architecture
+(`cmd/api`/`cmd/migrate`, the API-driven seed, plain `frontend/`, ports
+`55432`/`56379`):
+
+- [x] **UAT enforced in CI** — the pre-existing AC-screen + axe WCAG 2.2 AA
+      acceptance harness (`make frontend-e2e`, a strength this repo already
+      had over the POC) is now a required CI `uat` job. Verified 37/37 green.
+- [x] **Fast fe-only UAT: component capture** — `make fe-uat`, the
+      change-scoped Storybook render+capture gate (see §1d). Verified: the
+      catalog stories render clean in headless Chromium via the ported
+      harness.
+- [x] **Isolated UAT env (per worktree)** — `scripts/uat-env.sh` +
+      `make uat_env UAT_SLUG=<slug>` / `uat_env_stop [DROP=1]`: the ONE
+      shared infra, a private `margince_uat_<slug>` database, and api/FE
+      ports derived deterministically from the slug (the FE `/v1` proxy
+      follows the api via `BACKEND_PORT`, a new `vite.config.ts` seam).
+      Verified live end-to-end: db created + migrated + API-seeded, seeded-
+      admin login `200`, teardown drops the db and frees the ports.
 
 ## 2. Keep from this repo (skeleton lacks it — do NOT regress)
 
