@@ -100,6 +100,11 @@ export const en = {
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
 
+  "list.search": "Search",
+  "list.sort": "Sort",
+  "list.showArchived": "Show archived",
+  "list.loadMore": "Load more",
+
   "people.name": "Name",
   "people.email": "Email",
   "people.capturedBy": "Captured by",

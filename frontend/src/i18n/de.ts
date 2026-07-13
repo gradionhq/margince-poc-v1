@@ -103,6 +103,11 @@ export const de = {
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
 
+  "list.search": "Suchen",
+  "list.sort": "Sortieren",
+  "list.showArchived": "Archivierte anzeigen",
+  "list.loadMore": "Mehr laden",
+
   "people.name": "Name",
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",
