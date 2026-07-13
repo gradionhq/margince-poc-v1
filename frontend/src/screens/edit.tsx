@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Route } from "../app/router";
 import { Button, Modal } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -75,9 +75,15 @@ export function EditRecordModal({
   // screen uses them) — the state exists so the modal's shape matches
   // create's, ready for a future screen to prefill.
   const [rows, setRows] = useState<FormRows>({});
+  // Only the closed→open TRANSITION should reset the form — `record`/`fields`
+  // are non-primitive props that a background refetch (react-query, focus
+  // revalidation, locale change) can hand a new reference to while the modal
+  // stays open, and re-running the effect on that alone would wipe whatever
+  // the user is mid-typing.
+  const wasOpen = useRef(false);
 
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpen.current) {
       // A fresh open starts from the record's current values, never a
       // previous attempt's leftovers.
       const prefilled: Record<string, string> = {};
@@ -88,6 +94,7 @@ export function EditRecordModal({
       setValues(prefilled);
       setRows({});
     }
+    wasOpen.current = open;
   }, [open, fields, record]);
 
   return (

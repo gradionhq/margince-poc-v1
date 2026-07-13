@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { navigate, type Route } from "../app/router";
 import { Button, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -445,9 +445,15 @@ export function CreateRecordModal({
   const headingId = useId();
   const [values, setValues] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<FormRows>({});
+  // Only the closed→open TRANSITION should reset the form — `fields` is a
+  // non-primitive prop that a parent re-render (react-query background
+  // refetch, locale change) can hand a new reference to while the modal
+  // stays open, and re-running the effect on that alone would wipe whatever
+  // the user is mid-typing.
+  const wasOpen = useRef(false);
 
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpen.current) {
       // A fresh open starts from the fields' defaults (first select option
       // for required selects), never from a previous attempt's leftovers.
       const defaults: Record<string, string> = {};
@@ -459,6 +465,7 @@ export function CreateRecordModal({
       setValues(defaults);
       setRows({});
     }
+    wasOpen.current = open;
   }, [open, fields]);
 
   return (

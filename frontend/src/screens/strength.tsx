@@ -139,9 +139,7 @@ function StrengthBody({
         <Badge tone={BUCKET_TONE[bucket]}>
           {t(`strength.bucket.${bucket}`)}
         </Badge>
-        <span className="t-mono">
-          {t("strength.score", { score })}
-        </span>
+        <span className="t-mono">{t("strength.score", { score })}</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {factorRows.map((row) => {

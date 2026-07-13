@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -196,13 +196,14 @@ function PartnerForm({
 }>) {
   const t = useT();
   const formId = useId();
+  // This form only mounts while editing (PartnerDetail/PartnerTab remount it
+  // fresh each time `editing` flips true), so the lazy initializer is the
+  // only seeding this needs — a re-sync effect keyed on `partner` would
+  // re-run on a background refetch of ["partner", organizationId] mid-edit
+  // and overwrite whatever the user is typing.
   const [values, setValues] = useState<PartnerFormValues>(() =>
     defaultFormValues(partner),
   );
-
-  useEffect(() => {
-    setValues(defaultFormValues(partner));
-  }, [partner]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -583,8 +584,13 @@ export function PartnersScreen() {
             columns={[
               {
                 key: "org",
-                header: t("org.name"),
-                render: (partner: Partner) => partner.organization_id,
+                // The Partner payload only carries organization_id (no name
+                // join available) — label the column as an id reference
+                // rather than implying it's the company name.
+                header: t("partner.organization"),
+                render: (partner: Partner) => (
+                  <span className="t-mono">{partner.organization_id}</span>
+                ),
               },
               {
                 key: "role",

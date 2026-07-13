@@ -563,6 +563,52 @@ describe("LeadScreen — score explain + override (P-10)", () => {
     });
   });
 
+  it("disables Save override for an out-of-range or non-integer score even with a reason filled in", async () => {
+    let patchBody: unknown = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PATCH" && url.includes("/leads/l-1")) {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...lead, version: 2 });
+      }
+      return undefined;
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Override score" }),
+      ).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Override score" }),
+    );
+
+    const submit = screen.getByRole("button", { name: "Save override" });
+    const scoreInput = screen.getByLabelText("Score");
+    const reasonInput = screen.getByLabelText("Reason");
+    await userEvent.type(reasonInput, "Strong buying signal");
+
+    await userEvent.clear(scoreInput);
+    await userEvent.type(scoreInput, "150");
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.clear(scoreInput);
+    await userEvent.type(scoreInput, "-5");
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.clear(scoreInput);
+    await userEvent.type(scoreInput, "90.5");
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+
+    await userEvent.clear(scoreInput);
+    await userEvent.type(scoreInput, "90");
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(submit);
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({ score: 90 });
+  });
+
   it("shows the reason + machine value and Clear override for an overridden lead", async () => {
     let patchBody: unknown = null;
     const overridden = {

@@ -333,6 +333,12 @@ function LeadLifecycle({
 
   const reasonBlank = reasonValue.trim() === "";
   const scoreBlank = scoreValue.trim() === "";
+  const parsedScore = Number(scoreValue);
+  const scoreInvalid =
+    scoreBlank ||
+    !Number.isInteger(parsedScore) ||
+    parsedScore < 0 ||
+    parsedScore > 100;
   const meId = me.data?.user?.id;
 
   return (
@@ -422,10 +428,10 @@ function LeadLifecycle({
               <Button
                 variant="primary"
                 small
-                disabled={reasonBlank || scoreBlank || patch.isPending}
+                disabled={reasonBlank || scoreInvalid || patch.isPending}
                 onClick={() =>
                   patch.mutate({
-                    score: Number(scoreValue),
+                    score: parsedScore,
                     score_override_reason: reasonValue.trim(),
                   })
                 }

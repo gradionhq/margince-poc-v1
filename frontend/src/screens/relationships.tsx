@@ -122,6 +122,17 @@ async function searchPersonCandidates(q: string): Promise<Candidate[]> {
   return data.data.map((person) => ({ id: person.id, name: person.full_name }));
 }
 
+// The other side of the edge to search: an org-scoped tab picks a person,
+// a person-scoped tab picks an org.
+function searchOtherSideCandidates(
+  isPersonScope: boolean,
+  query: string,
+): Promise<Candidate[]> {
+  return isPersonScope
+    ? searchOrganizationCandidates(query)
+    : searchPersonCandidates(query);
+}
+
 // The "add relationship" affordance: kind + role + start date, plus the
 // other-side target picker (mirrors merge.tsx's debounced search-and-pick —
 // the source of the edge is fixed by scope, so there is no "exclude self"
@@ -140,6 +151,7 @@ function AddRelationshipAction({
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [target, setTarget] = useState<Candidate | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -148,15 +160,24 @@ function AddRelationshipAction({
     const query = term.trim();
     if (!query) {
       setCandidates([]);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const results = await (isPersonScope
-        ? searchOrganizationCandidates(query)
-        : searchPersonCandidates(query));
-      if (!cancelled) {
-        setCandidates(results);
+      try {
+        const results = await searchOtherSideCandidates(isPersonScope, query);
+        if (!cancelled) {
+          setCandidates(results);
+          setSearchError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCandidates([]);
+          setSearchError(
+            error instanceof Error ? error.message : "request failed",
+          );
+        }
       }
     }, SEARCH_DEBOUNCE_MS);
     return () => {
@@ -203,6 +224,7 @@ function AddRelationshipAction({
     setTerm("");
     setCandidates([]);
     setTarget(null);
+    setSearchError(null);
     mutation.reset();
   }
 
@@ -270,6 +292,11 @@ function AddRelationshipAction({
               setTarget(null);
             }}
           />
+          {searchError && (
+            <p className="t-caption" style={{ color: "var(--danger)" }}>
+              {searchError}
+            </p>
+          )}
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {candidates.map((candidate) => (
               <li key={candidate.id}>
@@ -316,10 +343,15 @@ const relationshipEditFields: CreateField[] = [
   { key: "ended_at", label: "rel.endedAt", type: "date" },
 ];
 
-// UpdateRelationshipRequest fields are nullable — an emptied field clears the
-// stored value (e.g. closing out ended_at back to "current" isn't reachable
-// this way, but clearing a mistaken role/date is), rather than being dropped
-// from the request as undefined would.
+// UpdateRelationshipRequest fields are nullable, but the backend's
+// UpdateRelationship applies them via coalesce($n, col) — null means KEEP
+// the existing value, not clear it (backend/internal/modules/people/
+// relationship.go). So this can SET/CHANGE role/started_at/ended_at to a
+// new value, but an emptied field is NOT reachable this way: sending null
+// leaves the stored value untouched rather than wiping it. `orNull` still
+// avoids sending an empty string over the wire; true clear-support needs a
+// backend change (distinguish omit vs. explicit-null) and is out of scope
+// here.
 function orNull(value: unknown): string | null {
   const text = typeof value === "string" ? value.trim() : "";
   return text.length > 0 ? text : null;

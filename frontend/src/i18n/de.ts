@@ -133,6 +133,7 @@ export const de = {
   "partner.setup": "Zum Partner machen",
   "partner.edit": "Partner bearbeiten",
   "partner.none": "Noch kein Partner",
+  "partner.organization": "Organisation",
   "partner.role": "Partnerrolle",
   "partner.certStatus": "Zertifizierungsstatus",
   "partner.marginTier": "Margen-Stufe",
