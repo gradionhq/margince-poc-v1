@@ -14,6 +14,13 @@
 // migration seeds reference data a test depends on — the only data-touching
 // migration (person_social backfill) is a no-op on an empty database.
 //
+// TRUNCATE empties rows but does not revert schema changes, and the
+// customfields engine is the one place in the system allowed to run a runtime
+// ALTER TABLE (it adds cf_<slug> columns to record tables). A cf_ column added
+// by one test would otherwise survive into the next, which reads it as a
+// column that is already "taken platform-wide". So the reset also drops every
+// leaked cf_ column — see dropCustomFieldColumns.
+//
 // The reset stays safe under the lane's -p 1: within a package process tests
 // run serially, so nothing races the shared connection between Truncate and the
 // next test. Across packages, each go-test binary is its own process (and, under
@@ -104,6 +111,49 @@ func Truncate(ctx context.Context, owner *pgx.Conn) error {
 	// pg_tables system catalog, never from caller input, so it is injection-safe.
 	// One statement: CASCADE resolves FK order, RESTART IDENTITY resets the few
 	// serial sequences (most ids are client-side UUIDv7, so this is belt-and-braces).
-	_, err = owner.Exec(ctx, `TRUNCATE `+strings.Join(tables, ", ")+` RESTART IDENTITY CASCADE`)
-	return err
+	if _, err := owner.Exec(ctx, `TRUNCATE `+strings.Join(tables, ", ")+` RESTART IDENTITY CASCADE`); err != nil {
+		return err
+	}
+	return dropCustomFieldColumns(ctx, owner)
+}
+
+// dropCustomFieldColumns reverts the runtime DDL the customfields engine adds —
+// the cf_<slug> columns it appends to record tables (people, deals, …) as the
+// system's single sanctioned ALTER-TABLE chokepoint. TRUNCATE clears the rows
+// but leaves the columns, so without this a cf_ column created by one test
+// leaks into the next and is rejected as "taken platform-wide". No migrated
+// baseline table carries a cf_-prefixed column, so every match here is a
+// leaked custom field and safe to drop; DROP COLUMN cascades its generated
+// cf_<slug>_check constraint with it.
+func dropCustomFieldColumns(ctx context.Context, owner *pgx.Conn) error {
+	rows, err := owner.Query(ctx, `
+		SELECT quote_ident(table_name), quote_ident(column_name)
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND column_name LIKE 'cf\_%'`)
+	if err != nil {
+		return err
+	}
+	var stmts []string
+	for rows.Next() {
+		var table, column string
+		if err := rows.Scan(&table, &column); err != nil {
+			rows.Close()
+			return err
+		}
+		// Identifiers cannot be bound parameters, but both names come from
+		// quote_ident() over information_schema, never from caller input, so
+		// the concatenation is injection-safe (same posture as Truncate).
+		stmts = append(stmts, `ALTER TABLE `+table+` DROP COLUMN `+column+` CASCADE`)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, stmt := range stmts {
+		if _, err := owner.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
