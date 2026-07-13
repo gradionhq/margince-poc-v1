@@ -115,6 +115,11 @@ export function ProductsScreen() {
     return data;
   };
 
+  // `sku`/`description` are nullable contract fields, so an emptied form
+  // input sends an explicit `null` to clear the stored value. `unit`/
+  // `currency` are non-nullable, so an emptied input instead sends
+  // `undefined` (omitted from the PATCH body) to leave the existing value
+  // unchanged rather than overwrite it with an invalid empty string.
   const updateProduct =
     (product: Product) => async (values: Record<string, unknown>) => {
       const { data, error } = await api.PATCH("/products/{id}", {
@@ -214,9 +219,7 @@ export function ProductsScreen() {
                       recordKey="product"
                       record={{
                         ...p,
-                        unit_price: String(
-                          (p.unit_price_minor / 100).toFixed(2),
-                        ),
+                        unit_price: (p.unit_price_minor / 100).toFixed(2),
                       }}
                       update={updateProduct(p)}
                       fields={PRODUCT_FIELDS}

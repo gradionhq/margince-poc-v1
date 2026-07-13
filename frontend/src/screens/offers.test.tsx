@@ -167,6 +167,35 @@ function stubOfferWithLifecycle(
   );
 }
 
+// A method-aware backend for the header edit modal: GETs read the offer
+// fixture, a PATCH against .../offers/o-1 is served from the caller-supplied
+// response and recorded so a test can assert on the exact request sent.
+function stubOfferWithHeaderPatch(
+  offer: Record<string, unknown>,
+  response: { body: Record<string, unknown>; status: number },
+  calls: { url: string; body: unknown; ifMatch: string | null }[],
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request ? request.method : (init?.method ?? "GET");
+      if (url.endsWith("/offers/o-1") && method === "PATCH") {
+        const rawBody = request ? await request.text() : (init?.body ?? null);
+        const body = rawBody ? JSON.parse(String(rawBody)) : null;
+        const headers = request ? request.headers : new Headers(init?.headers);
+        calls.push({ url, body, ifMatch: headers.get("If-Match") });
+        return jsonResponse(response.body, response.status);
+      }
+      if (url.includes("/offers/")) {
+        return jsonResponse(offer);
+      }
+      return jsonResponse({ data: [], page: { has_more: false } });
+    }),
+  );
+}
+
 describe("OfferScreen", () => {
   it("renders the header, status badge, and read-only totals", async () => {
     stubOffer(baseOffer);
@@ -713,5 +742,33 @@ describe("offer lifecycle actions (OP-8/OP-9/OP-10)", () => {
     expect(calls[0].body).toMatchObject({ reason: "budget cut" });
     expect(await screen.findByText("rejected")).toBeTruthy();
     expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("edit offer header modal", () => {
+  it("lets the user change the currency and applies the response directly (no refetch)", async () => {
+    const calls: { url: string; body: unknown; ifMatch: string | null }[] = [];
+    stubOfferWithHeaderPatch(
+      baseOffer,
+      { body: { ...baseOffer, currency: "USD", version: 4 }, status: 200 },
+      calls,
+    );
+    const { client } = render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+
+    await userEvent.click(screen.getByTestId("edit-offer-header"));
+    await userEvent.selectOptions(screen.getByLabelText("Currency"), "USD");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].ifMatch).toBe("3");
+    expect(calls[0].body).toMatchObject({ currency: "USD" });
+    // 100000 minor net formatted in the new currency confirms the mutation
+    // response was applied via setQueryData, not a follow-up GET.
+    expect(await screen.findByText("US$1,000.00")).toBeTruthy();
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["offer", "o-1"] }),
+    );
   });
 });

@@ -276,6 +276,7 @@ export const de = {
   "offer.tax": "Steuer",
   "offer.gross": "Brutto",
   "offer.edit": "Kopfdaten bearbeiten",
+  "offer.currency": "Währung",
   "offer.buyerOrg": "Käufer-Organisation",
   "offer.template": "Vorlage",
   "offer.validUntil": "Gültig bis",
@@ -296,8 +297,12 @@ export const de = {
   "offer.pickProduct": "Produkt wählen",
   "offer.send": "Senden",
   "offer.sendConfirm": "Dieses Angebot an den Käufer senden?",
+  "offer.sendBody":
+    "Das Angebot wird schreibgeschützt, bis der Käufer antwortet.",
   "offer.accept": "Annehmen",
   "offer.acceptConfirm": "Dieses Angebot als angenommen markieren?",
+  "offer.acceptBody":
+    "Betrag und Währung des Deals werden an dieses Angebot angeglichen.",
   "offer.reject": "Ablehnen",
   "offer.rejectConfirm": "Dieses Angebot als abgelehnt markieren?",
   "offer.rejectReason": "Grund (optional)",

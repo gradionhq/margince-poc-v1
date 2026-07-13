@@ -137,8 +137,8 @@ function EditOfferHeaderModal({
       }
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["offer", offer.id] });
+    onSuccess: (data) => {
+      queryClient.setQueryData(["offer", offer.id], data);
       onClose();
     },
   });
@@ -158,6 +158,25 @@ function EditOfferHeaderModal({
         {t("offer.edit")}
       </h2>
       <div className="field">
+        <span className="t-label" id="offer-currency-label">
+          {t("offer.currency")}
+        </span>
+        <select
+          aria-labelledby="offer-currency-label"
+          className="input"
+          value={values.currency}
+          onChange={(event) =>
+            setValues((prev) => ({ ...prev, currency: event.target.value }))
+          }
+        >
+          {["EUR", "USD", "GBP", "CHF"].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="field" style={{ marginTop: 10 }}>
         <span className="t-label" id="offer-valid-until-label">
           {t("offer.validUntil")}
         </span>
@@ -446,6 +465,11 @@ function UnitPriceCell({
   );
 }
 
+// An ungrounded (price_grounded === false) line has no unit-price/line-total
+// input wired to it anywhere below — deliberately: grounding a price is a
+// server/AI concern, not something a human free-types over. The line stays
+// ungrounded until the server re-grounds it on a future regenerate, or the
+// human removes it and re-adds it with an explicit price.
 function UnpricedCaption({ label }: Readonly<{ label: string }>) {
   return (
     <span className="t-caption" style={{ color: "var(--muted)" }}>
@@ -857,7 +881,7 @@ function SendOfferAction({ offer }: Readonly<{ offer: Offer }>) {
         pending={mutation.isPending}
         error={errorMessage}
       >
-        <p className="t-body">{t("offer.sendConfirm")}</p>
+        <p className="t-body">{t("offer.sendBody")}</p>
       </ConfirmModal>
     </>
   );
@@ -916,7 +940,7 @@ function AcceptOfferAction({ offer }: Readonly<{ offer: Offer }>) {
         pending={mutation.isPending}
         error={errorMessage}
       >
-        <p className="t-body">{t("offer.acceptConfirm")}</p>
+        <p className="t-body">{t("offer.acceptBody")}</p>
       </ConfirmModal>
     </>
   );
