@@ -170,6 +170,50 @@ export const RegeneratedWithAiDisclosure: Story = {
   },
 };
 
+// Task 4.2 (OP-12): the render-PDF card. The `installFetchStub` route map has
+// no entry for a mutation the user hasn't clicked yet, so both stories load
+// exactly like `Draft` until the button is pressed — the render itself is
+// exercised in offers.test.tsx, which can assert on the request/response in
+// a way a static story render cannot.
+export const PdfRendered: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /offers/o-1": () =>
+        jsonResponse({
+          ...draftOffer,
+          pdf_asset_ref: "https://assets.example/offers/o-1.pdf",
+        }),
+      "GET /offer-templates": () => jsonResponse(emptyPage),
+      "GET /products": () => jsonResponse(emptyPage),
+    });
+    return (
+      <StoryProviders>
+        <OfferScreen id="o-1" />
+      </StoryProviders>
+    );
+  },
+};
+
+export const PdfRenderUnavailable: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /offers/o-1": () => jsonResponse(draftOffer),
+      "GET /offer-templates": () => jsonResponse(emptyPage),
+      "GET /products": () => jsonResponse(emptyPage),
+      "POST /offers/o-1/render": () =>
+        jsonResponse(
+          { title: "Not Implemented", detail: "blobstore not wired" },
+          501,
+        ),
+    });
+    return (
+      <StoryProviders>
+        <OfferScreen id="o-1" />
+      </StoryProviders>
+    );
+  },
+};
+
 export const LoadError: Story = {
   render: () => {
     installFetchStub({

@@ -1151,6 +1151,93 @@ function AiDisclosureBanner({ offer }: Readonly<{ offer: Offer }>) {
   );
 }
 
+// Task 4.2 (OP-12): render the offer's branded PDF. Per the contract's own
+// doc comment, a 501 here means the deployment has no blobstore wired — the
+// same unwired-by-omission posture as the attachments seam — which is a
+// deliberate, expected outcome, not an error: it is read off the raw
+// `response.status` (openapi-fetch's third destructured field, the same
+// idiom home.tsx's useMorningBrief uses for its 404) BEFORE the `error`
+// branch, so it never reaches throwProblem/ProblemError. Every other
+// response (401/403/404/409/422) falls through to that verbatim path
+// unchanged. On 200 the full Offer comes back with pdf_asset_ref populated;
+// queryClient.setQueryData seeds the cache the same way every other action
+// in this file does, so the link below reads straight off the `offer` prop
+// once react-query re-renders this component.
+function RenderOfferPdfAction({ offer }: Readonly<{ offer: Offer }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const { data, error, response } = await api.POST("/offers/{id}/render", {
+        params: { path: { id: offer.id } },
+      });
+      if (response.status === 501) {
+        return { available: false as const };
+      }
+      if (error) {
+        throwProblem(error);
+      }
+      return { available: true as const, offer: data };
+    },
+    onSuccess: (result) => {
+      if (result.available) {
+        queryClient.setQueryData(["offer", offer.id], result.offer);
+      }
+    },
+  });
+
+  const unavailable = mutation.data?.available === false;
+  const errorMessage = mutation.isError ? mutation.error?.message : null;
+
+  return (
+    <section
+      className="card"
+      data-testid="offer-pdf-card"
+      style={{ marginBottom: 16 }}
+    >
+      <SectionHeader title={t("offer.renderPdf")} />
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <Button
+          small
+          data-testid="render-pdf"
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          {t("offer.renderPdf")}
+        </Button>
+        {offer.pdf_asset_ref && (
+          <a
+            href={offer.pdf_asset_ref}
+            target="_blank"
+            rel="noreferrer"
+            data-testid="pdf-link"
+          >
+            {t("offer.viewPdf")}
+          </a>
+        )}
+      </div>
+      {unavailable && (
+        <p
+          className="t-caption"
+          data-testid="pdf-unavailable"
+          style={{ marginTop: 8 }}
+        >
+          {t("offer.pdfUnavailable")}
+        </p>
+      )}
+      {errorMessage && (
+        <p
+          className="t-caption"
+          style={{ color: "var(--danger)", marginTop: 8 }}
+        >
+          {errorMessage}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function OfferScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1235,6 +1322,7 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
                 </div>
               </div>
             </section>
+            <RenderOfferPdfAction offer={offer} />
             {offer.status === "draft" && <OfferLineEditor offer={offer} />}
             {offer.status === "draft" && (
               <EditOfferHeaderModal

@@ -300,6 +300,9 @@ export const en = {
   "offer.diffAdded": "{count} line(s) added",
   "offer.diffRemoved": "{count} line(s) removed",
   "offer.diffChanged": "{count} line(s) changed",
+  "offer.renderPdf": "Render PDF",
+  "offer.viewPdf": "View PDF",
+  "offer.pdfUnavailable": "PDF rendering not available on this deployment.",
 
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",

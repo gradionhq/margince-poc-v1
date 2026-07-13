@@ -306,6 +306,10 @@ export const de = {
   "offer.diffAdded": "{count} Position(en) hinzugefügt",
   "offer.diffRemoved": "{count} Position(en) entfernt",
   "offer.diffChanged": "{count} Position(en) geändert",
+  "offer.renderPdf": "PDF erzeugen",
+  "offer.viewPdf": "PDF ansehen",
+  "offer.pdfUnavailable":
+    "PDF-Erzeugung auf diesem Deployment nicht verfügbar.",
 
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",

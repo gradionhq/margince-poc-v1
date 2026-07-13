@@ -483,6 +483,106 @@ describe("regenerate action (OP-11)", () => {
   });
 });
 
+// A method-aware backend for the render action (Task 4.2, OP-12): GETs read
+// the offer fixture, a POST against .../render is served from the
+// caller-supplied response (success, an honest 501, or an RFC-7807 problem)
+// and recorded so a test can assert on the exact request sent.
+function stubOfferWithRender(
+  offer: Record<string, unknown>,
+  response: { body: Record<string, unknown>; status: number },
+  calls: { url: string }[],
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request ? request.method : (init?.method ?? "GET");
+      if (url.includes("/offers/o-1/render") && method === "POST") {
+        calls.push({ url });
+        return jsonResponse(response.body, response.status);
+      }
+      if (url.includes("/offers/")) {
+        return jsonResponse(offer);
+      }
+      return jsonResponse({ data: [], page: { has_more: false } });
+    }),
+  );
+}
+
+describe("render PDF action (OP-12)", () => {
+  it("renders the PDF and shows a download link from the 200 response", async () => {
+    const calls: { url: string }[] = [];
+    const rendered = {
+      ...baseOffer,
+      pdf_asset_ref: "https://assets.example/offers/o-1.pdf",
+    };
+    stubOfferWithRender(baseOffer, { body: rendered, status: 200 }, calls);
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("render-pdf"));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const link = await screen.findByTestId("pdf-link");
+    expect(link.getAttribute("href")).toBe(
+      "https://assets.example/offers/o-1.pdf",
+    );
+    expect(screen.queryByTestId("pdf-unavailable")).toBeNull();
+  });
+
+  it("shows an honest inline state on a 501 (no blobstore wired), never the generic error path", async () => {
+    const calls: { url: string }[] = [];
+    stubOfferWithRender(
+      baseOffer,
+      {
+        body: { title: "Not Implemented", detail: "blobstore not wired" },
+        status: 501,
+      },
+      calls,
+    );
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("render-pdf"));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const unavailable = await screen.findByTestId("pdf-unavailable");
+    expect(unavailable).toBeTruthy();
+    // Calm, informational copy — not the red error-banner path every other
+    // action's mutation.isError branch renders.
+    expect(unavailable.style.color).not.toBe("var(--danger)");
+    expect(screen.queryByText("blobstore not wired")).toBeNull();
+    expect(screen.queryByTestId("pdf-link")).toBeNull();
+  });
+
+  it("renders a 422 detail verbatim when render fails validation", async () => {
+    const calls: { url: string }[] = [];
+    stubOfferWithRender(
+      baseOffer,
+      {
+        body: {
+          title: "Unprocessable",
+          detail: "offer has no line items to render",
+          code: "offer_empty",
+        },
+        status: 422,
+      },
+      calls,
+    );
+    render(<OfferScreen id="o-1" />);
+    await screen.findByText("ANG-2026-0007");
+
+    await userEvent.click(screen.getByTestId("render-pdf"));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(
+      await screen.findByText("offer has no line items to render"),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("pdf-unavailable")).toBeNull();
+  });
+});
+
 describe("offer lifecycle actions (OP-8/OP-9/OP-10)", () => {
   it("shows send only while draft, and accept/reject only once sent", async () => {
     stubOffer(baseOffer);
