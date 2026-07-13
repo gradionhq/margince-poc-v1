@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 CAP="${GO_FILE_LINE_CAP:-500}"
 WAIVERS="scripts/go-file-length-waivers.txt"
 
-find backend dev -name "*.go" \
+find backend -name "*.go" \
     ! -name "*_test.go" ! -name "*_gen.go" ! -name "*.gen.go" -exec wc -l {} + \
 | awk -v cap="$CAP" -v waivers="$WAIVERS" '
 BEGIN {

@@ -1,7 +1,7 @@
 # The dev/test infrastructure stack. `make db-up` brings it up (and applies
 # scripts/db-init.sql on top for the non-owner app role); `make clean` tears
 # it down including data. Ports and credentials are a contract shared with
-# the backend Makefile's MARGINCE_TEST_* defaults, dev/dev.sh, and CI's
+# the backend Makefile's MARGINCE_TEST_* defaults, scripts/dev.sh, and CI's
 # service containers — change them everywhere or nowhere.
 #
 # Images are digest-pinned to the multi-arch INDEX digest (works on both

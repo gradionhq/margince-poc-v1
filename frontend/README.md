@@ -9,15 +9,15 @@ truth is the foundation at `../../margince/specs/design/design-system/`).
 
 ```sh
 pnpm install
-pnpm dev          # Vite dev server; proxies /v1 to https://localhost:8080
+pnpm dev          # Vite dev server; proxies /v1 to http://localhost:8080 (BACKEND_PORT overrides)
 pnpm check        # the frontend gate: Biome + unit tests + tsc + build
 pnpm e2e          # build + the Playwright screen-acceptance harness
 pnpm gen:api      # regenerate src/api/schema.d.ts from ../backend/api/crm.yaml
 ```
 
-From the repo root: `make frontend-check`, `make frontend-e2e`,
-`make frontend-dev`. The frontend lane is separate from the Go merge gate
-(`make check`) — it needs node ≥ 20 and pnpm.
+From the repo root: `make frontend-check`, `make frontend-e2e`, and `make dev`
+(the full running stack — api + this SPA). The frontend lane is separate from
+the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
 
 ## Layout
 

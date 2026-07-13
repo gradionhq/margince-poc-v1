@@ -43,25 +43,20 @@ Edit the tiers only to:
 
 ## 3. Start the stack
 
-`dev/dev.sh` (`make dev-tls`) only activates the routing file when
+`scripts/dev.sh` (`make dev`) only injects the routing file when
 `ANTHROPIC_API_KEY` is set; otherwise it falls back to the offline fake. Since
 the AI lanes are on Ollama, the key is never called — a placeholder flips it on:
 
 ```sh
 printf 'ANTHROPIC_API_KEY=ollama-not-used\n' > .env.local   # .env.local is git-ignored
-make dev-tls                                                 # look for: "using real Anthropic model"
+make dev                                                    # look for: "using real Anthropic model"
 ```
 
-`make dev-tls` runs an HTTPS front door on `:8080` → api on `:8081` + the SPA on
-`:5173`. Seed the demo workspace through the api, then open the app:
-
-```sh
-API_BASE=http://localhost:8081 make seed-dev
-```
-
-Open **https://localhost:8080** (accept the self-signed cert once) and log in
-with the seeded admin (`admin@demo.test` / `demo-password-123`, workspace
-`demo-workspace`). Full first-run details:
+`make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
+and runs the Vite SPA on `:5173`. Open **http://localhost:8080** (the embedded
+UI) or **http://localhost:5173** (the Vite SPA) and log in with the seeded
+admin (`admin@demo.test` / `demo-password-123`, workspace `demo-workspace`).
+Full first-run details:
 [tutorials/getting-started.md](../tutorials/getting-started.md).
 
 ## 4. Add a company and enrich it
@@ -86,11 +81,11 @@ the anti-hallucination guarantee, not a bug.
 
 | Symptom | Meaning / fix |
 |---|---|
-| Log says *"no ANTHROPIC_API_KEY … offline fake"* | The placeholder key wasn't picked up — check `.env.local`, restart `make dev-tls`. |
+| Log says *"no ANTHROPIC_API_KEY … offline fake"* | The placeholder key wasn't picked up — check `.env.local`, restart `make dev`. |
 | *"Couldn't read enough from this company's site."* | The fetch failed: the offline fake is active (see above), a **403** from a bot-protected domain, or a genuinely thin page. Use a crawlable domain. |
 | *"no field survived the no-guess evidence gate"* | The model returned JSON but no `evidence_snippet` was verbatim on the page (or confidences ≤ 0). Expected for weak models / thin pages — try a content-rich page, or `mistral` over `gemma3`. |
 | A 500 mentioning *"cannot unmarshal … into … string"* | The model ignored the schema and emitted a wrong-typed field. Switch to `mistral`. |
-| Vite `EPROTO … SSL routines` error | You ran `make dev` + `make fe-dev` and opened `:5173`. Use `make dev-tls` → `https://localhost:8080` (the session cookie is `Secure`). |
+| Logged out immediately after login on `:5173` | The api isn't reachable at the Vite `/v1` proxy target — make sure `make dev` is running (it starts both) and use the URLs it printed. |
 
 Set `MARGINCE_LOG_LEVEL=debug` (in `.env.local` or via `--log-level`) for verbose
 model-runtime logs. Small local models are hit-or-miss against the strict

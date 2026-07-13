@@ -61,26 +61,26 @@ Everything below this line is for people (and agents) working on the code.
 
 ## Quick start
 
-**Boot it** (Docker Compose stack — Postgres 16 + Redis 7 — plus
-migrations and the api on :8080):
+**Boot it.** `make dev` brings up the whole local stack — the Docker
+Compose infra (Postgres 16 + Redis 7), migrations, the api, a seeded demo
+workspace, and the Vite SPA — then prints the URLs and returns (the servers
+run in the background; stop them with `make dev-stop`):
 
 ```
 make dev
 ```
 
-**Log in.** In a second terminal, seed the demo workspace and open
-http://localhost:8080 — the embedded web UI (people, the deal board,
-the timeline):
-
-```
-make seed-dev
-```
-
+**Log in.** Open http://localhost:8080 for the embedded web UI (people, the
+deal board, the timeline), or the Vite dev SPA on http://localhost:5173.
 Workspace `demo-workspace`, sign in as `admin@demo.test` /
-`demo-password-123` (dev-only credentials). The seed goes through the
-public API — same audit trail, same events as real traffic — and is
-idempotent; `make seed-reset` wipes the demo workspace for a clean
-re-seed.
+`demo-password-123` (dev-only credentials). The seed goes through the public
+API — same audit trail, same events as real traffic — and is idempotent;
+`make seed-reset` wipes the demo workspace for a clean re-seed.
+
+**Isolate a second stack.** `make dev DEV_SLUG=<slug>` gives a private
+`margince_dev_<slug>` database on slug-derived ports so a second worktree
+runs concurrently without colliding; `make dev-stop DEV_SLUG=<slug> [DROP=1]`
+tears it down (`DROP=1` also drops the database).
 
 **Verify** the whole thing end to end (seeded-admin login over `/v1`,
 seeded people visible, frontend production build — fails loudly on the

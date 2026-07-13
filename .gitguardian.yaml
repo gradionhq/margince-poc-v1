@@ -7,8 +7,7 @@
 version: 2
 secret:
   ignored-paths:
-    - "dev/**"
-    - "scripts/uat-env.sh"
+    - "scripts/dev.sh"
     - "scripts/db-init.sql"
     - ".env.template"
   ignored-matches:

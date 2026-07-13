@@ -367,13 +367,15 @@ The skeleton's README pins two UAT lanes we lacked; both landed on
       change-scoped Storybook render+capture gate (see §1d). Verified: the
       catalog stories render clean in headless Chromium via the ported
       harness.
-- [x] **Isolated UAT env (per worktree)** — `scripts/uat-env.sh` +
-      `make uat_env UAT_SLUG=<slug>` / `uat_env_stop [DROP=1]`: the ONE
-      shared infra, a private `margince_uat_<slug>` database, and api/FE
-      ports derived deterministically from the slug (the FE `/v1` proxy
-      follows the api via `BACKEND_PORT`, a new `vite.config.ts` seam).
+- [x] **Isolated stack (per worktree)** — `scripts/dev.sh` +
+      `make dev DEV_SLUG=<slug>` / `dev-stop [DROP=1]`: the ONE shared
+      infra, a private `margince_dev_<slug>` database, and api/FE ports
+      derived deterministically from the slug (the FE `/v1` proxy follows
+      the api via `BACKEND_PORT`, a new `vite.config.ts` seam).
       Verified live end-to-end: db created + migrated + API-seeded, seeded-
       admin login `200`, teardown drops the db and frees the ports.
+      (Later folded into `make dev` and the `uat_env` name retired — bare
+      `make dev` is the full stack; `DEV_SLUG` gives the isolated variant.)
 
 ## 2. Keep from this repo (skeleton lacks it — do NOT regress)
 

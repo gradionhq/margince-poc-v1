@@ -7,14 +7,17 @@ talks only to the `/v1` contract surface — there is no privileged path.
 ## Develop
 
 ```sh
-make dev            # api on :8080 (db-up + migrate + serve)
-make frontend-dev   # Vite dev server; proxies /v1 to https://localhost:8080
+make dev   # full local stack: db + migrate + api (:8080) + seed + the Vite SPA (:5173)
 ```
 
-Log in against the api to get the `crm_session` cookie, then set the
-workspace slug once under Settings → Workspace connection (local dev
-sends `X-Workspace-Slug`; production resolves the workspace from the
-subdomain).
+`make dev` starts the Vite dev server too, with its `/v1` proxy pointed at
+the api (plain http — `localhost` is a browser secure-context, so the
+`Secure` session cookie survives without TLS). Open the SPA on
+http://localhost:5173 (or the embedded UI on :8080). Log in to get the
+`crm_session` cookie, then set the workspace slug once under Settings →
+Workspace connection (local dev sends `X-Workspace-Slug`; production
+resolves the workspace from the subdomain). Stop the stack with
+`make dev-stop`.
 
 ## Verify
 
@@ -28,7 +31,7 @@ The e2e harness runs hermetically over a seed mock by default. To run the
 identical suite against a live, seeded backend:
 
 ```sh
-BASE_URL=https://localhost:8080 make frontend-e2e
+BASE_URL=http://localhost:8080 make frontend-e2e
 ```
 
 ## Regenerate contract types
