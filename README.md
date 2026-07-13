@@ -44,17 +44,19 @@ work breakdown) lives in a separate spec repo at `../margince/specs/`.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
-Contributing: start with [CONTRIBUTING.md](CONTRIBUTING.md) (how the
-gates, DCO sign-off, and AI-disclosure work). Progress and the pickup
-point live in **[STATUS.md](STATUS.md)**; the binding engineering rules
-in [AGENTS.md](AGENTS.md). User and
-operator documentation lives under [docs/](docs/):
-[getting started](docs/tutorials/getting-started.md) ·
-[how-to guides](docs/how-to/) (MCP server, passports, migrations) ·
-[reference](docs/reference/) (every flag/env, make targets) ·
-[explanation](docs/explanation/) (architecture, contract-first).
-Vulnerabilities: see [SECURITY.md](SECURITY.md) — private reporting via
-GitHub Security Advisories. Changes: [CHANGELOG.md](CHANGELOG.md).
+**Start here:**
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — the gates, DCO sign-off, and AI-disclosure rules.
+- **[docs/explanation/backend-onboarding.md](docs/explanation/backend-onboarding.md)** — the backend
+  contributor hub: the codebase map, reading order, and how to add a feature.
+- **[docs/README.md](docs/README.md)** — the full documentation index (tutorials, how-to, reference,
+  explanation).
+
+Also: [STATUS.md](STATUS.md) — progress and session pickup point ·
+[AGENTS.md](AGENTS.md) — binding engineering rules ·
+[SECURITY.md](SECURITY.md) — vulnerability reporting (private, via GitHub Security Advisories) ·
+[CHANGELOG.md](CHANGELOG.md).
+
 Everything below this line is for people (and agents) working on the code.
 
 ## Quick start
@@ -156,9 +158,10 @@ per-client throttling at the proxy.
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
-  (plumbing, owns no domain), twelve `modules/` (identity, people,
+  (plumbing, owns no domain), sixteen `modules/` (identity, people,
   deals, activities, approvals, agents, ai, search, capture, consent,
-  collections, and the `de` jurisdiction pack — no sibling imports),
+  privacy, collections, signals, customfields, quotas, and the `de`
+  jurisdiction pack — no sibling imports),
   `internal/compose` (the one composition seam), and four process-role
   binaries
   `cmd/{api,worker,migrate,mcp}`. The DAG is enforced three ways
@@ -272,16 +275,12 @@ per-client throttling at the proxy.
 ## Deliberately not here yet
 
 The approval edit-then-approve re-gating path (`edited_payload` answers
-422 until it re-enters the gate properly), disqualify/enrich/send tools
-(their underlying verbs first), the hosted A2 MCP server (OAuth2 + PKCE
-+ DCR + the JWS approval-token serialization — until then `/passports`
-is the A1 issuance path, decisions/0012), `run_report`/schema
-introspection on the SoR seam, capture connectors, search/context graph,
-the RLS row-scope backstop (B-EP03.3b), field-level masking (B-EP03.4),
-record grants (A52), consent enforcement, the Idempotency-Key replay
-store, event versioning/replay/dead-letter (B-EP04.12/.14/.15), and the
-River job runner (deferred, decisions/0005). The contract routes for all
-of these exist and answer 501.
+422 until it re-enters the gate properly), the disqualify/enrich/send
+tools (their underlying verbs first), `run_report`/schema introspection
+on the SoR seam, the RLS row-scope backstop (B-EP03.3b), field-level
+masking (B-EP03.4), record grants (A52), the Idempotency-Key replay
+store, and event versioning/replay/dead-letter (B-EP04.12/.14/.15). The
+contract routes for these exist and answer 501.
 
 ## Working conventions (where findings go)
 

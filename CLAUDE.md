@@ -130,7 +130,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `internal/shared/` — Tier-0 leaves, stdlib-only (test-enforced):
   `kernel/{ids,events,provenance,principal}`, `apperrors` (the fixed
   sentinel registry — extend only with the spec's interfaces.md §0), and
-  `ports/{datasource,mcp,connector,workflow,model,retrieval,jurisdiction}`
+  `ports/{authz,datasource,mcp,connector,workflow,model,retrieval,extraction,fieldcatalog,jurisdiction}`
   (the frozen seam interfaces + additive provider mechanics).
 - `internal/platform/` — technical plumbing, owns no domain:
   `database` (pg pool + the RLS `WithWorkspaceTx` GUC contract) +
@@ -139,7 +139,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — fourteen bounded capabilities, flat by default per
+- `internal/modules/` — sixteen bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
   growing subpackages only under the decisions/0018 policy; a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
@@ -163,7 +163,11 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   gated by `backend/tableownership_test.go`), `collections`
   (lists — static and dynamic segments — and tags, visibility-probed),
   `signals` (the consent-gated warm-room substrate: company-level
-  signals, the inspectable resolver, warm/cold join), and `de` (the
+  signals, the inspectable resolver, warm/cold join), `customfields`
+  (the governed add-field engine: the sole runtime `ALTER TABLE`
+  chokepoint; record stores read the `cf_*` columns via the
+  `fieldcatalog` seam), `quotas` (RD-T06 owner-XOR-team revenue
+  targets, human-set, workspace-shared config posture), and `de` (the
   German jurisdiction pack: GoBD retention floors, registered via
   `ports/jurisdiction`).
 
