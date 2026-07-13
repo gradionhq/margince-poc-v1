@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { buildColumns, DealsScreen } from "./deals";
+import { buildColumns, DealsScreen, mapDealUpdate } from "./deals";
 
 // B-EP09.11 acceptance: board renders per-column sub-lines from the fetched
 // set, mixed-currency columns refuse a sum, the board↔table control keeps
@@ -142,6 +142,31 @@ function stubBackend(deals: Deal[], onAdvance?: (body: unknown) => void) {
     return jsonResponse({ data: [], page: { next_cursor: null } });
   });
 }
+
+describe("mapDealUpdate", () => {
+  it("rebuilds amount_minor from major units and nulls blanks", () => {
+    const body = mapDealUpdate({
+      name: "Fleet retrofit",
+      amount: "2120",
+      currency: "EUR",
+      organization_id: "",
+      owner_id: "u-me",
+      partner_org_id: "",
+      forecast_category: "commit",
+      expected_close_date: "2026-09-01",
+      wait_until: "",
+    });
+    expect(body.name).toBe("Fleet retrofit");
+    expect(body.amount_minor).toBe(212_000);
+    expect(body.currency).toBe("EUR");
+    expect(body.organization_id).toBeNull();
+    expect(body.owner_id).toBe("u-me");
+    expect(body.partner_org_id).toBeNull();
+    expect(body.forecast_category).toBe("commit");
+    expect(body.expected_close_date).toBe("2026-09-01");
+    expect(body.wait_until).toBeNull();
+  });
+});
 
 describe("DealsScreen", () => {
   it("board↔table swaps views over the same fetched set without a reload", async () => {

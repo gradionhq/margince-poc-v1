@@ -21,7 +21,9 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate } from "./common";
+import type { CreateField } from "./create";
 import { CreateAction } from "./create";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
@@ -83,6 +85,119 @@ function toBoardDeal(deal: Deal): BoardDeal {
     ageMs: Math.max(0, Date.now() - new Date(since).getTime()),
     stalled: deal.stalled ?? false,
   };
+}
+
+type UpdateDealRequest = components["schemas"]["UpdateDealRequest"];
+
+function forecastCategory(v: string): UpdateDealRequest["forecast_category"] {
+  switch (v) {
+    case "commit":
+      return "commit";
+    case "best_case":
+      return "best_case";
+    case "pipeline":
+      return "pipeline";
+    case "omitted":
+      return "omitted";
+    default:
+      return null;
+  }
+}
+
+// A blank scalar clears the field on the wire (explicit null); a set value
+// trims through. `amount` arrives in major units from the form, the wire is
+// minor units (deal creation applies the same conversion above).
+export function mapDealUpdate(
+  values: Record<string, unknown>,
+): UpdateDealRequest {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const amount = str(values.amount);
+  const owner = str(values.owner_id);
+  const forecast = str(values.forecast_category);
+  return {
+    name: str(values.name) || undefined,
+    amount_minor: amount ? Math.round(Number(amount) * 100) : null,
+    currency: str(values.currency) || undefined,
+    organization_id: str(values.organization_id) || null,
+    owner_id: owner || null,
+    partner_org_id: str(values.partner_org_id) || null,
+    forecast_category: forecastCategory(forecast),
+    expected_close_date: str(values.expected_close_date) || null,
+    wait_until: str(values.wait_until) || null,
+  };
+}
+
+const FORECAST_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "commit", label: "deal.fcCommit" },
+  { value: "best_case", label: "deal.fcBestCase" },
+  { value: "pipeline", label: "deal.fcPipeline" },
+  { value: "omitted", label: "deal.fcOmitted" },
+];
+
+export function dealEditFields(
+  t: (k: MessageKey) => string,
+  opts: {
+    orgs: { id: string; display_name: string }[];
+    me: string;
+    currentOwner: string | null;
+    currency: string;
+  },
+): CreateField[] {
+  const currencies = ["EUR", "USD", "GBP", "CHF"];
+  if (opts.currency && !currencies.includes(opts.currency)) {
+    currencies.unshift(opts.currency);
+  }
+  const ownerOptions = [
+    ...(opts.currentOwner && opts.currentOwner !== opts.me
+      ? [{ value: opts.currentOwner, label: t("deal.ownerKeep") }]
+      : []),
+    { value: opts.me, label: t("deal.ownerMe") },
+    { value: "", label: t("deal.ownerUnassign") },
+  ];
+  const orgOptions = opts.orgs.map((o) => ({
+    value: o.id,
+    label: o.display_name,
+  }));
+  return [
+    { key: "name", label: "create.dealName", required: true },
+    { key: "amount", label: "create.amount", type: "number" },
+    {
+      key: "currency",
+      label: "create.currency",
+      type: "select",
+      required: true,
+      options: currencies.map((c) => ({ value: c, label: c })),
+    },
+    {
+      key: "owner_id",
+      label: "deal.ownerMe",
+      type: "select",
+      options: ownerOptions,
+    },
+    {
+      key: "organization_id",
+      label: "create.organization",
+      type: "select",
+      options: orgOptions,
+    },
+    {
+      key: "partner_org_id",
+      label: "deal.partnerOrg",
+      type: "select",
+      options: orgOptions,
+    },
+    {
+      key: "forecast_category",
+      label: "deal.forecastCategory",
+      type: "select",
+      options: FORECAST_OPTIONS.map((o) => ({
+        value: o.value,
+        label: t(o.label),
+      })),
+    },
+    { key: "expected_close_date", label: "create.expectedClose", type: "date" },
+    { key: "wait_until", label: "deal.waitUntil", type: "date" },
+  ];
 }
 
 export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
