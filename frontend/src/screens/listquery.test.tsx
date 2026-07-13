@@ -242,4 +242,34 @@ describe("ListToolbar", () => {
       expect.objectContaining({ filters: { status: "new" } }),
     );
   });
+
+  it("removes a cleared select filter's key instead of storing an empty string", async () => {
+    const setQuery = vi.fn();
+    render(
+      <ListToolbar
+        query={{ ...baseQuery(), filters: { status: "new" } }}
+        setQuery={setQuery}
+        sortOptions={sortOptions}
+        filters={[
+          {
+            kind: "select",
+            key: "status",
+            label: "people.name",
+            options: [
+              { value: "new", label: "list.sort" },
+              { value: "won", label: "list.search" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const statusSelect = screen.getByLabelText("Name") as HTMLSelectElement;
+    await userEvent.selectOptions(statusSelect, "");
+    expect(setQuery).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: {} }),
+    );
+    const lastCall = setQuery.mock.calls.at(-1)?.[0] as ListQuery;
+    expect(lastCall.filters).not.toHaveProperty("status");
+  });
 });

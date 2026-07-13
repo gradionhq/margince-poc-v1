@@ -7,9 +7,7 @@ import {
   Badge,
   Button,
   DataTable,
-  EmptyState,
   SectionHeader,
-  Skeleton,
 } from "../design-system/atoms";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -22,6 +20,7 @@ import {
 import { CreateAction, type CreateField } from "./create";
 import { EditAction } from "./edit";
 import {
+  ListGate,
   type ListPage,
   type ListQuery,
   ListToolbar,
@@ -159,21 +158,12 @@ async function createLead(values: Record<string, string>): Promise<Lead> {
 
 export function LeadsScreen() {
   const t = useT();
-  const {
-    rows,
-    query,
-    setQuery,
-    hasMore,
-    loadMore,
-    isPending,
-    isError,
-    error,
-    refetch,
-  } = useListQuery<Lead>({
+  const state = useListQuery<Lead>({
     key: "leads",
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
+  const { query, setQuery } = state;
 
   return (
     <div className="wrap lead-surface">
@@ -204,29 +194,8 @@ export function LeadsScreen() {
           },
         ]}
       />
-      {isPending && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Skeleton width="60%" />
-          <Skeleton width="90%" />
-          <Skeleton width="75%" />
-        </div>
-      )}
-      {!isPending && isError && (
-        <EmptyState>
-          <p>{t("common.error")}</p>
-          <p className="t-mono" style={{ marginTop: 6 }}>
-            {error instanceof Error ? error.message : null}
-          </p>
-          <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
-            {t("common.retry")}
-          </Button>
-        </EmptyState>
-      )}
-      {!isPending && !isError && rows.length === 0 && (
-        <EmptyState>{t("common.empty")}</EmptyState>
-      )}
-      {!isPending && !isError && rows.length > 0 && (
-        <>
+      <ListGate state={state} empty={t("common.empty")}>
+        {(rows) => (
           <DataTable
             columns={[
               {
@@ -265,13 +234,8 @@ export function LeadsScreen() {
             rowKey={(lead) => lead.id}
             onRowClick={(lead) => navigate({ screen: "leads", id: lead.id })}
           />
-          {hasMore && (
-            <Button small onClick={() => loadMore()} style={{ marginTop: 10 }}>
-              {t("list.loadMore")}
-            </Button>
-          )}
-        </>
-      )}
+        )}
+      </ListGate>
     </div>
   );
 }

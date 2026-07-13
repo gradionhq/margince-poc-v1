@@ -1,6 +1,17 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
-import { SearchField } from "../design-system/atoms";
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useEffect,
+  useState,
+} from "react";
+import {
+  Button,
+  EmptyState,
+  SearchField,
+  Skeleton,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
@@ -58,7 +69,9 @@ export function useListQuery<Row>({
     queryFn: ({ pageParam }) => fetchPage(query, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (last) =>
-      last.page.has_more ? last.page.next_cursor : undefined,
+      last.page.has_more && last.page.next_cursor
+        ? last.page.next_cursor
+        : undefined,
   });
   const rows = (infinite.data?.pages ?? []).flatMap((page) => page.data);
   return {
@@ -138,12 +151,15 @@ export function ListToolbar({
             className="input"
             aria-label={t(filter.label)}
             value={query.filters[filter.key] ?? ""}
-            onChange={(event) =>
-              setQuery({
-                ...query,
-                filters: { ...query.filters, [filter.key]: event.target.value },
-              })
-            }
+            onChange={(event) => {
+              const next = { ...query.filters };
+              if (event.target.value) {
+                next[filter.key] = event.target.value;
+              } else {
+                delete next[filter.key];
+              }
+              setQuery({ ...query, filters: next });
+            }}
           >
             <option value="" />
             {filter.options.map((option) => (
@@ -159,15 +175,85 @@ export function ListToolbar({
             className="input"
             aria-label={t(filter.label)}
             value={query.filters[filter.key] ?? ""}
-            onChange={(event) =>
-              setQuery({
-                ...query,
-                filters: { ...query.filters, [filter.key]: event.target.value },
-              })
-            }
+            onChange={(event) => {
+              const next = { ...query.filters };
+              if (event.target.value) {
+                next[filter.key] = event.target.value;
+              } else {
+                delete next[filter.key];
+              }
+              setQuery({ ...query, filters: next });
+            }}
           />
         ),
       )}
     </div>
+  );
+}
+
+export type ListGateState<Row> = Readonly<{
+  rows: Row[];
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  refetch: () => void;
+  hasMore: boolean;
+  loadMore: () => void;
+}>;
+
+// The shared list-state ladder every list screen renders identically:
+// skeletons while pending, an EmptyState+retry on error, an EmptyState when
+// the page is empty, otherwise the caller's rows plus a keyset "Load more".
+// Extracted so contacts/companies/leads (Tasks 1.6-1.8) stay in lockstep
+// instead of hand-rolling the same four branches three times.
+export function ListGate<Row>({
+  state,
+  empty,
+  children,
+}: Readonly<{
+  state: ListGateState<Row>;
+  empty: string;
+  children: (rows: Row[]) => ReactNode;
+}>): ReactNode {
+  const t = useT();
+  const { rows, isPending, isError, error, refetch, hasMore, loadMore } = state;
+
+  if (isPending) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Skeleton width="60%" />
+        <Skeleton width="90%" />
+        <Skeleton width="75%" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <EmptyState>
+        <p>{t("common.error")}</p>
+        <p className="t-mono" style={{ marginTop: 6 }}>
+          {error instanceof Error ? error.message : null}
+        </p>
+        <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
+          {t("common.retry")}
+        </Button>
+      </EmptyState>
+    );
+  }
+
+  if (rows.length === 0) {
+    return <EmptyState>{empty}</EmptyState>;
+  }
+
+  return (
+    <>
+      {children(rows)}
+      {hasMore && (
+        <Button small onClick={() => loadMore()} style={{ marginTop: 10 }}>
+          {t("list.loadMore")}
+        </Button>
+      )}
+    </>
   );
 }

@@ -7,9 +7,7 @@ import {
   Badge,
   Button,
   DataTable,
-  EmptyState,
   SectionHeader,
-  Skeleton,
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import {
@@ -30,6 +28,7 @@ import { CreateAction, type CreateField, type FormRows } from "./create";
 import { EditAction } from "./edit";
 import { confidenceLevel } from "./inbox";
 import {
+  ListGate,
   type ListPage,
   type ListQuery,
   ListToolbar,
@@ -184,21 +183,12 @@ async function createCompany(
 
 export function CompaniesScreen() {
   const t = useT();
-  const {
-    rows,
-    query,
-    setQuery,
-    hasMore,
-    loadMore,
-    isPending,
-    isError,
-    error,
-    refetch,
-  } = useListQuery<Organization>({
+  const state = useListQuery<Organization>({
     key: "organizations",
     initialSort: "-created_at",
     fetchPage: fetchOrganizationsPage,
   });
+  const { query, setQuery } = state;
 
   return (
     <div className="wrap">
@@ -221,29 +211,8 @@ export function CompaniesScreen() {
           { value: "-created_at", label: "list.sortNewest" },
         ]}
       />
-      {isPending && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Skeleton width="60%" />
-          <Skeleton width="90%" />
-          <Skeleton width="75%" />
-        </div>
-      )}
-      {!isPending && isError && (
-        <EmptyState>
-          <p>{t("common.error")}</p>
-          <p className="t-mono" style={{ marginTop: 6 }}>
-            {error instanceof Error ? error.message : null}
-          </p>
-          <Button small onClick={() => refetch()} style={{ marginTop: 10 }}>
-            {t("common.retry")}
-          </Button>
-        </EmptyState>
-      )}
-      {!isPending && !isError && rows.length === 0 && (
-        <EmptyState>{t("common.empty")}</EmptyState>
-      )}
-      {!isPending && !isError && rows.length > 0 && (
-        <>
+      <ListGate state={state} empty={t("common.empty")}>
+        {(rows) => (
           <DataTable
             columns={[
               {
@@ -283,13 +252,8 @@ export function CompaniesScreen() {
             rowKey={(org) => org.id}
             onRowClick={(org) => navigate({ screen: "companies", id: org.id })}
           />
-          {hasMore && (
-            <Button small onClick={() => loadMore()} style={{ marginTop: 10 }}>
-              {t("list.loadMore")}
-            </Button>
-          )}
-        </>
-      )}
+        )}
+      </ListGate>
     </div>
   );
 }
