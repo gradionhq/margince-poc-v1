@@ -39,6 +39,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
+import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
 
@@ -216,14 +217,19 @@ export function CompaniesScreen() {
     <div className="wrap">
       <div className="list-head">
         <SectionHeader title={t("nav.companies")} />
-        <CreateAction
-          label={t("create.company")}
-          invalidate="organizations"
-          screen="companies"
-          create={createCompany}
-          resolveExisting={(_code, id) => ({ screen: "companies", id })}
-          fields={companyCreateFields}
-        />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button small onClick={() => navigate({ screen: "partners" })}>
+            {t("nav.partners")}
+          </Button>
+          <CreateAction
+            label={t("create.company")}
+            invalidate="organizations"
+            screen="companies"
+            create={createCompany}
+            resolveExisting={(_code, id) => ({ screen: "companies", id })}
+            fields={companyCreateFields}
+          />
+        </div>
       </div>
       <ListToolbar
         query={query}
@@ -376,7 +382,7 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
-const COMPANY_TABS = ["overview", "relationships"] as const;
+const COMPANY_TABS = ["overview", "relationships", "partner"] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
@@ -519,10 +525,11 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                 labels={{
                   overview: t("tab.overview"),
                   relationships: t("tab.relationships"),
+                  partner: t("tab.partner"),
                 }}
               />
             </div>
-            {tab === "overview" ? (
+            {tab === "overview" && (
               <>
                 <section className="card" style={{ marginBottom: 16 }}>
                   <SectionHeader
@@ -557,9 +564,11 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                 <EnrichCard orgId={org.id} />
                 <LogActivity entityType="organization" entityId={org.id} />
               </>
-            ) : (
+            )}
+            {tab === "relationships" && (
               <RelationshipsTab scope={{ organization_id: org.id }} />
             )}
+            {tab === "partner" && <PartnerTab organizationId={org.id} />}
           </RecordView>
         )}
       </QueryGate>

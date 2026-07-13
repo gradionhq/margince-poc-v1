@@ -21,6 +21,7 @@ import { InboxScreen } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { OnboardingScreen } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
+import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen, PersonScreen } from "./screens/people";
 import { ReportsScreen } from "./screens/reports";
 import { SettingsScreen } from "./screens/settings";
@@ -46,6 +47,8 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
       return id ? <PersonScreen id={id} /> : <ContactsScreen />;
     case "companies":
       return id ? <CompanyScreen id={id} /> : <CompaniesScreen />;
+    case "partners":
+      return <PartnersScreen />;
     case "leads":
       return id ? <LeadScreen id={id} /> : <LeadsScreen />;
     case "deals":
