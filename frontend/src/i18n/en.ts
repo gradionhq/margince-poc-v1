@@ -263,6 +263,19 @@ export const en = {
   "deal.offerRevision": "Rev.",
   "deal.offersEmpty": "No offers yet",
 
+  "offer.revision": "Revision {revision}",
+  "offer.backToDeal": "Back to deal",
+  "offer.totals": "Totals",
+  "offer.net": "Net",
+  "offer.tax": "Tax",
+  "offer.gross": "Gross",
+  "offer.edit": "Edit header",
+  "offer.buyerOrg": "Buyer organization",
+  "offer.template": "Template",
+  "offer.validUntil": "Valid until",
+  "offer.introText": "Intro text",
+  "offer.termsText": "Terms text",
+
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",
   "inbox.expires": "expires {at}",

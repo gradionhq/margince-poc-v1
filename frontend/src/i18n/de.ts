@@ -269,6 +269,19 @@ export const de = {
   "deal.offerRevision": "Rev.",
   "deal.offersEmpty": "Noch keine Angebote",
 
+  "offer.revision": "Revision {revision}",
+  "offer.backToDeal": "Zurück zum Deal",
+  "offer.totals": "Summen",
+  "offer.net": "Netto",
+  "offer.tax": "Steuer",
+  "offer.gross": "Brutto",
+  "offer.edit": "Kopfdaten bearbeiten",
+  "offer.buyerOrg": "Käufer-Organisation",
+  "offer.template": "Vorlage",
+  "offer.validUntil": "Gültig bis",
+  "offer.introText": "Einleitungstext",
+  "offer.termsText": "Bedingungen",
+
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",
   "inbox.expires": "läuft ab {at}",
