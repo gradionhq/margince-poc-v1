@@ -1111,6 +1111,66 @@ function DealApprovals({
   );
 }
 
+function OffersPanel({
+  offers,
+  creating,
+  locale,
+  onCreate,
+}: Readonly<{
+  offers: Offer[] | undefined;
+  creating: boolean;
+  locale: Locale;
+  onCreate: () => void;
+}>) {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="list-head">
+        <SectionHeader title={t("deal.offers")} />
+        <Button small disabled={creating} onClick={onCreate}>
+          {t("deal.newOffer")}
+        </Button>
+      </div>
+      {offers &&
+        (offers.length > 0 ? (
+          <DataTable
+            columns={[
+              {
+                key: "offer_number",
+                header: t("deal.offerNumber"),
+                render: (offer: Offer) => offer.offer_number,
+              },
+              {
+                key: "revision",
+                header: t("deal.offerRevision"),
+                render: (offer: Offer) => String(offer.revision),
+              },
+              {
+                key: "status",
+                header: t("lead.status"),
+                render: (offer: Offer) => <Badge>{offer.status}</Badge>,
+              },
+              {
+                key: "gross",
+                header: t("deals.amount"),
+                render: (offer: Offer) => (
+                  <span className="t-mono">
+                    {formatMoney(offer.gross_minor, offer.currency, locale)}
+                  </span>
+                ),
+              },
+            ]}
+            rows={offers}
+            rowKey={(offer) => offer.id}
+            onRowClick={(offer) => navigate({ screen: "offers", id: offer.id })}
+          />
+        ) : (
+          <EmptyState>{t("deal.offersEmpty")}</EmptyState>
+        ))}
+    </section>
+  );
+}
+
 export function DealScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1304,62 +1364,12 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     </div>
                   </section>
                 )}
-              <section className="card" style={{ marginBottom: 16 }}>
-                <div className="list-head">
-                  <SectionHeader title={t("deal.offers")} />
-                  <Button
-                    small
-                    disabled={createOffer.isPending}
-                    onClick={() => createOffer.mutate(deal.currency ?? "EUR")}
-                  >
-                    {t("deal.newOffer")}
-                  </Button>
-                </div>
-                {offersQuery.isSuccess &&
-                  (offersQuery.data.data.length > 0 ? (
-                    <DataTable
-                      columns={[
-                        {
-                          key: "offer_number",
-                          header: t("deal.offerNumber"),
-                          render: (offer: Offer) => offer.offer_number,
-                        },
-                        {
-                          key: "revision",
-                          header: t("deal.offerRevision"),
-                          render: (offer: Offer) => String(offer.revision),
-                        },
-                        {
-                          key: "status",
-                          header: t("lead.status"),
-                          render: (offer: Offer) => (
-                            <Badge>{offer.status}</Badge>
-                          ),
-                        },
-                        {
-                          key: "gross",
-                          header: t("deals.amount"),
-                          render: (offer: Offer) => (
-                            <span className="t-mono">
-                              {formatMoney(
-                                offer.gross_minor,
-                                offer.currency,
-                                locale,
-                              )}
-                            </span>
-                          ),
-                        },
-                      ]}
-                      rows={offersQuery.data.data}
-                      rowKey={(offer) => offer.id}
-                      onRowClick={(offer) =>
-                        navigate({ screen: "offers", id: offer.id })
-                      }
-                    />
-                  ) : (
-                    <EmptyState>{t("deal.offersEmpty")}</EmptyState>
-                  ))}
-              </section>
+              <OffersPanel
+                offers={offersQuery.data?.data}
+                creating={createOffer.isPending}
+                locale={locale}
+                onCreate={() => createOffer.mutate(deal.currency ?? "EUR")}
+              />
               <LogActivity entityType="deal" entityId={deal.id} />
             </RecordView>
           );
