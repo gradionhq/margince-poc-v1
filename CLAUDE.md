@@ -9,34 +9,33 @@ repo (see below); this code is built **from** that spec, contract-first.
 
 ## Where the spec is (read before building)
 
-The normative spec is the sibling repo, at **`../margince/specs/`**
-(absolute: `/Users/lars/develop/margince/specs/`; renamed from
-`margince specs/` — no space — on 2026-07-04).
+The normative spec is a separate sibling repo; its key trees (paths
+relative to the spec repo root):
 
-- **`../margince/specs/spec/README.md`** — live status + reading order; the
+- **`spec/README.md`** — live status + reading order; the
   "Continue here" block is the canonical spec-side pickup point.
-- **`../margince/specs/spec/contract/`** — implementation source-of-truth:
+- **`spec/contract/`** — implementation source-of-truth:
   `crm.yaml` (OpenAPI 3.1), `data-model.md`, `events.md`, `interfaces.md` (incl. the
   §0 error-sentinel registry), `ai-operational-spec.md`, `formulas-and-rules.md`.
-- **`../margince/specs/spec/architecture/`** — the build blueprint (`00`–`13`);
+- **`spec/architecture/`** — the build blueprint (`00`–`13`);
   `11-conventions.md` is the style guide.
-- **`../margince/specs/spec/product/build-backlog/`** — the 701-leaf V1 ticket
+- **`spec/product/build-backlog/`** — the 701-leaf V1 ticket
   breakdown this repo is working through.
-- **`../margince/specs/spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
+- **`spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
   **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
-  cmd shape + §9 single-tx exception; full record in
-  decisions/0011).
+  four `cmd/<role>` binaries + the §9 single-tx exception).
 
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.
 The spec is under active cleanup by another session: some docs still show the old
-`crm-*` layout. Don't edit the spec from here — jot discrepancies as local
-notes in `feedback/` (git-ignored, not committed).
+`crm-*` layout. Don't edit the spec from here — raise discrepancies for
+upstream reconciliation.
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the session-pickup
 point; update it at the end of every working session. Route findings as you work:
-implementation decisions → decisions/; spec/ticket defects → a local note
-in `feedback/` (git-ignored session scratch — see [feedback/README.md](feedback/README.md)).
+implementation decisions are recorded in the commit and PR that makes the change
+(git history is the record); spec/ticket defects are reconciled upstream against
+the spec (contract-first, P3), never worked around in this source.
 
 ## Build / test / seed
 
@@ -70,7 +69,7 @@ pipeline that runs these gates as required checks — the change classifier, the
 job graph, and the SonarCloud coverage flow — is documented in
 [infra/ci-pipeline.md](infra/ci-pipeline.md).
 
-Four process-role binaries (decisions/0011), all wired through
+Four process-role binaries, all wired through
 `internal/compose`: `cmd/api` (HTTP; inline outbox relay behind
 `--inline-relay`, default true), `cmd/worker` (standalone relay),
 `cmd/migrate` (up|down), `cmd/mcp` (the A1 stdio server).
@@ -122,7 +121,7 @@ other path to merge.
    `gh pr merge <n> --squash`), then delete the branch. Never merge over
    a red or still-running check.
 
-## Layout (spec ADR-0054/A69 as amended; see decisions/0011)
+## Layout (spec ADR-0054/A69 as amended: four `cmd/<role>` binaries + the §9 single-tx exception)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is
 `shared → platform → modules → compose → cmd`, enforced three ways
@@ -142,15 +141,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
 - `internal/modules/` — sixteen bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
-  growing subpackages only under the decisions/0018 policy; a module NEVER
+  growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
-  RBAC policy docs ONLY in `identity/internal/policy`, decisions/0006),
+  RBAC policy docs ONLY in `identity/internal/policy`),
   `people` (person, organization, lead + merge + promote —
-  cross-aggregate single-tx SQL ownership per decisions/0011), `deals`
+  cross-aggregate single-tx SQL ownership per the §9 single-tx exception), `deals`
   (deal, pipeline/stage config, workspace seed, won/lost + FX freeze),
   `activities` (the timeline: idempotent logging + polymorphic links),
   `approvals` (the 🟡 confirm-first engine, ADR-0036: staged rows ARE
-  the authority object, decisions/0008), `agents` (the governed tool
+  the authority object), `agents` (the governed tool
   surface: registry, admission gate, stdio/hosted transports, the
   Surface-B loop — reaches records only through the datasource seam),
   `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
@@ -185,7 +184,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `compose/integration`, with the shared harness). Every cross-module
   edge is injected HERE (identity's workspace seed ← deals; agents'
   staging ← approvals). Cross-module ORCHESTRATION groups live in
-  subpackages under the decisions/0018 growth policy (`compose/briefs`
+  subpackages under the same named-trigger growth policy (`compose/briefs`
   is the pilot); a compose subpackage never durably owns a business
   entity.
 - `internal/contracts/` — GENERATED from `backend/api/crm.yaml`. Never edit.
@@ -198,7 +197,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   gen-stubs, gen-agentpolicy); its own Go module so the generators'
   dependencies stay out of the product module's go.mod.
 - `frontend/` — an in-flight Vite/React workspace tracked by a parallel
-  session (decisions/0014); `make frontend-check` / `make dev`
+  session; `make frontend-check` / `make dev`
   exist at the repo root.
 
 ## DO NOT TOUCH

@@ -74,7 +74,8 @@ they are noise.
 ## Where things go
 
 - Implementation decisions — anything the specification left open that
-  the code had to decide — get a numbered record in `decisions/`.
+  the code had to decide — are explained in the commit message and PR
+  description that makes the change; git history is the record.
 - Session state and pickup points live in [STATUS.md](STATUS.md);
   start there, and read [AGENTS.md](AGENTS.md) for the binding
   engineering rules.

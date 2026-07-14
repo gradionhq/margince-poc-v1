@@ -43,7 +43,9 @@ Follow this checklist — several obligations are enforced by fitness tests, so 
    `NNNN_<name>.down.sql`. Both halves are mandatory (the runner rejects a missing `.down.sql`).
    **Never edit a shipped core migration** — additive migrations only; extend a `CHECK` vocabulary
    with a new migration rather than rewriting the old one. (The runner is
-   [decisions/0002](../../decisions/0002-hand-rolled-migration-runner.md).)
+   hand-rolled — one transaction per migration under a cluster-wide advisory
+   lock — because the core/custom/jurisdiction ownership namespaces don't fit
+   an off-the-shelf one-dir-one-table migrator.)
 2. **Tenant tables** carry `workspace_id uuid NOT NULL REFERENCES workspace(id)` with `ENABLE`+`FORCE`
    row-level security + an isolation policy, and composite same-workspace foreign keys — the RLS
    coverage integration test derives these from the live schema and fails any table that misses them.

@@ -13355,6 +13355,9 @@ type ServerInterface interface {
 	// Update a draft offer's line item (totals recomputed; totals themselves are not settable).
 	// (PATCH /offers/{id}/line-items/{lineItemId})
 	UpdateOfferLineItem(w http.ResponseWriter, r *http.Request, id Id, lineItemId openapi_types.UUID)
+	// Download the offer's most recently rendered PDF.
+	// (GET /offers/{id}/pdf)
+	DownloadOfferPdf(w http.ResponseWriter, r *http.Request, id Id)
 	// Mint the next revision as a fresh draft — mechanically, or AI-drafted from captured signal.
 	// (POST /offers/{id}/regenerate)
 	RegenerateOffer(w http.ResponseWriter, r *http.Request, id Id, params RegenerateOfferParams)
@@ -14138,6 +14141,12 @@ func (_ Unimplemented) RemoveOfferLineItem(w http.ResponseWriter, r *http.Reques
 // Update a draft offer's line item (totals recomputed; totals themselves are not settable).
 // (PATCH /offers/{id}/line-items/{lineItemId})
 func (_ Unimplemented) UpdateOfferLineItem(w http.ResponseWriter, r *http.Request, id Id, lineItemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Download the offer's most recently rendered PDF.
+// (GET /offers/{id}/pdf)
+func (_ Unimplemented) DownloadOfferPdf(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -19115,6 +19124,38 @@ func (siw *ServerInterfaceWrapper) UpdateOfferLineItem(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadOfferPdf operation middleware
+func (siw *ServerInterfaceWrapper) DownloadOfferPdf(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadOfferPdf(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RegenerateOffer operation middleware
 func (siw *ServerInterfaceWrapper) RegenerateOffer(w http.ResponseWriter, r *http.Request) {
 
@@ -24077,6 +24118,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/offers/{id}/line-items/{lineItemId}", wrapper.UpdateOfferLineItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/offers/{id}/pdf", wrapper.DownloadOfferPdf)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/offers/{id}/regenerate", wrapper.RegenerateOffer)

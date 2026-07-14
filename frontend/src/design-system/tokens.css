@@ -113,4 +113,5 @@
   --success: #4ade80;
   --warn: #fbbf24;
   --danger: #f87171;
+  --dangerBg: rgba(248, 113, 113, 0.16);
 }

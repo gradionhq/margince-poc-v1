@@ -9,7 +9,7 @@ package quotas
 // Always computed live — a zero target or a missing FX rate is an honest
 // typed refusal, never a cached, capped, or invented number (RD-AC-4).
 // The deal/team_membership/workspace/fx_rate SELECTs here are the
-// ratified module-local read posture (decisions/0011/0015): reads are
+// ratified module-local read posture: reads are
 // not ownership-gated, and RLS scopes every one to the caller's tenant.
 
 import (

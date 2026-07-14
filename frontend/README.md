@@ -3,7 +3,7 @@
 React 19 + Vite + TypeScript (strict) + Tailwind 4 + Biome + Vitest +
 Playwright, per spec ADR-0001/ADR-0054. Margince's **own** design system —
 no gw-ui/Dispact reuse (founder decision 2026-07-05; the design source of
-truth is the foundation at `../../margince/specs/design/design-system/`).
+truth is the foundation's design-system spec).
 
 ## Commands
 
@@ -63,6 +63,6 @@ the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
   offsets, no calendar diffs.
 - Staged / real / human-typed are three distinguishable styles, always.
   Confidence is never hidden. Absent data is omitted, never guessed.
-- Packaging (decisions/0014): the app ships by copying `dist/` under
+- Packaging: the app ships by copying `dist/` under
   `backend/web/` for the existing `go:embed` once it reaches parity with
   the handwritten prototype; until then the prototype serves `/`.

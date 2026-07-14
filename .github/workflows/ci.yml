@@ -219,8 +219,8 @@ jobs:
         run: psql "postgres://margince_owner:dev@localhost:55432/margince" -v ON_ERROR_STOP=1 -f ../scripts/db-init.sql
       # MinIO backs the blobstore integration lane. It cannot be a GH service
       # (the minio image needs a `server /data` command, which services can't
-      # set), so it runs here; the digest matches the compose stack's pin
-      # (decisions/0022). The store creates its bucket and tolerates a
+      # set), so it runs here; the digest matches the compose stack's pin.
+      # The store creates its bucket and tolerates a
       # still-starting backend, so no explicit wait is needed.
       - name: Start MinIO (blobstore)
         run: |

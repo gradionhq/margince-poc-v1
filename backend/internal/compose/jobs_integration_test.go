@@ -5,7 +5,7 @@
 
 package compose
 
-// The behaviour-preserving proof for the River swap (decisions/0021): the
+// The behaviour-preserving proof for the River swap: the
 // close-date sweep reached through a River periodic job stages the IDENTICAL
 // provisional correction the direct Sweep test asserts
 // (TestCloseDateSweepStagesProvisionalForForecastBearingDeal). The domain

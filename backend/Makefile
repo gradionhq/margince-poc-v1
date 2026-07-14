@@ -11,8 +11,8 @@ export MARGINCE_TEST_DSN     ?= $(OWNER_DSN)
 export MARGINCE_TEST_APP_DSN ?= $(APP_DSN)
 export MARGINCE_TEST_REDIS   ?= localhost:$(REDIS_PORT)
 # Blobstore (MinIO) — the integration lane fails loudly without it, never
-# skips, so the endpoint/creds/bucket are part of the compose + CI contract
-# (decisions/0022). The bucket is created by the store at first connect.
+# skips, so the endpoint/creds/bucket are part of the compose + CI contract.
+# The bucket is created by the store at first connect.
 MINIO_PORT   ?= 59000
 export MARGINCE_TEST_BLOBSTORE_ENDPOINT   ?= localhost:$(MINIO_PORT)
 export MARGINCE_TEST_BLOBSTORE_ACCESS_KEY ?= minioadmin
@@ -75,11 +75,11 @@ test-integration-serial: ## Escape hatch: the old sequential lane, all packages 
 bench-perf: ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
 	MARGINCE_BENCH_TIER=mid_market $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose/integration
 
-# Two passes, two scopes (decisions/0020): .golangci.yml is the repo-wide
+# Two passes, two scopes: .golangci.yml is the repo-wide
 # baseline (the depguard DAG lives there and must never be diff-scoped);
 # .golangci.strict.yml is the expanded skeleton-parity set, gated to new
 # code via new-from-merge-base so the pre-existing backlog is not a burn-down.
-lint: ## golangci-lint: repo-wide baseline + new-code strict set (decisions/0020)
+lint: ## golangci-lint: repo-wide baseline + new-code strict set
 	golangci-lint run ./...
 	@if git rev-parse --verify -q origin/main >/dev/null; then \
 		golangci-lint run --config .golangci.strict.yml ./...; \

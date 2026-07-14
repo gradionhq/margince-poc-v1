@@ -3,7 +3,7 @@
 
 package customfields
 
-// The engine-module service (Handlers→Service shape, decisions/0024):
+// The engine-module service (Handlers→Service shape):
 // this file owns the Service seam, the typed refusals, and the one
 // catalog-row scan every operation shares. Tables owned: custom_field.
 
@@ -24,7 +24,7 @@ import (
 )
 
 // rbacObject is the custom_field RBAC object every service entry point
-// gates on (decisions/0006 posture: admin/ops full CRUD, everyone else
+// gates on (posture: admin/ops full CRUD, everyone else
 // read — the pipeline-config precedent, because a field definition
 // reshapes what the system stores for everyone's records).
 const rbacObject = "custom_field"
@@ -40,7 +40,7 @@ const (
 // aggregate. It rides two pools with deliberately different authority:
 // pool is the RLS-bound app pool (margince_app) every catalog-only
 // operation uses, and schemaPool is the owner-privileged schema-change
-// pool (decisions/0024) that ONLY the two DDL paths (Create, SetOptions)
+// pool that ONLY the two DDL paths (Create, SetOptions)
 // touch — nil when the operator has not mounted the second credential,
 // in which case those two paths refuse with ErrSchemaChangesUnavailable.
 type Service struct {
@@ -49,7 +49,7 @@ type Service struct {
 }
 
 // NewService wires the engine. schemaPool MAY be nil: the schema-change
-// seam is boot-optional (decisions/0024 "unwired by default"), exactly
+// seam is boot-optional (unwired by default), exactly
 // like the blobstore and keyvault seams.
 func NewService(pool, schemaPool *pgxpool.Pool) *Service {
 	return &Service{pool: pool, schemaPool: schemaPool}
@@ -98,8 +98,7 @@ type ValidationError struct{ Errors []FieldError }
 
 func (e *ValidationError) Error() string { return "customfields: validation failed" }
 
-// ColumnTakenError is the cross-workspace column-namespace collision
-// (decisions/0024 "Resolution — global column-namespace collision"):
+// ColumnTakenError is the cross-workspace column-namespace collision:
 // the physical column namespace on a shared core table is global, so a
 // slug another workspace already claimed cannot be added here. It reads
 // as a 409 conflict; the message is the actionable remedy.
@@ -119,7 +118,7 @@ const catalogColumns = `id, workspace_id, object, slug, label, type, status, arc
 	column_name, currency, options, created_by, created_at, updated_at, version`
 
 // scanCustomField scans one catalogColumns row into the contract shape
-// (contract types as transport DTOs, decisions/0003).
+// (contract types as transport DTOs).
 func scanCustomField(row pgx.Row) (crmcontracts.CustomField, error) {
 	var (
 		out                          crmcontracts.CustomField

@@ -4,8 +4,8 @@
 package approvals
 
 // The ADR-0036 §1 approval-token serialization: when issuer and
-// verifier share one binary the approval ROW is the authority object
-// (decisions/0008); when they separate, the same claims travel as a
+// verifier share one binary the approval ROW is the authority object;
+// when they separate, the same claims travel as a
 // compact JWS signed with the workspace's Ed25519 key. The token adds
 // no authority the row does not have — redemption still re-checks the
 // row (single-use, diff hash, target version) — it only lets a remote

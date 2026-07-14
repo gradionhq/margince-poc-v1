@@ -44,4 +44,13 @@ numbers appear here when releases start.
   architecture/schema/license fitness tests, contract drift-lint, and a
   real-Postgres integration lane covering the security invariants.
 
+### Changed
+
+- **AI model routing is now per-engineer**: the working dev config moved
+  from a committed `backend/ai-routing.yaml` to a gitignored
+  `config/ai-routing.yaml`, seeded from `config/ai-routing.example.yaml`
+  by `make install` / `make dev`. Engineers bind their own local models
+  without touching a committed file; the annotated template stays the
+  parse-guarded source of truth.
+
 [Unreleased]: https://github.com/gradionhq/margince

@@ -115,7 +115,7 @@ func Setup(t *testing.T) *Env {
 }
 
 // SchemaPool opens the owner-privileged schema-change pool the
-// customfields engine's DDL transaction rides (decisions/0024) — the
+// customfields engine's DDL transaction rides — the
 // integration stand-in for a mounted MARGINCE_SCHEMA_DSN, built from the
 // same owner DSN the migration step uses.
 func SchemaPool(t *testing.T) *pgxpool.Pool {
@@ -152,7 +152,7 @@ func OwnerConn(t *testing.T) *pgx.Conn {
 	return conn
 }
 
-// permissions fixtures mirror the decisions/0006 matrix rows the suites
+// permissions fixtures mirror the RBAC matrix rows the suites
 // exercise; the seeded JSONB↔these shapes is identity's policy tests.
 var (
 	RepPerms = principal.Permissions{

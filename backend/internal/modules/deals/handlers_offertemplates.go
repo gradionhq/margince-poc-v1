@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -191,4 +192,49 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 		}
 	}
 	httperr.WriteJSON(w, http.StatusOK, updated)
+}
+
+// DownloadOfferPdf streams the bytes renderOffer last wrote at
+// pdf_asset_ref. GetOffer already carries the row-scope/RBAC gate, so a
+// nil pdf_asset_ref (never rendered) and an invisible offer both fall
+// through to the same apperrors.ErrNotFound — neither leaks which case
+// applies (mirrors DownloadAttachment's existence-hiding posture).
+func (h Handlers) DownloadOfferPdf(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	offer, err := h.store.GetOffer(r.Context(), pathID[ids.OfferKind](id), storekit.IncludeArchived)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	if offer.PdfAssetRef == nil {
+		writeStoreErr(w, r, apperrors.ErrNotFound)
+		return
+	}
+	if h.blob == nil {
+		httperr.NotImplemented(w, r, "DownloadOfferPdf")
+		return
+	}
+	rc, obj, err := h.blob.Get(r.Context(), *offer.PdfAssetRef)
+	if err != nil {
+		if errors.Is(err, blobstore.ErrNotFound) {
+			writeStoreErr(w, r, apperrors.ErrNotFound)
+			return
+		}
+		httperr.Write(w, r, err)
+		return
+	}
+	contentType := "application/pdf"
+	if obj.ContentType != "" {
+		contentType = obj.ContentType
+	}
+	filename := id.String() + ".pdf"
+	if offer.OfferNumber != nil && *offer.OfferNumber != "" {
+		filename = *offer.OfferNumber + ".pdf"
+	}
+	httperr.StreamObject(w, r, httperr.StreamedObject{
+		Body:        rc,
+		ContentType: contentType,
+		Filename:    filename,
+		Inline:      true,
+		Size:        obj.Size,
+	}, "offer pdf "+id.String())
 }

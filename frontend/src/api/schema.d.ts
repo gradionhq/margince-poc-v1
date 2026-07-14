@@ -112,7 +112,7 @@ export interface paths {
          *     returned ONCE and never stored. Human-only: an agent minting (or widening) a Passport would
          *     be self-granted authority. This is the local/A1 issuance path; the hosted A2 surface
          *     replaces it with the spec's full OAuth2 + PKCE + DCR Authorization-Server flow
-         *     (decisions/0012 records the deliberate contract lag).
+         *     (a deliberate lag: this contract does not yet carry those hosted-A2 paths).
          */
         post: operations["issuePassport"];
         delete?: never;
@@ -2347,6 +2347,32 @@ export interface paths {
          *     the 🟡 gated step that leaves the workspace — so render stays 🟢.
          */
         post: operations["renderOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/offers/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Download the offer's most recently rendered PDF.
+         * @description Streams the bytes `pdf_asset_ref` points at (set by `renderOffer`). 404 both when the
+         *     offer has never been rendered (`pdf_asset_ref` is null) and on the usual row-scope
+         *     miss — neither leaks which case applies. 501 mirrors `renderOffer`'s own posture when
+         *     the deployment has no blobstore wired.
+         */
+        get: operations["downloadOfferPdf"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11809,6 +11835,39 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
             /** @description The object store (blobstore) is not wired on this deployment — the same unwired-by-omission posture as the attachments seam. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    downloadOfferPdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The PDF bytes; Content-Disposition names the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The object store (blobstore) is not wired on this deployment — the same unwired-by-omission posture as renderOffer. */
             501: {
                 headers: {
                     [name: string]: unknown;

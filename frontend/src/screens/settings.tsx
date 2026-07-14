@@ -44,6 +44,8 @@ export function SettingsScreen() {
       <SectionHeader title={t("nav.settings")} />
       <IdentityCard />
       <WorkspaceCard />
+      <ProductsLinkCard />
+      <OfferTemplatesLinkCard />
       <PassportCard />
       <AutonomyCard />
       <AutomationsLinkCard />
@@ -665,6 +667,32 @@ export function PipelinesCard() {
           </>
         )}
       </QueryGate>
+    </section>
+  );
+}
+
+function ProductsLinkCard() {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("product.title")}
+        sub={t("product.settingsSub")}
+      />
+      <a href="#/products">{t("product.open")}</a>
+    </section>
+  );
+}
+
+function OfferTemplatesLinkCard() {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("template.title")}
+        sub={t("template.settingsSub")}
+      />
+      <a href="#/offer-templates">{t("template.open")}</a>
     </section>
   );
 }

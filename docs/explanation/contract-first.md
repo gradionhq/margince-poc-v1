@@ -1,7 +1,7 @@
 # Contract-first
 
 This repository is built **from** a specification that lives in a
-sibling repo (`../margince/specs/`). Principle P3 is binding: when this
+separate sibling repo. Principle P3 is binding: when this
 code and the spec disagree, the spec wins. The same posture applies one
 level down, between the code and its own API contract.
 

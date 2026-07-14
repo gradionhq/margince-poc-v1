@@ -283,7 +283,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
   });
 
   it("a role without the automation config grant gets the honest read-only editor", async () => {
-    // manager/rep hold read-only automation grants (decisions/0006): the
+    // manager/rep hold read-only automation grants: the
     // screen still shows catalog + instances, but no affordance that could
     // only 403 — and it says WHY instead of silently thinning out.
     const automations = [instance({})];

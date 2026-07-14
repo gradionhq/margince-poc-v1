@@ -360,6 +360,10 @@ func (stubs) UpdateOfferLineItem(w nethttp.ResponseWriter, r *nethttp.Request, i
 	httperr.NotImplemented(w, r, "UpdateOfferLineItem")
 }
 
+func (stubs) DownloadOfferPdf(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DownloadOfferPdf")
+}
+
 func (stubs) RegenerateOffer(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RegenerateOfferParams) {
 	httperr.NotImplemented(w, r, "RegenerateOffer")
 }

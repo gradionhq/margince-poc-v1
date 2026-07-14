@@ -7,7 +7,7 @@
 //
 // Tables owned: workspace, app_user, team, team_membership, session,
 // passport, role, role_assignment. Role policy documents live ONLY in
-// internal/policy (decisions/0006). Imports shared + platform + the
+// internal/policy. Imports shared + platform + the
 // generated contract only; never a sibling module — the workspace
 // bootstrap's default-pipeline seed is injected at the composition root.
 package identity

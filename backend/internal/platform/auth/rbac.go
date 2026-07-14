@@ -136,7 +136,7 @@ func VisiblePredicate(p principal.Principal, table string, arg func(any) int) fu
 // returns its 1-based position, matching the list builders' convention.
 // An empty clause means unbounded (row_scope=all, or the system actor).
 // Ownerless rows (owner_id IS NULL) are workspace-shared and visible at
-// every tier (decisions/0006).
+// every tier.
 func ScopeClause(ctx context.Context, arg func(any) int) (string, error) {
 	p, err := rbacActor(ctx)
 	if err != nil {
@@ -278,8 +278,8 @@ func AuthzRule(p principal.Principal, entityType string, auditAction string) str
 // activities have no owner, but their free-text inherits the
 // sensitivity of the records they attach to. An activity is visible when
 // ANY linked person/organization/deal is visible under the caller's row
-// scope, or when it has no links at all (a workspace-shared note —
-// decisions/0006). It lives here, not in a module: it is the one scope
+// scope, or when it has no links at all (a workspace-shared note).
+// It lives here, not in a module: it is the one scope
 // rule that spans person, organization, deal and activity_link rows, and
 // both the activities timeline and people's promotion-evidence check
 // enforce it — scope policy has exactly one spelling (ADR-0054 §8).
@@ -310,7 +310,7 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 // sensitivity of the record it is ABOUT, so a signal is visible when its
 // subject entity (entity_type/entity_id) is visible under the caller's
 // row scope. A subject-less signal (a raw item still awaiting resolution)
-// is workspace-shared, like an unlinked note (decisions/0006). It lives
+// is workspace-shared, like an unlinked note. It lives
 // here, not in the signals module, because the signals store's reads and
 // the approvals surface's staged-archive visibility probe both enforce it
 // — scope policy has exactly one spelling (ADR-0054 §8). alias names the

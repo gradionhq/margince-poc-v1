@@ -5,7 +5,8 @@
 > implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 >
 > **Sequenced AFTER the blobstore seam** (docs/worklists/blobstore-seam-2026-07-10.md)
-> — see decisions/0023 for why the two are separate PRs.
+> — kept a separate PR because keyvault is entangled with the EP05 §B
+> connection reshape, a risk the blobstore seam does not carry.
 
 **Goal:** Introduce `platform/keyvault` — secret storage behind an opaque,
 workspace-scoped `credential_ref` (config/local-backed provider + in-memory
@@ -22,8 +23,6 @@ row stays the system of record and tenant anchor; the vault owns only the
 secret bytes, addressed by an opaque ref. The `connector` port
 (`shared/ports/connector`) is **unchanged** — `capture` resolves the ref to
 `Auth` before handing the connector its credentials.
-
-**Decision of record:** [decisions/0023-keyvault-seam.md](../../decisions/0023-keyvault-seam.md).
 
 **Tech Stack:** Go 1.26.5, pgx v5.10.0, Postgres 16. Crypto for the local
 provider: prefer the standard library (`crypto/aes` + `crypto/cipher` GCM)
@@ -159,7 +158,7 @@ AES-GCM round-trip and wrong-key failure are unit-tested.
   lives (a `vault_secret` operational table vs a file) is decided here; if a
   table, it is operational infra (no `workspace_id` GUC on the vault's own
   storage — the workspace is inside the ref/AAD), added to the tenant-table
-  fitness allowlist exactly as River's tables were (decisions/0021).
+  fitness allowlist exactly as River's tables were.
 - [ ] **Step 4: Add the compose `Option` + `/readyz` probe** — `WithKeyvault`;
   the probe names "keyvault" when unhealthy (503).
 - [ ] **Step 5: Run — expect PASS.**
@@ -228,8 +227,8 @@ adapter (e.g. `compose/imapconnect.go`).
   vault Put around it, put-then-commit. ✅
 - **`connector` port unchanged:** capture resolves the ref; the port still
   receives `Auth`. ✅
-- **Ports-vs-platform:** interface in `platform/keyvault`, not `shared/ports/`
-  (decisions/0023 rationale); spec touchpoint flagged. ✅
+- **Ports-vs-platform:** interface in `platform/keyvault`, not `shared/ports/`;
+  spec touchpoint flagged. ✅
 - **Gates:** license headers; vault storage table (if any) on the
   tenant-table fitness allowlist; no `time.Sleep`; file-length < 500;
   `make check` + `make test-integration` green, zero `--- SKIP`. ✅

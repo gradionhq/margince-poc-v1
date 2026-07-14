@@ -1,7 +1,7 @@
 -- 0068: backfill the `quota` RBAC object into the seeded system-role policy
 -- documents of EXISTING workspaces (new workspaces get it from the code-side
 -- seed, identity/internal/policy). Posture mirrors the pipeline-config
--- precedent (decisions/0006, and 0064's custom_field backfill): a sales
+-- precedent (as in 0064's custom_field backfill): a sales
 -- target reshapes what the system measures reps/teams against, so
 -- creating/changing/archiving a quota is admin/ops-owned while every role
 -- may read it (a rep needs to see their own attainment against it).

@@ -1,6 +1,6 @@
 # The expanded linter set (foundation skeleton parity), gated NEW-CODE-ONLY:
 # issues.new-from-merge-base keeps the pre-existing backlog un-gated, so this
-# config could land without a big-bang burn-down (decisions/0020). Write new
+# config could land without a big-bang burn-down. Write new
 # code clean; shrink the backlog as files are touched.
 #
 # The baseline .golangci.yml stays the REPO-WIDE gate (depguard DAG, gosec,

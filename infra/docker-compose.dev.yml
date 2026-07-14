@@ -44,8 +44,8 @@ services:
       timeout: 5s
       retries: 15
 
-  # MinIO backs the blobstore seam (attachment/transcript object bytes;
-  # decisions/0022-blobstore-seam.md). Ports 59000 (S3 API) / 59001 (console)
+  # MinIO backs the blobstore seam (attachment/transcript object bytes).
+  # Ports 59000 (S3 API) / 59001 (console)
   # are part of the MARGINCE_TEST_BLOBSTORE_* contract shared with the backend
   # Makefile and CI — change them everywhere or nowhere. No compose healthcheck:
   # the minio image ships no curl, and platform/blobstore's New tolerates a

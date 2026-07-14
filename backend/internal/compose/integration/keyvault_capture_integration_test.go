@@ -5,7 +5,7 @@
 
 package integration
 
-// The keyvault seam end to end (decisions/0023): a connector credential is
+// The keyvault seam end to end: a connector credential is
 // sealed in the vault at Connect and resolved from it at Sync, so the
 // connector_connection row carries an opaque credential_ref, never the
 // credential bytes. Proven on real Postgres with the local (AES-256-GCM)

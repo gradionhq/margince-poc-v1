@@ -2,8 +2,13 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { PipelinesCard } from "./settings";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import { PipelinesCard, SettingsScreen } from "./settings";
+import {
+  emptyPage,
+  installFetchStub,
+  jsonResponse,
+  StoryProviders,
+} from "./story-utils";
 
 // PipelinesCard (D-8) reads GET /me (roles → canConfigureAutomations gate) and
 // GET /pipelines (the ["pipelines","all"] list). Both stubbed here so the card
@@ -99,6 +104,31 @@ export const ReadOnly: Story = {
     return (
       <StoryProviders>
         <PipelinesCard />
+      </StoryProviders>
+    );
+  },
+};
+
+function installSettingsStub() {
+  installFetchStub(
+    {
+      "GET /me": () =>
+        jsonResponse({
+          user: { email: "ada@acme.test" },
+          roles: ["admin"],
+          teams: [],
+        }),
+    },
+    () => jsonResponse(emptyPage),
+  );
+}
+
+export const Default: Story = {
+  render: () => {
+    installSettingsStub();
+    return (
+      <StoryProviders>
+        <SettingsScreen />
       </StoryProviders>
     );
   },

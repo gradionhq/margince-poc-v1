@@ -27,7 +27,6 @@ re-explain what they already own.
 - **[reference/make-targets.md](../reference/make-targets.md)** — every `make` target.
 - **[reference/configuration.md](../reference/configuration.md)** — every flag and env var.
 - **[how-to/apply-migrations.md](../how-to/apply-migrations.md)**, **[mint-a-passport.md](../how-to/mint-a-passport.md)** → **[run-the-mcp-server.md](../how-to/run-the-mcp-server.md)** — common tasks.
-- **[`decisions/`](../../decisions/)** — the implementation decision records.
 
 ---
 
@@ -109,7 +108,7 @@ edit. Everything else you author.
 | `backend/migrations/{core,custom}/*.sql` | schema changes (up + down) |
 | `internal/compose/{server,provider,registry}.go` + adapters | cross-module wiring and edges |
 | `backend/**/*_test.go` | unit, fitness, and integration tests |
-| `decisions/NNNN-*.md`, `docs/**` | the record of a non-obvious decision, and docs |
+| `docs/**` | docs |
 
 So a normal feature is: **edit `crm.yaml` → `make gen` (machine writes the plumbing) → you write the
 handler + store + SQL + tests** (the recipes below).
@@ -123,11 +122,11 @@ Four process roles, all assembled through `internal/compose`. Flags/env are tabl
 
 - **`cmd/api`** — the HTTP surface on `:8080`. By default (`--inline-relay=true`) it *also* ships the
   outbox to Redis in-process, so **one `cmd/api` is a complete install** for dev and small self-hosted
-  deployments ([decisions/0005](../../decisions/0005-in-process-outbox-relay.md)).
+  deployments.
 - **`cmd/worker`** — background consumer (the standalone relay, the River periodic jobs, retention,
   the Surface-B runner). Only needed for **split deployments**: run `cmd/api --inline-relay=false`
   alongside one or more workers. River gives leader election, so worker replicas never double-run a
-  job ([decisions/0021](../../decisions/0021-river-job-queue.md)).
+  job.
 - **`cmd/migrate`** — `up`/`down`, connects with the **owner** role (the app role never owns schema).
 - **`cmd/mcp`** — the governed agent tool surface over stdio or hosted HTTP.
 

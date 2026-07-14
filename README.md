@@ -40,7 +40,7 @@ doesn't ship
 
 This is the build repo: the running Go code. The full specification
 (product, architecture, OpenAPI contract, data model, a ~700-ticket
-work breakdown) lives in a separate spec repo at `../margince/specs/`.
+work breakdown) lives in a separate spec repo.
 We build contract-first, and when code and spec disagree, the spec
 wins.
 
@@ -154,7 +154,7 @@ per-client throttling at the proxy.
   is composite `(workspace_id, col)`, so a cross-workspace reference is
   rejected by the database, not merely hidden. Both invariants are
   fitness functions derived from the live schema, not maintained lists.
-- **Layout** (spec ADR-0054/A69, decisions/0011):
+- **Layout** (spec ADR-0054/A69):
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
@@ -173,7 +173,7 @@ per-client throttling at the proxy.
 - **Schema**: the full core data model (data-model.md §1–§11) as 19
   reversible migrations — uuidv7 shim, updated_at+version triggers,
   RLS `ENABLE`+`FORCE` with deny-on-unset policies on all 33 tenant
-  tables, composite same-workspace foreign keys (0019, decisions/0010),
+  tables, composite same-workspace foreign keys (migration 0019),
   append-only audit log, transactional event outbox, and the ADR-0017
   core/custom migration namespaces.
 - **Contract pipeline**: OpenAPI 3.1 → 3.0 overlay → oapi-codegen types +
@@ -182,7 +182,7 @@ per-client throttling at the proxy.
   generator refuses any mutating operation without an autonomy
   annotation (the ADR-0055 drift-lint).
 - **Auth (ADR-0043)**: workspace bootstrap — atomic across identity and
-  cross-module defaults (C5, decisions/0010), Argon2id email/password
+  cross-module defaults, Argon2id email/password
   login, opaque server-side sessions (SHA-256-stored, idle+absolute
   expiry, revoke-at-lookup), five seeded system roles, and the read/full
   seat ceiling enforced before RBAC on both REST and MCP (C2).
@@ -205,12 +205,12 @@ per-client throttling at the proxy.
   redirect chains, org hierarchy reparenting + the 1:1 partner
   extension, restrictive consent merge, and `person.merged`/
   `organization.merged` events. Reachable as the 🟡 `merge_records` tool
-  (pins the survivor's version). Survivorship rules in decisions/0009.
+  (pins the survivor's version).
 - **Event bus (EP04)**: the full events.md §2 envelope (actor incl.
   passport/on-behalf-of, per-request `correlation_id`, `causation_id`,
   `audit_log_id` linking event↔audit row) as the Tier-0
   `shared/kernel/events` contract with the §5 catalog + §4.1 stream
-  routing; the outbox relay (in-process worker, decisions/0005) shipping
+  routing; the outbox relay (in-process worker) shipping
   committed rows to Redis Streams with `FOR UPDATE SKIP LOCKED` + MAXLEN
   trimming; the §4.3 consumer-group subscriber (`XREADGROUP`/`XACK`,
   `XAUTOCLAIM` reclaim, in-process workspace filtering); and the
@@ -219,7 +219,7 @@ per-client throttling at the proxy.
   the store entry points (shared by REST and MCP — no agent bypass),
   own/team/all row-scope predicates over `owner_id` (out-of-scope rows
   answer 404, like cross-tenant), the five system roles seeded with real
-  permission-policy documents (decisions/0006), and the governing rule
+  permission-policy documents, and the governing rule
   recorded in `audit_log.authorization_rule`.
 - **MCP/agent surface (EP06 WP4, Surface A1)**: Agent Seat Passports
   (`POST /passports` mints a scoped, expiring, revocable `mgp_` bearer
@@ -236,7 +236,7 @@ per-client throttling at the proxy.
   `datasource.SystemOfRecordProvider` seam → the same store entry points
   as HTTP: same RBAC, row scope, audit, events. Served over stdio
   (`mcp --workspace <slug>` + `MARGINCE_PASSPORT_TOKEN`).
-- **Transport-agnostic autonomy gate (ADR-0055, decisions/0012)**: the
+- **Transport-agnostic autonomy gate (ADR-0055)**: the
   same passport rides the REST surface with the same governance — a 🟢
   mutation executes (agent-stamped provenance), a 🟡 mutation stages an
   approval and is redeemed by repeating the identical request with
@@ -248,12 +248,11 @@ per-client throttling at the proxy.
   in the `approval` inbox (`approval.requested`) with a one-line
   summary, the exact proposed change, its content hash, and the target
   row's version; humans decide over `/approvals` — the inbox shows only
-  approvals the caller could themselves decide (C3, decisions/0010);
+  approvals the caller could themselves decide;
   deciding is human-only, and the approver must hold the RBAC the effect
   itself needs; redemption is single-use, 15-minute window, bound to the
   staging passport and the content hash, refused on target version skew
-  (the human's yes was about the world they saw). Full mechanics in
-  decisions/0008.
+  (the human's yes was about the world they saw).
 - **Web UI**: login/bootstrap, people, leads (with the
   promote-on-engagement dialog), the stage-column deal board with
   advance, and the activity timeline — embedded static SPA, no build
@@ -288,17 +287,15 @@ Building from the spec is also a test **of** the spec, so findings are
 routed, not lost:
 
 - **Implementation decisions** — anything the spec left open that this
-  code had to decide — get a numbered record in
-  decisions/, so a reviewer can separate "the spec says"
-  from "we chose".
+  code had to decide — are explained in the commit message and PR that
+  makes the change, so a reviewer can separate "the spec says" from "we
+  chose"; git history is the record.
 - **Spec/ticket defects** — a contradiction, an omission, a vocabulary
-  gap, an unimplementable acceptance criterion found while building — get
-  a local note in `feedback/`, each naming the spec section and a
-  suggested fix. Notes in `feedback/` are git-ignored — local session
-  scratch for reconciling defects upstream (only its
-  [README](feedback/README.md) is tracked). Once a defect is resolved in
-  the spec, its note is deleted — the durable record is the spec's own
-  amendment (ADR/DECISIONS), not this folder.
+  gap, an unimplementable acceptance criterion found while building — are
+  reconciled upstream against the spec, naming the
+  spec section and a suggested fix. The durable record is the spec's own
+  amendment (ADR/DECISIONS); contract-first (P3), a spec defect is
+  reconciled upstream, never silently worked around in this source.
 - **Session state** — progress, in-flight work, pickup point — goes in
   [STATUS.md](STATUS.md), updated at the end of every working session.
 
@@ -353,6 +350,6 @@ source is public and free to read, run, and modify.
 The Additional Use Grant fills only BUSL's parameter fields; the license body is
 the verbatim canonical text, so SPDX/GitHub detect it as `BUSL-1.1`. The full
 model, rationale, and enforcement design live in the spec's
-[`business/12-license.md`](../margince/specs/business/12-license.md). Each tagged
+`business/12-license.md`. Each tagged
 release restamps the Change Date to its publication date + 2 years — the rule is
 [docs/reference/license-release-rule.md](docs/reference/license-release-rule.md).
