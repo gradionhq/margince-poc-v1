@@ -256,6 +256,41 @@ describe("AuditLogCard", () => {
     expect(from.type).toBe("date");
     expect(to.type).toBe("date");
   });
+
+  it("renders a non-scalar before/after value as its JSON string, not [object Object]", async () => {
+    const objectValuedEntry = {
+      ...auditEntry,
+      id: "al-2",
+      before: { address: { city: "Berlin" } },
+      after: { address: { city: "Munich" } },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/audit-log")) {
+          return jsonResponse({
+            data: [objectValuedEntry],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }),
+    );
+    render(<AuditLogCard />);
+    await screen.findByText("update");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show change detail" }),
+    );
+
+    expect(await screen.findByText('{"city":"Berlin"}')).toBeTruthy();
+    expect(screen.getByText('{"city":"Munich"}')).toBeTruthy();
+    expect(screen.queryByText("[object Object]")).toBeNull();
+  });
 });
 
 describe("SettingsScreen link cards", () => {

@@ -235,17 +235,20 @@ export function FieldHistoryTimeline({
 
   // This component isn't remounted on navigation between records of the same
   // kind (App.tsx keys screens by route, not by record id), so without an
-  // explicit reset the accumulator above would keep carrying the previous
-  // record's field names onto the newly-viewed one. Adjusted during render
-  // (React's documented pattern for resetting state on a prop change) rather
-  // than in an Effect, so the reset always lands before the accumulate Effect
-  // below reads `fieldOptions`, even when the new record's data is already
-  // cached and ready on the very render the id changes.
+  // explicit reset the accumulator above — and the actor/field filter
+  // selections below — would keep carrying the previous record's state onto
+  // the newly-viewed one. Adjusted during render (React's documented pattern
+  // for resetting state on a prop change) rather than in an Effect, so the
+  // reset always lands before the accumulate Effect below reads
+  // `fieldOptions`, even when the new record's data is already cached and
+  // ready on the very render the id changes.
   const recordKey = `${kind}:${id}`;
   const [resetFor, setResetFor] = useState(recordKey);
   if (resetFor !== recordKey) {
     setResetFor(recordKey);
     setFieldOptions([]);
+    setActorFacet("all");
+    setFieldFilter(undefined);
   }
 
   const query = useFieldHistory(kind, id, {
