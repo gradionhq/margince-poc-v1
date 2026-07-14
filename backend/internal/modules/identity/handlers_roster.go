@@ -9,14 +9,17 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// ListUsers serves the workspace member roster. Cursor/Limit are accepted
-// and ignored (the roster is small — mirrors ListRecordGrants); the page
-// envelope is always empty.
+// ListUsers serves one keyset page of the workspace member roster.
 func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmcontracts.ListUsersParams) {
-	rows, err := h.svc.ListUsers(r.Context(), ListUsersInput{Q: params.Q})
+	rows, page, err := h.svc.ListUsers(r.Context(), ListUsersInput{
+		Q:      params.Q,
+		Cursor: params.Cursor,
+		Limit:  params.Limit,
+	})
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -25,13 +28,17 @@ func (h Handlers) ListUsers(w http.ResponseWriter, r *http.Request, params crmco
 	for _, u := range rows {
 		data = append(data, wireUser(u))
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.UserListResponse{Data: data, Page: crmcontracts.PageInfo{}})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.UserListResponse{Data: data, Page: pageInfo(page)})
 }
 
-// ListTeams serves the workspace teams with their active member count.
-// Cursor/Limit are accepted and ignored, as in ListUsers.
+// ListTeams serves one keyset page of the workspace teams with their
+// active member count.
 func (h Handlers) ListTeams(w http.ResponseWriter, r *http.Request, params crmcontracts.ListTeamsParams) {
-	rows, err := h.svc.ListTeams(r.Context(), ListTeamsInput{Q: params.Q})
+	rows, page, err := h.svc.ListTeams(r.Context(), ListTeamsInput{
+		Q:      params.Q,
+		Cursor: params.Cursor,
+		Limit:  params.Limit,
+	})
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -40,7 +47,18 @@ func (h Handlers) ListTeams(w http.ResponseWriter, r *http.Request, params crmco
 	for _, tm := range rows {
 		data = append(data, wireTeam(tm))
 	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.TeamListResponse{Data: data, Page: crmcontracts.PageInfo{}})
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.TeamListResponse{Data: data, Page: pageInfo(page)})
+}
+
+// pageInfo renders the store's keyset page onto the contract's PageInfo
+// envelope — this module's own copy of the one-per-module spelling
+// (people/deals/activities/signals/quotas each carry their own).
+func pageInfo(p storekit.Page) crmcontracts.PageInfo {
+	info := crmcontracts.PageInfo{HasMore: p.HasMore}
+	if p.NextCursor != "" {
+		info.NextCursor = &p.NextCursor
+	}
+	return info
 }
 
 // wireUser maps a roster row to the contract User. workspace_id is

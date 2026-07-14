@@ -179,23 +179,27 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 }
 
 // assertRosterUnauthorized issues a session-less request (the TLS-trusting
-// transport, but no cookie jar) against the existing workspace and expects
-// a 401 — the roster is authenticated-only.
+// transport, but no cookie jar) against each roster endpoint and expects a
+// 401 — both /v1/users and /v1/teams are authenticated-only, and either
+// could lose that gate independently, so both are exercised.
 func assertRosterUnauthorized(t *testing.T, e *env) {
 	t.Helper()
 	noSession := &http.Client{Transport: e.client.Transport}
-	req, err := http.NewRequest(http.MethodGet, e.ts.URL+"/v1/users", nil)
-	if err != nil {
-		t.Fatalf("building request: %v", err)
-	}
-	req.Header.Set("X-Workspace-Slug", e.slug)
-	resp, err := noSession.Do(req)
-	if err != nil {
-		t.Fatalf("GET /v1/users (no session): %v", err)
-	}
-	//craft:ignore swallowed-errors the body is drained-and-closed by the test client; only the status is asserted here
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("GET /v1/users without a session → %d, want 401", resp.StatusCode)
+	for _, path := range []string{"/v1/users", "/v1/teams"} {
+		req, err := http.NewRequest(http.MethodGet, e.ts.URL+path, nil)
+		if err != nil {
+			t.Fatalf("building request for %s: %v", path, err)
+		}
+		req.Header.Set("X-Workspace-Slug", e.slug)
+		resp, err := noSession.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s (no session): %v", path, err)
+		}
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("GET %s without a session → %d, want 401", path, resp.StatusCode)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("closing body for %s: %v", path, err)
+		}
 	}
 }
