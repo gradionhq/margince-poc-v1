@@ -183,7 +183,8 @@ test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, n
 test("AC-settings-16: the audit log renders attributed entries, filters live, and loads more", async ({
   page,
 }) => {
-  await page.goto("/#/settings");
+  // The audit log lives on the Audit tab of the settings section layout.
+  await page.goto("/#/settings/audit");
   await expect(page.getByText("human:u1")).toBeVisible();
   await expect(page.getByText("agent:runner")).toBeVisible();
   await page.getByRole("button", { name: "Mehr laden" }).click();
@@ -196,7 +197,8 @@ test("AC-settings-16: the audit log renders attributed entries, filters live, an
 test("AC-settings: the passport list is metadata-only and strikes revoked rows", async ({
   page,
 }) => {
-  await page.goto("/#/settings");
+  // Agent passports live on the AI & autonomy tab of the settings layout.
+  await page.goto("/#/settings/ai");
   await expect(page.getByText("Marcus' Claude")).toBeVisible();
   const revoked = page.locator('[data-passport="pp-2"]');
   await expect(revoked.getByText("widerrufen")).toBeVisible();
