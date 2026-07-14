@@ -3,8 +3,9 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { FieldBuilder } from "./customfields";
+import { FieldBuilder, FieldTable } from "./customfields";
 
 afterEach(cleanup);
 
@@ -104,5 +105,86 @@ describe("FieldBuilder", () => {
         type: "date",
       }),
     );
+  });
+});
+
+type CustomField = components["schemas"]["CustomField"];
+
+const field = (over: Partial<CustomField> = {}): CustomField => ({
+  id: "01J",
+  workspace_id: "w",
+  object: "deal",
+  label: "Renewal date",
+  slug: "renewal_date",
+  type: "date",
+  status: "active",
+  column_name: "cf_renewal_date",
+  created_by: "u1",
+  created_at: "2026-06-22T14:09:00Z",
+  updated_at: "2026-06-22T14:09:00Z",
+  version: 1,
+  ...over,
+});
+
+describe("FieldTable", () => {
+  it("lists a field with its immutable api key and a type chip", () => {
+    wrap(
+      <FieldTable
+        object="deal"
+        fields={[field()]}
+        canManage
+        meUserId="u1"
+        onRename={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    expect(screen.getByText("Renewal date")).toBeInTheDocument();
+    expect(screen.getByText("deal.cf_renewal_date")).toBeInTheDocument();
+    expect(screen.getByText(/Date/)).toBeInTheDocument();
+    expect(screen.getByText("You")).toBeInTheDocument();
+  });
+
+  it("renders an honest empty state for an object with no fields", () => {
+    wrap(
+      <FieldTable
+        object="person"
+        fields={[]}
+        canManage
+        meUserId="u1"
+        onRename={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    expect(
+      screen.getByText(/No custom fields on Contact yet/i),
+    ).toBeInTheDocument();
+  });
+
+  it("hides edit/archive controls when the viewer cannot manage", () => {
+    wrap(
+      <FieldTable
+        object="deal"
+        fields={[field()]}
+        canManage={false}
+        meUserId="u1"
+        onRename={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
+  });
+
+  it("dims a retired field and marks it retired", () => {
+    wrap(
+      <FieldTable
+        object="deal"
+        fields={[field({ status: "retired" })]}
+        canManage
+        meUserId="u1"
+        onRename={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    expect(screen.getByText(/Retired/i)).toBeInTheDocument();
   });
 });

@@ -1,5 +1,12 @@
 import { useId, useState } from "react";
-import { Button, TextInput } from "../design-system/atoms";
+import type { components } from "../api/schema";
+import {
+  Badge,
+  Button,
+  DataTable,
+  EmptyState,
+  TextInput,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import {
   apiKey,
@@ -206,5 +213,151 @@ export function FieldBuilder({
         </Button>
       </div>
     </section>
+  );
+}
+
+type CustomField = components["schemas"]["CustomField"];
+type AuditLogEntry = components["schemas"]["AuditLogEntry"];
+
+// The custom-fields listing for one object (AC-custom-fields-1): every field's
+// immutable cf_ API key, its typed chip, and who added it, plus the rename /
+// archive affordances — rendered only for a manager whose call the server would
+// honour. A retired field is not removed (retire is a reversible status flip,
+// CUSTOM-FIELDS-AC-13): it stays in the list, struck through and badged, so the
+// history the audit trail retains is legible at a glance. DataTable owns no
+// per-row class hook, so the retired treatment lives inside the field cell.
+export function FieldTable({
+  object,
+  fields,
+  canManage,
+  meUserId,
+  onRename,
+  onArchive,
+}: Readonly<{
+  object: CfObject;
+  fields: CustomField[];
+  canManage: boolean;
+  meUserId?: string;
+  onRename: (field: CustomField) => void;
+  onArchive: (field: CustomField) => void;
+}>) {
+  const t = useT();
+
+  if (fields.length === 0) {
+    return <EmptyState>{t(`cf.empty.${object}`)}</EmptyState>;
+  }
+
+  const typeChip = (field: CustomField): string => {
+    const base = t(`cf.type.${field.type}`);
+    if (field.type === "picklist") {
+      return `${base} · ${field.options?.length ?? 0}`;
+    }
+    if (field.type === "currency") {
+      return `${base} · ${field.currency ?? ""}`;
+    }
+    return base;
+  };
+
+  const columns: {
+    key: string;
+    header: string;
+    render: (field: CustomField) => React.ReactNode;
+  }[] = [
+    {
+      key: "field",
+      header: t("cf.col.field"),
+      render: (field) => (
+        <div className="cf-fieldcell">
+          <span
+            className={
+              field.status === "retired" ? "cf-cell-retired" : undefined
+            }
+          >
+            {field.label}
+          </span>
+          {field.status === "retired" && (
+            <Badge tone="warn">{t("cf.retired")}</Badge>
+          )}
+          <span className="cf-key t-mono">
+            {`${field.object}.${field.column_name}`}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "type",
+      header: t("cf.col.type"),
+      render: (field) => <span className="cf-typechip">{typeChip(field)}</span>,
+    },
+    {
+      key: "addedBy",
+      header: t("cf.col.addedBy"),
+      render: (field) =>
+        meUserId === field.created_by
+          ? t("cf.addedByYou")
+          : t("cf.addedByAdmin"),
+    },
+  ];
+
+  if (canManage) {
+    columns.push({
+      key: "actions",
+      header: "",
+      render: (field) => (
+        <div className="cf-rowactions">
+          <Button
+            small
+            aria-label={t("cf.edit")}
+            onClick={() => onRename(field)}
+          >
+            {t("cf.edit")}
+          </Button>
+          <Button
+            small
+            variant="danger"
+            aria-label={t("cf.archive")}
+            onClick={() => onArchive(field)}
+          >
+            {t("cf.archive")}
+          </Button>
+        </div>
+      ),
+    });
+  }
+
+  return (
+    <DataTable columns={columns} rows={fields} rowKey={(field) => field.id} />
+  );
+}
+
+// The custom-field audit rail (AC-custom-fields-6/7): a most-recent-first,
+// read-only projection of the audit_log rows this screen's changes emit. It
+// renders only the fields the AuditLogEntry contract actually carries — the
+// action, the entity it touched, the actor, and when — never an invented
+// display name. Empty is an honest state, not a bug.
+export function AuditRail({ entries }: Readonly<{ entries: AuditLogEntry[] }>) {
+  const t = useT();
+
+  if (entries.length === 0) {
+    return <p className="cf-audit-empty">{t("cf.audit.empty")}</p>;
+  }
+
+  const recentFirst = [...entries].sort((a, b) =>
+    b.occurred_at.localeCompare(a.occurred_at),
+  );
+
+  return (
+    <ul className="cf-audit">
+      {recentFirst.map((entry) => (
+        <li className="cf-audit-row" key={entry.id}>
+          <span className="cf-audit-action">{entry.action}</span>
+          <span className="cf-audit-entity">{entry.entity_type}</span>
+          <span className="cf-audit-actor">{entry.actor_id}</span>
+          <time className="cf-audit-when" dateTime={entry.occurred_at}>
+            {new Date(entry.occurred_at).toLocaleString()}
+          </time>
+        </li>
+      ))}
+    </ul>
   );
 }
