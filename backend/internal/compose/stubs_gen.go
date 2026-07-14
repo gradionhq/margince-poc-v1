@@ -668,6 +668,14 @@ func (stubs) ApplyTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontra
 	httperr.NotImplemented(w, r, "ApplyTag")
 }
 
+func (stubs) ListTeams(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListTeamsParams) {
+	httperr.NotImplemented(w, r, "ListTeams")
+}
+
+func (stubs) ListUsers(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListUsersParams) {
+	httperr.NotImplemented(w, r, "ListUsers")
+}
+
 func (stubs) ListSavedViews(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListSavedViewsParams) {
 	httperr.NotImplemented(w, r, "ListSavedViews")
 }

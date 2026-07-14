@@ -3742,6 +3742,55 @@ paths:
                     detail: Revoking a share is confirm-first for an agent; supply an approval token.
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /users:
+    get:
+      tags: [Identity]
+      operationId: listUsers
+      summary: List workspace members (roster) — cursor-paginated. Read-only.
+      description: |
+        The workspace member roster: id + display name + email + seat/status. Any authenticated member
+        may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
+        archived users. Row-scoped by workspace RLS.
+      x-mcp-tool: { verb: search_records, record_type: app_user, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Case-insensitive match over display_name/email.
+      responses:
+        '200':
+          description: A page of workspace members.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /teams:
+    get:
+      tags: [Identity]
+      operationId: listTeams
+      summary: List workspace teams — cursor-paginated. Read-only.
+      description: |
+        Teams available as record-share subjects, with a member count. Any authenticated member may read.
+        Excludes archived teams. Row-scoped by workspace RLS.
+      x-mcp-tool: { verb: search_records, record_type: team, tier: green }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Case-insensitive match over team name.
+      responses:
+        '200':
+          description: A page of teams.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeamListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   # --------------------------- /voice-profiles ------------------------------
   # Voice DNA (E07, B-E07.4/.5a): the derived voice_profile_md artifact +
   # per-source corpus manifest. Corpus sources ride the parent
@@ -7075,6 +7124,7 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
+        member_count: { type: integer, description: 'Active memberships; populated by listTeams.' }
 
     Role:
       type: object
@@ -7742,6 +7792,19 @@ components:
         access: { type: string, enum: [read, write] }
         reason: { type: [string, 'null'] }
         expires_at: { type: [string, 'null'], format: date-time }
+
+    UserListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/User' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+    TeamListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Team' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
 
     DataSubjectRequest:
       type: object
