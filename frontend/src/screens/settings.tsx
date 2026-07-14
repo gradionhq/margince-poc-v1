@@ -36,6 +36,7 @@ import {
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import { ActorTag } from "./audit";
 import {
   canConfigureAutomations,
   LoadMoreButton,
@@ -947,7 +948,10 @@ function auditLogQueryParams(
   };
 }
 
-function AuditLogRow({ entry }: Readonly<{ entry: AuditLogEntry }>) {
+function AuditLogRow({
+  entry,
+  meUserId,
+}: Readonly<{ entry: AuditLogEntry; meUserId?: string }>) {
   const t = useT();
   const { locale } = useLocale();
   const [expanded, setExpanded] = useState(false);
@@ -967,9 +971,7 @@ function AuditLogRow({ entry }: Readonly<{ entry: AuditLogEntry }>) {
         <span className="t-small">
           {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
         </span>
-        <span className="t-mono t-small">
-          {entry.actor_type}:{entry.actor_id}
-        </span>
+        <ActorTag entry={entry} meUserId={meUserId} />
         <Badge tone="accent">{entry.action}</Badge>
         {entry.entity_id && isEntityKind(entry.entity_type) ? (
           <EntityRef kind={entry.entity_type} id={entry.entity_id} />
@@ -1041,6 +1043,8 @@ function AuditLogRow({ entry }: Readonly<{ entry: AuditLogEntry }>) {
 // grounding evidence) — collapsed by default so the flat scan stays fast.
 export function AuditLogCard() {
   const t = useT();
+  // The current user's id resolves audit "You" vs "A teammate" in ActorTag.
+  const meUserId = useMe().data?.user?.id;
   const [actor, setActor] = useState("");
   const [entityType, setEntityType] = useState("");
   const [entityId, setEntityId] = useState("");
@@ -1107,7 +1111,7 @@ export function AuditLogCard() {
           }}
         >
           {entries.map((entry) => (
-            <AuditLogRow key={entry.id} entry={entry} />
+            <AuditLogRow key={entry.id} entry={entry} meUserId={meUserId} />
           ))}
         </ul>
         <LoadMoreButton query={query} />
