@@ -9,8 +9,7 @@
 // connector_connection.credential_ref) carries in place of the raw
 // credential. Isolation is a property of the Ref: a Ref minted for one
 // workspace does not resolve under another, so a stolen Ref is inert across
-// the tenant edge without also defeating RLS on the row that names it. See
-// decisions/0023-keyvault-seam.md.
+// the tenant edge without also defeating RLS on the row that names it.
 //
 // Secret hygiene is the load-bearing rule here: the plaintext and the root
 // key never reach a log line, an error message, or a model-bound payload.
@@ -43,7 +42,7 @@ var ErrNotFound = errors.New("keyvault: secret not found")
 // provider scopes the ref to the tenant; a ref cannot be resolved under the
 // wrong workspace. The one substitution axis is a real backend vs the memory
 // fake — there is no cross-module provider registry — which is why this lives
-// in platform, not shared/ports (decisions/0023).
+// in platform, not shared/ports.
 type Vault interface {
 	// Put seals secret for ws and returns the opaque Ref addressing it. A
 	// zero workspace id is refused: an unscoped secret has no tenant to
@@ -90,7 +89,7 @@ const refTokenBytes = 16
 // currentKeyVersion is the root-key version every provider stamps into new
 // refs today. It is 1 because there is one key; the version travels in the
 // ref so a later rotation can add a keyring and pick the key by version
-// without changing the ref format or the stored ciphertext (decisions/0023).
+// without changing the ref format or the stored ciphertext.
 const currentKeyVersion = 1
 
 // mintRef builds a fresh ref for ws, stamping the current key version. The

@@ -41,7 +41,7 @@ type env struct {
 
 // setup boots the default harness server — no schema pool, so the
 // customfields runtime-DDL operations answer their generated 501
-// (decisions/0024's unwired-by-default posture). Suites that need the
+// (the unwired-by-default posture). Suites that need the
 // schema pool wired (customfields_http_integration_test.go) call
 // setupWithOptions directly with compose.WithSchemaPool(SchemaPool(t)).
 func setup(t *testing.T) *env {

@@ -112,7 +112,7 @@ export interface paths {
          *     returned ONCE and never stored. Human-only: an agent minting (or widening) a Passport would
          *     be self-granted authority. This is the local/A1 issuance path; the hosted A2 surface
          *     replaces it with the spec's full OAuth2 + PKCE + DCR Authorization-Server flow
-         *     (decisions/0012 records the deliberate contract lag).
+         *     (a deliberate lag: this contract does not yet carry those hosted-A2 paths).
          */
         post: operations["issuePassport"];
         delete?: never;

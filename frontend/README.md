@@ -63,6 +63,6 @@ the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
   offsets, no calendar diffs.
 - Staged / real / human-typed are three distinguishable styles, always.
   Confidence is never hidden. Absent data is omitted, never guessed.
-- Packaging (decisions/0014): the app ships by copying `dist/` under
+- Packaging: the app ships by copying `dist/` under
   `backend/web/` for the existing `go:embed` once it reaches parity with
   the handwritten prototype; until then the prototype serves `/`.

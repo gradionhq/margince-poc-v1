@@ -19,8 +19,6 @@ behavior-preserving.
 **Tech Stack:** Go 1.26.5, pgx v5.10.0, `github.com/riverqueue/river` (+
 `riverdriver/riverpgxv5`, `rivermigrate`), Postgres 16.
 
-**Decision of record:** [decisions/0021-river-job-queue.md](../../decisions/0021-river-job-queue.md).
-
 ## Global Constraints
 
 - Go **1.26.5**; pgx **v5.10.0** (`github.com/jackc/pgx/v5`). River must be
@@ -177,7 +175,7 @@ depends on Task 2 for a green run; the compile-fail here is the red step.)
 // Package jobs owns the River client lifecycle — the durable
 // background-job substrate, the peer of platform/events for the outbox.
 // It owns no domain: workers and periodic jobs are supplied by the
-// composition layer. See decisions/0021-river-job-queue.md.
+// composition layer.
 package jobs
 
 import (
@@ -274,7 +272,6 @@ uses — open a short-lived `pgxpool` (or reuse the owner DSN) for it:
 ```go
 // River owns its own schema through its own migrator (rivermigrate),
 // applied as the fourth namespace after core+custom (ADR-0017 order).
-// decisions/0021-river-job-queue.md.
 migrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
 if err != nil {
     return fmt.Errorf("migrate: river migrator: %w", err)
@@ -302,7 +299,7 @@ operational (non-tenant) infra — the same posture as `schema_migrations_*`:
 ```go
 // River owns these; they are global job-queue infra, not tenant data —
 // no workspace_id, so they are outside the RLS-FORCE and table-ownership
-// contracts by design. decisions/0021.
+// contracts by design.
 var operationalTables = map[string]bool{
     "river_job": true, "river_leader": true, "river_queue": true,
     "river_client": true, "river_client_queue": true, "river_migration": true,

@@ -179,8 +179,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 // backfillConnectorCredentials migrates any legacy connector_connection rows
-// whose credential still lives in the auth bytea column onto the keyvault
-// (decisions/0023). It runs once at boot when a vault is configured and is
+// whose credential still lives in the auth bytea column onto the keyvault.
+// It runs once at boot when a vault is configured and is
 // idempotent — a row already carrying a credential_ref is skipped — so
 // re-running every boot is safe and a no-op once every row is migrated.
 // Without a vault it is skipped: the legacy auth column still resolves
@@ -204,7 +204,7 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 	return nil
 }
 
-// startJobRunner boots the River periodic jobs (decisions/0021): River
+// startJobRunner boots the River periodic jobs: River
 // gives leader election (one run cluster-wide, so worker replicas never
 // double-sweep the close-date and reconcile passes), retries, and graceful
 // drain — what the bare tickers lacked. The domain logic (Sweep/Reconcile)

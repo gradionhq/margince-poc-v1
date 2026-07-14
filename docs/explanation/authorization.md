@@ -133,6 +133,4 @@ see [write-backbone.md](write-backbone.md) for the write path that rides inside 
 
 ## Where this is recorded
 
-RBAC defaults and row-scope semantics: [decisions/0006](../../decisions/0006-rbac-defaults-and-row-scope-semantics.md).
-The transport-agnostic admission gate: [decisions/0012](../../decisions/0012-adr0055-transport-agnostic-gate.md).
 The binding short form is in [AGENTS.md](../../AGENTS.md) under "The write shape".

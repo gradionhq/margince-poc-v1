@@ -21,7 +21,7 @@ stdio protocol channel). Log lines carry the per-request
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
-| `--schema-dsn` | `MARGINCE_SCHEMA_DSN` | — | Postgres DSN, **owner** role, for the customfields runtime-DDL pool; unset = `createCustomField`/`updateCustomFieldOptions` answer 501 (decisions/0024) |
+| `--schema-dsn` | `MARGINCE_SCHEMA_DSN` | — | Postgres DSN, **owner** role, for the customfields runtime-DDL pool; unset = `createCustomField`/`updateCustomFieldOptions` answer 501 |
 | `--addr` | — | `:8080` | listen address |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
@@ -64,7 +64,7 @@ finish their ack before the process exits.
 
 Env-only, shared by both roles; secrets never appear on the command line
 (argv is world-readable). Leave `MARGINCE_BLOBSTORE_ENDPOINT` unset and the
-`/attachments` endpoints answer 501; set it to enable them (decisions/0022).
+`/attachments` endpoints answer 501; set it to enable them.
 If attachment rows already exist (uploaded while a store was configured) but
 the erasing process has none, Art. 17 erasure **fails and rolls back** rather
 than stranding the bytes — it stays retryable until a store is configured. The bucket is created on first connect,
@@ -85,8 +85,8 @@ Env-only, shared by both roles; the root key never appears on the command
 line (argv is world-readable) or in any log or error. A connector credential
 is sealed with AES-256-GCM under this key and stored as ciphertext in the
 operational `vault_secret` table; the `connector_connection` row carries only
-an opaque, workspace-scoped `credential_ref`, never the credential bytes
-(decisions/0023). Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is
+an opaque, workspace-scoped `credential_ref`, never the credential bytes.
+Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is
 absent: the transient one-shot IMAP pull (which persists no credential) still
 works, and the persisting paths (Connect seals, Sync resolves) refuse loudly
 rather than store a credential in the clear. Set it and the api gains the
@@ -102,7 +102,7 @@ silent fallback.
 ## Custom-field schema pool (api) — runtime DDL
 
 `--schema-dsn`/`MARGINCE_SCHEMA_DSN` is the api-only owner-role DSN behind
-`createCustomField` and `updateCustomFieldOptions` (decisions/0024): the
+`createCustomField` and `updateCustomFieldOptions`: the
 customfields engine's single chokepoint for a runtime `ALTER TABLE`. Leave
 it unset and both operations answer `501` (`ErrSchemaChangesUnavailable`)
 rather than nil-derefing a pool that was never mounted — `renameCustomField`,

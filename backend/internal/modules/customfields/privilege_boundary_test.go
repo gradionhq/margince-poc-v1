@@ -4,7 +4,7 @@
 package customfields
 
 // The owner-role downgrade is this package's privilege boundary
-// (decisions/0024, create.go's Create doc comment): Create and
+// (create.go's Create doc comment): Create and
 // SetOptions open their transaction on the schema pool as the owner
 // role to run exactly one ALTER TABLE, then MUST drop to margince_app —
 // the DML-only role every other tenant write runs under — before the

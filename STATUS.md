@@ -37,11 +37,10 @@ Merged so far:
   boot/log-in/verify quickstart, and the `live-boot` CI job.
 - **PR C** — gate parity: oasdiff contract breaking-change gate, TS type
   drift gate, test-lane hygiene, zero-skip integration enforcement, the
-  new-code-strict golangci arm, and the file-length ratchet
-  (decisions/0020).
+  new-code-strict golangci arm, and the file-length ratchet.
 - **PR D** — frontend RBAC primitives (`useMe`, `RoleBadge`,
   `FieldGuard`, role-aware automations editor) and the design-token
-  purity gates (decisions/0014 lineage).
+  purity gates.
 - **PR E** — OSS-publication sanitization: this STATUS scrub,
   CONTRIBUTING rewritten for external contributors, the README
   internal-narrative scrub.
@@ -56,7 +55,7 @@ Merged so far:
   owned by `activities`, authority inherited from the parent entity) and
   the Art. 17 erase-path object purge, so erasure reaches the bytes not
   only the rows. MinIO is in the dev compose stack and both CI integration
-  jobs; a `/readyz` probe covers it (decisions/0022).
+  jobs; a `/readyz` probe covers it.
 - **Keyvault seam** — `platform/keyvault` (AES-256-GCM local provider +
   in-memory fake), secret-material storage behind an opaque,
   workspace-scoped `credential_ref`. Ships with its first real secret
@@ -70,7 +69,7 @@ Merged so far:
   backfills legacy rows at boot (idempotent). Env-only root key
   (`MARGINCE_KEYVAULT_ROOT_KEY`, base64 32-byte). The connector port is
   unchanged — capture resolves the ref and still hands the connector its
-  `Auth` (decisions/0023).
+  `Auth`.
 - **Field-history read** — `GET /field-history`: a per-field change
   timeline projected read-time from the audit spine's before/after
   diffs, homed in the privacy module beside the audit-log read. Gated
@@ -101,7 +100,7 @@ Merged so far:
   [docs/reference/configuration.md](docs/reference/configuration.md))
   with the DDL-first-then-SET-ROLE single-tx dance, cross-workspace
   column-collision 409s, and an AST fitness gate pinning the privilege
-  downgrade (decisions/0024). Values-on-records parity — reading and
+  downgrade. Values-on-records parity — reading and
   writing the new fields through the record surface — is the follow-on
   arc, arc 2a-ii.
 - **Custom-field VALUES ride person/organization/deal payloads**
@@ -173,7 +172,7 @@ Open work, roughly in priority order:
   A production deployment needs a real Scanner behind the seam, or an
   admin verdict path, before new uploads are downloadable end-to-end.
 - **The RD-AC-2 "every download audited" clause is NOT ported** — poc-v1
-  audits only attachment create/archive (decisions/0022); a deliberate
+  audits only attachment create/archive; a deliberate
   delta from the spec, not an oversight.
 - **`extraction:accept` carries no idempotency key on its notes** — the
   deal update and its per-field notes now commit atomically (one shared
@@ -206,8 +205,8 @@ Open work, roughly in priority order:
   surface + UI, and connector credential *rotation* (the ref/AAD scheme
   already carries a key version so rotation is not foreclosed). Its own PR
   arc. The `oauth` signing keypairs (`workspace_signing_key`) fold onto the
-  same vault next, as a distinct migration (decisions/0023).
-- **ADR track** (parallel, each needs a decision record): retiring or
+  same vault next, as a distinct migration.
+- **ADR track** (parallel, each an open call recorded in the PR that resolves it): retiring or
   keeping the second (embedded) SPA, the design-system of record, and the
   optional advisory LLM craft-review CI job. (River shipped in #35, the
   blobstore seam in the prior batch, the keyvault seam in this one.)
@@ -218,5 +217,6 @@ Open work, roughly in priority order:
   git history or squash-import into the public repository.
 
 Next product arcs beyond the baseline groom live in the spec's build
-backlog; route findings as you work — implementation decisions to
-`decisions/`; spec/ticket defects reconciled upstream against the spec.
+backlog; route findings as you work — implementation decisions recorded in the
+commit and PR that makes the change; spec/ticket defects reconciled upstream
+against the spec.
