@@ -56,6 +56,7 @@ export const de = {
   "shell.railAria": "Hauptnavigation",
   "shell.logoAria": "Margince",
   "shell.search": "Suche",
+  "shell.signOutAria": "Abmelden",
   "locale.toEnglish": "Auf Englisch umschalten",
   "locale.toGerman": "Auf Deutsch umschalten",
 
@@ -812,6 +813,7 @@ export const de = {
   "auth.bulletEvidence": "Jedes Feld trägt seine Quelle — nie eine Vermutung.",
   "auth.bulletConfirm": "Nichts wird ohne deine Freigabe gesendet.",
   "auth.bulletOwn": "Deine Daten bleiben in deinem Workspace.",
+  "auth.signOut": "Abmelden",
 
   "client.back": "Zurück zu Margince",
   "client.title": "Margince neben deinem Postfach",

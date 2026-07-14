@@ -1,10 +1,13 @@
 /** @vitest-environment jsdom */
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   render as rtlRender,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -17,10 +20,19 @@ import { Shell, TopBar, WorkspaceRail } from "./shell";
 afterEach(() => {
   cleanup();
   window.location.hash = "";
+  vi.unstubAllGlobals();
 });
 
-const render = (ui: ReactNode) =>
-  rtlRender(<LocaleProvider initial="en">{ui}</LocaleProvider>);
+const render = (ui: ReactNode) => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return rtlRender(
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">{ui}</LocaleProvider>
+    </QueryClientProvider>,
+  );
+};
 
 const CANONICAL_ORDER = [
   "Home",
@@ -75,6 +87,49 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     const badges = container.querySelectorAll(".count");
     expect(badges).toHaveLength(1);
     expect(badges[0].textContent).toBe("4");
+  });
+});
+
+describe("WorkspaceRail sign-out (AS-1)", () => {
+  it("posts /auth/logout and clears the query cache on click", async () => {
+    let loggedOut = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const method = input instanceof Request ? input.method : "GET";
+        if (url.endsWith("/v1/auth/logout") && method === "POST") {
+          loggedOut = true;
+          return new Response(null, { status: 204 });
+        }
+        if (url.endsWith("/v1/me")) {
+          return new Response(null, { status: loggedOut ? 401 : 200 });
+        }
+        return new Response(null, { status: 404 });
+      }),
+    );
+    // Seed the ["me"] cache so we can observe the mutation clearing it — the
+    // gate re-probe hangs off this exact entry going away (queryClient.clear()).
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["me"], { user: { id: "u1", email: "ada@acme.test" } });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <WorkspaceRail route={{ screen: "deals" }} />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    expect(client.getQueryData(["me"])).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    // POST fired AND the whole cache was cleared — the ["me"] entry is gone,
+    // so the auth gate re-probes → 401 → login. This assertion bites: it fails
+    // if `onSuccess: () => queryClient.clear()` is removed from useLogout.
+    await waitFor(() => expect(loggedOut).toBe(true));
+    await waitFor(() =>
+      expect(client.getQueryData(["me"])).toBeUndefined(),
+    );
   });
 });
 

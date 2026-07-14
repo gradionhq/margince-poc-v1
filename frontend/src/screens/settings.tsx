@@ -34,6 +34,7 @@ import {
   problemMessage,
   QueryGate,
   throwProblem,
+  useLogout,
   useMe,
 } from "./common";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
@@ -138,6 +139,7 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
 function IdentityCard() {
   const t = useT();
   const query = useMe();
+  const logout = useLogout();
   return (
     <section className="card" style={{ marginBottom: 14 }}>
       <SectionHeader title={t("settings.identity")} />
@@ -158,6 +160,14 @@ function IdentityCard() {
           </div>
         )}
       </QueryGate>
+      <Button
+        small
+        disabled={logout.isPending}
+        onClick={() => logout.mutate()}
+        style={{ marginTop: 10 }}
+      >
+        {t("auth.signOut")}
+      </Button>
     </section>
   );
 }

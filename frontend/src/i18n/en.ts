@@ -53,6 +53,7 @@ export const en = {
   "shell.railAria": "Primary navigation",
   "shell.logoAria": "Margince",
   "shell.search": "Search",
+  "shell.signOutAria": "Sign out",
   "locale.toEnglish": "Switch to English",
   "locale.toGerman": "Switch to German",
 
@@ -795,6 +796,7 @@ export const en = {
   "auth.bulletEvidence": "Every field carries its source — never a guess.",
   "auth.bulletConfirm": "Nothing sends without your approval.",
   "auth.bulletOwn": "Your data stays in your workspace.",
+  "auth.signOut": "Sign out",
 
   "client.back": "Back to Margince",
   "client.title": "Margince alongside your inbox",

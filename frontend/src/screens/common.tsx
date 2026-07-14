@@ -1,4 +1,9 @@
-import { type UseQueryResult, useQuery } from "@tanstack/react-query";
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api, workspaceSlug } from "../api/client";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
@@ -29,6 +34,20 @@ export function useMe() {
       }
       return data;
     },
+  });
+}
+
+// AS-1: sign out. Clears ALL cached tenant data on success, then the ["me"]
+// probe re-runs → 401 → AuthGate renders the login screen. No manual
+// redirect — the gate owns it.
+export function useLogout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST("/auth/logout");
+      if (error) throw new Error(problemMessage(error));
+    },
+    onSuccess: () => queryClient.clear(),
   });
 }
 

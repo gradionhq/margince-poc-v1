@@ -181,6 +181,29 @@
 .rail .grow {
   flex: 1;
 }
+.rail .signout {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--railIcon);
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.rail .signout:hover {
+  background: var(--railHover);
+  color: var(--railIconHover);
+}
+.rail .signout:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .rail .user {
   width: 32px;
   height: 32px;
