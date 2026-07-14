@@ -2,20 +2,24 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link2, ShieldCheck } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { navigate } from "../app/router";
 import {
   Button,
+  EmptyState,
   SearchField,
   SectionHeader,
   SegmentedControl,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
-import { useT } from "../i18n";
+import { formatDate } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate, throwProblem } from "./common";
-import { EntityRef, type EntityRefKind, useRoster } from "./entityref";
+import { EntityRef, useRoster } from "./entityref";
 import "./share.css";
 
 // AS-3/4/5 — the record-share screen (A52/ADR-0039): grant a user/team
@@ -41,6 +45,40 @@ type RosterSubject = {
   kind: "user" | "team";
 };
 
+const RECORD_TYPES: readonly RecordType[] = [
+  "person",
+  "organization",
+  "deal",
+  "lead",
+];
+
+function isRecordType(value: string): value is RecordType {
+  return (RECORD_TYPES as readonly string[]).includes(value);
+}
+
+// The per-screen "Share" affordance, extracted from four verbatim copies that
+// lived inline in the person/organization/deal/lead 360 action clusters
+// (mirrors EditAction/ArchiveAction — a thin prop component owning its label
+// and its navigation, nothing else). recordType is the narrow union, so a
+// screen can't wire a share link to a record kind the route can't resolve.
+export function ShareAction({
+  recordType,
+  recordId,
+}: Readonly<{ recordType: RecordType; recordId: string }>) {
+  const t = useT();
+  return (
+    <Button
+      small
+      data-testid="share-record"
+      onClick={() =>
+        navigate({ screen: "share", id: recordType, id2: recordId })
+      }
+    >
+      {t("record.share")}
+    </Button>
+  );
+}
+
 // day-count → i18n key, matching the mockup's expiry select (0/1/7/30).
 const EXPIRY_OPTIONS: { days: number; key: MessageKey }[] = [
   { days: 0, key: "share.expiry.none" },
@@ -62,13 +100,13 @@ function expiresAtFor(days: number): string | undefined {
 class ApprovalRequiredError extends Error {}
 
 async function fetchGrants(
-  recordType: string,
+  recordType: RecordType,
   recordId: string,
 ): Promise<RecordGrant[]> {
   const { data, error } = await api.GET("/record-grants", {
     params: {
       query: {
-        record_type: recordType as RecordType,
+        record_type: recordType,
         record_id: recordId,
         limit: 100,
       },
@@ -80,11 +118,33 @@ async function fetchGrants(
   return data.data;
 }
 
+// recordType arrives as the raw 3rd URL segment (App.tsx passes it straight
+// through). Guard it before rendering the screen: an unknown kind gets an
+// honest empty state, never a share form wired to a record type the contract
+// and RLS can't resolve. useT() is the only hook here, so the early return is
+// rules-of-hooks-safe; all the query/mutation hooks live in ShareScreenBody,
+// which mounts only for a valid kind.
 export function ShareScreen({
   recordType,
   recordId,
 }: Readonly<{ recordType: string; recordId: string }>) {
   const t = useT();
+  if (!isRecordType(recordType)) {
+    return (
+      <div className="wrap">
+        <EmptyState>{t("share.unknownRecord")}</EmptyState>
+      </div>
+    );
+  }
+  return <ShareScreenBody recordType={recordType} recordId={recordId} />;
+}
+
+function ShareScreenBody({
+  recordType,
+  recordId,
+}: Readonly<{ recordType: RecordType; recordId: string }>) {
+  const t = useT();
+  const { locale } = useLocale();
   const queryClient = useQueryClient();
   const headingId = useId();
   const grantsKey = ["record-grants", recordType, recordId];
@@ -131,7 +191,9 @@ export function ShareScreen({
     if (!q) {
       return roster;
     }
-    return roster.filter((r) => `${r.name} ${r.note}`.toLowerCase().includes(q));
+    return roster.filter((r) =>
+      `${r.name} ${r.note}`.toLowerCase().includes(q),
+    );
   }, [roster, term]);
 
   function resetForm() {
@@ -150,7 +212,7 @@ export function ShareScreen({
         throw new Error("no subject selected");
       }
       const body: CreateRecordGrantRequest = {
-        record_type: recordType as RecordType,
+        record_type: recordType,
         record_id: recordId,
         subject_type: subject.kind,
         subject_id: subject.id,
@@ -206,16 +268,44 @@ export function ShareScreen({
     ? honestMessage(revoke.error)
     : null;
 
+  // A stale grant error must not outlive the edit that could fix it — clearing
+  // it as the user changes any field mirrors the revoke path's reset(). Guarded
+  // so a keystroke in an already-clean form doesn't churn react-query state.
+  function dismissGrantError() {
+    if (grant.isError) {
+      grant.reset();
+    }
+  }
+
   return (
     <div className="wrap share-screen">
       <div className="card share-head">
         <SectionHeader title={t("share.title")} />
         <div className="share-backlink">
-          <EntityRef kind={recordType as EntityRefKind} id={recordId} />
+          <Link2 aria-hidden />
+          <EntityRef kind={recordType} id={recordId} />
         </div>
-        <p className="share-ceiling">{t("share.ceiling")}</p>
+        <p className="share-ceiling">
+          <ShieldCheck aria-hidden />
+          <span>
+            {t("share.ceiling.pre")}
+            <b>{t("share.ceiling.recordEmphasis")}</b>
+            {t("share.ceiling.mid")}
+            <b>{t("share.ceiling.noWider")}</b>
+            {t("share.ceiling.post")}
+          </span>
+        </p>
       </div>
 
+      {/* The mockup's at-a-glance scope chip and the client-side "can't grant
+          wider than you" (write-disabled-when-you-only-have-read) block both
+          need the CURRENT USER's own access level FOR THIS RECORD, which no
+          endpoint cheaply returns today. Rather than fake it, the ceiling is
+          server-enforced: a POST that exceeds the granter's access comes back
+          422 / approval_required and is surfaced honestly below. The
+          client-side ceiling UI is deferred until a "my access for this
+          record" read exists — same call the 🟡 agent-proposed-grant card
+          made. */}
       <div className="card">
         <SectionHeader title={t("share.grantAccess")} />
         <div className="field">
@@ -229,6 +319,7 @@ export function ShareScreen({
             onChange={(event) => {
               setTerm(event.target.value);
               setSubject(null);
+              dismissGrantError();
             }}
           />
           <ul className="share-subject-list">
@@ -244,6 +335,7 @@ export function ShareScreen({
                     onClick={() => {
                       setSubject(candidate);
                       setTerm(candidate.name);
+                      dismissGrantError();
                     }}
                   >
                     <span>{candidate.name}</span>
@@ -265,7 +357,10 @@ export function ShareScreen({
             <SegmentedControl
               options={["read", "write"] as const}
               value={access}
-              onChange={setAccess}
+              onChange={(next) => {
+                setAccess(next);
+                dismissGrantError();
+              }}
               labels={{
                 read: t("share.access.read"),
                 write: t("share.access.write"),
@@ -287,7 +382,10 @@ export function ShareScreen({
             id={`${headingId}-expiry`}
             className="input"
             value={expiryDays}
-            onChange={(event) => setExpiryDays(Number(event.target.value))}
+            onChange={(event) => {
+              setExpiryDays(Number(event.target.value));
+              dismissGrantError();
+            }}
           >
             {EXPIRY_OPTIONS.map((option) => (
               <option key={option.days} value={option.days}>
@@ -305,7 +403,10 @@ export function ShareScreen({
             id={`${headingId}-reason`}
             className="input share-reason"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            onChange={(event) => {
+              setReason(event.target.value);
+              dismissGrantError();
+            }}
           />
         </div>
 
@@ -346,10 +447,12 @@ export function ShareScreen({
                         {t("share.grantedBy")}{" "}
                         <EntityRef kind="user" id={g.granted_by} />
                       </span>
-                      {g.reason && <span className="t-caption">{g.reason}</span>}
+                      {g.reason && (
+                        <span className="t-caption">{g.reason}</span>
+                      )}
                       {g.expires_at && (
                         <span className="share-expiry-badge">
-                          {g.expires_at}
+                          {formatDate(g.expires_at, locale, "Europe/Berlin")}
                         </span>
                       )}
                     </div>

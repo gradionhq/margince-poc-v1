@@ -11,6 +11,9 @@
 
 .share-backlink {
   margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .share-ceiling {
@@ -24,6 +27,25 @@
   color: var(--textSecondary);
   line-height: 1.5;
   margin-top: 14px;
+}
+
+.share-ceiling svg {
+  width: 14px;
+  height: 14px;
+  color: var(--textSecondary);
+  flex: none;
+  margin-top: 2px;
+}
+
+.share-ceiling b {
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+
+.share-backlink svg {
+  width: 14px;
+  height: 14px;
+  color: var(--textTertiary);
 }
 
 .share-subject-list {
@@ -64,7 +86,7 @@
 }
 
 .share-access-read {
-  background: var(--accentLight);
+  background: var(--tealLight);
   color: var(--teal);
 }
 

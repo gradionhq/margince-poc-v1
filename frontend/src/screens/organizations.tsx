@@ -47,6 +47,7 @@ import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
+import { ShareAction } from "./share";
 import { StrengthCard } from "./strength";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
@@ -588,14 +589,7 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
             recordKey="organization"
             onArchived={() => navigate({ screen: "companies" })}
           />
-          <Button
-            small
-            onClick={() =>
-              navigate({ screen: "share", id: "organization", id2: org.id })
-            }
-          >
-            {t("record.share")}
-          </Button>
+          <ShareAction recordType="organization" recordId={org.id} />
         </>
       )}
     </>

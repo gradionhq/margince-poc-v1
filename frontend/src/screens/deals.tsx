@@ -41,6 +41,7 @@ import { EditAction } from "./edit";
 import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
+import { ShareAction } from "./share";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
 // (terminal stages are a 🟡 confirm, AC-deal-6), the board↔table segmented
@@ -1067,14 +1068,7 @@ function DealBadges({
         recordKey="deal"
         onArchived={() => navigate({ screen: "deals" })}
       />
-      <Button
-        small
-        onClick={() =>
-          navigate({ screen: "share", id: "deal", id2: deal.id })
-        }
-      >
-        {t("record.share")}
-      </Button>
+      <ShareAction recordType="deal" recordId={deal.id} />
       {(deal.status === "won" || deal.status === "lost") && (
         <ReopenAction dealId={deal.id} openStages={openStages} />
       )}

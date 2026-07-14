@@ -104,8 +104,13 @@ export const en = {
   "record.share": "Share",
 
   "share.title": "Share this record",
-  "share.ceiling":
-    "A grant changes who can see exactly this one record — nothing else about a person's scope moves. You can only grant up to your own access on this record.",
+  "share.ceiling.pre": "A grant changes who can see ",
+  "share.ceiling.recordEmphasis": "exactly this one record",
+  "share.ceiling.mid":
+    " — nothing else about a person's scope moves. A share is capped at your own access, ",
+  "share.ceiling.noWider": "no wider",
+  "share.ceiling.post": ".",
+  "share.unknownRecord": "This isn't a record that can be shared.",
   "share.grantAccess": "Grant access",
   "share.subject": "Person or team",
   "share.alreadyGranted": "already has a grant",

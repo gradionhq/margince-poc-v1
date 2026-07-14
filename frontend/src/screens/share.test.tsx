@@ -68,12 +68,16 @@ const existingGrant = {
 };
 
 function installBaseFetch(
-  overrides: Record<string, (req: Request) => Response | Promise<Response>> = {},
+  overrides: Record<
+    string,
+    (req: Request) => Response | Promise<Response>
+  > = {},
 ) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : new Request(String(input), init);
+      const request =
+        input instanceof Request ? input : new Request(String(input), init);
       for (const [match, handler] of Object.entries(overrides)) {
         if (request.url.includes(match)) {
           return handler(request);
@@ -226,9 +230,7 @@ describe("ShareScreen", () => {
     await waitFor(() =>
       expect(screen.queryByText(/approval_required/)).toBeNull(),
     );
-    expect(
-      await screen.findByText(/held for approval|approval/i),
-    ).toBeTruthy();
+    expect(await screen.findByText(/held for approval|approval/i)).toBeTruthy();
   });
 
   it("renders honest copy (not a raw string) for a 422 validation error", async () => {

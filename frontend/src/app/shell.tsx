@@ -84,6 +84,7 @@ export function WorkspaceRail({
         type="button"
         className="signout"
         aria-label={t("shell.signOutAria")}
+        title={t("shell.signOutAria")}
         disabled={logout.isPending}
         onClick={() => logout.mutate()}
       >

@@ -107,8 +107,13 @@ export const de = {
   "record.share": "Teilen",
 
   "share.title": "Diesen Datensatz teilen",
-  "share.ceiling":
-    "Eine Freigabe ändert nur, wer genau diesen einen Datensatz sehen kann — sonst nichts am Zugriffsbereich einer Person. Du kannst höchstens deinen eigenen Zugriff auf diesen Datensatz vergeben.",
+  "share.ceiling.pre": "Eine Freigabe ändert, wer ",
+  "share.ceiling.recordEmphasis": "genau diesen einen Datensatz",
+  "share.ceiling.mid":
+    " sehen kann — sonst nichts am Zugriffsbereich einer Person. Eine Freigabe ist auf deinen eigenen Zugriff begrenzt, ",
+  "share.ceiling.noWider": "nicht weiter",
+  "share.ceiling.post": ".",
+  "share.unknownRecord": "Dieser Datensatztyp kann nicht geteilt werden.",
   "share.grantAccess": "Zugriff gewähren",
   "share.subject": "Person oder Team",
   "share.alreadyGranted": "hat bereits eine Freigabe",

@@ -31,6 +31,12 @@ const teamsPage = {
   page: { next_cursor: null, has_more: false },
 };
 
+// The header renders <EntityRef kind="deal" id="d-1"> — without this stub the
+// story shows the bare id, which isn't reviewable. Stub the record read so the
+// name resolves exactly as it would in the app.
+const deal = () =>
+  jsonResponse({ id: "d-1", name: "BÄR Pharma — Packaging QA" });
+
 const grant = {
   id: "g-1",
   record_type: "deal",
@@ -49,11 +55,21 @@ export const EmptyRoster: Story = {
   render: () => {
     installFetchStub({
       "GET /users": () =>
-        jsonResponse({ data: [], page: { next_cursor: null, has_more: false } }),
+        jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        }),
       "GET /teams": () =>
-        jsonResponse({ data: [], page: { next_cursor: null, has_more: false } }),
+        jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "GET /deals/d-1": deal,
       "GET /record-grants": () =>
-        jsonResponse({ data: [], page: { next_cursor: null, has_more: false } }),
+        jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        }),
     });
     return (
       <StoryProviders>
@@ -68,8 +84,12 @@ export const WithAccessList: Story = {
     installFetchStub({
       "GET /users": () => jsonResponse(usersPage),
       "GET /teams": () => jsonResponse(teamsPage),
+      "GET /deals/d-1": deal,
       "GET /record-grants": () =>
-        jsonResponse({ data: [grant], page: { next_cursor: null, has_more: false } }),
+        jsonResponse({
+          data: [grant],
+          page: { next_cursor: null, has_more: false },
+        }),
     });
     return (
       <StoryProviders>
@@ -84,8 +104,12 @@ export const RevokeConfirmOpen: Story = {
     installFetchStub({
       "GET /users": () => jsonResponse(usersPage),
       "GET /teams": () => jsonResponse(teamsPage),
+      "GET /deals/d-1": deal,
       "GET /record-grants": () =>
-        jsonResponse({ data: [grant], page: { next_cursor: null, has_more: false } }),
+        jsonResponse({
+          data: [grant],
+          page: { next_cursor: null, has_more: false },
+        }),
     });
     return (
       <StoryProviders>

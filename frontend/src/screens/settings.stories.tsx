@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { PipelinesCard, SettingsScreen } from "./settings";
 import {
   installFetchStub,
@@ -89,6 +90,19 @@ export const AccountTab: Story = {
 
 export const AiTab: Story = {
   render: tab("ai", { "GET /me": me, "GET /passports": passports }),
+};
+
+// AS-2 kill-switch: PassportCard (on the AI tab) revoke is a hard DELETE
+// behind a ConfirmModal. Mirrors share.stories' revoke play() — render the
+// card with a live (non-revoked) passport, click Revoke, leave the confirm
+// modal open so the guarded state is what the render gate captures.
+export const PassportRevokeConfirm: Story = {
+  render: tab("ai", { "GET /me": me, "GET /passports": passports }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const revokeButton = await canvas.findByRole("button", { name: "Revoke" });
+    await userEvent.click(revokeButton);
+  },
 };
 
 export const DataTab: Story = {

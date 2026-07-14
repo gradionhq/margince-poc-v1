@@ -36,6 +36,7 @@ import {
   ListToolbar,
   useListQuery,
 } from "./listquery";
+import { ShareAction } from "./share";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
 // lead surface is accent-tinted, lead detail is its own screen (never
@@ -668,14 +669,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                       recordKey="lead"
                       onArchived={() => navigate({ screen: "leads" })}
                     />
-                    <Button
-                      small
-                      onClick={() =>
-                        navigate({ screen: "share", id: "lead", id2: lead.id })
-                      }
-                    >
-                      {t("record.share")}
-                    </Button>
+                    <ShareAction recordType="lead" recordId={lead.id} />
                   </>
                 )}
               </div>

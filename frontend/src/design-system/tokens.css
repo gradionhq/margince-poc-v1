@@ -31,6 +31,10 @@
 
   --online: #22c55e;
   --teal: #0e7490;
+  /* low-alpha teal fill — the read-access pill's tint, tonally distinct from
+   * the emerald --accentLight the write pill uses (record-share safety split,
+   * mirrors share.html's read/write pill colours). Derived from --teal. */
+  --tealLight: rgba(14, 116, 144, 0.1);
   --away: #fbbf24;
   --dnd: #ef4444;
   --bgRail: #13231d;
@@ -106,6 +110,10 @@
 
   --borderSubtle: #22352e;
   --borderStrong: #31463d;
+
+  /* higher alpha so the teal read-pill fill stays legible on the darker card
+   * surface (same light→dark bump --accentLight makes). --teal is unthemed. */
+  --tealLight: rgba(14, 116, 144, 0.28);
 
   --aiText: #9ba0f0;
   --textMeta: #8fa099;

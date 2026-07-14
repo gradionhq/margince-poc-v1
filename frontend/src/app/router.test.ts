@@ -7,7 +7,11 @@ import { parseHash, routeHash } from "./router";
 
 describe("parseHash", () => {
   it("parses a bare screen with no id", () => {
-    expect(parseHash("#/home")).toEqual({ screen: "home", id: undefined, id2: undefined });
+    expect(parseHash("#/home")).toEqual({
+      screen: "home",
+      id: undefined,
+      id2: undefined,
+    });
   });
 
   it("parses a two-segment route (screen + id), id2 undefined", () => {

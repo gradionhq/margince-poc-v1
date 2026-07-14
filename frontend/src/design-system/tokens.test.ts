@@ -32,6 +32,7 @@ const canonical: Record<string, string> = {
   "--borderStrong": "#D2D8D4",
   "--online": "#22c55e",
   "--teal": "#0E7490",
+  "--tealLight": "rgba(14,116,144,.1)",
   "--away": "#fbbf24",
   "--dnd": "#ef4444",
   "--bgRail": "#13231D",
