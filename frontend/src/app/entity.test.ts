@@ -29,15 +29,4 @@ describe("ENTITY registry", () => {
     expect(ENTITY.deal.route("d-1")).toEqual({ screen: "deals", id: "d-1" });
     expect(ENTITY.lead.route("l-1")).toEqual({ screen: "leads", id: "l-1" });
   });
-
-  it("names the display-name field per kind and carries a label key + icon", () => {
-    expect(ENTITY.person.displayNameField).toBe("full_name");
-    expect(ENTITY.organization.displayNameField).toBe("display_name");
-    expect(ENTITY.deal.displayNameField).toBe("name");
-    expect(ENTITY.lead.displayNameField).toBe("full_name");
-    for (const kind of ENTITY_KINDS) {
-      expect(ENTITY[kind].labelKey).toMatch(/^entity\./);
-      expect(typeof ENTITY[kind].icon).toBe("object"); // lucide forwardRef component
-    }
-  });
 });

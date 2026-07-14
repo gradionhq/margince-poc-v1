@@ -12,9 +12,6 @@ import { problemMessage } from "./common";
 // invalidated so the fresh entry appears without a reload. Server-side
 // validation is the truth — a 422 renders its RFC 7807 detail verbatim.
 
-// Back-compat alias for pre-registry callers; exactly EntityKind now.
-export type LinkedEntityType = EntityKind;
-
 type ActivityDraft = {
   kind: "note" | "task";
   subject: string;
@@ -33,7 +30,7 @@ const EMPTY_DRAFT: ActivityDraft = {
 export function LogActivity({
   entityType,
   entityId,
-}: Readonly<{ entityType: LinkedEntityType; entityId: string }>) {
+}: Readonly<{ entityType: EntityKind; entityId: string }>) {
   const t = useT();
   const formId = useId();
   const queryClient = useQueryClient();

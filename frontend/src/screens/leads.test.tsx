@@ -683,7 +683,7 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
   });
 });
 
-describe("LeadScreen — History tab (Task 9)", () => {
+describe("LeadScreen — History tab", () => {
   it("shows a History tab that lists record changes", async () => {
     stubFetchWithMe(async (url) => {
       if (url.includes("/history")) {

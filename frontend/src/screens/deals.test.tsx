@@ -550,7 +550,7 @@ describe("DealScreen offers panel", () => {
   });
 });
 
-describe("DealScreen — History tab (Task 8)", () => {
+describe("DealScreen — History tab", () => {
   it("shows a History tab that lists record changes", async () => {
     vi.stubGlobal("fetch", stubDealBackend(deal({}), []));
     render(<DealScreen id="d1" />);

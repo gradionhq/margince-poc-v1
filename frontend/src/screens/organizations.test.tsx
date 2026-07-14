@@ -737,7 +737,7 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
   });
 });
 
-describe("CompanyScreen — History tab (Task 7)", () => {
+describe("CompanyScreen — History tab", () => {
   it("shows a History tab that lists record changes", async () => {
     stubFetch(async (url) => {
       if (url.includes("/history")) {

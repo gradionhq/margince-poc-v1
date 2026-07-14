@@ -87,6 +87,35 @@ export function QueryStates({
   return <>{children}</>;
 }
 
+// The one "Load more" spelling for every keyset-paginated infinite query
+// (record history, field history, the settings audit log): a small button
+// that fetches the next page and disables itself mid-fetch, rendered only
+// while the query still reports another page.
+export function LoadMoreButton({
+  query,
+}: Readonly<{
+  query: Readonly<{
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => unknown;
+  }>;
+}>) {
+  const t = useT();
+  if (!query.hasNextPage) {
+    return null;
+  }
+  return (
+    <Button
+      small
+      disabled={query.isFetchingNextPage}
+      onClick={() => query.fetchNextPage()}
+      style={{ marginTop: 10 }}
+    >
+      {t("list.loadMore")}
+    </Button>
+  );
+}
+
 export function QueryGate<Data>({
   query,
   empty,

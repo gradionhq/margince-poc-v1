@@ -7,12 +7,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import type { EntityKind } from "../app/entity";
-import {
-  Avatar,
-  Button,
-  EmptyState,
-  SegmentedControl,
-} from "../design-system/atoms";
+import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
 import {
   EvidenceChip,
   FieldDiff,
@@ -23,7 +18,7 @@ import {
 } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryStates } from "./common";
+import { LoadMoreButton, problemMessage, QueryStates } from "./common";
 import {
   type ActorFacet,
   distinctFields,
@@ -67,10 +62,14 @@ export function useRecordHistory(
   });
 }
 
-// captured_by-style strings aren't on this projection — the endpoint already
-// splits actor_type/actor_id, so the Provenance maps straight off actor_type
-// (system/connector read as "agent": neither is a human typing).
-function provenanceOfEntry(entry: AuditHistoryEntry): Provenance {
+// captured_by-style strings aren't on this projection — both the record-level
+// and field-level history rows already split actor_type/actor_id, so the
+// Provenance maps straight off actor_type (system/connector read as "agent":
+// neither is a human typing). Structurally typed off just those two fields so
+// it serves AuditHistoryEntry and FieldHistoryEntry alike.
+function provenanceOfEntry(
+  entry: Pick<AuditHistoryEntry, "actor_type" | "actor_id">,
+): Provenance {
   return entry.actor_type === "human"
     ? { kind: "human" }
     : { kind: "agent", agent: entry.actor_id };
@@ -130,16 +129,7 @@ export function RecordHistory({
             <HistoryEntryRow key={entry.id} entry={entry} locale={locale} />
           ))}
         </ul>
-        {query.hasNextPage && (
-          <Button
-            small
-            disabled={query.isFetchingNextPage}
-            onClick={() => query.fetchNextPage()}
-            style={{ marginTop: 10 }}
-          >
-            {t("settings.loadMore")}
-          </Button>
-        )}
+        <LoadMoreButton query={query} />
       </>
     );
   }
@@ -193,19 +183,15 @@ export function useFieldHistory(
   });
 }
 
+// Every actor type gets a base ProvenanceTag (human/agent — system and
+// connector read as "agent", same as the record-level HistoryEntryRow and
+// settings.tsx's AuditLogRow), so no actor ever renders a blank attribution;
+// the passport/evidence chips layer on top only when the change carries them.
 function ChangeWho({ change }: Readonly<{ change: FieldHistoryEntry }>) {
-  const t = useT();
-  if (change.actor_type === "human") {
-    return (
-      <span className="who">
-        <Avatar name={change.actor_id} />
-        {t("history.typedByHuman")}
-      </span>
-    );
-  }
   const evidence = toEvidence(change.evidence);
   return (
     <span className="who">
+      <ProvenanceTag provenance={provenanceOfEntry(change)} />
       {change.passport_id && <PassportChip id={change.passport_id} />}
       {evidence && <EvidenceChip evidence={evidence} />}
     </span>
@@ -246,6 +232,21 @@ export function FieldHistoryTimeline({
   // field narrowing — a chip the user has already discovered stays clickable
   // even after a fetch that only returned one field's rows.
   const [fieldOptions, setFieldOptions] = useState<string[]>([]);
+
+  // This component isn't remounted on navigation between records of the same
+  // kind (App.tsx keys screens by route, not by record id), so without an
+  // explicit reset the accumulator above would keep carrying the previous
+  // record's field names onto the newly-viewed one. Adjusted during render
+  // (React's documented pattern for resetting state on a prop change) rather
+  // than in an Effect, so the reset always lands before the accumulate Effect
+  // below reads `fieldOptions`, even when the new record's data is already
+  // cached and ready on the very render the id changes.
+  const recordKey = `${kind}:${id}`;
+  const [resetFor, setResetFor] = useState(recordKey);
+  if (resetFor !== recordKey) {
+    setResetFor(recordKey);
+    setFieldOptions([]);
+  }
 
   const query = useFieldHistory(kind, id, {
     field: fieldFilter,
@@ -304,16 +305,7 @@ export function FieldHistoryTimeline({
         {groups.map((group) => (
           <FieldGroupSection key={group.field} group={group} />
         ))}
-        {query.hasNextPage && (
-          <Button
-            small
-            disabled={query.isFetchingNextPage}
-            onClick={() => query.fetchNextPage()}
-            style={{ marginTop: 10 }}
-          >
-            {t("settings.loadMore")}
-          </Button>
-        )}
+        <LoadMoreButton query={query} />
       </>
     );
   }

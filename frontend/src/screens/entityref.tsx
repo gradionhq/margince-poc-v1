@@ -14,10 +14,6 @@ import { navigate } from "../app/router";
 // while the name loads and whenever the lookup can't resolve one — so a
 // reference never renders blank or a dead link.
 
-// Back-compat alias: relationships.tsx (and any other pre-registry caller)
-// still imports this name; it is exactly EntityKind now.
-export type EntityRefKind = EntityKind;
-
 async function fetchEntityName(
   kind: EntityKind,
   id: string,

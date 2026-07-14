@@ -43,7 +43,6 @@ export const en = {
   "history.actorAll": "All",
   "history.actorHuman": "Human",
   "history.actorAgent": "Agent",
-  "history.typedByHuman": "typed by human",
   "history.tabChanges": "Changes",
   "history.tabFields": "Field history",
 
@@ -53,11 +52,6 @@ export const en = {
 
   "autonomy.auto": "auto-execute",
   "autonomy.confirm": "confirm-first",
-
-  "entity.person": "Person",
-  "entity.organization": "Company",
-  "entity.deal": "Deal",
-  "entity.lead": "Lead",
 
   "nav.home": "Home",
   "nav.contacts": "Contacts",
@@ -563,7 +557,6 @@ export const en = {
   "settings.auditExpand": "Show change detail",
   "settings.auditRule": "Authorization rule",
   "settings.auditOnBehalf": "on behalf of",
-  "settings.loadMore": "Load more",
   "settings.privacy": "Privacy inbox",
   "settings.privacySub": "data-subject requests with their statutory deadlines",
   "settings.due": "due {date}",

@@ -29,6 +29,7 @@ import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import {
   canConfigureAutomations,
+  LoadMoreButton,
   problemMessage,
   QueryGate,
   throwProblem,
@@ -806,7 +807,13 @@ function diffValue(
   key: string,
 ): string | null {
   const value = rec?.[key];
-  return value === null || value === undefined ? null : String(value);
+  if (value === null || value === undefined) {
+    return null;
+  }
+  // Object/array field values (custom-field JSON, links, ...) need JSON
+  // rendering — the bare String() coercion collapses them to "[object
+  // Object]", which is neither readable nor honest about what changed.
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
 // yyyy-mm-dd from a date input, read as a UTC instant: start-of-day for
@@ -1011,16 +1018,7 @@ export function AuditLogCard() {
             <AuditLogRow key={entry.id} entry={entry} />
           ))}
         </ul>
-        {query.hasNextPage && (
-          <Button
-            small
-            disabled={query.isFetchingNextPage}
-            onClick={() => query.fetchNextPage()}
-            style={{ marginTop: 10 }}
-          >
-            {t("settings.loadMore")}
-          </Button>
-        )}
+        <LoadMoreButton query={query} />
       </>
     );
   }

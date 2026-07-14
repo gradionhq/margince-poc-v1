@@ -6,6 +6,7 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import type { EntityKind } from "../app/entity";
 import {
   Badge,
   Button,
@@ -21,7 +22,7 @@ import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate, throwProblem } from "./common";
 import type { CreateField } from "./create";
 import { EditAction } from "./edit";
-import { EntityRef, type EntityRefKind } from "./entityref";
+import { EntityRef } from "./entityref";
 
 // The Relationships tab (P-5): the one surface a person/company 360 renders
 // its relationship edges through (employment, deal stakeholder, partner-of,
@@ -88,7 +89,7 @@ async function fetchRelationships(
 export function counterpartyRef(
   rel: Relationship,
   scope: RelationshipScope,
-): { kind: EntityRefKind; id: string } | null {
+): { kind: EntityKind; id: string } | null {
   if ("person_id" in scope) {
     if (rel.deal_id) {
       return { kind: "deal", id: rel.deal_id };
@@ -156,9 +157,9 @@ async function searchDealCandidates(q: string): Promise<Candidate[]> {
 // The entity kinds this tab can ever pick as a relationship's other side —
 // organization/person/deal, per the rel_*_shape CHECKs (migration 0007). A
 // lead has no relationship edges (it is promoted into a person first), so
-// this narrows EntityRefKind rather than switching on a kind the module can
+// this narrows EntityKind rather than switching on a kind the module can
 // never produce.
-type RelationshipEntity = Exclude<EntityRefKind, "lead">;
+type RelationshipEntity = Exclude<EntityKind, "lead">;
 
 function searchByEntity(
   entity: RelationshipEntity,
