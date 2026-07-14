@@ -127,9 +127,7 @@ describe("WorkspaceRail sign-out (AS-1)", () => {
     // so the auth gate re-probes → 401 → login. This assertion bites: it fails
     // if `onSuccess: () => queryClient.clear()` is removed from useLogout.
     await waitFor(() => expect(loggedOut).toBe(true));
-    await waitFor(() =>
-      expect(client.getQueryData(["me"])).toBeUndefined(),
-    );
+    await waitFor(() => expect(client.getQueryData(["me"])).toBeUndefined());
   });
 });
 

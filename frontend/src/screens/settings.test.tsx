@@ -103,9 +103,7 @@ describe("SettingsScreen RBAC surfaces", () => {
 // AS-2: the per-row Revoke kill-switch. A dedicated backend so the DELETE
 // call can be asserted precisely, and a second passport is served already
 // revoked to prove the button never shows on a row that's already dead.
-function passportsBackend(opts: {
-  onDelete?: (id: string) => void;
-}) {
+function passportsBackend(opts: { onDelete?: (id: string) => void }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
     const method = input instanceof Request ? input.method : "GET";
