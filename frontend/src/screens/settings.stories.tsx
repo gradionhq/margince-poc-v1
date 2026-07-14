@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { PipelinesCard, SettingsScreen } from "./settings";
+import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 import {
   emptyPage,
   installFetchStub,
@@ -129,6 +129,49 @@ export const Default: Story = {
     return (
       <StoryProviders>
         <SettingsScreen />
+      </StoryProviders>
+    );
+  },
+};
+
+// AuditLogCard (AO-3/AO-4): one entry carrying a full before/after diff plus
+// the agent attribution trail (passport, on-behalf-of human, authorization
+// rule, grounding evidence), collapsed by default — the expand toggle is
+// what a reviewer exercises to confirm the panel renders honestly.
+const auditLogPage = {
+  data: [
+    {
+      id: "al-1",
+      workspace_id: "w",
+      actor_type: "agent",
+      actor_id: "agent:sdr",
+      passport_id: "pp-9",
+      on_behalf_of: "u-1",
+      action: "update",
+      entity_type: "person",
+      entity_id: "p-1",
+      before: { stage: "new" },
+      after: { stage: "qualified" },
+      authorization_rule: "role:admin",
+      evidence: { snippet: "Reply confirmed budget", source: "email:msg-1" },
+      occurred_at: "2026-07-10T09:00:00Z",
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
+};
+
+export const AuditLog: Story = {
+  render: () => {
+    seedWorkspace();
+    installFetchStub({
+      "GET /me": () => jsonResponse(me(["admin"])),
+      "GET /audit-log": () => jsonResponse(auditLogPage),
+      "GET /people/p-1": () =>
+        jsonResponse({ id: "p-1", full_name: "Priya Shah" }),
+    });
+    return (
+      <StoryProviders>
+        <AuditLogCard />
       </StoryProviders>
     );
   },

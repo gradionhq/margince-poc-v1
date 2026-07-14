@@ -4,9 +4,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api, setWorkspaceSlug, workspaceSlug } from "../api/client";
 import type { components } from "../api/schema";
+import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import {
   Badge,
   Button,
@@ -16,7 +18,13 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
-import { AutonomyDot } from "../design-system/trust";
+import {
+  AutonomyDot,
+  type Evidence,
+  EvidenceChip,
+  FieldDiff,
+  PassportChip,
+} from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import {
@@ -28,6 +36,7 @@ import {
 } from "./common";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
+import { EntityRef } from "./entityref";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
 // /me (identity + effective roles), passports (mint + the metadata list,
@@ -766,30 +775,206 @@ function ConsentPurposesCard() {
   );
 }
 
-// AC-settings-16: the attributable audit view — live filters over
-// actor / entity_type / action, keyset "load more" via the page cursor.
-// Filtering restarts the cursor chain (a filter change is a new question).
-function AuditLogCard() {
+type AuditLogEntry = components["schemas"]["AuditLogEntry"];
+
+// The contract's `evidence` is an untyped free-form object — narrow it to
+// the trust vocabulary's Evidence before handing it to EvidenceChip, mirroring
+// history.tsx's toEvidence. Anything that doesn't carry both fields reads as
+// "no evidence" rather than guessed.
+function toAuditEvidence(raw: AuditLogEntry["evidence"]): Evidence | null {
+  if (
+    raw &&
+    typeof raw.snippet === "string" &&
+    typeof raw.source === "string"
+  ) {
+    return { snippet: raw.snippet, source: raw.source };
+  }
+  return null;
+}
+
+function isEntityKind(kind: string): kind is EntityKind {
+  return (ENTITY_KINDS as readonly string[]).includes(kind);
+}
+
+// The union of before/after keys for one row's diff — a key present on
+// neither side is never shown, so the panel only ever displays fields the
+// mutation actually touched.
+function diffKeys(
+  before: AuditLogEntry["before"],
+  after: AuditLogEntry["after"],
+): string[] {
+  const keys = new Set<string>();
+  for (const key of Object.keys(before ?? {})) {
+    keys.add(key);
+  }
+  for (const key of Object.keys(after ?? {})) {
+    keys.add(key);
+  }
+  return [...keys].sort();
+}
+
+// A key absent from an object (withheld/never set) reads the same as an
+// explicit null through FieldDiff's honest empty marker (created/cleared) —
+// this never fabricates a value for a key the side genuinely lacks.
+function diffValue(
+  rec: AuditLogEntry["before"] | AuditLogEntry["after"],
+  key: string,
+): string | null {
+  const value = rec?.[key];
+  return value === null || value === undefined ? null : String(value);
+}
+
+// yyyy-mm-dd from a date input, read as a UTC instant: start-of-day for
+// `from`, end-of-day for `to`, so the range is inclusive of the whole `to`
+// day rather than silently truncating it at midnight.
+function fromDateParam(date: string): string {
+  return new Date(`${date}T00:00:00.000Z`).toISOString();
+}
+function toDateParam(date: string): string {
+  return new Date(`${date}T23:59:59.999Z`).toISOString();
+}
+
+type AuditLogFilters = Readonly<{
+  actor: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  from: string;
+  to: string;
+}>;
+
+// Every filter is optional-if-blank, so this stays a flat spread rather than
+// a chain of conditionals in the queryFn itself (kept the query builder under
+// the cognitive-complexity gate).
+function auditLogQueryParams(
+  filters: AuditLogFilters,
+  pageParam: string | null,
+) {
+  const { actor, entityType, entityId, action, from, to } = filters;
+  return {
+    limit: 20,
+    ...(pageParam ? { cursor: pageParam } : {}),
+    ...(actor.trim() ? { actor: actor.trim() } : {}),
+    ...(entityType.trim() ? { entity_type: entityType.trim() } : {}),
+    ...(entityId.trim() ? { entity_id: entityId.trim() } : {}),
+    ...(action.trim() ? { action: action.trim() } : {}),
+    ...(from ? { from: fromDateParam(from) } : {}),
+    ...(to ? { to: toDateParam(to) } : {}),
+  };
+}
+
+function AuditLogRow({ entry }: Readonly<{ entry: AuditLogEntry }>) {
   const t = useT();
   const { locale } = useLocale();
+  const [expanded, setExpanded] = useState(false);
+  const keys = diffKeys(entry.before, entry.after);
+  const evidence = toAuditEvidence(entry.evidence);
+
+  return (
+    <li style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <span className="t-small">
+          {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
+        </span>
+        <span className="t-mono t-small">
+          {entry.actor_type}:{entry.actor_id}
+        </span>
+        <Badge tone="accent">{entry.action}</Badge>
+        {entry.entity_id && isEntityKind(entry.entity_type) ? (
+          <EntityRef kind={entry.entity_type} id={entry.entity_id} />
+        ) : (
+          <span className="t-mono t-small">
+            {entry.entity_type}
+            {entry.entity_id ? ` ${entry.entity_id}` : ""}
+          </span>
+        )}
+        <Button
+          small
+          aria-expanded={expanded}
+          aria-label={t("settings.auditExpand")}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <ChevronDown
+            aria-hidden
+            size={14}
+            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
+          />
+        </Button>
+      </div>
+      {expanded && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            paddingLeft: 12,
+            borderLeft: "2px solid var(--borderSubtle)",
+          }}
+        >
+          {keys.map((key) => (
+            <div
+              key={key}
+              style={{ display: "flex", gap: 8, alignItems: "center" }}
+            >
+              <span className="t-label">{key}</span>
+              <FieldDiff
+                oldValue={diffValue(entry.before, key)}
+                newValue={diffValue(entry.after, key)}
+              />
+            </div>
+          ))}
+          {entry.passport_id && <PassportChip id={entry.passport_id} />}
+          {entry.on_behalf_of && (
+            <span className="t-small">
+              {t("settings.auditOnBehalf")}{" "}
+              <span className="t-mono">{entry.on_behalf_of}</span>
+            </span>
+          )}
+          {entry.authorization_rule && (
+            <span className="t-small">
+              {t("settings.auditRule")}: {entry.authorization_rule}
+            </span>
+          )}
+          {evidence && <EvidenceChip evidence={evidence} />}
+        </div>
+      )}
+    </li>
+  );
+}
+
+// AC-settings-16: the attributable audit view — live filters over actor /
+// entity_type / entity_id / action / from / to, keyset "load more" via the
+// page cursor. Filtering restarts the cursor chain (a filter change is a new
+// question). Each row expands into the before/after diff plus the agent
+// attribution trail (passport, on-behalf-of human, authorization rule,
+// grounding evidence) — collapsed by default so the flat scan stays fast.
+export function AuditLogCard() {
+  const t = useT();
   const [actor, setActor] = useState("");
   const [entityType, setEntityType] = useState("");
+  const [entityId, setEntityId] = useState("");
   const [action, setAction] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const filterId = useId();
 
   const query = useInfiniteQuery({
-    queryKey: ["audit-log", actor, entityType, action],
+    queryKey: ["audit-log", actor, entityType, entityId, action, from, to],
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/audit-log", {
         params: {
-          query: {
-            limit: 20,
-            ...(pageParam ? { cursor: pageParam } : {}),
-            ...(actor.trim() ? { actor: actor.trim() } : {}),
-            ...(entityType.trim() ? { entity_type: entityType.trim() } : {}),
-            ...(action.trim() ? { action: action.trim() } : {}),
-          },
+          query: auditLogQueryParams(
+            { actor, entityType, entityId, action, from, to },
+            pageParam,
+          ),
         },
       });
       if (error) {
@@ -834,31 +1019,11 @@ function AuditLogCard() {
             listStyle: "none",
             display: "flex",
             flexDirection: "column",
-            gap: 6,
+            gap: 10,
           }}
         >
           {entries.map((entry) => (
-            <li
-              key={entry.id}
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <span className="t-small">
-                {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
-              </span>
-              <span className="t-mono t-small">
-                {entry.actor_type}:{entry.actor_id}
-              </span>
-              <Badge tone="accent">{entry.action}</Badge>
-              <span className="t-mono t-small">
-                {entry.entity_type}
-                {entry.entity_id ? ` ${entry.entity_id}` : ""}
-              </span>
-            </li>
+            <AuditLogRow key={entry.id} entry={entry} />
           ))}
         </ul>
         {query.hasNextPage && (
@@ -903,6 +1068,14 @@ function AuditLogCard() {
           value={entityType}
           onChange={(event) => setEntityType(event.target.value)}
         />
+        <span className="t-label" id={`${filterId}-entity-id`}>
+          {t("settings.auditEntityId")}
+        </span>
+        <TextInput
+          aria-labelledby={`${filterId}-entity-id`}
+          value={entityId}
+          onChange={(event) => setEntityId(event.target.value)}
+        />
         <span className="t-label" id={`${filterId}-action`}>
           {t("settings.auditAction")}
         </span>
@@ -910,6 +1083,24 @@ function AuditLogCard() {
           aria-labelledby={`${filterId}-action`}
           value={action}
           onChange={(event) => setAction(event.target.value)}
+        />
+        <span className="t-label" id={`${filterId}-from`}>
+          {t("settings.auditFrom")}
+        </span>
+        <TextInput
+          type="date"
+          aria-labelledby={`${filterId}-from`}
+          value={from}
+          onChange={(event) => setFrom(event.target.value)}
+        />
+        <span className="t-label" id={`${filterId}-to`}>
+          {t("settings.auditTo")}
+        </span>
+        <TextInput
+          type="date"
+          aria-labelledby={`${filterId}-to`}
+          value={to}
+          onChange={(event) => setTo(event.target.value)}
         />
       </div>
       {body}

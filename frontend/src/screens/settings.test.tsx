@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { PipelinesCard, SettingsScreen } from "./settings";
+import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 
 // The settings identity + passport surfaces through the RBAC primitives:
 // roles render as localized RoleBadges (a workspace-defined key stays raw),
@@ -189,6 +189,72 @@ describe("PipelinesCard", () => {
         win_probability: 15,
       }),
     );
+  });
+});
+
+// One audit-log entry carrying a full attribution trail (before/after diff,
+// agent passport, on-behalf-of human, authorization rule, and evidence) so
+// the expand panel has every field to render honestly.
+const auditEntry = {
+  id: "al-1",
+  workspace_id: "w",
+  actor_type: "agent",
+  actor_id: "agent:sdr",
+  passport_id: "pp-9",
+  on_behalf_of: "u-1",
+  action: "update",
+  entity_type: "person",
+  entity_id: "p-1",
+  before: { stage: "new" },
+  after: { stage: "qualified" },
+  authorization_rule: "role:admin",
+  evidence: { snippet: "Reply confirmed budget", source: "email:msg-1" },
+  occurred_at: "2026-07-10T09:00:00Z",
+};
+
+function auditLogBackend() {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/audit-log")) {
+      return jsonResponse({
+        data: [auditEntry],
+        page: { next_cursor: null, has_more: false },
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("AuditLogCard", () => {
+  it("keeps the before/after diff hidden until the row is expanded", async () => {
+    vi.stubGlobal("fetch", auditLogBackend());
+    render(<AuditLogCard />);
+    await screen.findByText("update");
+    // Hidden by default — the diff values never render before the toggle.
+    expect(screen.queryByText("new")).toBeNull();
+    expect(screen.queryByText("qualified")).toBeNull();
+    expect(screen.queryByText("pp-9")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show change detail" }),
+    );
+
+    expect(await screen.findByText("new")).toBeTruthy();
+    expect(screen.getByText("qualified")).toBeTruthy();
+    expect(screen.getByText("pp-9")).toBeTruthy();
+  });
+
+  it("renders from/to date filters alongside the existing text filters", async () => {
+    vi.stubGlobal("fetch", auditLogBackend());
+    render(<AuditLogCard />);
+    await screen.findByText("update");
+    const from = screen.getByLabelText("From") as HTMLInputElement;
+    const to = screen.getByLabelText("To") as HTMLInputElement;
+    expect(from.type).toBe("date");
+    expect(to.type).toBe("date");
   });
 });
 
