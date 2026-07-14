@@ -73,6 +73,7 @@ export type BoardDeal = {
   stalled?: boolean;
   singleThreaded?: boolean;
   staged?: boolean;
+  archived?: boolean;
 };
 
 export type BoardColumn = {
@@ -103,6 +104,7 @@ export function DealCard({
     "deal-card",
     deal.stalled ? "stalled" : "",
     deal.staged ? "staged" : "",
+    deal.archived ? "archived" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -121,6 +123,7 @@ export function DealCard({
           {formatMoney(deal.valueMinor, deal.currency, locale)}
         </span>
         <span>{formatDuration(deal.ageMs, locale)}</span>
+        {deal.archived && <Badge>{t("deal.archived")}</Badge>}
         {deal.stalled && <Badge tone="warn">{t("deal.stalled")}</Badge>}
         {deal.singleThreaded && (
           <Badge tone="danger">{t("deal.singleThreaded")}</Badge>
