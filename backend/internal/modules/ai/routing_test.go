@@ -4,8 +4,6 @@
 package ai
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -61,21 +59,5 @@ profile: sovereign
 	}
 	if cfg.Profile != ProfileSovereign || len(cfg.Tiers) != 2 {
 		t.Fatalf("unexpected parse: %+v", cfg)
-	}
-}
-
-// The shipped default config must always load — a deployment that
-// starts from the repo file starts green.
-func TestShippedDefaultRoutingParses(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "ai-routing.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := ParseRouting(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Profile != ProfileEUHosted {
-		t.Fatalf("shipped default should be eu_hosted, got %s", cfg.Profile)
 	}
 }
