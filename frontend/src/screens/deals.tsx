@@ -1,12 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useMemo, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type DragEvent,
+  type SetStateAction,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   Modal,
   SectionHeader,
   SegmentedControl,
@@ -20,9 +29,14 @@ import {
 } from "../design-system/composed";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDate, formatMoney } from "../format/format";
-import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { type Locale, useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
+import { ArchiveAction } from "./archive";
+import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
+import type { CreateField } from "./create";
 import { CreateAction } from "./create";
+import { EditAction } from "./edit";
+import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
 
@@ -36,6 +50,8 @@ import { activityTimeline } from "./people";
 
 type Deal = components["schemas"]["Deal"];
 type Stage = components["schemas"]["Stage"];
+type Pipeline = components["schemas"]["Pipeline"];
+type Offer = components["schemas"]["Offer"];
 
 function usePipeline() {
   return useQuery({
@@ -57,12 +73,56 @@ function usePipeline() {
   });
 }
 
-function useDeals() {
+// The plural read over ALL pipelines (D-9's selector) — a DISTINCT cache key
+// from usePipeline's ["pipelines"] (which DealScreen still reads as a single
+// Pipeline). Sharing the key would let the cache hold either shape depending
+// on which screen loaded last; ["pipelines","all"] still gets refreshed by
+// any mutation that invalidates the ["pipelines"] prefix (react-query prefix
+// matching), so freshness is preserved without a shape collision.
+function usePipelines() {
   return useQuery({
-    queryKey: ["deals"],
+    queryKey: ["pipelines", "all"],
     queryFn: async () => {
+      const { data, error } = await api.GET("/pipelines", {
+        params: { query: {} },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data.data;
+    },
+  });
+}
+
+type DealFilters = {
+  pipelineId: string;
+  sort: string;
+  includeArchived: boolean;
+  filters: Record<string, string>;
+};
+
+// The board is not paginated — limit:100 is an honest documented cap (a
+// live Kanban reads one screenful, not a keyset walk).
+function useDeals(f: DealFilters) {
+  return useQuery({
+    queryKey: ["deals", f],
+    queryFn: async () => {
+      const { filters } = f;
       const { data, error } = await api.GET("/deals", {
-        params: { query: { limit: 100 } },
+        params: {
+          query: {
+            limit: 100,
+            pipeline_id: f.pipelineId || undefined,
+            sort: f.sort || undefined,
+            include_archived: f.includeArchived || undefined,
+            stage_id: filters.stage_id || undefined,
+            owner_id: filters.owner_id || undefined,
+            organization_id: filters.organization_id || undefined,
+            stalled: filters.stalled === "true" ? true : undefined,
+            partner_sourced:
+              filters.partner_sourced === "true" ? true : undefined,
+          },
+        },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -82,7 +142,121 @@ function toBoardDeal(deal: Deal): BoardDeal {
     currency: deal.currency ?? "EUR",
     ageMs: Math.max(0, Date.now() - new Date(since).getTime()),
     stalled: deal.stalled ?? false,
+    archived: deal.archived_at != null,
   };
+}
+
+type UpdateDealRequest = components["schemas"]["UpdateDealRequest"];
+
+function forecastCategory(v: string): UpdateDealRequest["forecast_category"] {
+  switch (v) {
+    case "commit":
+      return "commit";
+    case "best_case":
+      return "best_case";
+    case "pipeline":
+      return "pipeline";
+    case "omitted":
+      return "omitted";
+    default:
+      return null;
+  }
+}
+
+// A blank scalar clears the field on the wire (explicit null); a set value
+// trims through. `amount` arrives in major units from the form, the wire is
+// minor units (deal creation applies the same conversion above).
+export function mapDealUpdate(
+  values: Record<string, unknown>,
+): UpdateDealRequest {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const amount = str(values.amount);
+  const owner = str(values.owner_id);
+  const forecast = str(values.forecast_category);
+  return {
+    name: str(values.name) || undefined,
+    amount_minor: amount ? Math.round(Number(amount) * 100) : null,
+    currency: str(values.currency) || undefined,
+    organization_id: str(values.organization_id) || null,
+    owner_id: owner || null,
+    partner_org_id: str(values.partner_org_id) || null,
+    forecast_category: forecastCategory(forecast),
+    expected_close_date: str(values.expected_close_date) || null,
+    wait_until: str(values.wait_until) || null,
+  };
+}
+
+const FORECAST_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "commit", label: "deal.fcCommit" },
+  { value: "best_case", label: "deal.fcBestCase" },
+  { value: "pipeline", label: "deal.fcPipeline" },
+  { value: "omitted", label: "deal.fcOmitted" },
+];
+
+export function dealEditFields(
+  t: (k: MessageKey) => string,
+  opts: {
+    orgs: { id: string; display_name: string }[];
+    me: string;
+    currentOwner: string | null;
+    currency: string;
+  },
+): CreateField[] {
+  const currencies = ["EUR", "USD", "GBP", "CHF"];
+  if (opts.currency && !currencies.includes(opts.currency)) {
+    currencies.unshift(opts.currency);
+  }
+  const ownerOptions = [
+    ...(opts.currentOwner && opts.currentOwner !== opts.me
+      ? [{ value: opts.currentOwner, label: t("deal.ownerKeep") }]
+      : []),
+    { value: opts.me, label: t("deal.ownerMe") },
+    { value: "", label: t("deal.ownerUnassign") },
+  ];
+  const orgOptions = opts.orgs.map((o) => ({
+    value: o.id,
+    label: o.display_name,
+  }));
+  return [
+    { key: "name", label: "create.dealName", required: true },
+    { key: "amount", label: "create.amount", type: "number" },
+    {
+      key: "currency",
+      label: "create.currency",
+      type: "select",
+      required: true,
+      options: currencies.map((c) => ({ value: c, label: c })),
+    },
+    {
+      key: "owner_id",
+      label: "deal.ownerMe",
+      type: "select",
+      options: ownerOptions,
+    },
+    {
+      key: "organization_id",
+      label: "create.organization",
+      type: "select",
+      options: orgOptions,
+    },
+    {
+      key: "partner_org_id",
+      label: "deal.partnerOrg",
+      type: "select",
+      options: orgOptions,
+    },
+    {
+      key: "forecast_category",
+      label: "deal.forecastCategory",
+      type: "select",
+      options: FORECAST_OPTIONS.map((o) => ({
+        value: o.value,
+        label: t(o.label),
+      })),
+    },
+    { key: "expected_close_date", label: "create.expectedClose", type: "date" },
+    { key: "wait_until", label: "deal.waitUntil", type: "date" },
+  ];
 }
 
 export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
@@ -114,6 +288,13 @@ export function buildColumns(stages: Stage[], deals: Deal[]): BoardColumn[] {
     });
 }
 
+const DEAL_SORT_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "name", label: "people.name" },
+  { value: "-created_at", label: "deals.sortNewest" },
+  { value: "expected_close_date", label: "deals.sortClose" },
+  { value: "-amount_minor", label: "deals.sortAmount" },
+];
+
 type PendingAdvance = {
   dealId: string;
   toStage: Stage;
@@ -132,13 +313,118 @@ function dealStatusTone(
   return undefined;
 }
 
+// Bespoke selects for the filters whose option labels are runtime strings
+// (pipeline/stage/org names) — FilterSpec's option label is a MessageKey, so
+// these three cannot go through ListToolbar (Gotcha 3). Each writes into the
+// same ListQuery.filters bag ListToolbar reads, deleting the key on a blank
+// choice so the two stay in one coherent query state.
+function setOrClearFilter(
+  setQuery: Dispatch<SetStateAction<ListQuery>>,
+  key: string,
+  value: string,
+) {
+  setQuery((q) => {
+    const next = { ...q.filters };
+    if (value) {
+      next[key] = value;
+    } else {
+      delete next[key];
+    }
+    return { ...q, filters: next };
+  });
+}
+
+function DealFilterSelects({
+  pipelines,
+  pipelineId,
+  setPipelineId,
+  stages,
+  orgs,
+  query,
+  setQuery,
+}: Readonly<{
+  pipelines: Pipeline[];
+  pipelineId: string;
+  setPipelineId: (id: string) => void;
+  stages: Stage[];
+  orgs: { id: string; display_name: string }[];
+  query: ListQuery;
+  setQuery: Dispatch<SetStateAction<ListQuery>>;
+}>) {
+  const t = useT();
+  return (
+    <div className="list-toolbar">
+      <select
+        className="input"
+        aria-label={t("deals.pipeline")}
+        value={pipelineId}
+        onChange={(event) => setPipelineId(event.target.value)}
+      >
+        <option value="">{t("deals.pipeline")}</option>
+        {pipelines.map((pipeline) => (
+          <option key={pipeline.id} value={pipeline.id}>
+            {pipeline.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label={t("deals.stage")}
+        value={query.filters.stage_id ?? ""}
+        onChange={(event) =>
+          setOrClearFilter(setQuery, "stage_id", event.target.value)
+        }
+      >
+        <option value="">{t("deals.filterStageAll")}</option>
+        {stages.map((stage) => (
+          <option key={stage.id} value={stage.id}>
+            {stage.name}
+          </option>
+        ))}
+      </select>
+      <select
+        className="input"
+        aria-label={t("create.organization")}
+        value={query.filters.organization_id ?? ""}
+        onChange={(event) =>
+          setOrClearFilter(setQuery, "organization_id", event.target.value)
+        }
+      >
+        <option value="">{t("deals.filterOrgAll")}</option>
+        {orgs.map((org) => (
+          <option key={org.id} value={org.id}>
+            {org.display_name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function DealsScreen({
   startCreating = false,
 }: Readonly<{ startCreating?: boolean }>) {
   const t = useT();
   const queryClient = useQueryClient();
-  const pipelineQuery = usePipeline();
-  const dealsQuery = useDeals();
+  const pipelinesQuery = usePipelines();
+  const meQuery = useMe();
+  const [pipelineId, setPipelineId] = useState("");
+  const [query, setQuery] = useState<ListQuery>({
+    q: "",
+    sort: "",
+    includeArchived: false,
+    filters: {},
+  });
+  const effectivePipeline: Pipeline | undefined =
+    pipelinesQuery.data?.find((p) => p.id === pipelineId) ??
+    pipelinesQuery.data?.find((p) => p.is_default) ??
+    pipelinesQuery.data?.[0];
+  const dealsQuery = useDeals({
+    pipelineId: effectivePipeline?.id ?? "",
+    sort: query.sort,
+    includeArchived: query.includeArchived,
+    filters: query.filters,
+  });
   const [view, setView] = useState<"board" | "table">("board");
   const [pending, setPending] = useState<PendingAdvance | null>(null);
   const [lostReason, setLostReason] = useState("");
@@ -175,7 +461,7 @@ export function DealsScreen({
     },
   });
 
-  const stages = pipelineQuery.data?.stages ?? [];
+  const stages = effectivePipeline?.stages ?? [];
 
   const orgsQuery = useQuery({
     queryKey: ["organizations"],
@@ -191,7 +477,7 @@ export function DealsScreen({
   });
 
   const createDeal = async (values: Record<string, string>) => {
-    const pipeline = pipelineQuery.data;
+    const pipeline = effectivePipeline;
     if (!pipeline) {
       throw new Error(problemMessage(null));
     }
@@ -330,24 +616,82 @@ export function DealsScreen({
           labels={{ board: t("deals.viewBoard"), table: t("deals.viewTable") }}
         />
       </div>
-      <QueryGate query={dealsQuery}>
-        {(page) => (
-          <QueryGate query={pipelineQuery}>
-            {(pipeline) => {
-              const columns = buildColumns(pipeline.stages ?? [], page.data);
-              return view === "board" ? (
-                <PipelineBoard
-                  columns={columns}
-                  onOpen={openDeal}
-                  cardDragHandlers={cardDragHandlers}
-                  columnDropHandlers={columnDropHandlers}
-                />
-              ) : (
-                <DealTable deals={page.data} stages={pipeline.stages ?? []} />
-              );
-            }}
-          </QueryGate>
-        )}
+      <DealFilterSelects
+        pipelines={pipelinesQuery.data ?? []}
+        pipelineId={effectivePipeline?.id ?? ""}
+        setPipelineId={(id) => {
+          // A stage belongs to one pipeline; switching pipeline strands any
+          // stage_id filter (its <select> blanks out but useDeals would still
+          // forward the old id and filter against a foreign stage → 0 rows).
+          setPipelineId(id);
+          setOrClearFilter(setQuery, "stage_id", "");
+        }}
+        stages={stages}
+        orgs={orgsQuery.data?.data ?? []}
+        query={query}
+        setQuery={setQuery}
+      />
+      <ListToolbar
+        query={query}
+        setQuery={setQuery}
+        searchable={false}
+        showArchivedToggle
+        sortOptions={DEAL_SORT_OPTIONS}
+        filters={[
+          {
+            kind: "select",
+            key: "stalled",
+            label: "deals.filterStalled",
+            placeholder: "deals.filterStalledAll",
+            options: [{ value: "true", label: "deals.filterStalled" }],
+          },
+          {
+            kind: "select",
+            key: "owner_id",
+            label: "deals.filterOwnerMe",
+            placeholder: "deals.filterOwnerAll",
+            options: [
+              {
+                value: meQuery.data?.user.id ?? "",
+                label: "deals.filterOwnerMe",
+              },
+            ],
+          },
+          {
+            kind: "select",
+            key: "partner_sourced",
+            label: "deals.filterPartnerSourced",
+            placeholder: "deals.filterPartnerAll",
+            options: [{ value: "true", label: "deals.filterPartnerSourced" }],
+          },
+        ]}
+      />
+      <QueryGate query={pipelinesQuery}>
+        {() =>
+          effectivePipeline ? (
+            <QueryGate query={dealsQuery}>
+              {(page) => {
+                const columns = buildColumns(
+                  effectivePipeline.stages ?? [],
+                  page.data,
+                );
+                return view === "board" ? (
+                  <PipelineBoard
+                    columns={columns}
+                    onOpen={openDeal}
+                    cardDragHandlers={cardDragHandlers}
+                    columnDropHandlers={columnDropHandlers}
+                  />
+                ) : (
+                  <DealTable
+                    deals={page.data}
+                    stages={effectivePipeline.stages ?? []}
+                  />
+                );
+              }}
+            </QueryGate>
+          ) : null
+        }
       </QueryGate>
       {advance.isError && (
         <p
@@ -521,6 +865,322 @@ function DealTable({
   );
 }
 
+// The FX-converted base-currency sub-line (D-14): shown only when the deal
+// carries a frozen fx_rate_to_base (won/lost deals freeze it at close; open
+// deals in a non-base currency may not have one yet). Prop-driven and
+// exported so a later Storybook task can render it without a live fetch.
+export function FxLine({
+  amountMinor,
+  fxRateToBase,
+  fxRateDate,
+  locale,
+}: Readonly<{
+  amountMinor: number;
+  fxRateToBase: string;
+  fxRateDate: string | null;
+  locale: Locale;
+}>) {
+  const t = useT();
+  const baseMinor = Math.round(amountMinor * Number(fxRateToBase));
+  return (
+    <p className="t-caption">
+      {t("deal.fxBase", {
+        value: formatMoney(baseMinor, "EUR", locale),
+        rate: fxRateToBase,
+        date: fxRateDate
+          ? formatDate(fxRateDate, locale, "Europe/Berlin")
+          : "—",
+      })}
+    </p>
+  );
+}
+
+// Reopens a won/lost deal back to an open-semantic stage — the same advance
+// mutation shape the board drag uses, with status:"open" forced. Split out
+// of DealBadges for the same readability reason as the other header actions.
+function ReopenAction({
+  dealId,
+  openStages,
+}: Readonly<{ dealId: string; openStages: Stage[] }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [stageId, setStageId] = useState<string | null>(null);
+  const reopen = useMutation({
+    mutationFn: async (toStageId: string) => {
+      const { data, error } = await api.POST("/deals/{id}/advance", {
+        params: { path: { id: dealId } },
+        body: { to_stage_id: toStageId, status: "open" },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: () => {
+      setOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["deal", dealId] });
+      queryClient.invalidateQueries({ queryKey: ["deals"] });
+    },
+  });
+  return (
+    <>
+      <Button small data-testid="reopen-open" onClick={() => setOpen(true)}>
+        {t("deal.reopen")}
+      </Button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        labelledBy="reopen-title"
+      >
+        <p className="t-sub" id="reopen-title">
+          {t("deal.reopenPick")}
+        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            margin: "10px 0",
+          }}
+        >
+          {openStages.map((s) => (
+            <Button
+              key={s.id}
+              small
+              aria-pressed={stageId === s.id}
+              data-testid={`reopen-stage-${s.id}`}
+              onClick={() => setStageId(s.id)}
+            >
+              {s.name}
+            </Button>
+          ))}
+        </div>
+        {reopen.isError && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {reopen.error instanceof Error ? reopen.error.message : null}
+          </p>
+        )}
+        <div className="actions">
+          <Button small onClick={() => setOpen(false)}>
+            {t("deals.cancel")}
+          </Button>
+          <Button
+            small
+            variant="primary"
+            data-testid="reopen-confirm"
+            disabled={!stageId || reopen.isPending}
+            onClick={() => {
+              if (stageId) {
+                reopen.mutate(stageId);
+              }
+            }}
+          >
+            {t("deal.reopenConfirm")}
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+// The status badge plus the edit/archive affordances — split out of
+// DealScreen's render so the record-view callback stays readably small. An
+// archived deal is read-only (no edit/merge/archive path exists server-side
+// for a non-live row), so it renders the status badge alone.
+function DealBadges({
+  deal,
+  orgs,
+  meId,
+  openStages,
+}: Readonly<{
+  deal: Deal;
+  orgs: { id: string; display_name: string }[];
+  meId: string;
+  openStages: Stage[];
+}>) {
+  const t = useT();
+  if (deal.archived_at != null) {
+    return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
+  }
+  return (
+    <>
+      <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
+      <EditAction
+        label={t("deal.edit")}
+        fields={dealEditFields(t, {
+          orgs,
+          me: meId,
+          currentOwner: deal.owner_id ?? null,
+          currency: deal.currency ?? "EUR",
+        })}
+        record={{
+          id: deal.id,
+          version: deal.version,
+          name: deal.name,
+          amount:
+            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
+          currency: deal.currency ?? "EUR",
+          owner_id: deal.owner_id ?? "",
+          organization_id: deal.organization_id ?? "",
+          partner_org_id: deal.partner_org_id ?? "",
+          forecast_category: deal.forecast_category ?? "",
+          expected_close_date: deal.expected_close_date ?? "",
+          wait_until: deal.wait_until ?? "",
+        }}
+        update={async (values) => {
+          const { data, error } = await api.PATCH("/deals/{id}", {
+            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+            body: mapDealUpdate(values),
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="deals"
+        recordKey="deal"
+      />
+      <ArchiveAction
+        label={t("deal.archive")}
+        confirmText={t("deal.archiveConfirm")}
+        archive={async () => {
+          const { data, error } = await api.DELETE("/deals/{id}", {
+            params: { path: { id: deal.id } },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="deals"
+        recordKey="deal"
+        onArchived={() => navigate({ screen: "deals" })}
+      />
+      {(deal.status === "won" || deal.status === "lost") && (
+        <ReopenAction dealId={deal.id} openStages={openStages} />
+      )}
+    </>
+  );
+}
+
+type Approval = components["schemas"]["Approval"];
+
+// The live 🟡 confirm-first staging queue for this deal — split out of
+// DealScreen's render for the same readability reason as DealBadges above.
+function DealApprovals({
+  approvals,
+  decide,
+}: Readonly<{
+  approvals: Approval[];
+  decide: (input: {
+    approvalId: string;
+    verdict: "approve" | "reject";
+  }) => void;
+}>) {
+  const t = useT();
+  if (approvals.length === 0) {
+    return null;
+  }
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <SectionHeader title={t("deal.pendingApprovals")} />
+      {approvals.map((approval) => (
+        <div
+          key={approval.id}
+          className="staging-card"
+          style={{ marginBottom: 8 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <AutonomyDot tier="confirm" />
+            <span className="t-label">{approval.kind}</span>
+            <span className="t-small">{approval.proposed_by}</span>
+          </div>
+          <div className="approval-gate">
+            <Button
+              variant="primary"
+              small
+              onClick={() =>
+                decide({ approvalId: approval.id, verdict: "approve" })
+              }
+            >
+              {t("trust.accept")}
+            </Button>
+            <Button
+              small
+              onClick={() =>
+                decide({ approvalId: approval.id, verdict: "reject" })
+              }
+            >
+              {t("trust.dismiss")}
+            </Button>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function OffersPanel({
+  offers,
+  creating,
+  locale,
+  onCreate,
+}: Readonly<{
+  offers: Offer[] | undefined;
+  creating: boolean;
+  locale: Locale;
+  onCreate: () => void;
+}>) {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="list-head">
+        <SectionHeader title={t("deal.offers")} />
+        <Button small disabled={creating} onClick={onCreate}>
+          {t("deal.newOffer")}
+        </Button>
+      </div>
+      {offers &&
+        (offers.length > 0 ? (
+          <DataTable
+            columns={[
+              {
+                key: "offer_number",
+                header: t("deal.offerNumber"),
+                render: (offer: Offer) => offer.offer_number,
+              },
+              {
+                key: "revision",
+                header: t("deal.offerRevision"),
+                render: (offer: Offer) => String(offer.revision),
+              },
+              {
+                key: "status",
+                header: t("lead.status"),
+                render: (offer: Offer) => <Badge>{offer.status}</Badge>,
+              },
+              {
+                key: "gross",
+                header: t("deals.amount"),
+                render: (offer: Offer) => (
+                  <span className="t-mono">
+                    {formatMoney(offer.gross_minor, offer.currency, locale)}
+                  </span>
+                ),
+              },
+            ]}
+            rows={offers}
+            rowKey={(offer) => offer.id}
+            onRowClick={(offer) => navigate({ screen: "offers", id: offer.id })}
+          />
+        ) : (
+          <EmptyState>{t("deal.offersEmpty")}</EmptyState>
+        ))}
+    </section>
+  );
+}
+
 export function DealScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -538,6 +1198,19 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const pipelineQuery = usePipeline();
+  const me = useMe();
+  const orgs = useQuery({
+    queryKey: ["organizations"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations", {
+        params: { query: { limit: 50 } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
   const stakeholdersQuery = useQuery({
     queryKey: ["deal-stakeholders", id],
     queryFn: async () => {
@@ -574,6 +1247,33 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
+  const offersQuery = useQuery({
+    queryKey: ["deal-offers", id],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/deals/{id}/offers", {
+        params: { path: { id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const createOffer = useMutation({
+    mutationFn: async (currency: string) => {
+      const { data, error } = await api.POST("/deals/{id}/offers", {
+        params: { path: { id } },
+        body: { currency, source: "manual" },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (offer: Offer) => {
+      navigate({ screen: "offers", id: offer.id });
+    },
+  });
   const decide = useMutation({
     mutationFn: async (input: {
       approvalId: string;
@@ -601,6 +1301,9 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
           const stages = [...(pipelineQuery.data?.stages ?? [])].sort(
             (a, b) => a.position - b.position,
           );
+          const openStages = stages.filter(
+            (stage) => stage.semantic === "open",
+          );
           const dealApprovals = (approvalsQuery.data?.data ?? []).filter(
             (approval) => approval.target_entity_id === deal.id,
           );
@@ -614,7 +1317,12 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               }
               zone="Europe/Berlin"
               badges={
-                <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
+                <DealBadges
+                  deal={deal}
+                  orgs={orgs.data?.data ?? []}
+                  meId={me.data?.user.id ?? ""}
+                  openStages={openStages}
+                />
               }
               timeline={
                 timelineQuery.isSuccess
@@ -622,6 +1330,14 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   : []
               }
             >
+              {deal.fx_rate_to_base != null && (
+                <FxLine
+                  amountMinor={deal.amount_minor ?? 0}
+                  fxRateToBase={deal.fx_rate_to_base}
+                  fxRateDate={deal.fx_rate_date ?? null}
+                  locale={locale}
+                />
+              )}
               {stages.length > 0 && (
                 <nav className="stepper" aria-label={t("deals.stage")}>
                   {stages.map((stage) => (
@@ -639,55 +1355,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   ))}
                 </nav>
               )}
-              {dealApprovals.length > 0 && (
-                <section className="card" style={{ marginBottom: 16 }}>
-                  <SectionHeader title={t("deal.pendingApprovals")} />
-                  {dealApprovals.map((approval) => (
-                    <div
-                      key={approval.id}
-                      className="staging-card"
-                      style={{ marginBottom: 8 }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <AutonomyDot tier="confirm" />
-                        <span className="t-label">{approval.kind}</span>
-                        <span className="t-small">{approval.proposed_by}</span>
-                      </div>
-                      <div className="approval-gate">
-                        <Button
-                          variant="primary"
-                          small
-                          onClick={() =>
-                            decide.mutate({
-                              approvalId: approval.id,
-                              verdict: "approve",
-                            })
-                          }
-                        >
-                          {t("trust.accept")}
-                        </Button>
-                        <Button
-                          small
-                          onClick={() =>
-                            decide.mutate({
-                              approvalId: approval.id,
-                              verdict: "reject",
-                            })
-                          }
-                        >
-                          {t("trust.dismiss")}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-              )}
+              <DealApprovals
+                approvals={dealApprovals}
+                decide={(input) => decide.mutate(input)}
+              />
               {stakeholdersQuery.isSuccess &&
                 stakeholdersQuery.data.data.length > 0 && (
                   <section className="card" style={{ marginBottom: 16 }}>
@@ -703,6 +1374,12 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     </div>
                   </section>
                 )}
+              <OffersPanel
+                offers={offersQuery.data?.data}
+                creating={createOffer.isPending}
+                locale={locale}
+                onCreate={() => createOffer.mutate(deal.currency ?? "EUR")}
+              />
               <LogActivity entityType="deal" entityId={deal.id} />
             </RecordView>
           );

@@ -42,6 +42,9 @@ export type FilterSpec =
       kind: "select";
       key: string;
       label: MessageKey;
+      // Shown as the empty (unset) option so the control names the filter at
+      // rest; re-selecting it clears the filter.
+      placeholder?: MessageKey;
       options: { value: string; label: MessageKey }[];
     }
   | { kind: "text"; key: string; label: MessageKey };
@@ -174,7 +177,9 @@ export function ListToolbar({
               setQuery({ ...query, filters: next });
             }}
           >
-            <option value="" />
+            <option value="">
+              {filter.placeholder ? t(filter.placeholder) : ""}
+            </option>
             {filter.options.map((option) => (
               <option key={option.value} value={option.value}>
                 {t(option.label)}

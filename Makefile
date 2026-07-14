@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install ai-routing-local check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
+.PHONY: help install ai-routing-local check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -87,7 +87,7 @@ dev:
 dev-stop:
 	@bash scripts/dev.sh stop "$(DEV_SLUG)" $(if $(filter 1,$(DROP)),--drop,)
 
-build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy clean tools tools-go infra-logs infra-reset:
+build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql tidy clean tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
@@ -130,11 +130,12 @@ icon-lint:
 	frontend/scripts/check-icon-glyph.sh
 
 ## seed-dev — create/refresh the demo workspace (demo-workspace,
-## admin@demo.test / demo-password-123) through the public API. Pure
-## client: the stack must be running (make dev). Idempotent; re-runs
-## log in instead of re-bootstrapping.
+## admin@demo.test / demo-password-123) through the public API, then seed
+## demo FX rates (SQL — fx_rate has no API). Stack must be running
+## (make dev). Idempotent; re-runs log in instead of re-bootstrapping.
 seed-dev:
 	./scripts/seed-dev.sh
+	$(MAKE) -C backend seed-dev-db
 
 ## verify-boot — prove a running, seeded stack end to end: seeded-admin
 ## login, seeded people visible over /v1, frontend production build.

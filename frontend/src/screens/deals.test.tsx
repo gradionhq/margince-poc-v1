@@ -8,10 +8,11 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { formatMoney } from "../format/format";
 import { LocaleProvider } from "../i18n";
-import { buildColumns, DealsScreen } from "./deals";
+import { buildColumns, DealScreen, DealsScreen, mapDealUpdate } from "./deals";
 
 // B-EP09.11 acceptance: board renders per-column sub-lines from the fetched
 // set, mixed-currency columns refuse a sum, the board↔table control keeps
@@ -22,6 +23,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.location.hash = "";
+  localStorage.clear();
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -44,6 +46,7 @@ const render = (ui: ReactNode) => {
 
 type Stage = components["schemas"]["Stage"];
 type Deal = components["schemas"]["Deal"];
+type Offer = components["schemas"]["Offer"];
 
 const stages: Stage[] = [
   {
@@ -93,6 +96,69 @@ function deal(overrides: Partial<Deal>): Deal {
   } as Deal;
 }
 
+function offer(overrides: Partial<Offer>): Offer {
+  return {
+    id: "o1",
+    workspace_id: "w",
+    deal_id: "d1",
+    offer_number: "OFF-0001",
+    revision: 1,
+    status: "draft",
+    currency: "EUR",
+    net_minor: 100_000,
+    tax_minor: 19_000,
+    gross_minor: 119_000,
+    ai_generated: false,
+    line_items: [],
+    source: "manual",
+    captured_by: "human:u1",
+    created_at: "2026-06-01T00:00:00Z",
+    updated_at: "2026-06-01T00:00:00Z",
+    ...overrides,
+  } as Offer;
+}
+
+function stubDealBackend(
+  onRecord: Deal,
+  offers: Offer[],
+  onCreateOffer?: (body: unknown) => void,
+) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : null;
+    const url = String(request ? request.url : input);
+    const method = request ? request.method : (init?.method ?? "GET");
+    if (url.includes("/pipelines")) {
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    }
+    if (method === "POST" && url.includes("/offers")) {
+      const body = request
+        ? await request.json()
+        : JSON.parse(String(init?.body));
+      onCreateOffer?.(body);
+      return jsonResponse(
+        offer({ id: "new-offer", currency: body.currency }),
+        201,
+      );
+    }
+    if (url.includes("/offers")) {
+      return jsonResponse({ data: offers, page: { next_cursor: null } });
+    }
+    if (url.includes("/stakeholders")) {
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    }
+    if (url.includes("/approvals")) {
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    }
+    if (url.includes("/activities")) {
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    }
+    if (url.includes("/deals/")) {
+      return jsonResponse(onRecord);
+    }
+    return jsonResponse({ data: [], page: { next_cursor: null } });
+  });
+}
+
 describe("buildColumns", () => {
   it("computes same-currency page-local sub-lines and hides mixed-currency sums", () => {
     const columns = buildColumns(stages, [
@@ -109,14 +175,24 @@ describe("buildColumns", () => {
   });
 });
 
-function stubBackend(deals: Deal[], onAdvance?: (body: unknown) => void) {
+function stubBackend(
+  deals: Deal[],
+  opts: {
+    onAdvance?: (body: unknown) => void;
+    single?: Deal;
+    onPatch?: (body: unknown, ifMatch: string | null) => void;
+    onDelete?: () => void;
+    onDealsUrl?: (url: string) => void;
+    pipelines?: components["schemas"]["Pipeline"][];
+  } = {},
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
     if (url.includes("/pipelines")) {
       return jsonResponse({
-        data: [
+        data: opts.pipelines ?? [
           {
             id: "pl",
             workspace_id: "w",
@@ -133,15 +209,77 @@ function stubBackend(deals: Deal[], onAdvance?: (body: unknown) => void) {
       const body = request
         ? await request.json()
         : JSON.parse(String(init?.body));
-      onAdvance?.(body);
+      opts.onAdvance?.(body);
       return jsonResponse(deal({ stage_id: body.to_stage_id }));
     }
+    if (method === "GET" && /\/deals\/[^/?]+(\?.*)?$/.test(url)) {
+      return jsonResponse(opts.single ?? deals[0]);
+    }
+    if (method === "PATCH") {
+      const body = request
+        ? await request.json()
+        : JSON.parse(String(init?.body));
+      const ifMatch = request ? request.headers.get("If-Match") : null;
+      opts.onPatch?.(body, ifMatch);
+      return jsonResponse(opts.single ?? deals[0]);
+    }
+    if (method === "DELETE") {
+      opts.onDelete?.();
+      return jsonResponse(opts.single ?? deals[0]);
+    }
+    if (url.includes("/me")) {
+      return jsonResponse({
+        user: {
+          id: "u-me",
+          email: "me@acme.test",
+          display_name: "Me",
+          workspace_id: "w",
+          timezone: "UTC",
+          status: "active",
+          is_agent: false,
+        },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (url.includes("/organizations")) {
+      return jsonResponse({
+        data: [{ id: "o1", display_name: "Acme" }],
+        page: { next_cursor: null },
+      });
+    }
     if (url.includes("/deals")) {
+      opts.onDealsUrl?.(url);
       return jsonResponse({ data: deals, page: { next_cursor: null } });
     }
     return jsonResponse({ data: [], page: { next_cursor: null } });
   });
 }
+
+describe("mapDealUpdate", () => {
+  it("rebuilds amount_minor from major units and nulls blanks", () => {
+    const body = mapDealUpdate({
+      name: "Fleet retrofit",
+      amount: "2120",
+      currency: "EUR",
+      organization_id: "",
+      owner_id: "u-me",
+      partner_org_id: "",
+      forecast_category: "commit",
+      expected_close_date: "2026-09-01",
+      wait_until: "",
+    });
+    expect(body.name).toBe("Fleet retrofit");
+    expect(body.amount_minor).toBe(212_000);
+    expect(body.currency).toBe("EUR");
+    expect(body.organization_id).toBeNull();
+    expect(body.owner_id).toBe("u-me");
+    expect(body.partner_org_id).toBeNull();
+    expect(body.forecast_category).toBe("commit");
+    expect(body.expected_close_date).toBe("2026-09-01");
+    expect(body.wait_until).toBeNull();
+  });
+});
 
 describe("DealsScreen", () => {
   it("board↔table swaps views over the same fetched set without a reload", async () => {
@@ -169,7 +307,7 @@ describe("DealsScreen", () => {
     const advances: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      stubBackend([deal({})], (body) => advances.push(body)),
+      stubBackend([deal({})], { onAdvance: (body) => advances.push(body) }),
     );
     render(<DealsScreen />);
     await waitFor(() =>
@@ -198,7 +336,7 @@ describe("DealsScreen", () => {
     const advances: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      stubBackend([deal({})], (body) => advances.push(body)),
+      stubBackend([deal({})], { onAdvance: (body) => advances.push(body) }),
     );
     render(<DealsScreen />);
     await waitFor(() =>
@@ -219,6 +357,180 @@ describe("DealsScreen", () => {
     expect((advances[0] as Record<string, unknown>).status).toBeUndefined();
     await waitFor(() =>
       expect(screen.getByText("Moved to Proposal")).toBeTruthy(),
+    );
+  });
+});
+
+describe("DealsScreen filters", () => {
+  it("switching pipeline scopes the deals fetch to that pipeline_id", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        onDealsUrl: (u) => urls.push(u),
+        pipelines: [
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages,
+          },
+          {
+            id: "pl2",
+            workspace_id: "w",
+            name: "Renewals",
+            is_default: false,
+            position: 1,
+            stages,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+    await userEvent.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("pipeline_id=pl2"))).toBe(true),
+    );
+  });
+
+  it("the stalled filter adds stalled=true to the deals query", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], { onDealsUrl: (u) => urls.push(u) }),
+    );
+    render(<DealsScreen />);
+    await screen.findByText("Fleet retrofit");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Stalled only"),
+      "true",
+    );
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes("stalled=true"))).toBe(true),
+    );
+  });
+});
+
+describe("DealScreen — edit, archive, FX line (A3)", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  it("edit prefills and PATCHes with If-Match", async () => {
+    const patches: { body: unknown; ifMatch: string | null }[] = [];
+    const d = deal({ id: "x", version: 4, owner_id: null });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onPatch: (b, h) => patches.push({ body: b, ifMatch: h }),
+      }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("edit-record"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches.length).toBe(1));
+    expect(patches[0].ifMatch).toBe("4");
+  });
+
+  it("shows the FX base line only when fx_rate_to_base is set", async () => {
+    const d = deal({
+      id: "x",
+      amount_minor: 100_000,
+      currency: "USD",
+      fx_rate_to_base: "0.92",
+      fx_rate_date: "2026-07-01",
+    });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="x" />);
+    await waitFor(() => expect(screen.getByText(/rate 0.92/)).toBeTruthy());
+  });
+
+  it("archive confirms then DELETEs", async () => {
+    let deleted = false;
+    const d = deal({ id: "x", version: 1 });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onDelete: () => {
+          deleted = true;
+        },
+      }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("archive-record"));
+    await userEvent.click(screen.getByTestId("archive-confirm"));
+    await waitFor(() => expect(deleted).toBe(true));
+  });
+});
+
+describe("DealScreen reopen", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  it("reopen is shown only for won/lost and advances to an open stage with status open", async () => {
+    const advances: unknown[] = [];
+    const d = deal({ id: "x", status: "won", stage_id: "s3" });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], { single: d, onAdvance: (b) => advances.push(b) }),
+    );
+    render(<DealScreen id="x" />);
+    await userEvent.click(await screen.findByTestId("reopen-open"));
+    await userEvent.click(screen.getByTestId("reopen-stage-s1"));
+    await userEvent.click(screen.getByTestId("reopen-confirm"));
+    await waitFor(() => expect(advances.length).toBe(1));
+    expect(advances[0]).toMatchObject({ to_stage_id: "s1", status: "open" });
+  });
+
+  it("reopen is not offered for an open deal", async () => {
+    const d = deal({ id: "y", status: "open" });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="y" />);
+    await screen.findByTestId("edit-record"); // 360 rendered
+    expect(screen.queryByTestId("reopen-open")).toBeNull();
+  });
+});
+
+describe("DealScreen offers panel", () => {
+  it("lists a deal's offers with status badge and formatted money", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubDealBackend(deal({}), [
+        offer({
+          id: "o1",
+          offer_number: "OFF-0001",
+          revision: 1,
+          status: "sent",
+          gross_minor: 119_000,
+          currency: "EUR",
+        }),
+      ]),
+    );
+    render(<DealScreen id="d1" />);
+    await waitFor(() => expect(screen.getByText("OFF-0001")).toBeTruthy());
+    expect(screen.getByText("sent")).toBeTruthy();
+    expect(screen.getByText(formatMoney(119_000, "EUR", "en"))).toBeTruthy();
+  });
+
+  it("creating a new offer posts a draft and navigates to it", async () => {
+    const creates: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubDealBackend(deal({ currency: "EUR" }), [], (body) =>
+        creates.push(body),
+      ),
+    );
+    render(<DealScreen id="d1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "New offer" }));
+    await waitFor(() => expect(creates).toHaveLength(1));
+    expect(creates[0]).toMatchObject({ currency: "EUR", source: "manual" });
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#/offers/new-offer"),
     );
   });
 });

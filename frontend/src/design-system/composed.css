@@ -102,6 +102,10 @@
   background: var(--aiLight);
   border: 1.5px dashed var(--aiMed);
 }
+.deal-card.archived {
+  opacity: 0.6;
+  border-style: dashed;
+}
 .deal-card .deal-name {
   font-size: 13.5px;
   font-weight: 600;
