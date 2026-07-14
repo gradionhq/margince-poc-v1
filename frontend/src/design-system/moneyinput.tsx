@@ -61,6 +61,10 @@ export function MoneyInput({
         setText((lastCommittedMinor.current / 100).toFixed(2));
         onBlur?.(event);
       }}
+      // type="number" defaults to step="1" — without this, a genuine
+      // 2-decimal amount like "12.34" fails the input's native constraint
+      // validation (:invalid, blocked form submission).
+      step="0.01"
       {...rest}
     />
   );

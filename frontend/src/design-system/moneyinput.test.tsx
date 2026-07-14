@@ -36,6 +36,17 @@ describe("MoneyInput", () => {
     expect(input.value).toBe("1500.00");
   });
 
+  it("sets step=0.01 so a 2-decimal amount passes native number validation", () => {
+    // type="number" defaults to step="1" — without an explicit step, the
+    // browser's own constraint validation rejects a genuine cents amount
+    // like "12.34" as invalid.
+    rtlRender(
+      <MoneyInput valueMinor={0} onChangeMinor={vi.fn()} aria-label="Amount" />,
+    );
+    const input = screen.getByLabelText("Amount") as HTMLInputElement;
+    expect(input.step).toBe("0.01");
+  });
+
   it("emits minor units for a whole-number major input", () => {
     const onChangeMinor = vi.fn();
     rtlRender(
