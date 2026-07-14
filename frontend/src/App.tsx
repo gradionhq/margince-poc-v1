@@ -14,6 +14,7 @@ import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
 import { ClientSurfaceScreen } from "./screens/client";
 import { useMe } from "./screens/common";
+import { CustomFieldsScreen } from "./screens/customfields";
 import { DealScreen, DealsScreen } from "./screens/deals";
 import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
@@ -71,7 +72,7 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
     case "ai":
       return <AskAiScreen />;
     case "settings":
-      return <SettingsScreen />;
+      return <SettingsScreen tab={id} />;
     // reached from Settings, not the rail — the 9-item rail is canonical
     case "products":
       return <ProductsScreen />;
@@ -81,6 +82,9 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
       return <OfferTemplatesScreen />;
     case "automations":
       return <AutomationsScreen />;
+    // also reached from Settings, not the rail (AC-custom-fields admin door)
+    case "custom-fields":
+      return <CustomFieldsScreen />;
     case "onboarding":
       return <OnboardingScreen />;
     case "client":

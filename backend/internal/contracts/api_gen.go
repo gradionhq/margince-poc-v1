@@ -4659,13 +4659,14 @@ type CreateLeadRequest struct {
 	FullName        *string              `json:"full_name,omitempty"`
 
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key for LinkedIn-captured leads.
-	LinkedinUrl  *string                  `json:"linkedin_url,omitempty"`
-	OwnerId      *openapi_types.UUID      `json:"owner_id,omitempty"`
-	Source       string                   `json:"source"`
-	SourceId     *string                  `json:"source_id,omitempty"`
-	SourceSystem *string                  `json:"source_system,omitempty"`
-	Status       *CreateLeadRequestStatus `json:"status,omitempty"`
-	Title        *string                  `json:"title,omitempty"`
+	LinkedinUrl          *string                  `json:"linkedin_url,omitempty"`
+	OwnerId              *openapi_types.UUID      `json:"owner_id,omitempty"`
+	Source               string                   `json:"source"`
+	SourceId             *string                  `json:"source_id,omitempty"`
+	SourceSystem         *string                  `json:"source_system,omitempty"`
+	Status               *CreateLeadRequestStatus `json:"status,omitempty"`
+	Title                *string                  `json:"title,omitempty"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
 // CreateLeadRequestStatus defines model for CreateLeadRequest.Status.
@@ -5321,8 +5322,9 @@ type Lead struct {
 	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
 	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
 	// not only overlay mode.
-	Version     *RowVersion        `json:"version,omitempty"`
-	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+	Version              *RowVersion            `json:"version,omitempty"`
+	WorkspaceId          openapi_types.UUID     `json:"workspace_id"`
+	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
 // LeadStatus defines model for Lead.Status.
@@ -6827,9 +6829,10 @@ type UpdateLeadRequest struct {
 	Score *int `json:"score,omitempty"`
 
 	// ScoreOverrideReason Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.
-	ScoreOverrideReason *string                  `json:"score_override_reason,omitempty"`
-	Status              *UpdateLeadRequestStatus `json:"status,omitempty"`
-	Title               *string                  `json:"title,omitempty"`
+	ScoreOverrideReason  *string                  `json:"score_override_reason,omitempty"`
+	Status               *UpdateLeadRequestStatus `json:"status,omitempty"`
+	Title                *string                  `json:"title,omitempty"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
 // UpdateLeadRequestStatus defines model for UpdateLeadRequest.Status.
@@ -9386,6 +9389,222 @@ func (a CreateDealRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for CreateLeadRequest. Returns the specified
+// element and whether it was found
+func (a CreateLeadRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for CreateLeadRequest
+func (a *CreateLeadRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for CreateLeadRequest to handle AdditionalProperties
+func (a *CreateLeadRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["candidate_org_key"]; found {
+		err = json.Unmarshal(raw, &a.CandidateOrgKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'candidate_org_key': %w", err)
+		}
+		delete(object, "candidate_org_key")
+	}
+
+	if raw, found := object["company_name"]; found {
+		err = json.Unmarshal(raw, &a.CompanyName)
+		if err != nil {
+			return fmt.Errorf("error reading 'company_name': %w", err)
+		}
+		delete(object, "company_name")
+	}
+
+	if raw, found := object["email"]; found {
+		err = json.Unmarshal(raw, &a.Email)
+		if err != nil {
+			return fmt.Errorf("error reading 'email': %w", err)
+		}
+		delete(object, "email")
+	}
+
+	if raw, found := object["full_name"]; found {
+		err = json.Unmarshal(raw, &a.FullName)
+		if err != nil {
+			return fmt.Errorf("error reading 'full_name': %w", err)
+		}
+		delete(object, "full_name")
+	}
+
+	if raw, found := object["linkedin_url"]; found {
+		err = json.Unmarshal(raw, &a.LinkedinUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'linkedin_url': %w", err)
+		}
+		delete(object, "linkedin_url")
+	}
+
+	if raw, found := object["owner_id"]; found {
+		err = json.Unmarshal(raw, &a.OwnerId)
+		if err != nil {
+			return fmt.Errorf("error reading 'owner_id': %w", err)
+		}
+		delete(object, "owner_id")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["source_id"]; found {
+		err = json.Unmarshal(raw, &a.SourceId)
+		if err != nil {
+			return fmt.Errorf("error reading 'source_id': %w", err)
+		}
+		delete(object, "source_id")
+	}
+
+	if raw, found := object["source_system"]; found {
+		err = json.Unmarshal(raw, &a.SourceSystem)
+		if err != nil {
+			return fmt.Errorf("error reading 'source_system': %w", err)
+		}
+		delete(object, "source_system")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for CreateLeadRequest to handle AdditionalProperties
+func (a CreateLeadRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.CandidateOrgKey != nil {
+		object["candidate_org_key"], err = json.Marshal(a.CandidateOrgKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'candidate_org_key': %w", err)
+		}
+	}
+
+	if a.CompanyName != nil {
+		object["company_name"], err = json.Marshal(a.CompanyName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'company_name': %w", err)
+		}
+	}
+
+	if a.Email != nil {
+		object["email"], err = json.Marshal(a.Email)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'email': %w", err)
+		}
+	}
+
+	if a.FullName != nil {
+		object["full_name"], err = json.Marshal(a.FullName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'full_name': %w", err)
+		}
+	}
+
+	if a.LinkedinUrl != nil {
+		object["linkedin_url"], err = json.Marshal(a.LinkedinUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'linkedin_url': %w", err)
+		}
+	}
+
+	if a.OwnerId != nil {
+		object["owner_id"], err = json.Marshal(a.OwnerId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.SourceId != nil {
+		object["source_id"], err = json.Marshal(a.SourceId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'source_id': %w", err)
+		}
+	}
+
+	if a.SourceSystem != nil {
+		object["source_system"], err = json.Marshal(a.SourceSystem)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'source_system': %w", err)
+		}
+	}
+
+	if a.Status != nil {
+		object["status"], err = json.Marshal(a.Status)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'status': %w", err)
+		}
+	}
+
+	if a.Title != nil {
+		object["title"], err = json.Marshal(a.Title)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'title': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // Getter for additional properties for CreateOfferRequest. Returns the specified
 // element and whether it was found
 func (a CreateOfferRequest) Get(fieldName string) (value interface{}, found bool) {
@@ -10554,6 +10773,403 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 		object["wait_until"], err = json.Marshal(a.WaitUntil)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_until': %w", err)
+		}
+	}
+
+	object["workspace_id"], err = json.Marshal(a.WorkspaceId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'workspace_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for Lead. Returns the specified
+// element and whether it was found
+func (a Lead) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for Lead
+func (a *Lead) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for Lead to handle AdditionalProperties
+func (a *Lead) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["archived_at"]; found {
+		err = json.Unmarshal(raw, &a.ArchivedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'archived_at': %w", err)
+		}
+		delete(object, "archived_at")
+	}
+
+	if raw, found := object["candidate_org_key"]; found {
+		err = json.Unmarshal(raw, &a.CandidateOrgKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'candidate_org_key': %w", err)
+		}
+		delete(object, "candidate_org_key")
+	}
+
+	if raw, found := object["captured_by"]; found {
+		err = json.Unmarshal(raw, &a.CapturedBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'captured_by': %w", err)
+		}
+		delete(object, "captured_by")
+	}
+
+	if raw, found := object["company_name"]; found {
+		err = json.Unmarshal(raw, &a.CompanyName)
+		if err != nil {
+			return fmt.Errorf("error reading 'company_name': %w", err)
+		}
+		delete(object, "company_name")
+	}
+
+	if raw, found := object["created_at"]; found {
+		err = json.Unmarshal(raw, &a.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'created_at': %w", err)
+		}
+		delete(object, "created_at")
+	}
+
+	if raw, found := object["email"]; found {
+		err = json.Unmarshal(raw, &a.Email)
+		if err != nil {
+			return fmt.Errorf("error reading 'email': %w", err)
+		}
+		delete(object, "email")
+	}
+
+	if raw, found := object["full_name"]; found {
+		err = json.Unmarshal(raw, &a.FullName)
+		if err != nil {
+			return fmt.Errorf("error reading 'full_name': %w", err)
+		}
+		delete(object, "full_name")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["linkedin_url"]; found {
+		err = json.Unmarshal(raw, &a.LinkedinUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'linkedin_url': %w", err)
+		}
+		delete(object, "linkedin_url")
+	}
+
+	if raw, found := object["owner_id"]; found {
+		err = json.Unmarshal(raw, &a.OwnerId)
+		if err != nil {
+			return fmt.Errorf("error reading 'owner_id': %w", err)
+		}
+		delete(object, "owner_id")
+	}
+
+	if raw, found := object["promoted_at"]; found {
+		err = json.Unmarshal(raw, &a.PromotedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'promoted_at': %w", err)
+		}
+		delete(object, "promoted_at")
+	}
+
+	if raw, found := object["promoted_person_id"]; found {
+		err = json.Unmarshal(raw, &a.PromotedPersonId)
+		if err != nil {
+			return fmt.Errorf("error reading 'promoted_person_id': %w", err)
+		}
+		delete(object, "promoted_person_id")
+	}
+
+	if raw, found := object["raw"]; found {
+		err = json.Unmarshal(raw, &a.Raw)
+		if err != nil {
+			return fmt.Errorf("error reading 'raw': %w", err)
+		}
+		delete(object, "raw")
+	}
+
+	if raw, found := object["score"]; found {
+		err = json.Unmarshal(raw, &a.Score)
+		if err != nil {
+			return fmt.Errorf("error reading 'score': %w", err)
+		}
+		delete(object, "score")
+	}
+
+	if raw, found := object["score_computed"]; found {
+		err = json.Unmarshal(raw, &a.ScoreComputed)
+		if err != nil {
+			return fmt.Errorf("error reading 'score_computed': %w", err)
+		}
+		delete(object, "score_computed")
+	}
+
+	if raw, found := object["score_override_reason"]; found {
+		err = json.Unmarshal(raw, &a.ScoreOverrideReason)
+		if err != nil {
+			return fmt.Errorf("error reading 'score_override_reason': %w", err)
+		}
+		delete(object, "score_override_reason")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["source_id"]; found {
+		err = json.Unmarshal(raw, &a.SourceId)
+		if err != nil {
+			return fmt.Errorf("error reading 'source_id': %w", err)
+		}
+		delete(object, "source_id")
+	}
+
+	if raw, found := object["source_system"]; found {
+		err = json.Unmarshal(raw, &a.SourceSystem)
+		if err != nil {
+			return fmt.Errorf("error reading 'source_system': %w", err)
+		}
+		delete(object, "source_system")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["updated_at"]; found {
+		err = json.Unmarshal(raw, &a.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'updated_at': %w", err)
+		}
+		delete(object, "updated_at")
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &a.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+		delete(object, "version")
+	}
+
+	if raw, found := object["workspace_id"]; found {
+		err = json.Unmarshal(raw, &a.WorkspaceId)
+		if err != nil {
+			return fmt.Errorf("error reading 'workspace_id': %w", err)
+		}
+		delete(object, "workspace_id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for Lead to handle AdditionalProperties
+func (a Lead) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.ArchivedAt != nil {
+		object["archived_at"], err = json.Marshal(a.ArchivedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'archived_at': %w", err)
+		}
+	}
+
+	if a.CandidateOrgKey != nil {
+		object["candidate_org_key"], err = json.Marshal(a.CandidateOrgKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'candidate_org_key': %w", err)
+		}
+	}
+
+	object["captured_by"], err = json.Marshal(a.CapturedBy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
+	}
+
+	if a.CompanyName != nil {
+		object["company_name"], err = json.Marshal(a.CompanyName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'company_name': %w", err)
+		}
+	}
+
+	object["created_at"], err = json.Marshal(a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+	}
+
+	if a.Email != nil {
+		object["email"], err = json.Marshal(a.Email)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'email': %w", err)
+		}
+	}
+
+	if a.FullName != nil {
+		object["full_name"], err = json.Marshal(a.FullName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'full_name': %w", err)
+		}
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	if a.LinkedinUrl != nil {
+		object["linkedin_url"], err = json.Marshal(a.LinkedinUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'linkedin_url': %w", err)
+		}
+	}
+
+	if a.OwnerId != nil {
+		object["owner_id"], err = json.Marshal(a.OwnerId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.PromotedAt != nil {
+		object["promoted_at"], err = json.Marshal(a.PromotedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'promoted_at': %w", err)
+		}
+	}
+
+	if a.PromotedPersonId != nil {
+		object["promoted_person_id"], err = json.Marshal(a.PromotedPersonId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'promoted_person_id': %w", err)
+		}
+	}
+
+	if a.Raw != nil {
+		object["raw"], err = json.Marshal(a.Raw)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'raw': %w", err)
+		}
+	}
+
+	object["score"], err = json.Marshal(a.Score)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'score': %w", err)
+	}
+
+	if a.ScoreComputed != nil {
+		object["score_computed"], err = json.Marshal(a.ScoreComputed)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'score_computed': %w", err)
+		}
+	}
+
+	if a.ScoreOverrideReason != nil {
+		object["score_override_reason"], err = json.Marshal(a.ScoreOverrideReason)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'score_override_reason': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.SourceId != nil {
+		object["source_id"], err = json.Marshal(a.SourceId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'source_id': %w", err)
+		}
+	}
+
+	if a.SourceSystem != nil {
+		object["source_system"], err = json.Marshal(a.SourceSystem)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'source_system': %w", err)
+		}
+	}
+
+	object["status"], err = json.Marshal(a.Status)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	if a.Title != nil {
+		object["title"], err = json.Marshal(a.Title)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'title': %w", err)
+		}
+	}
+
+	object["updated_at"], err = json.Marshal(a.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'updated_at': %w", err)
+	}
+
+	if a.Version != nil {
+		object["version"], err = json.Marshal(a.Version)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'version': %w", err)
 		}
 	}
 
@@ -12304,6 +12920,194 @@ func (a UpdateDealRequest) MarshalJSON() ([]byte, error) {
 		object["wait_until"], err = json.Marshal(a.WaitUntil)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'wait_until': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for UpdateLeadRequest. Returns the specified
+// element and whether it was found
+func (a UpdateLeadRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for UpdateLeadRequest
+func (a *UpdateLeadRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for UpdateLeadRequest to handle AdditionalProperties
+func (a *UpdateLeadRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["candidate_org_key"]; found {
+		err = json.Unmarshal(raw, &a.CandidateOrgKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'candidate_org_key': %w", err)
+		}
+		delete(object, "candidate_org_key")
+	}
+
+	if raw, found := object["company_name"]; found {
+		err = json.Unmarshal(raw, &a.CompanyName)
+		if err != nil {
+			return fmt.Errorf("error reading 'company_name': %w", err)
+		}
+		delete(object, "company_name")
+	}
+
+	if raw, found := object["email"]; found {
+		err = json.Unmarshal(raw, &a.Email)
+		if err != nil {
+			return fmt.Errorf("error reading 'email': %w", err)
+		}
+		delete(object, "email")
+	}
+
+	if raw, found := object["full_name"]; found {
+		err = json.Unmarshal(raw, &a.FullName)
+		if err != nil {
+			return fmt.Errorf("error reading 'full_name': %w", err)
+		}
+		delete(object, "full_name")
+	}
+
+	if raw, found := object["owner_id"]; found {
+		err = json.Unmarshal(raw, &a.OwnerId)
+		if err != nil {
+			return fmt.Errorf("error reading 'owner_id': %w", err)
+		}
+		delete(object, "owner_id")
+	}
+
+	if raw, found := object["score"]; found {
+		err = json.Unmarshal(raw, &a.Score)
+		if err != nil {
+			return fmt.Errorf("error reading 'score': %w", err)
+		}
+		delete(object, "score")
+	}
+
+	if raw, found := object["score_override_reason"]; found {
+		err = json.Unmarshal(raw, &a.ScoreOverrideReason)
+		if err != nil {
+			return fmt.Errorf("error reading 'score_override_reason': %w", err)
+		}
+		delete(object, "score_override_reason")
+	}
+
+	if raw, found := object["status"]; found {
+		err = json.Unmarshal(raw, &a.Status)
+		if err != nil {
+			return fmt.Errorf("error reading 'status': %w", err)
+		}
+		delete(object, "status")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for UpdateLeadRequest to handle AdditionalProperties
+func (a UpdateLeadRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.CandidateOrgKey != nil {
+		object["candidate_org_key"], err = json.Marshal(a.CandidateOrgKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'candidate_org_key': %w", err)
+		}
+	}
+
+	if a.CompanyName != nil {
+		object["company_name"], err = json.Marshal(a.CompanyName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'company_name': %w", err)
+		}
+	}
+
+	if a.Email != nil {
+		object["email"], err = json.Marshal(a.Email)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'email': %w", err)
+		}
+	}
+
+	if a.FullName != nil {
+		object["full_name"], err = json.Marshal(a.FullName)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'full_name': %w", err)
+		}
+	}
+
+	if a.OwnerId != nil {
+		object["owner_id"], err = json.Marshal(a.OwnerId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.Score != nil {
+		object["score"], err = json.Marshal(a.Score)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'score': %w", err)
+		}
+	}
+
+	if a.ScoreOverrideReason != nil {
+		object["score_override_reason"], err = json.Marshal(a.ScoreOverrideReason)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'score_override_reason': %w", err)
+		}
+	}
+
+	if a.Status != nil {
+		object["status"], err = json.Marshal(a.Status)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'status': %w", err)
+		}
+	}
+
+	if a.Title != nil {
+		object["title"], err = json.Marshal(a.Title)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'title': %w", err)
 		}
 	}
 

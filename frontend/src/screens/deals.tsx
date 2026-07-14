@@ -35,6 +35,8 @@ import { ArchiveAction } from "./archive";
 import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
 import type { CreateField } from "./create";
 import { CreateAction } from "./create";
+import { CustomFieldsCard } from "./customfields.card";
+import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
@@ -405,6 +407,7 @@ export function DealsScreen({
   startCreating = false,
 }: Readonly<{ startCreating?: boolean }>) {
   const t = useT();
+  const cf = useObjectCustomFields("deal");
   const queryClient = useQueryClient();
   const pipelinesQuery = usePipelines();
   const meQuery = useMe();
@@ -493,6 +496,7 @@ export function DealsScreen({
         organization_id: values.organization_id || null,
         expected_close_date: values.expected_close_date || null,
         source: "manual",
+        ...cf.toBody(values),
       },
     });
     if (error) {
@@ -604,6 +608,7 @@ export function DealsScreen({
                 label: "create.expectedClose",
                 type: "date",
               },
+              ...cf.formFields,
             ]}
           />
         )}
@@ -1000,6 +1005,7 @@ function DealBadges({
   openStages: Stage[];
 }>) {
   const t = useT();
+  const cf = useObjectCustomFields("deal");
   if (deal.archived_at != null) {
     return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
   }
@@ -1008,12 +1014,15 @@ function DealBadges({
       <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
       <EditAction
         label={t("deal.edit")}
-        fields={dealEditFields(t, {
-          orgs,
-          me: meId,
-          currentOwner: deal.owner_id ?? null,
-          currency: deal.currency ?? "EUR",
-        })}
+        fields={[
+          ...dealEditFields(t, {
+            orgs,
+            me: meId,
+            currentOwner: deal.owner_id ?? null,
+            currency: deal.currency ?? "EUR",
+          }),
+          ...cf.formFields,
+        ]}
         record={{
           id: deal.id,
           version: deal.version,
@@ -1027,11 +1036,12 @@ function DealBadges({
           forecast_category: deal.forecast_category ?? "",
           expected_close_date: deal.expected_close_date ?? "",
           wait_until: deal.wait_until ?? "",
+          ...cf.recordSlice(deal),
         }}
         update={async (values) => {
           const { data, error } = await api.PATCH("/deals/{id}", {
             params: { path: { id: deal.id }, ...ifMatch(deal.version) },
-            body: mapDealUpdate(values),
+            body: { ...mapDealUpdate(values), ...cf.toBody(values) },
           });
           if (error) {
             throwProblem(error);
@@ -1380,6 +1390,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                 locale={locale}
                 onCreate={() => createOffer.mutate(deal.currency ?? "EUR")}
               />
+              <CustomFieldsCard object="deal" record={deal} />
               <LogActivity entityType="deal" entityId={deal.id} />
             </RecordView>
           );

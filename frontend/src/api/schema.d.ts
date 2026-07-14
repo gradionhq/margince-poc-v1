@@ -3924,6 +3924,8 @@ export interface components {
             updated_at: string;
             /** Format: date-time */
             archived_at?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         CreateLeadRequest: {
             full_name?: string | null;
@@ -3944,6 +3946,8 @@ export interface components {
             source_system?: string | null;
             source_id?: string | null;
             source: string;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * @description Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
@@ -3967,6 +3971,8 @@ export interface components {
             score_override_reason?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
+        } & {
+            [key: string]: unknown;
         };
         PromoteLeadRequest: {
             /**

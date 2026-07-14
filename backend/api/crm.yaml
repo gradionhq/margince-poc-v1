@@ -6622,6 +6622,17 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+      x-extension-note: |
+        additionalProperties:true admits client custom fields (data-model §9 — custom fields
+        are real columns added by migration, surfaced additively through this same contract).
+        Because these extra keys carry no per-key schema, writes are drop-on-mismatch: a key
+        that names no ACTIVE custom column (unknown or retired), or whose value shape does
+        not match the column's declared type, is silently excluded from the write — the
+        request still succeeds. A picklist value outside the declared options is the one
+        typed refusal (422, the column's CHECK constraint). Reads surface only ACTIVE
+        columns; a retired field's stored values are preserved but leave the payload.
 
     CreateLeadRequest:
       type: object
@@ -6638,6 +6649,8 @@ components:
         source_system: { type: [string, 'null'] }
         source_id: { type: [string, 'null'] }
         source: { type: string }
+      additionalProperties: true
+      x-extension: true
 
     UpdateLeadRequest:
       type: object
@@ -6656,6 +6669,8 @@ components:
         score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.' }
         score_override_reason: { type: [string, 'null'], minLength: 1, description: 'Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.' }
         owner_id: { type: [string, 'null'], format: uuid }
+      additionalProperties: true
+      x-extension: true
 
     PromoteLeadRequest:
       type: object

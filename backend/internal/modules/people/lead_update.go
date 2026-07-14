@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 type UpdateLeadInput struct {
@@ -39,6 +40,10 @@ type UpdateLeadInput struct {
 	ClearScoreOverride bool
 	OwnerID            *ids.UserID
 	IfVersion          *int64
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (customfields.go).
+	CustomFields map[string]any
 }
 
 // ScoreOverrideReasonRequiredError rejects a human score with no written
@@ -74,10 +79,14 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInpu
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	active, err := s.activeColumns(ctx, "lead")
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	var out crmcontracts.Lead
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = s.updateLeadTx(ctx, tx, id, in)
+		out, err = s.updateLeadTx(ctx, tx, id, in, active)
 		return err
 	})
 	return out, err
@@ -85,12 +94,13 @@ func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInpu
 
 // updateLeadTx runs the visibility gate, the sparse-patch fold, the write
 // shape, and the cleared-override recompute for one lead update inside the
-// caller's transaction.
-func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in UpdateLeadInput) (crmcontracts.Lead, error) {
+// caller's transaction. active names the workspace's custom-field columns
+// (fetched before the tx opened).
+func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in UpdateLeadInput, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
 	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	current, err := readLead(ctx, tx, id, storekit.LiveOnly)
+	current, err := readLead(ctx, tx, id, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
@@ -98,6 +108,7 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 	if p.Empty() {
 		return current, nil
 	}
@@ -121,7 +132,7 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 			return crmcontracts.Lead{}, err
 		}
 	}
-	return readLead(ctx, tx, id, storekit.LiveOnly)
+	return readLead(ctx, tx, id, storekit.LiveOnly, active)
 }
 
 // buildLeadPatch folds the caller's sparse update onto the current lead

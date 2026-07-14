@@ -4,25 +4,113 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { PipelinesCard, SettingsScreen } from "./settings";
 import {
-  emptyPage,
   installFetchStub,
   jsonResponse,
+  type RouteMap,
   StoryProviders,
 } from "./story-utils";
 
-// PipelinesCard (D-8) reads GET /me (roles → canConfigureAutomations gate) and
-// GET /pipelines (the ["pipelines","all"] list). Both stubbed here so the card
-// renders off fixtures — never a live call. Admin sees the write affordances;
-// a rep sees the same list read-only (server stays the RBAC authority).
-const meta: Meta = {
-  title: "Screens/Settings",
-  parameters: { layout: "padded" },
+// The settings tab layout (section nav + the active tab's cards) across its
+// real tabs. Each story installs the fetch stub the tab's cards read through,
+// so the render is deterministic and network-free — the same fixture shapes
+// the settings.test.tsx cases use.
+
+const me = () =>
+  jsonResponse({
+    // id matches the audit fixture's human actor so the AuditTab story reads
+    // "You" for the viewer's own entry (AuditEntryLine resolves it via meUserId).
+    user: { id: "u-mor", email: "ada@acme.test" },
+    roles: ["admin"],
+    teams: [],
+  });
+
+const passports = () =>
+  jsonResponse({
+    data: [
+      {
+        id: "pp-1",
+        label: "Scout",
+        scopes: ["read", "draft"],
+        created_at: "2026-07-01T08:00:00Z",
+        expires_at: "2026-10-01T08:00:00Z",
+        revoked_at: null,
+      },
+    ],
+    page: { next_cursor: null, has_more: false },
+  });
+
+const auditLog = () =>
+  jsonResponse({
+    data: [
+      {
+        id: "a1",
+        occurred_at: "2026-07-10T14:09:00Z",
+        actor_type: "human",
+        actor_id: "u-mor",
+        action: "create",
+        entity_type: "custom_field",
+        entity_id: "cf-1",
+      },
+      {
+        id: "a2",
+        occurred_at: "2026-07-10T09:41:00Z",
+        actor_type: "agent",
+        actor_id: "sdr",
+        action: "update",
+        entity_type: "deal",
+        entity_id: "d-1",
+      },
+    ],
+    page: { next_cursor: null, has_more: false },
+  });
+
+function tab(tabId: string, routes: RouteMap) {
+  return () => {
+    installFetchStub(routes);
+    return (
+      <StoryProviders>
+        <SettingsScreen tab={tabId} />
+      </StoryProviders>
+    );
+  };
+}
+
+const meta: Meta<typeof SettingsScreen> = {
+  title: "screens/settings",
+  component: SettingsScreen,
 };
 export default meta;
 
-type Story = StoryObj;
+type Story = StoryObj<typeof SettingsScreen>;
 
-const pipelines = {
+export const AccountTab: Story = {
+  render: tab("account", { "GET /me": me }),
+};
+
+export const AiTab: Story = {
+  render: tab("ai", { "GET /me": me, "GET /passports": passports }),
+};
+
+export const DataTab: Story = {
+  render: tab("data", { "GET /me": me }),
+};
+
+export const CatalogTab: Story = {
+  render: tab("catalog", { "GET /me": me }),
+};
+
+export const PrivacyTab: Story = {
+  render: tab("privacy", { "GET /me": me }),
+};
+
+export const AuditTab: Story = {
+  render: tab("audit", { "GET /me": me, "GET /audit-log": auditLog }),
+};
+
+// PipelinesCard (D-8, on the Catalog tab) reads GET /me (roles →
+// canConfigureAutomations gate) and GET /pipelines. Rendered directly here so
+// the admin write affordances vs the rep read-only state each get a story.
+const pipelinesFixture = {
   data: [
     {
       id: "pl",
@@ -64,72 +152,26 @@ const pipelines = {
   page: { next_cursor: null, has_more: false },
 };
 
-function me(roles: string[]) {
-  return {
-    user: { id: "u-1", display_name: "Me" },
-    roles,
-    teams: [],
+const pipelineMe = (roles: string[]) =>
+  jsonResponse({ user: { id: "u-1", display_name: "Me" }, roles, teams: [] });
+
+// useMe() fails fast without a workspace slug, collapsing the admin state into
+// read-only — seed the slug so /me resolves and the affordances render.
+function pipelinesCard(roles: string[]) {
+  return () => {
+    globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+    installFetchStub({
+      "GET /me": () => pipelineMe(roles),
+      "GET /pipelines": () => jsonResponse(pipelinesFixture),
+    });
+    return (
+      <StoryProviders>
+        <PipelinesCard />
+      </StoryProviders>
+    );
   };
 }
 
-// useMe() fails fast without a workspace slug (there is no tenant to ask), which
-// would leave canConfigureAutomations false and collapse the Admin state into the
-// read-only one. Seed the slug so /me resolves and the admin affordances render.
-function seedWorkspace() {
-  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
-}
+export const PipelinesAdmin: Story = { render: pipelinesCard(["admin"]) };
 
-export const Admin: Story = {
-  render: () => {
-    seedWorkspace();
-    installFetchStub({
-      "GET /me": () => jsonResponse(me(["admin"])),
-      "GET /pipelines": () => jsonResponse(pipelines),
-    });
-    return (
-      <StoryProviders>
-        <PipelinesCard />
-      </StoryProviders>
-    );
-  },
-};
-
-export const ReadOnly: Story = {
-  render: () => {
-    seedWorkspace();
-    installFetchStub({
-      "GET /me": () => jsonResponse(me(["rep"])),
-      "GET /pipelines": () => jsonResponse(pipelines),
-    });
-    return (
-      <StoryProviders>
-        <PipelinesCard />
-      </StoryProviders>
-    );
-  },
-};
-
-function installSettingsStub() {
-  installFetchStub(
-    {
-      "GET /me": () =>
-        jsonResponse({
-          user: { email: "ada@acme.test" },
-          roles: ["admin"],
-          teams: [],
-        }),
-    },
-    () => jsonResponse(emptyPage),
-  );
-}
-
-export const Default: Story = {
-  render: () => {
-    installSettingsStub();
-    return (
-      <StoryProviders>
-        <SettingsScreen />
-      </StoryProviders>
-    );
-  },
-};
+export const PipelinesReadOnly: Story = { render: pipelinesCard(["rep"]) };

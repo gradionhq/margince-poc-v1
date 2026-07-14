@@ -46,14 +46,18 @@ export function useBuiltinCommands(): Command[] {
         type: "action",
         route: { screen: "book" },
       },
+    ];
+    // Settings-reached screens (not in NAV), added to the command surface
+    // explicitly so ⌘K still reaches them.
+    const settingsScreens: Command[] = [
       {
-        id: "action:connected",
-        label: t("action.connected"),
-        type: "action",
-        route: { screen: "settings", id: "surfaces" },
+        id: "screen:custom-fields",
+        label: t("nav.customFields"),
+        type: "screen",
+        route: { screen: "custom-fields" },
       },
     ];
-    return [...screens, ...actions];
+    return [...screens, ...actions, ...settingsScreens];
   }, [t]);
 }
 

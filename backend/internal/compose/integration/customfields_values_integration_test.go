@@ -39,6 +39,7 @@ var cfvPerms = principal.Permissions{
 		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
 		"person":       {Create: true, Read: true, Update: true, Delete: true},
 		"organization": {Create: true, Read: true, Update: true, Delete: true},
+		"lead":         {Create: true, Read: true, Update: true, Delete: true},
 	},
 	RowScope: principal.RowScopeAll,
 }
@@ -171,6 +172,9 @@ func TestCustomFieldValues_OrganizationRoundTrip(t *testing.T) {
 	}
 	assertCF(t, list[0].AdditionalProperties, col, "apac")
 }
+
+// Lead's custom-field round trip + the replay/disqualify read paths live in
+// customfields_values_lead_integration_test.go (mirrors the deal split).
 
 // TestCustomFieldValues_AllSixTypesRoundTrip writes every field type in
 // one create with the shape a JSON body decode hands the store (numbers

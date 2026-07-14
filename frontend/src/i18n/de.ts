@@ -72,7 +72,6 @@ export const de = {
   "action.newDeal": "Neuer Deal",
   "action.readCompany": "Firma einlesen",
   "action.booking": "Buchungsseite",
-  "action.connected": "Verbundene Oberflächen",
 
   "fab.open": "Dazu fragen",
   "fab.close": "Schließen",
@@ -444,6 +443,8 @@ export const de = {
   "field.phoneOther": "Sonstige",
   "field.primary": "Primär",
   "field.removeRow": "Entfernen",
+  "field.yes": "Ja",
+  "field.no": "Nein",
 
   "dedupe.viewExisting": "Vorhandenen Eintrag anzeigen",
 
@@ -539,6 +540,11 @@ export const de = {
     "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
   "settings.openAutomations": "Automatisierungs-Editor öffnen",
   "settings.audit": "Audit-Log",
+  "audit.you": "Du",
+  "audit.teammate": "Ein Teammitglied",
+  "audit.system": "System",
+  "audit.onBehalfOfYou": "in deinem Auftrag",
+  "audit.onBehalfOfTeammate": "im Auftrag eines Teammitglieds",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
   "settings.auditActor": "Akteur",
   "settings.auditEntity": "Entitätstyp",
@@ -869,6 +875,102 @@ export const de = {
   "strength.inout": "{in} eingehend · {out} ausgehend (90 Tage)",
   "strength.computedFrom": "Berechnet aus {count} Aktivitäten",
 
+  "cf.title": "Benutzerdefinierte Felder",
+  "cf.formSection": "Benutzerdefinierte Felder",
+  "cf.subtitle":
+    "Füge einem vorhandenen Objekt ein einfaches typisiertes Feld hinzu — zur Laufzeit, ohne Entwickler, ohne Deploy. Neue Objekte und Beziehungen laufen weiterhin über Code.",
+  "cf.object": "Objekt",
+  "cf.obj.deal": "Deal",
+  "cf.obj.organization": "Firma",
+  "cf.obj.person": "Kontakt",
+  "cf.obj.lead": "Lead",
+  "cf.onObject": "Benutzerdefinierte Felder auf {object}",
+  "cf.coreExcluded":
+    "Kernfelder werden nicht angezeigt — sie sind hier nicht bearbeitbar",
+  "cf.col.field": "Feld",
+  "cf.col.type": "Typ",
+  "cf.col.addedBy": "Hinzugefügt von",
+  "cf.addedByYou": "Du",
+  "cf.addedByAdmin": "Admin",
+  "cf.empty.deal":
+    "Noch keine benutzerdefinierten Felder auf Deal. Füge unten eines hinzu, wenn du etwas erfasst, das wir nicht mitgeliefert haben.",
+  "cf.empty.organization":
+    "Noch keine benutzerdefinierten Felder auf Firma. Füge unten eines hinzu, wenn du etwas erfasst, das wir nicht mitgeliefert haben.",
+  "cf.empty.person":
+    "Noch keine benutzerdefinierten Felder auf Kontakt. Die Kernfelder decken den Kontaktdatensatz ab; füge unten eines hinzu, wenn du mehr erfasst.",
+  "cf.empty.lead":
+    "Noch keine benutzerdefinierten Felder auf Lead. Ein Feld, das du hier hinzufügst, erscheint auch, sobald ein Lead zu einem Kontakt befördert wird.",
+  "cf.type.text": "Text",
+  "cf.type.number": "Zahl",
+  "cf.type.date": "Datum",
+  "cf.type.currency": "Währung",
+  "cf.type.picklist": "Auswahlliste",
+  "cf.type.boolean": "Ja / Nein",
+  "cf.builder.addTo": "Feld zu {object} hinzufügen",
+  "cf.builder.noCode": "ohne Code",
+  "cf.builder.intro":
+    "Ein neues Feld ist eine echte Spalte auf der bestehenden Tabelle — es filtert, erscheint in Berichten, Exporten und in der API wie jedes Kernfeld. Es ist kein neues Objekt.",
+  "cf.label": "Bezeichnung",
+  "cf.apiKey": "API-Schlüssel",
+  "cf.apiKeyHint":
+    "Automatisch abgeleitet, unveränderlich sobald live. Mit cf_ präfixiert, damit er nie mit einem Kernfeld kollidiert.",
+  "cf.typeLabel": "Typ",
+  "cf.currencyCode": "Währungscode",
+  "cf.currencyHint":
+    "Dreibuchstabiger ISO-4217-Code (z. B. EUR, USD). Geld wird auf den Cent genau gespeichert.",
+  "cf.options": "Optionen",
+  "cf.addOption": "Option hinzufügen",
+  "cf.removeOption": "Option entfernen",
+  "cf.optionPlaceholder": "Optionsbezeichnung",
+  "cf.lastOptionBlocked": "Eine Auswahlliste braucht mindestens eine Option",
+  "cf.gate.title": "Ein Feld hinzuzufügen ist bestätigungspflichtig.",
+  "cf.gate.body":
+    "Bei Bestätigung wird es zu einer Live-Spalte auf jedem {object} — auf der 360, in Suche & Filtern, Listen, Export und der API. Das Hinzufügen wird im Audit-Trail festgehalten.",
+  "cf.refuse.title":
+    "Das sieht nach einem neuen Objekt oder einer Beziehung aus, nicht nach einem Feld.",
+  "cf.refuse.body":
+    "Dieser Builder fügt nur einfache Felder zu bestehenden Datensätzen hinzu. Ein neues Objekt, eine Verknüpfung zwischen Objekten oder ein berechneter Roll-up ist eine strukturelle Änderung — sie kommt als geprüfte Änderung an Margince in einer neuen Version, gemacht von Menschen, nicht vom Produkt, das seinen eigenen Code bearbeitet.",
+  "cf.refuse.route":
+    "Leite es über den Entwicklungsweg — deine eigenen Entwickler, einen Implementierungspartner oder Gradion-Services.",
+  "cf.confirm": "Bestätigen & Feld hinzufügen",
+  "cf.reset": "Zurücksetzen",
+  "cf.writing": "wird geschrieben…",
+  "cf.added":
+    'Feld "{label}" hinzugefügt — live auf 360, Filtern, Export & API',
+  "cf.edit": "Bezeichnung bearbeiten",
+  "cf.archive": "Feld archivieren",
+  "cf.archived":
+    '"{label}" archiviert — aus neuen Datensätzen ausgeblendet, in Audit & Historie behalten (umkehrbar)',
+  "cf.renamePrompt": "Neue Bezeichnung",
+  "cf.renamed": 'Umbenannt in "{label}"',
+  "cf.audit.title": "Letzte Feldänderungen",
+  "cf.audit.empty": "Noch keine Änderungen an benutzerdefinierten Feldern.",
+  "cf.audit.loading": "Aktuelle Änderungen werden geladen…",
+  "cf.audit.error":
+    "Letzte Änderungen konnten nicht geladen werden — bitte kurz erneut versuchen.",
+  "cf.audit.footer":
+    "Jedes Hinzufügen / Bearbeiten / Archivieren wird dauerhaft im Audit-Log festgehalten.",
+  "cf.noPermission":
+    "Admin-Rolle erforderlich. Du hast nur Lesezugriff — der Builder sowie die Bearbeiten-/Archivieren-Steuerelemente sind deaktiviert.",
+  "cf.retired": "Archiviert",
+  "cf.propagate.title": "Wo ein neues Feld auftaucht",
+  "cf.propagate.360": "In der 360-Ansicht des Datensatzes",
+  "cf.propagate.filters": "In Suche & Filtern",
+  "cf.propagate.list": "Als Listen-/Berichtsspalte",
+  "cf.propagate.export": "Im CSV-Export",
+  "cf.propagate.api": "In der öffentlichen REST-/MCP-API",
+  "nav.customFields": "Benutzerdefinierte Felder",
+  "settings.customFields": "Benutzerdefinierte Felder",
+  "settings.customFieldsSub":
+    "Füge einem Kernobjekt ein typisiertes Feld hinzu — ohne Code, ohne Deploy.",
+  "settings.openCustomFields": "Benutzerdefinierte Felder öffnen",
+  "settings.navAria": "Einstellungsbereiche",
+  "settings.tab.account": "Konto",
+  "settings.tab.ai": "KI & Autonomie",
+  "settings.tab.data": "Datenmodell",
+  "settings.tab.catalog": "Katalog",
+  "settings.tab.privacy": "Datenschutz & Einwilligung",
+  "settings.tab.audit": "Audit-Log",
   "product.title": "Produkte",
   "product.settingsSub":
     "Rate-Card-Einträge, auf deren Grundlage Angebotspositionen einen Snapshot erstellen.",

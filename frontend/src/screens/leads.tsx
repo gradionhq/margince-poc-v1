@@ -26,6 +26,8 @@ import {
   useMe,
 } from "./common";
 import { CreateAction, type CreateField } from "./create";
+import { CustomFieldsCard } from "./customfields.card";
+import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import {
   ListGate,
@@ -207,9 +209,12 @@ const leadStatusFilterOptions = [
   { value: "disqualified", label: "lead.statusDisqualified" },
 ] as const;
 
-async function createLead(values: Record<string, string>): Promise<Lead> {
+async function createLead(
+  values: Record<string, string>,
+  customFields: Record<string, unknown>,
+): Promise<Lead> {
   const { data, error } = await api.POST("/leads", {
-    body: mapLeadBody(values),
+    body: { ...mapLeadBody(values), ...customFields },
   });
   if (error) {
     throwProblem(error);
@@ -219,6 +224,7 @@ async function createLead(values: Record<string, string>): Promise<Lead> {
 
 export function LeadsScreen() {
   const t = useT();
+  const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
     initialSort: "-created_at",
@@ -234,9 +240,9 @@ export function LeadsScreen() {
           label={t("create.lead")}
           invalidate="leads"
           screen="leads"
-          create={createLead}
+          create={(values) => createLead(values, cf.toBody(values))}
           resolveExisting={(_code, id) => ({ screen: "leads", id })}
-          fields={leadCreateFields}
+          fields={[...leadCreateFields, ...cf.formFields]}
         />
       </div>
       <ListToolbar
@@ -533,6 +539,7 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
 
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
+  const cf = useObjectCustomFields("lead");
   const queryClient = useQueryClient();
   const headingId = useId();
   const leadQuery = useQuery({
@@ -597,202 +604,212 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
     <div className="wrap lead-surface">
       <QueryGate query={leadQuery}>
         {(lead) => (
-          <div className="card lead-detail">
-            <div className="list-head">
-              <SectionHeader
-                title={lead.full_name ?? lead.email ?? t("nav.leads")}
-                sub={t("lead.segregated")}
-              />
-              {/* A promoted or disqualified lead is archived and terminal —
+          <>
+            <div className="card lead-detail">
+              <div className="list-head">
+                <SectionHeader
+                  title={lead.full_name ?? lead.email ?? t("nav.leads")}
+                  sub={t("lead.segregated")}
+                />
+                {/* A promoted or disqualified lead is archived and terminal —
                   the backend rejects edit/disqualify/promote/score-override on
                   it, so those affordances would only 404. Read-only past that
                   point. */}
+                {!lead.archived_at && (
+                  <>
+                    <EditAction
+                      label={t("record.edit")}
+                      fields={[...leadEditFields, ...cf.formFields]}
+                      record={{
+                        id: lead.id,
+                        version: lead.version,
+                        full_name: lead.full_name ?? "",
+                        email: lead.email ?? "",
+                        title: lead.title ?? "",
+                        company_name: lead.company_name ?? "",
+                        candidate_org_key: lead.candidate_org_key ?? "",
+                        ...cf.recordSlice(lead),
+                      }}
+                      update={async (values) => {
+                        const { data, error } = await api.PATCH("/leads/{id}", {
+                          params: {
+                            path: { id },
+                            ...ifMatch(lead.version),
+                          },
+                          body: {
+                            ...mapLeadUpdate(values),
+                            ...cf.toBody(values),
+                          },
+                        });
+                        if (error) {
+                          throwProblem(error);
+                        }
+                        return data;
+                      }}
+                      invalidate="leads"
+                      recordKey="lead"
+                    />
+                    <ArchiveAction
+                      label={t("record.disqualify")}
+                      confirmText={t("record.disqualifyConfirm")}
+                      archive={async () => {
+                        const { data, error } = await api.DELETE(
+                          "/leads/{id}",
+                          {
+                            params: { path: { id } },
+                          },
+                        );
+                        if (error) {
+                          throwProblem(error);
+                        }
+                        return data;
+                      }}
+                      invalidate="leads"
+                      recordKey="lead"
+                      onArchived={() => navigate({ screen: "leads" })}
+                    />
+                  </>
+                )}
+              </div>
+              <LeadBadges lead={lead} />
+              {lead.email && <p className="t-mono">{lead.email}</p>}
               {!lead.archived_at && (
                 <>
-                  <EditAction
-                    label={t("record.edit")}
-                    fields={leadEditFields}
-                    record={{
-                      id: lead.id,
-                      version: lead.version,
-                      full_name: lead.full_name ?? "",
-                      email: lead.email ?? "",
-                      title: lead.title ?? "",
-                      company_name: lead.company_name ?? "",
-                      candidate_org_key: lead.candidate_org_key ?? "",
+                  <div
+                    style={{
+                      marginTop: 14,
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
                     }}
-                    update={async (values) => {
-                      const { data, error } = await api.PATCH("/leads/{id}", {
-                        params: {
-                          path: { id },
-                          ...ifMatch(lead.version),
-                        },
-                        body: mapLeadUpdate(values),
-                      });
-                      if (error) {
-                        throwProblem(error);
-                      }
-                      return data;
+                  >
+                    <Button
+                      variant="primary"
+                      disabled={!promoteEligible(lead) || promote.isPending}
+                      onClick={() => setPromoteOpen(true)}
+                    >
+                      {t("lead.promote")}
+                    </Button>
+                    {!promoteEligible(lead) && (
+                      <span className="t-caption">
+                        {t("lead.promoteIneligible")}
+                      </span>
+                    )}
+                    <Modal
+                      open={promoteOpen}
+                      onClose={closePromote}
+                      labelledBy={headingId}
+                    >
+                      <h2
+                        id={headingId}
+                        className="t-h2"
+                        style={{ marginBottom: 12 }}
+                      >
+                        {t("lead.promoteDialog")}
+                      </h2>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 12,
+                          marginBottom: 16,
+                        }}
+                      >
+                        <label
+                          className="t-caption"
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 4,
+                          }}
+                        >
+                          {t("lead.trigger")}
+                          <select
+                            className="input"
+                            aria-label={t("lead.trigger")}
+                            value={trigger}
+                            onChange={(event) =>
+                              setTrigger(event.target.value as PromoteTrigger)
+                            }
+                          >
+                            {PROMOTE_TRIGGERS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {t(option.label)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label
+                          className="t-caption"
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 4,
+                          }}
+                        >
+                          {t("lead.evidenceNote")}
+                          <textarea
+                            className="input"
+                            aria-label={t("lead.evidenceNote")}
+                            value={note}
+                            onChange={(event) => setNote(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      {promoteErrorMessage && (
+                        <p
+                          className="t-caption"
+                          style={{ color: "var(--danger)", marginBottom: 12 }}
+                        >
+                          {promoteErrorMessage}
+                        </p>
+                      )}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        <Button
+                          small
+                          onClick={closePromote}
+                          disabled={promote.isPending}
+                        >
+                          {t("create.cancel")}
+                        </Button>
+                        <Button
+                          small
+                          variant="primary"
+                          disabled={promote.isPending}
+                          onClick={() => {
+                            const trimmedNote = note.trim();
+                            promote.mutate({
+                              trigger,
+                              evidence: trimmedNote
+                                ? { note: trimmedNote }
+                                : undefined,
+                            });
+                          }}
+                        >
+                          {t("lead.promoteConfirm")}
+                        </Button>
+                      </div>
+                    </Modal>
+                  </div>
+                  <LeadLifecycle
+                    lead={lead}
+                    id={id}
+                    onChanged={() => {
+                      queryClient.invalidateQueries({ queryKey: ["leads"] });
+                      queryClient.invalidateQueries({ queryKey: ["lead", id] });
                     }}
-                    invalidate="leads"
-                    recordKey="lead"
-                  />
-                  <ArchiveAction
-                    label={t("record.disqualify")}
-                    confirmText={t("record.disqualifyConfirm")}
-                    archive={async () => {
-                      const { data, error } = await api.DELETE("/leads/{id}", {
-                        params: { path: { id } },
-                      });
-                      if (error) {
-                        throwProblem(error);
-                      }
-                      return data;
-                    }}
-                    invalidate="leads"
-                    recordKey="lead"
-                    onArchived={() => navigate({ screen: "leads" })}
                   />
                 </>
               )}
             </div>
-            <LeadBadges lead={lead} />
-            {lead.email && <p className="t-mono">{lead.email}</p>}
-            {!lead.archived_at && (
-              <>
-                <div
-                  style={{
-                    marginTop: 14,
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                  }}
-                >
-                  <Button
-                    variant="primary"
-                    disabled={!promoteEligible(lead) || promote.isPending}
-                    onClick={() => setPromoteOpen(true)}
-                  >
-                    {t("lead.promote")}
-                  </Button>
-                  {!promoteEligible(lead) && (
-                    <span className="t-caption">
-                      {t("lead.promoteIneligible")}
-                    </span>
-                  )}
-                  <Modal
-                    open={promoteOpen}
-                    onClose={closePromote}
-                    labelledBy={headingId}
-                  >
-                    <h2
-                      id={headingId}
-                      className="t-h2"
-                      style={{ marginBottom: 12 }}
-                    >
-                      {t("lead.promoteDialog")}
-                    </h2>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 12,
-                        marginBottom: 16,
-                      }}
-                    >
-                      <label
-                        className="t-caption"
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 4,
-                        }}
-                      >
-                        {t("lead.trigger")}
-                        <select
-                          className="input"
-                          aria-label={t("lead.trigger")}
-                          value={trigger}
-                          onChange={(event) =>
-                            setTrigger(event.target.value as PromoteTrigger)
-                          }
-                        >
-                          {PROMOTE_TRIGGERS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {t(option.label)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label
-                        className="t-caption"
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 4,
-                        }}
-                      >
-                        {t("lead.evidenceNote")}
-                        <textarea
-                          className="input"
-                          aria-label={t("lead.evidenceNote")}
-                          value={note}
-                          onChange={(event) => setNote(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                    {promoteErrorMessage && (
-                      <p
-                        className="t-caption"
-                        style={{ color: "var(--danger)", marginBottom: 12 }}
-                      >
-                        {promoteErrorMessage}
-                      </p>
-                    )}
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        justifyContent: "flex-end",
-                      }}
-                    >
-                      <Button
-                        small
-                        onClick={closePromote}
-                        disabled={promote.isPending}
-                      >
-                        {t("create.cancel")}
-                      </Button>
-                      <Button
-                        small
-                        variant="primary"
-                        disabled={promote.isPending}
-                        onClick={() => {
-                          const trimmedNote = note.trim();
-                          promote.mutate({
-                            trigger,
-                            evidence: trimmedNote
-                              ? { note: trimmedNote }
-                              : undefined,
-                          });
-                        }}
-                      >
-                        {t("lead.promoteConfirm")}
-                      </Button>
-                    </div>
-                  </Modal>
-                </div>
-                <LeadLifecycle
-                  lead={lead}
-                  id={id}
-                  onChanged={() => {
-                    queryClient.invalidateQueries({ queryKey: ["leads"] });
-                    queryClient.invalidateQueries({ queryKey: ["lead", id] });
-                  }}
-                />
-              </>
-            )}
-          </div>
+            <CustomFieldsCard object="lead" record={lead} />
+          </>
         )}
       </QueryGate>
     </div>

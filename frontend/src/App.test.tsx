@@ -69,6 +69,60 @@ afterEach(() => {
   window.location.hash = "";
 });
 
+describe("custom-fields route", () => {
+  it("renders the Custom fields admin screen at #/custom-fields", async () => {
+    // Every query the screen fires must resolve, or QueryGate paints its error
+    // card instead of the heading: /me (admin so the builder mounts), the
+    // per-object field list, and the audit rail.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(
+            JSON.stringify({
+              user: { id: "u1" },
+              roles: ["admin"],
+              teams: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.includes("/v1/custom-fields")) {
+          return new Response(JSON.stringify({ data: [], page: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.includes("/v1/audit-log")) {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ code: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/problem+json" },
+        });
+      }),
+    );
+    window.location.hash = "#/custom-fields";
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Custom fields" }),
+    ).toBeTruthy();
+  });
+});
+
 describe("locale switch", () => {
   it("mounts in English (A100) and flips the chrome to German on switch", async () => {
     const client = new QueryClient({

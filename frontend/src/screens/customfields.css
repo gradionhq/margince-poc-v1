@@ -1,0 +1,268 @@
+/* Scoped styles for the custom-fields admin screen. Layout only — atoms carry
+   their own look; this file owns the object chips, the type grid, the staged
+   (writing) tint, the confirm-gate, the refusal banner, and the retired-cell dim. */
+
+/* .wrap is a plain block with no row gap, so space this screen's stacked blocks
+   — the object bar and each card (table, builder, audit) — explicitly, matching
+   the 16px card rhythm used across the app. The fixed toast and the modal are
+   out of flow and deliberately excluded. */
+.cf-screen > .cf-objbar,
+.cf-screen > .card {
+  margin-top: 16px;
+}
+
+.cf-objbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  /* rendered as a <fieldset> for the grouped-control semantics, so the native
+     chrome (border, inline-size floor, spacing) is reset away */
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.cf-objchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--textSecondary);
+  border: 1px solid var(--borderSubtle);
+  background: var(--bgElevated);
+  border-radius: 999px;
+  padding: 6px 13px;
+  cursor: pointer;
+}
+
+.cf-objchip:hover {
+  border-color: var(--borderStrong);
+  color: var(--textPrimary);
+}
+
+.cf-objchip[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accentLight);
+}
+
+.cf-objchip .cf-count {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--textTertiary);
+}
+
+.cf-builder {
+  padding: 18px;
+}
+
+.cf-builder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cf-hint {
+  font-size: 11.5px;
+  color: var(--textTertiary);
+  line-height: 1.45;
+  margin: 6px 0;
+}
+
+.cf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+
+@media (max-width: 640px) {
+  .cf-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cf-typegrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 7px;
+}
+
+.cf-typebtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--borderSubtle);
+  background: var(--bgElevated);
+  border-radius: 8px;
+  padding: 11px 6px;
+  cursor: pointer;
+  color: var(--textSecondary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.cf-typebtn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.cf-typebtn:hover {
+  border-color: var(--borderStrong);
+  color: var(--textPrimary);
+}
+
+.cf-typebtn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accentLight);
+}
+
+.cf-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cf-option-row {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.cf-option-row .input {
+  flex: 1;
+}
+
+.cf-refuse {
+  background: var(--dangerBg);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 13px 15px;
+  font-size: 12.5px;
+  color: var(--textContent);
+  line-height: 1.5;
+}
+
+.cf-refuse strong {
+  color: var(--textPrimary);
+}
+
+.cf-gate {
+  background: var(--warnBg);
+  border: 1px solid var(--warnBorder);
+  border-radius: 8px;
+  padding: 13px 15px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--textContent);
+  line-height: 1.5;
+}
+
+.cf-ddl {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  color: var(--textSecondary);
+  background: var(--bgElevated);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+.cf-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Field cell: a type-glyph tile, then the human label with the immutable API
+   key on its own muted mono line beneath it — never run together. */
+.cf-fieldcell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cf-fieldicon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+  color: var(--textSecondary);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.cf-fieldicon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cf-fieldmeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cf-fieldname {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-key {
+  display: block;
+  font-size: 11px;
+  color: var(--textTertiary);
+}
+
+/* Type chip: a soft pill echoing the mockup's .ftype, with the type glyph. */
+.cf-typechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--textSecondary);
+  background: var(--bgCard);
+  border-radius: var(--r-full);
+  padding: 4px 10px;
+}
+
+.cf-typechip svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+/* just-added optimistic row, pending the server commit */
+.cf-cell-staged {
+  color: var(--textTertiary);
+  font-style: italic;
+}
+
+/* archived field: dimmed but still legible in the audit-retained list */
+.cf-cell-retired {
+  color: var(--textTertiary);
+  text-decoration: line-through;
+}
+
+/* recent-changes rail: the list wrapper + the loading/empty/error line */
+.cf-audit {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.cf-audit-empty {
+  font-size: 12px;
+  color: var(--textTertiary);
+  padding: 8px 0;
+}

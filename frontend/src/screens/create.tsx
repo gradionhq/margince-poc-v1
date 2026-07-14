@@ -29,7 +29,11 @@ export type SubField = {
 
 export type CreateField = {
   key: string;
-  label: MessageKey;
+  // Static fields carry an i18n `label` key; dynamic fields (custom fields,
+  // whose labels are workspace data, not translated) carry a literal
+  // `labelText` instead. Exactly one is set; the render prefers labelText.
+  label?: MessageKey;
+  labelText?: string;
   type?:
     | "text"
     | "email"
@@ -46,7 +50,23 @@ export type CreateField = {
   rowFields?: SubField[];
   addLabel?: MessageKey;
   primaryKey?: string;
+  // A non-input group divider (renders its labelText as a heading, holds no
+  // value) — used to set custom fields apart from core fields.
+  divider?: boolean;
+  // Optional read transform: maps the record's raw value to the input string
+  // at prefill time (e.g. currency minor units → major units). Absent means
+  // the raw value is stringified as-is.
+  toInput?: (raw: unknown) => string;
 };
+
+// The label a top-level field shows: the literal labelText wins; otherwise the
+// i18n key. (Subfields are always core, so they keep using t(label) directly.)
+export function fieldLabel(
+  field: CreateField,
+  t: (key: MessageKey) => string,
+): string {
+  return field.labelText ?? (field.label ? t(field.label) : "");
+}
 
 // One repeatable-row field's collected rows, e.g. `{ email: "a@x", email_type:
 // "work", is_primary: "true" }`.
@@ -248,7 +268,7 @@ function RepeatableRowsField({
   return (
     <div className="field-repeatable">
       <span className="t-label">
-        {t(field.label)}
+        {fieldLabel(field, t)}
         {field.required ? " *" : ""}
       </span>
       {rows.map((row, index) => {
@@ -306,7 +326,7 @@ function RepeatableRowsField({
         );
       })}
       <Button small type="button" onClick={() => setRows([...rows, {}])}>
-        {t(field.addLabel ?? field.label)}
+        {field.addLabel ? t(field.addLabel) : fieldLabel(field, t)}
       </Button>
     </div>
   );
@@ -366,6 +386,13 @@ export function RecordFormBody({
     >
       {fields.map((field) => {
         const fieldId = `${formId}-${field.key}`;
+        if (field.divider) {
+          return (
+            <p className="form-divider t-label" key={field.key}>
+              {fieldLabel(field, t)}
+            </p>
+          );
+        }
         if (field.type === "repeatable") {
           return (
             <RepeatableRowsField
@@ -380,7 +407,7 @@ export function RecordFormBody({
         return (
           <div className="field" key={field.key}>
             <label className="t-label" htmlFor={fieldId}>
-              {t(field.label)}
+              {fieldLabel(field, t)}
               {field.required ? " *" : ""}
             </label>
             {fieldControl(field, fieldId, values[field.key] ?? "", (next) =>
