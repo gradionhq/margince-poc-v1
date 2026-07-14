@@ -479,6 +479,7 @@ describe("regenerate action (OP-11)", () => {
     );
     const { client } = render(<OfferScreen id="o-1" />);
     await screen.findByText("ANG-2026-0007");
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
 
     await userEvent.click(screen.getByTestId("regenerate-offer"));
 
@@ -486,6 +487,12 @@ describe("regenerate action (OP-11)", () => {
     expect(calls[0].url).toContain("/offers/o-1/regenerate");
     expect(client.getQueryData(["offer", "o-2"])).toEqual(newDraft);
     expect(globalThis.location.hash).toBe("#/offers/o-2");
+    // The new draft is a new offer row on the same deal — the deal's
+    // offers panel (deals.tsx) must be told to refetch, same as
+    // AcceptOfferAction does after its own new-row-shaped change.
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["deal-offers", newDraft.deal_id] }),
+    );
   });
 
   it("renders a 422 detail verbatim when regenerate is rejected (e.g. a stale sent offer)", async () => {

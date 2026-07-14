@@ -5,13 +5,10 @@ package deals
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -225,12 +222,6 @@ func (h Handlers) DownloadOfferPdf(w http.ResponseWriter, r *http.Request, id cr
 		httperr.Write(w, r, err)
 		return
 	}
-	defer func(ctx context.Context) {
-		if cerr := rc.Close(); cerr != nil {
-			slog.WarnContext(ctx, "closing offer pdf object reader", "err", cerr)
-		}
-	}(r.Context())
-
 	contentType := "application/pdf"
 	if obj.ContentType != "" {
 		contentType = obj.ContentType
@@ -239,14 +230,11 @@ func (h Handlers) DownloadOfferPdf(w http.ResponseWriter, r *http.Request, id cr
 	if offer.OfferNumber != nil && *offer.OfferNumber != "" {
 		filename = *offer.OfferNumber + ".pdf"
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filename))
-	if obj.Size > 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
-	}
-	// The status is already 200 once bytes flow; a copy failure (usually a
-	// client disconnect mid-download) can only be logged, not re-reported.
-	if _, err := io.Copy(w, rc); err != nil {
-		slog.WarnContext(r.Context(), "streaming offer pdf download", "offer", id.String(), "err", err)
-	}
+	httperr.StreamObject(w, r, httperr.StreamedObject{
+		Body:        rc,
+		ContentType: contentType,
+		Filename:    filename,
+		Inline:      true,
+		Size:        obj.Size,
+	}, "offer pdf "+id.String())
 }

@@ -17,9 +17,12 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func TestOfferPdfHTTP_DownloadBeforeRenderReturns404(t *testing.T) {
@@ -41,6 +44,49 @@ func TestOfferPdfHTTP_DownloadBeforeRenderReturns404(t *testing.T) {
 
 	if status := e.call(t, "GET", "/v1/offers/"+offerID+"/pdf", nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("download pdf before any render = %d, want 404", status)
+	}
+}
+
+func TestOfferPdfHTTP_DownloadNonexistentOfferReturns404(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+
+	if status := e.call(t, "GET", "/v1/offers/"+ids.NewV7().String()+"/pdf", nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("download pdf for an offer that was never created = %d, want 404", status)
+	}
+}
+
+func TestOfferPdfHTTP_DownloadWhenTheBlobIsGoneReturns404(t *testing.T) {
+	e, blob := setupWithBlobstore(t)
+	e.bootstrapWorkspace(t)
+	dealID := offerFixture(t, e)
+
+	var offer anyMap
+	if status := e.call(t, "POST", "/v1/deals/"+dealID+"/offers", anyMap{
+		"currency": "EUR", "source": "manual",
+		"line_items": []anyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+	}, nil, &offer); status != http.StatusCreated {
+		t.Fatalf("create offer for pdf download = %d %v", status, offer)
+	}
+	offerID, ok := offer["id"].(string)
+	if !ok {
+		t.Fatalf("create offer for pdf download response carries no id: %v", offer)
+	}
+
+	var rendered renderedOffer
+	if status := e.call(t, "POST", "/v1/offers/"+offerID+"/render", anyMap{}, nil, &rendered); status != http.StatusOK {
+		t.Fatalf("render offer = %d %+v, want 200", status, rendered)
+	}
+
+	// The offer's row still names this ref, but the object itself is gone —
+	// e.g. purged out from under a stale pdf_asset_ref. The download must
+	// answer the same 404 as "never rendered", never a raw blobstore error.
+	if err := blob.Delete(context.Background(), rendered.PdfAssetRef); err != nil {
+		t.Fatalf("delete the rendered blob out from under its ref: %v", err)
+	}
+
+	if status := e.call(t, "GET", "/v1/offers/"+offerID+"/pdf", nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("download pdf after the blob is gone = %d, want 404", status)
 	}
 }
 

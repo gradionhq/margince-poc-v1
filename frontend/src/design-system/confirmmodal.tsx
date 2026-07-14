@@ -4,8 +4,8 @@ import { useT } from "../i18n";
 import { Button, Modal } from "./atoms";
 import { AutonomyDot } from "./trust";
 
-// The shared confirm-dialog chrome (Phase 3, task 3.1): this used to live
-// duplicated, near-identically, inline in the deals.tsx terminal-stage
+// The shared confirm-dialog chrome: this used to live duplicated,
+// near-identically, inline in the deals.tsx terminal-stage
 // advance confirm and archive.tsx's ArchiveAction. Both wire a Modal, a
 // title (deals.tsx's carries an autonomy dot, archive.tsx's doesn't), an
 // inline mutation error, and a Cancel/Confirm pair that disables while a

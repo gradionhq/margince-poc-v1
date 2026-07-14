@@ -9,9 +9,12 @@ package httperr
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -90,6 +93,58 @@ func CustomFieldFilters(r *http.Request) map[string]string {
 		filters[key] = values[0]
 	}
 	return filters
+}
+
+// StreamedObject is what StreamObject needs from any byte-store read —
+// blobstore.Store.Get's and activities' OpenAttachment's return shapes
+// both satisfy it without either package importing the other.
+type StreamedObject struct {
+	Body        io.ReadCloser
+	ContentType string
+	// Filename, given, sets Content-Disposition; empty omits the header
+	// entirely (Content-Type alone still tells the browser how to render
+	// the bytes).
+	Filename string
+	// Inline renders in the browser (e.g. a PDF preview tab); the
+	// default, attachment, always downloads instead.
+	Inline bool
+	// Size <= 0 omits Content-Length — the caller doesn't always have it
+	// upfront.
+	Size int64
+}
+
+// StreamObject writes a byte-store object's bytes as the response body —
+// the one spelling of "set Content-Type/-Disposition/-Length, copy, log a
+// mid-stream copy failure" every handler that streams stored bytes back
+// to a client needs (activities' DownloadAttachment, deals'
+// DownloadOfferPdf). The status is already 200 once bytes start flowing,
+// so a copy failure (usually a client disconnect mid-download) can only
+// be logged, never re-reported to the client.
+func StreamObject(w http.ResponseWriter, r *http.Request, obj StreamedObject, logLabel string) {
+	defer func(ctx context.Context) {
+		if cerr := obj.Body.Close(); cerr != nil {
+			slog.WarnContext(ctx, "closing streamed object reader", "object", logLabel, "err", cerr)
+		}
+	}(r.Context())
+
+	contentType := obj.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	if obj.Filename != "" {
+		disposition := "attachment"
+		if obj.Inline {
+			disposition = "inline"
+		}
+		w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, obj.Filename))
+	}
+	if obj.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(obj.Size, 10))
+	}
+	if _, err := io.Copy(w, obj.Body); err != nil {
+		slog.WarnContext(r.Context(), "streaming object download", "object", logLabel, "err", err)
+	}
 }
 
 // IfMatchVersion reads the optional If-Match row version (data-model

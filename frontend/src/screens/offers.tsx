@@ -29,14 +29,12 @@ import {
 } from "./common";
 import { searchProductCandidates } from "./products";
 
-// Task 2.3 (OP-5/OP-6, Phase 2 close-out): the offer 360 skeleton — header,
-// read-only totals, and a draft-only header edit. buyer_org_id needs the
-// shared RecordPicker and template_id is a server-sourced select, neither of
-// which the field-driven EditAction/CreateField machinery (edit.tsx,
-// create.tsx) has a slot for — so the edit surface here is a small
-// purpose-built modal, not a migration onto that machinery. Line items,
-// send/accept/reject, and regenerate/render are later Phase-3/4 tasks; this
-// screen never touches them.
+// The offer 360 skeleton (OP-5/OP-6): header, read-only totals, and a
+// draft-only header edit. buyer_org_id needs the shared RecordPicker and
+// template_id is a server-sourced select, neither of which the
+// field-driven EditAction/CreateField machinery (edit.tsx, create.tsx) has
+// a slot for — so the edit surface here is a small purpose-built modal,
+// not a migration onto that machinery.
 
 type Offer = components["schemas"]["Offer"];
 type OfferTemplate = components["schemas"]["OfferTemplate"];
@@ -81,6 +79,38 @@ type HeaderEditValues = {
   terms_text: string;
 };
 
+// RecordPicker only highlights a selection among candidates its OWN search
+// turned up — it has no way to preview a value set outside its session. A
+// freshly reopened header-edit modal only has `offer.buyer_org_id` (a bare
+// id), so the picker would otherwise render empty even though a buyer org
+// IS set. This resolves that id to a name (the same GET /organizations/{id}
+// lookup entityref.tsx uses for the same bare-id-to-name problem), and
+// prefers the caller's own override — set once the user actively picks a
+// different org — over the resolved incumbent.
+function useBuyerOrgPreview(buyerOrgId: string | null, open: boolean) {
+  const [override, setOverride] = useState<RecordPickerCandidate | null>(null);
+  const existingQuery = useQuery({
+    queryKey: ["organization", "ref", buyerOrgId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}", {
+        params: { path: { id: buyerOrgId ?? "" } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return {
+        id: buyerOrgId ?? "",
+        name: data.display_name ?? "",
+      } satisfies RecordPickerCandidate;
+    },
+    enabled: Boolean(buyerOrgId) && open,
+    staleTime: 60_000,
+  });
+  const buyerOrg =
+    override ?? (buyerOrgId ? (existingQuery.data ?? null) : null);
+  return { buyerOrg, setBuyerOrgOverride: setOverride };
+}
+
 function EditOfferHeaderModal({
   open,
   onClose,
@@ -98,7 +128,10 @@ function EditOfferHeaderModal({
     intro_text: offer.intro_text ?? "",
     terms_text: offer.terms_text ?? "",
   });
-  const [buyerOrg, setBuyerOrg] = useState<RecordPickerCandidate | null>(null);
+  const { buyerOrg, setBuyerOrgOverride } = useBuyerOrgPreview(
+    offer.buyer_org_id ?? null,
+    open,
+  );
   // Only the closed→open transition reprimes the form — a background
   // refetch handing this component a fresh `offer` reference mid-edit must
   // never clobber what the user is typing (same convention as
@@ -114,10 +147,10 @@ function EditOfferHeaderModal({
         intro_text: offer.intro_text ?? "",
         terms_text: offer.terms_text ?? "",
       });
-      setBuyerOrg(null);
+      setBuyerOrgOverride(null);
     }
     wasOpen.current = open;
-  }, [open, offer]);
+  }, [open, offer, setBuyerOrgOverride]);
 
   const mutation = useMutation({
     mutationFn: async (input: HeaderEditValues) => {
@@ -196,7 +229,7 @@ function EditOfferHeaderModal({
           searchTargets={searchOrganizationCandidates}
           selected={buyerOrg}
           onPick={(candidate) => {
-            setBuyerOrg(candidate);
+            setBuyerOrgOverride(candidate);
             setValues((prev) => ({ ...prev, buyer_org_id: candidate.id }));
           }}
         />
@@ -275,7 +308,7 @@ function EditOfferHeaderModal({
   );
 }
 
-// Task 3.3 (OP-7/OP-13): the line-item editor. The server-driven-totals
+// The line-item editor (OP-7/OP-13). The server-driven-totals
 // invariant (P11) governs every mutation below — add/edit/remove all return
 // the FULL updated Offer (recomputed line_items + net/tax/gross), and the
 // only thing this component ever does with that response is
@@ -339,108 +372,43 @@ function UnitCell({
   );
 }
 
-function PositionCell({
-  line,
+// The shared numeric-line-field editor (position/quantity/discount/tax rate
+// all reduce to the same "local text buffer, commit a parsed number on
+// blur" shape). Blurring an emptied field restores the last saved value
+// instead of parsing "" as 0 and silently committing it — Number("") is 0,
+// not NaN, so without this guard clearing the field to retype a value (a
+// normal edit gesture) would zero it out the moment focus left the input.
+function NumericCell({
+  value: savedValue,
+  step,
+  width,
+  testId,
   onSave,
 }: Readonly<{
-  line: OfferLineItem;
-  onSave: (patch: UpdateOfferLineItemRequest) => void;
+  value: number;
+  step: string;
+  width: number;
+  testId: string;
+  onSave: (num: number) => void;
 }>) {
-  const [value, setValue] = useState(String(line.position));
+  const [value, setValue] = useState(String(savedValue));
   return (
     <input
       type="number"
-      step="1"
+      step={step}
       className="input"
-      style={{ width: 60 }}
-      data-testid={`line-position-${line.id}`}
+      style={{ width }}
+      data-testid={testId}
       value={value}
       onChange={(event) => setValue(event.target.value)}
       onBlur={() => {
-        const num = Number(value);
-        if (!Number.isNaN(num) && num !== line.position) {
-          onSave({ position: num });
+        if (value.trim() === "") {
+          setValue(String(savedValue));
+          return;
         }
-      }}
-    />
-  );
-}
-
-function QuantityCell({
-  line,
-  onSave,
-}: Readonly<{
-  line: OfferLineItem;
-  onSave: (patch: UpdateOfferLineItemRequest) => void;
-}>) {
-  const [value, setValue] = useState(String(line.quantity));
-  return (
-    <input
-      type="number"
-      step="0.001"
-      className="input"
-      style={{ width: 90 }}
-      data-testid={`line-quantity-${line.id}`}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => {
         const num = Number(value);
-        if (!Number.isNaN(num) && num !== line.quantity) {
-          onSave({ quantity: num });
-        }
-      }}
-    />
-  );
-}
-
-function DiscountCell({
-  line,
-  onSave,
-}: Readonly<{
-  line: OfferLineItem;
-  onSave: (patch: UpdateOfferLineItemRequest) => void;
-}>) {
-  const [value, setValue] = useState(String(line.discount_pct));
-  return (
-    <input
-      type="number"
-      step="0.01"
-      className="input"
-      style={{ width: 90 }}
-      data-testid={`line-discount-${line.id}`}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => {
-        const num = Number(value);
-        if (!Number.isNaN(num) && num !== line.discount_pct) {
-          onSave({ discount_pct: num });
-        }
-      }}
-    />
-  );
-}
-
-function TaxRateCell({
-  line,
-  onSave,
-}: Readonly<{
-  line: OfferLineItem;
-  onSave: (patch: UpdateOfferLineItemRequest) => void;
-}>) {
-  const [value, setValue] = useState(String(line.tax_rate));
-  return (
-    <input
-      type="number"
-      step="0.01"
-      className="input"
-      style={{ width: 90 }}
-      data-testid={`line-tax-rate-${line.id}`}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={() => {
-        const num = Number(value);
-        if (!Number.isNaN(num) && num !== line.tax_rate) {
-          onSave({ tax_rate: num });
+        if (!Number.isNaN(num) && num !== savedValue) {
+          onSave(num);
         }
       }}
     />
@@ -449,11 +417,9 @@ function TaxRateCell({
 
 function UnitPriceCell({
   line,
-  currency,
   onSave,
 }: Readonly<{
   line: OfferLineItem;
-  currency: string;
   onSave: (patch: UpdateOfferLineItemRequest) => void;
 }>) {
   const [minor, setMinor] = useState(line.unit_price_minor);
@@ -462,7 +428,6 @@ function UnitPriceCell({
       data-testid={`line-unit-price-${line.id}`}
       style={{ width: 90 }}
       valueMinor={minor}
-      currency={currency}
       onChangeMinor={setMinor}
       onBlur={() => {
         if (minor !== line.unit_price_minor) {
@@ -580,7 +545,13 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
       key: "position",
       header: t("offer.position"),
       render: (line: OfferLineItem) => (
-        <PositionCell line={line} onSave={saveLine(line.id)} />
+        <NumericCell
+          value={line.position}
+          step="1"
+          width={60}
+          testId={`line-position-${line.id}`}
+          onSave={(num) => saveLine(line.id)({ position: num })}
+        />
       ),
     },
     {
@@ -601,7 +572,13 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
       key: "quantity",
       header: t("offer.quantity"),
       render: (line: OfferLineItem) => (
-        <QuantityCell line={line} onSave={saveLine(line.id)} />
+        <NumericCell
+          value={line.quantity}
+          step="0.001"
+          width={90}
+          testId={`line-quantity-${line.id}`}
+          onSave={(num) => saveLine(line.id)({ quantity: num })}
+        />
       ),
     },
     {
@@ -611,25 +588,33 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
         line.price_grounded === false ? (
           <UnpricedCaption label={t("offer.unpriced")} />
         ) : (
-          <UnitPriceCell
-            line={line}
-            currency={offer.currency}
-            onSave={saveLine(line.id)}
-          />
+          <UnitPriceCell line={line} onSave={saveLine(line.id)} />
         ),
     },
     {
       key: "discountPct",
       header: t("offer.discountPct"),
       render: (line: OfferLineItem) => (
-        <DiscountCell line={line} onSave={saveLine(line.id)} />
+        <NumericCell
+          value={line.discount_pct}
+          step="0.01"
+          width={90}
+          testId={`line-discount-${line.id}`}
+          onSave={(num) => saveLine(line.id)({ discount_pct: num })}
+        />
       ),
     },
     {
       key: "taxRate",
       header: t("offer.taxRate"),
       render: (line: OfferLineItem) => (
-        <TaxRateCell line={line} onSave={saveLine(line.id)} />
+        <NumericCell
+          value={line.tax_rate}
+          step="0.01"
+          width={90}
+          testId={`line-tax-rate-${line.id}`}
+          onSave={(num) => saveLine(line.id)({ tax_rate: num })}
+        />
       ),
     },
     {
@@ -742,7 +727,6 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
               aria-labelledby="new-line-price-label"
               data-testid="new-line-unit-price"
               valueMinor={newLine.unit_price_minor}
-              currency={offer.currency}
               onChangeMinor={(minor) => {
                 setPriceTouched(true);
                 setNewLine((prev) => ({ ...prev, unit_price_minor: minor }));
@@ -853,7 +837,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
   );
 }
 
-// Task 3.4 (OP-8/OP-9/OP-10): the send/accept/reject lifecycle. All three
+// The send/accept/reject lifecycle (OP-8/OP-9/OP-10). All three
 // return the FULL updated Offer (P11 — server-truth totals/status), so the
 // only client-side work on success is queryClient.setQueryData(["offer",
 // ...]) — never a locally-derived status flip. Send is the confirm-first
@@ -1055,15 +1039,15 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   );
 }
 
-// Task 4.1 (OP-11): regenerate a new draft revision from a sent offer. The
-// 201 response is the ONLY place the Art. 50 disclosure and diff summary
-// ever appear (every later read of the same offer returns them null), so
-// the cache for the NEW draft's id is seeded directly from this response —
-// before navigating — rather than letting OfferScreen's own useQuery
-// re-fetch a plain GET that would come back with the disclosure/diff wiped.
-// Regenerate is non-destructive to the current (sent) offer, which stays
-// sent/superseded server-side rather than being deleted, so unlike Send it
-// isn't gated behind a confirm modal — a plain action, per the plan.
+// Regenerate a new draft revision from a sent offer (OP-11). The 201
+// response is the ONLY place the Art. 50 disclosure and diff summary ever
+// appear (every later read of the same offer returns them null), so the
+// cache for the NEW draft's id is seeded directly from this response —
+// before navigating — and OfferScreen's own query for that id skips its
+// refetch-on-mount for exactly this reason (see its `refetchOnMount: false`
+// below). Regenerate is non-destructive to the current (sent) offer, which
+// stays sent/superseded server-side rather than being deleted, so unlike
+// Send it isn't gated behind a confirm modal.
 function RegenerateOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1080,6 +1064,12 @@ function RegenerateOfferAction({ offer }: Readonly<{ offer: Offer }>) {
     },
     onSuccess: (newDraft) => {
       queryClient.setQueryData(["offer", newDraft.id], newDraft);
+      // The new draft revision is a new offer row on the same deal — the
+      // deal's offers panel (deals.tsx) must see it too, same as
+      // AcceptOfferAction invalidates after its own new-row-shaped change.
+      queryClient.invalidateQueries({
+        queryKey: ["deal-offers", newDraft.deal_id],
+      });
       navigate({ screen: "offers", id: newDraft.id });
     },
   });
@@ -1234,23 +1224,31 @@ async function openOfferPdf(
   }
   event.preventDefault();
   const tab = globalThis.open("", "_blank");
-  const response = await globalThis.fetch(href, {
-    credentials: "include",
-    headers: { "X-Workspace-Slug": slug },
-  });
-  if (!tab) {
-    return;
+  try {
+    const response = await globalThis.fetch(href, {
+      credentials: "include",
+      headers: { "X-Workspace-Slug": slug },
+    });
+    if (!tab) {
+      return;
+    }
+    if (!response.ok) {
+      tab.document.title = "PDF unavailable";
+      tab.document.body.textContent = `Could not load the PDF (${response.status}).`;
+      return;
+    }
+    const blob = await response.blob();
+    tab.location.href = URL.createObjectURL(blob);
+  } catch (error) {
+    if (tab) {
+      tab.document.title = "PDF unavailable";
+      tab.document.body.textContent =
+        error instanceof Error ? error.message : "Could not load the PDF.";
+    }
   }
-  if (!response.ok) {
-    tab.document.title = "PDF unavailable";
-    tab.document.body.textContent = `Could not load the PDF (${response.status}).`;
-    return;
-  }
-  const blob = await response.blob();
-  tab.location.href = URL.createObjectURL(blob);
 }
 
-// Task 4.2 (OP-12): render the offer's branded PDF. Per the contract's own
+// Render the offer's branded PDF (OP-12). Per the contract's own
 // doc comment, a 501 here means the deployment has no blobstore wired — the
 // same unwired-by-omission posture as the attachments seam — which is a
 // deliberate, expected outcome, not an error: it is read off the raw
@@ -1354,6 +1352,15 @@ export function OfferScreen({ id }: Readonly<{ id: string }>) {
       }
       return data;
     },
+    // RegenerateOfferAction seeds this exact query key with its 201
+    // response — the only place ai_disclosure/diff_from_previous are ever
+    // populated — right before navigating here. The default
+    // refetchOnMount would otherwise immediately re-GET and silently wipe
+    // both fields the instant this screen mounts, contradicting that
+    // seeding's whole purpose. This never blocks a genuinely fresh
+    // navigation (no cache entry yet): refetchOnMount only skips a refetch
+    // when there IS cached data for this key already.
+    refetchOnMount: false,
   });
 
   return (

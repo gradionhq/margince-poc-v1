@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { SearchField } from "./atoms";
 
-// The shared debounced search→candidate-list→pick pattern (Phase 2, task
-// 2.1): this used to live duplicated, near-identically, inline in
-// MergeAction (screens/merge.tsx) and AddRelationshipAction
-// (screens/relationships.tsx) — both wire a search transport, debounce
-// 250ms, render candidates as pickable buttons, and surface a search
-// failure inline rather than throwing it. Neither call site is migrated to
-// this component yet (that is later Phase-2/3 work); this is the standalone
-// extraction those tasks will consume.
+// The shared debounced search→candidate-list→pick pattern: this used to
+// live duplicated, near-identically, inline in MergeAction
+// (screens/merge.tsx) and AddRelationshipAction (screens/relationships.tsx)
+// — both wire a search transport, debounce 250ms, render candidates as
+// pickable buttons, and surface a search failure inline rather than
+// throwing it. Neither call site has been migrated onto this extraction
+// yet; offers.tsx (buyer-org and product pickers) is its only consumer
+// today.
 
 const SEARCH_DEBOUNCE_MS = 250;
 

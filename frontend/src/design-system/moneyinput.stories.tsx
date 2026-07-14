@@ -16,7 +16,6 @@ function MoneyDemo() {
     <div style={{ maxWidth: 200 }}>
       <MoneyInput
         valueMinor={minor}
-        currency="EUR"
         onChangeMinor={setMinor}
         aria-label="Unit price"
       />
