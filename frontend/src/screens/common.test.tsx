@@ -10,7 +10,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { problemExistingId, throwProblem } from "./common";
+import {
+  canManageCustomFields,
+  problemExistingId,
+  throwProblem,
+} from "./common";
 import { CreateAction } from "./create";
 
 // Dedupe "view existing record" foundation (P-16): a create that collides on
@@ -80,5 +84,16 @@ describe("CreateAction dedupe link", () => {
     );
     await userEvent.click(screen.getByText("View existing record"));
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/01ABC"));
+  });
+});
+
+describe("canManageCustomFields", () => {
+  it("admits admin and ops, refuses everyone else", () => {
+    expect(canManageCustomFields(["admin"])).toBe(true);
+    expect(canManageCustomFields(["ops"])).toBe(true);
+    expect(canManageCustomFields(["manager"])).toBe(false);
+    expect(canManageCustomFields(["rep"])).toBe(false);
+    expect(canManageCustomFields([])).toBe(false);
+    expect(canManageCustomFields(undefined)).toBe(false);
   });
 });
