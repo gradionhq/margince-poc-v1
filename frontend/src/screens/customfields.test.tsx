@@ -121,6 +121,22 @@ describe("FieldBuilder", () => {
       }),
     );
   });
+
+  it("keeps Confirm disabled for a picklist whose only option is blank", async () => {
+    builder();
+    await userEvent.type(screen.getByLabelText(/Label/i), "Deal source");
+    await userEvent.click(screen.getByRole("button", { name: /^Picklist$/i }));
+    // The single option row is left blank — a picklist with no real choice
+    // must not be confirmable.
+    expect(
+      screen.getByRole("button", { name: /Confirm & add field/i }),
+    ).toBeDisabled();
+    // Typing a real option flips Confirm back on.
+    await userEvent.type(screen.getByLabelText(/Option label/i), "Referral");
+    expect(
+      screen.getByRole("button", { name: /Confirm & add field/i }),
+    ).toBeEnabled();
+  });
 });
 
 type CustomField = components["schemas"]["CustomField"];
@@ -215,29 +231,51 @@ type Recorded = { method: string; url: string; body: unknown };
 
 // A fetch stub over the shipped custom-fields contract: /v1/me for the role
 // probe, per-object list reads keyed off the `object` query param, a 201 echo
-// on create, and an empty audit page. Every route the screen touches is
-// answered so QueryGate renders content, never its error card.
+// on create, retire + rename recorded verbatim, and an empty audit page. Every
+// route the screen touches is answered so QueryGate renders content, never its
+// error card. `opts.failCreate` makes POST /custom-fields reject with a 422 so
+// the optimistic-rollback path can be exercised.
 function customFieldsBackend(
   dealFields: CustomField[],
   orgFields: CustomField[],
   calls: Recorded[],
   roles: string[] = ["admin"],
+  opts: { failCreate?: boolean } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    const readBody = async (): Promise<Record<string, unknown>> =>
+      (request
+        ? await request.json()
+        : JSON.parse(String(init?.body))) as Record<string, unknown>;
     if (url.endsWith("/v1/me")) {
       return jsonResponse({ user: { id: "u1" }, roles, teams: [] });
     }
     if (url.includes("/audit-log")) {
       return jsonResponse({ data: [], page: { next_cursor: null } });
     }
-    if (url.includes("/custom-fields") && method === "POST") {
-      const body = (
-        request ? await request.json() : JSON.parse(String(init?.body))
-      ) as Record<string, unknown>;
+    // Retire is a POST too, but on the /{id}/retire sub-path — match it before
+    // the generic create so it is recorded as an archive, not parsed as a body.
+    if (url.includes("/retire") && method === "POST") {
+      calls.push({ method, url, body: null });
+      return jsonResponse(field({ id: "archived", status: "retired" }));
+    }
+    if (url.includes("/custom-fields") && method === "PATCH") {
+      const body = await readBody();
       calls.push({ method, url, body });
+      return jsonResponse(field({ label: String(body.label) }));
+    }
+    if (url.includes("/custom-fields") && method === "POST") {
+      const body = await readBody();
+      calls.push({ method, url, body });
+      if (opts.failCreate) {
+        return jsonResponse(
+          { title: "Unprocessable", detail: "rejected" },
+          422,
+        );
+      }
       const created = field({
         id: `cf-new-${calls.length}`,
         object: body.object as CustomField["object"],
@@ -366,5 +404,98 @@ describe("CustomFieldsScreen", () => {
     ).toBeNull();
     expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
     expect(screen.getByText(/Admin role required/i)).toBeInTheDocument();
+  });
+
+  it("rolls back the optimistic staged row and toasts the error on create failure", async () => {
+    const calls: Recorded[] = [];
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Existing field" })],
+        [],
+        calls,
+        ["admin"],
+        { failCreate: true },
+      ),
+    );
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText("Existing field")).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/^Label/i), "Doomed field");
+    await userEvent.click(screen.getByRole("button", { name: /^Number$/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm & add field/i }),
+    );
+    // The POST is attempted…
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "POST")).toBe(true),
+    );
+    // …and after the 422 the list is back to its prior rows (staged row gone)
+    // with an honest error toast surfaced from the problem detail.
+    await waitFor(() =>
+      expect(screen.getByText(/rejected/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Doomed field")).toBeNull();
+    expect(screen.queryByText(/writing/i)).toBeNull();
+    expect(screen.getByText("Existing field")).toBeInTheDocument();
+  });
+
+  it("archives a field and shows the archived toast", async () => {
+    const calls: Recorded[] = [];
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Renewal date" })],
+        [],
+        calls,
+      ),
+    );
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText("Renewal date")).toBeInTheDocument(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Archive field/i }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.url.includes("/retire"),
+        ),
+      ).toBe(true),
+    );
+    const retire = calls.find((call) => call.url.includes("/retire"));
+    expect(retire?.url).toContain("/custom-fields/d1/retire");
+    await waitFor(() =>
+      expect(screen.getByText(/archived/)).toBeInTheDocument(),
+    );
+  });
+
+  it("renames a field via the modal, sending the new label in a PATCH", async () => {
+    const calls: Recorded[] = [];
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Renewal date" })],
+        [],
+        calls,
+      ),
+    );
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText("Renewal date")).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Edit label/i }));
+    const input = screen.getByLabelText(/New label/i);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Contract end date");
+    await userEvent.click(screen.getByRole("button", { name: /Save/i }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "PATCH")).toBe(true),
+    );
+    const patch = calls.find((call) => call.method === "PATCH");
+    expect(patch?.url).toContain("/custom-fields/d1");
+    expect(patch?.body).toMatchObject({ label: "Contract end date" });
   });
 });

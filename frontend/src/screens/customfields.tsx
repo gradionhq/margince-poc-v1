@@ -8,7 +8,7 @@ import {
   ToggleRight,
   Type,
 } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -87,7 +87,14 @@ export function FieldBuilder({
   const [currency, setCurrency] = useState("EUR");
   const [options, setOptions] = useState<string[]>([""]);
   const structural = looksStructural(label);
-  const canConfirm = !pending && label.trim().length > 0 && !structural;
+  // A picklist with no non-blank option is not a picklist, and a currency field
+  // needs a well-formed 3-letter ISO-4217 code — Confirm stays disabled until
+  // the type-specific shape is valid, not just the label.
+  const typeShapeValid =
+    (type !== "picklist" || options.some((opt) => opt.trim().length > 0)) &&
+    (type !== "currency" || /^[A-Za-z]{3}$/.test(currency.trim()));
+  const canConfirm =
+    !pending && label.trim().length > 0 && !structural && typeShapeValid;
 
   const setOptionAt = (idx: number, value: string) => {
     setOptions((current) => current.map((opt, i) => (i === idx ? value : opt)));
@@ -113,10 +120,12 @@ export function FieldBuilder({
   return (
     <section
       className="card cf-builder"
-      aria-label={t("cf.builder.addTo", { object })}
+      aria-label={t("cf.builder.addTo", { object: t(`cf.obj.${object}`) })}
     >
       <header className="cf-builder-head">
-        <h3 className="section-header">{t("cf.builder.addTo", { object })}</h3>
+        <h3 className="section-header">
+          {t("cf.builder.addTo", { object: t(`cf.obj.${object}`) })}
+        </h3>
         <span className="badge">{t("cf.builder.noCode")}</span>
       </header>
       <p className="cf-hint">{t("cf.builder.intro")}</p>
@@ -230,7 +239,7 @@ export function FieldBuilder({
 
       <div className="cf-gate">
         <AutonomyDot tier="confirm" /> <strong>{t("cf.gate.title")}</strong>
-        <p>{t("cf.gate.body", { object })}</p>
+        <p>{t("cf.gate.body", { object: t(`cf.obj.${object}`) })}</p>
         <code className="cf-ddl">
           {ddlPreview(object, label, type, currency)}
         </code>
@@ -405,8 +414,21 @@ export function FieldTable({
 // renders only the fields the AuditLogEntry contract actually carries — the
 // action, the entity it touched, the actor, and when — never an invented
 // display name. Empty is an honest state, not a bug.
-export function AuditRail({ entries }: Readonly<{ entries: AuditLogEntry[] }>) {
+export function AuditRail({
+  entries,
+  isError,
+}: Readonly<{ entries: AuditLogEntry[]; isError?: boolean }>) {
   const t = useT();
+
+  // A failed audit read is not an empty history — say so honestly rather than
+  // letting "no changes yet" stand in for a load that never completed.
+  if (isError) {
+    return (
+      <p className="cf-audit-empty" role="alert">
+        {t("cf.audit.error")}
+      </p>
+    );
+  }
 
   if (entries.length === 0) {
     return <p className="cf-audit-empty">{t("cf.audit.empty")}</p>;
@@ -445,8 +467,27 @@ function createBody(
     type: draft.type,
     source: "manual",
     ...(draft.type === "currency" ? { currency: draft.currency } : {}),
-    ...(draft.type === "picklist" ? { options: draft.options } : {}),
+    ...(draft.type === "picklist"
+      ? { options: cleanOptions(draft.options) }
+      : {}),
   };
+}
+
+// A picklist ships only its real choices: blank / whitespace-only rows (the
+// editor's floor row and any half-typed entries) are dropped and exact
+// duplicates collapsed, so the stored enum matches what the admin sees.
+function cleanOptions(options: string[]): string[] {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const raw of options) {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    cleaned.push(trimmed);
+  }
+  return cleaned;
 }
 
 // The optimistic row shown while the create is in flight — a full CustomField so
@@ -464,7 +505,7 @@ function stagedField(draft: NewFieldDraft, createdBy: string): CustomField {
     status: "active",
     column_name: columnName(draft.label),
     currency: draft.type === "currency" ? draft.currency : null,
-    options: draft.type === "picklist" ? draft.options : null,
+    options: draft.type === "picklist" ? cleanOptions(draft.options) : null,
     created_by: createdBy,
     created_at: now,
     updated_at: now,
@@ -487,7 +528,30 @@ export function CustomFieldsScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<CustomField | null>(null);
   const [renameLabel, setRenameLabel] = useState("");
+  // Remounting the builder to its default state after a successful create so a
+  // second Confirm can't resubmit the same, now-committed, draft (m6).
+  const [builderKey, setBuilderKey] = useState(0);
   const renameId = useId();
+
+  // A toast is transient: show it, then auto-dismiss after 3.5s. The pending
+  // timer is held in a ref so a rapid second toast cancels the first (no leak),
+  // and it's cleared on unmount.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string) => {
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  };
+  useEffect(
+    () => () => {
+      if (toastTimer.current) {
+        clearTimeout(toastTimer.current);
+      }
+    },
+    [],
+  );
 
   const list = useQuery({
     queryKey: ["custom-fields", object],
@@ -530,8 +594,12 @@ export function CustomFieldsScreen() {
       }
       return data;
     },
-    onMutate: (draft: NewFieldDraft) => {
+    onMutate: async (draft: NewFieldDraft) => {
+      // Key the optimistic write to the DRAFT's object, not the current-render
+      // one, so switching objects mid-create still stages, rolls back, and
+      // invalidates the right list (m2).
       const key = ["custom-fields", draft.object];
+      await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<CustomFieldList>(key);
       queryClient.setQueryData<CustomFieldList>(key, (old) =>
         old
@@ -544,11 +612,17 @@ export function CustomFieldsScreen() {
       if (context) {
         queryClient.setQueryData(context.key, context.previous);
       }
-      setToast(error instanceof Error ? error.message : problemMessage(error));
+      showToast(error instanceof Error ? error.message : problemMessage(error));
     },
     onSuccess: (_data, draft) => {
-      invalidate();
-      setToast(t("cf.added", { label: draft.label }));
+      queryClient.invalidateQueries({
+        queryKey: ["custom-fields", draft.object],
+      });
+      queryClient.invalidateQueries({ queryKey: ["cf-audit"] });
+      showToast(t("cf.added", { label: draft.label }));
+      // Remount the builder so its label/type/options clear — a committed draft
+      // can't be resubmitted (m6).
+      setBuilderKey((key) => key + 1);
     },
   });
 
@@ -570,11 +644,11 @@ export function CustomFieldsScreen() {
     },
     onSuccess: (_data, input) => {
       invalidate();
-      setToast(t("cf.renamed", { label: input.label }));
+      showToast(t("cf.renamed", { label: input.label }));
       setRenaming(null);
     },
     onError: (error) => {
-      setToast(error instanceof Error ? error.message : problemMessage(error));
+      showToast(error instanceof Error ? error.message : problemMessage(error));
     },
   });
 
@@ -590,10 +664,10 @@ export function CustomFieldsScreen() {
     },
     onSuccess: (_data, field) => {
       invalidate();
-      setToast(t("cf.archived", { label: field.label }));
+      showToast(t("cf.archived", { label: field.label }));
     },
     onError: (error) => {
-      setToast(error instanceof Error ? error.message : problemMessage(error));
+      showToast(error instanceof Error ? error.message : problemMessage(error));
     },
   });
 
@@ -627,7 +701,9 @@ export function CustomFieldsScreen() {
       </fieldset>
 
       <section className="card">
-        <SectionHeader title={t("cf.onObject", { object })} />
+        <SectionHeader
+          title={t("cf.onObject", { object: t(`cf.obj.${object}`) })}
+        />
         <QueryGate query={list}>
           {(page) => (
             <FieldTable
@@ -644,11 +720,11 @@ export function CustomFieldsScreen() {
 
       {canManage ? (
         <FieldBuilder
-          key={object}
+          key={`${object}-${builderKey}`}
           object={object}
           pending={create.isPending}
           onSubmit={(draft) => create.mutate(draft)}
-          onToast={setToast}
+          onToast={showToast}
         />
       ) : (
         <p className="t-caption">{t("cf.noPermission")}</p>
@@ -656,7 +732,7 @@ export function CustomFieldsScreen() {
 
       <section className="card">
         <SectionHeader title={t("cf.audit.title")} />
-        <AuditRail entries={audit.data?.data ?? []} />
+        <AuditRail entries={audit.data?.data ?? []} isError={audit.isError} />
         <p className="t-caption">{t("cf.audit.footer")}</p>
       </section>
 

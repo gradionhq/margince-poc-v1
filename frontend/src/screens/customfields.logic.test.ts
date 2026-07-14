@@ -37,4 +37,16 @@ describe("custom-fields logic", () => {
     expect(looksStructural("Lookup to company")).toBe(true);
     expect(looksStructural("Renewal date")).toBe(false);
   });
+
+  it("matches bare structural nouns on word boundaries, not as substrings", () => {
+    // Innocent labels that merely embed a structural token as a substring
+    // ("object" in "Objective", "table" in "Notable"/"Portable") are data.
+    expect(looksStructural("Objective score")).toBe(false);
+    expect(looksStructural("Notable accounts")).toBe(false);
+    expect(looksStructural("Portable device")).toBe(false);
+    // The genuine structural requests still refuse.
+    expect(looksStructural("Link to parent account")).toBe(true);
+    expect(looksStructural("New object")).toBe(true);
+    expect(looksStructural("one-to-many mapping")).toBe(true);
+  });
 });

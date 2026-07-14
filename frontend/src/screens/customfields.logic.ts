@@ -80,10 +80,14 @@ export function ddlPreview(
 
 // A field is data; an object or a relationship is structure. A label that reads
 // like a structural request is refused pre-emptively (AC-custom-fields-5).
-export const STRUCTURE_WORDS: readonly string[] = [
-  "object",
-  "table",
-  "entity",
+//
+// Single, bare structural nouns match on WORD BOUNDARIES so an innocent label
+// that merely contains one as a substring ("Objective score" has "object",
+// "Notable accounts" / "Portable device" have "table") is not refused. The
+// multi-word relationship phrases are distinctive enough to match as substrings.
+const STRUCTURE_TOKENS: readonly string[] = ["object", "table", "entity"];
+
+const STRUCTURE_PHRASES: readonly string[] = [
   "relationship",
   "link to",
   "related to",
@@ -96,7 +100,14 @@ export const STRUCTURE_WORDS: readonly string[] = [
   "one-to-many",
 ];
 
+const STRUCTURE_TOKEN_RE = new RegExp(
+  `\\b(?:${STRUCTURE_TOKENS.join("|")})\\b`,
+);
+
 export function looksStructural(label: string): boolean {
   const l = label.toLowerCase();
-  return STRUCTURE_WORDS.some((w) => l.includes(w));
+  if (STRUCTURE_TOKEN_RE.test(l)) {
+    return true;
+  }
+  return STRUCTURE_PHRASES.some((phrase) => l.includes(phrase));
 }
