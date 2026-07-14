@@ -182,11 +182,6 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   tenant query goes through it; there is no raw-pool path for tenant data.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend only
   together with the spec's interfaces.md §0.
-- `cli/craft/` — the foundation-owned craftsmanship gate, vendored verbatim
-  from `../margince/skeleton/cli/craft` and hash-pinned by
-  `cli/craft/craft-manifest.sha256` (`make craft-drift`, part of `make
-  check`, fails any local edit). Fix the gate upstream in the skeleton,
-  bump its `code_version`, restamp the manifest, then `make craft-sync`.
 
 ## The write shape (non-negotiable)
 
@@ -229,9 +224,8 @@ legibility is the product, not polish.
   find where this change lives without a guide? is this the smallest diff that does the job?
 
 **The gate runs before every push (diff-scoped).** `.githooks/pre-push` runs the
-deterministic arm — `craft static` (the `cli/craft` tool, vendored from the foundation
-skeleton and hash-pinned — see DO NOT TOUCH; ADR-0045) — over the backend Go files
-**this push changes vs `origin/main`**. New/touched
+deterministic arm — `craft static` (the repo's `cli/craft` tool, ADR-0045) — over the
+backend Go files **this push changes vs `origin/main`**. New/touched
 code must be clean; the pre-existing backlog is *not* gated. So write it right the first
 time — a swallowed error or a sleep in a test you add will block your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).

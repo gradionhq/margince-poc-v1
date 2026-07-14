@@ -1,8 +1,8 @@
 // Shared harness for the Storybook capture gate (fe-uat.mjs): build the static
 // Storybook, serve it locally behind a path-traversal-safe file server, resolve
-// Chromium, and read the story index. Ported from the foundation skeleton and
-// adapted to this repo: a plain (non-workspace) frontend/ and the Chromium that
-// ships with @playwright/test — no pnpm-store glob, no extra dependency.
+// Chromium, and read the story index. Built for this repo's layout: a plain
+// (non-workspace) frontend/ and the Chromium that ships with @playwright/test
+// — no pnpm-store glob, no extra dependency.
 import { spawnSync } from "node:child_process";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";

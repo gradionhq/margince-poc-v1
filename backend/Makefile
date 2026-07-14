@@ -77,7 +77,7 @@ bench-perf: ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (nee
 
 # Two passes, two scopes: .golangci.yml is the repo-wide
 # baseline (the depguard DAG lives there and must never be diff-scoped);
-# .golangci.strict.yml is the expanded skeleton-parity set, gated to new
+# .golangci.strict.yml is the expanded strict set, gated to new
 # code via new-from-merge-base so the pre-existing backlog is not a burn-down.
 lint: ## golangci-lint: repo-wide baseline + new-code strict set
 	golangci-lint run ./...

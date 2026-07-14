@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test-lane separation (ported from the foundation skeleton).
+# Test-lane separation.
 #
 # A unit test (one WITHOUT a `//go:build integration` or `//go:build livesmoke`
 # tag, so it runs under `make test`) must never open a REAL Postgres/Redis
@@ -31,8 +31,8 @@ while IFS= read -r f; do
     grep -nE "$real" "$f" | sed 's/^/    /'
     violations=1
   fi
-# Search roots: every hand-written Go tree. cli/craft is vendored verbatim
-# from the foundation (hash-pinned); its lane discipline is upstream's job.
+# Search roots: the backend hand-written Go tree. cli/craft is separate
+# craftsmanship gate tooling with its own tests, out of this gate's scope.
 done < <(find backend -name '*_test.go' 2>/dev/null | sort)
 
 if [ "$violations" -ne 0 ]; then

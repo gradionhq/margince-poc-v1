@@ -1,6 +1,6 @@
 # CodeRabbit review scope. Mirrors sonar-project.properties: keep the AI review
 # on hand-written product code and skip what we do not hand-write or own —
-# generated contract types, append-only DDL, vendored tooling, build config, and
+# generated contract types, append-only DDL, dev tooling, build config, and
 # the design-system story/UAT fixtures the fe-uat gate renders.
 language: en-US
 reviews:

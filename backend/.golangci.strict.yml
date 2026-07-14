@@ -1,4 +1,4 @@
-# The expanded linter set (foundation skeleton parity), gated NEW-CODE-ONLY:
+# The expanded strict linter set, gated NEW-CODE-ONLY:
 # issues.new-from-merge-base keeps the pre-existing backlog un-gated, so this
 # config could land without a big-bang burn-down. Write new
 # code clean; shrink the backlog as files are touched.

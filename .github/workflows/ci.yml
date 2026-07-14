@@ -7,7 +7,7 @@
 # an erasure that misses a PII table, a vulnerable dependency, a swallowed
 # error, or a UI regression fails the merge instead of shipping.
 #
-# Job names mirror the foundation's craftsmanship wiring (ADR-0045,
+# Job names follow the craftsmanship wiring (ADR-0045,
 # cli/craft/wiring): external/fork PRs hit the same dco + deterministic-gates
 # + craftsmanship + craft-residue jobs as internal work, and craftsmanship
 # runs only after the deterministic gates are green.
@@ -126,7 +126,7 @@ jobs:
         run: |
           make tools
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
-      # The backend half of the merge gate in one pass: craft-drift,
+      # The backend half of the merge gate in one pass:
       # check-craft-doc, image pins, contract-breaking, test-lanes, file-length,
       # RLS store-path, jurisdiction isolation, then the backend gate (build,
       # vet, lint, arch-lint, unit + fitness tests, contract drift). The frontend

@@ -62,7 +62,8 @@ loop your PR will run:
    backend code must be free of `BLOCKER` findings (swallowed errors,
    sleeps in tests). A *genuine* false positive is waived in-source
    with a reason: `//craft:ignore <check> <reason>`. The gate tool
-   (`cli/craft/`) is vendored and hash-pinned — never edit it here.
+   (`cli/craft/`) is part of this repo — don't edit it to silence a
+   finding on your own PR; fix the gate in its own reviewed change.
 3. **CI must be all green before merge**: the same deterministic gates
    plus DCO, automated review, and static analysis. Address findings
    rather than dismissing them; squash-merge is the house style.

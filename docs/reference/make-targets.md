@@ -13,7 +13,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 | `install` | One-shot fresh-worktree setup (frontend deps + Go gate binaries + git hooks). The factory's `worktree-init` runs this by name |
 | `dev` | Full local stack: db-up + migrate + `cmd/api` + API-seed + the Vite SPA, on `http://localhost:5173` (api `:8080`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Reads an optional Anthropic BYOK key from `.env.local` for the live cold-start read-back |
 | `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — stop the stack started by `make dev` and free its ports; `DROP=1` also drops an isolated `margince_dev_<slug>` database |
-| `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is a skeleton-compatible alias) |
+| `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is an alias) |
 | `db-init` | (Re)apply `scripts/db-init.sql` to the running Postgres |
 | `migrate` | Apply core + custom migrations with the owner DSN |
 | `infra-down` | Stop the dev containers but keep the data volumes |
@@ -36,7 +36,7 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 
 | Target | What it does |
 |---|---|
-| `check` | **The merge gate.** Backend `make check` = build + vet + lint + arch-lint + test + drift. Root `make check` runs that **plus** craft-drift, image pins, contract breaking-change (`oasdiff`), test-lane hygiene, and the file-length ratchet |
+| `check` | **The merge gate.** Backend `make check` = build + vet + lint + arch-lint + test + drift. Root `make check` runs that **plus** the craft-doc floor, image pins, contract breaking-change (`oasdiff`), test-lane hygiene, and the file-length ratchet |
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture, enum sync, `audit_log` enum coherence, contract `$ref` resolution) run uncached |
@@ -92,8 +92,6 @@ ports. Stop either with `make dev-stop [DEV_SLUG=<slug>] [DROP=1]`.
 | Target | What it does |
 |---|---|
 | `craft-static` | Full deterministic craftsmanship sweep of `backend/` (the pre-push hook runs the diff-scoped subset) |
-| `craft-drift` | Verify the vendored `cli/craft` matches the foundation's `craft-manifest.sha256` — runs as a `check` prerequisite; a local gate edit fails it |
-| `craft-sync` | Pull the current gate (source + manifest) from `../margince/skeleton/cli/craft` over the vendored copy |
 
 ## Variables
 
