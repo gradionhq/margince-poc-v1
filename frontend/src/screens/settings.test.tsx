@@ -81,7 +81,7 @@ const render = (ui: ReactNode) => {
 };
 
 describe("SettingsScreen RBAC surfaces", () => {
-  it("renders the session roles as localized badges; a custom key stays its raw self", async () => {
+  it("renders the session roles as localized badges on the default Account tab; a custom key stays its raw self", async () => {
     render(<SettingsScreen />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     expect(screen.getByText("Admin")).toBeTruthy();
@@ -90,10 +90,46 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.queryByText("admin")).toBeNull();
   });
 
-  it("the passport row's token reads as withheld — masked, never re-disclosed", async () => {
-    render(<SettingsScreen />);
+  it("the passport row's token reads as withheld — masked, never re-disclosed — on the AI tab", async () => {
+    render(<SettingsScreen tab="ai" />);
     await waitFor(() => expect(screen.getByText("Scout")).toBeTruthy());
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
     expect(screen.queryByText(/mgp_/)).toBeNull();
+  });
+});
+
+describe("SettingsScreen tab layout", () => {
+  it("shows a settings-sections nav with the five tabs, Account current by default", () => {
+    render(<SettingsScreen />);
+    const nav = screen.getByRole("navigation", { name: /settings sections/i });
+    expect(nav).toBeTruthy();
+    for (const label of [
+      "Account",
+      "AI & autonomy",
+      "Data model",
+      "Privacy & consent",
+      "Audit log",
+    ]) {
+      expect(
+        screen.getByRole("link", { name: new RegExp(label, "i") }),
+      ).toBeTruthy();
+    }
+    const account = screen.getByRole("link", { name: /Account/i });
+    expect(account.getAttribute("aria-current")).toBe("page");
+    expect(
+      screen.getByRole("link", { name: /Data model/i }).getAttribute("href"),
+    ).toBe("#/settings/data");
+  });
+
+  it("renders only the active tab's cards — the passport is off the Account tab", async () => {
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    // Scout lives on the AI tab; the default Account tab must not render it.
+    expect(screen.queryByText("Scout")).toBeNull();
+  });
+
+  it("surfaces the custom-fields door on the Data model tab", () => {
+    render(<SettingsScreen tab="data" />);
+    expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy();
   });
 });

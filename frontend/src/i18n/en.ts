@@ -825,6 +825,12 @@ export const en = {
   "settings.customFieldsSub":
     "Add a typed field to a core object — no code, no deploy.",
   "settings.openCustomFields": "Open custom fields",
+  "settings.navAria": "Settings sections",
+  "settings.tab.account": "Account",
+  "settings.tab.ai": "AI & autonomy",
+  "settings.tab.data": "Data model",
+  "settings.tab.privacy": "Privacy & consent",
+  "settings.tab.audit": "Audit log",
 } as const;
 
 export type MessageKey = keyof typeof en;

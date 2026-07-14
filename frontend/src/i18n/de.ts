@@ -844,4 +844,10 @@ export const de = {
   "settings.customFieldsSub":
     "Füge einem Kernobjekt ein typisiertes Feld hinzu — ohne Code, ohne Deploy.",
   "settings.openCustomFields": "Benutzerdefinierte Felder öffnen",
+  "settings.navAria": "Einstellungsbereiche",
+  "settings.tab.account": "Konto",
+  "settings.tab.ai": "KI & Autonomie",
+  "settings.tab.data": "Datenmodell",
+  "settings.tab.privacy": "Datenschutz & Einwilligung",
+  "settings.tab.audit": "Audit-Log",
 } as const satisfies Record<MessageKey, string>;

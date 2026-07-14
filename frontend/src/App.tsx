@@ -69,7 +69,7 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
     case "ai":
       return <AskAiScreen />;
     case "settings":
-      return <SettingsScreen />;
+      return <SettingsScreen tab={id} />;
     // reached from Settings, not the rail — the 9-item rail is canonical
     case "automations":
       return <AutomationsScreen />;
