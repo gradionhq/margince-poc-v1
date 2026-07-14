@@ -36,6 +36,7 @@ import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
 import type { CreateField } from "./create";
 import { CreateAction } from "./create";
 import { EditAction } from "./edit";
+import { RecordHistoryTab } from "./history";
 import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
@@ -1181,10 +1182,92 @@ function OffersPanel({
   );
 }
 
+const DEAL_TABS = ["overview", "history"] as const;
+type DealTab = (typeof DEAL_TABS)[number];
+
+type Relationship = components["schemas"]["Relationship"];
+
+// The deal 360's "overview" pane, split out of DealScreen so the tab switch
+// doesn't push the render-prop closure over the cognitive-complexity budget.
+// Every prop here is a value already resolved by DealScreen — no new
+// fetches, no behavior change from the pre-tab layout.
+function DealOverviewPane({
+  deal,
+  stages,
+  dealApprovals,
+  onDecide,
+  stakeholders,
+  offers,
+  creatingOffer,
+  locale,
+  onCreateOffer,
+}: Readonly<{
+  deal: Deal;
+  stages: Stage[];
+  dealApprovals: Approval[];
+  onDecide: (input: {
+    approvalId: string;
+    verdict: "approve" | "reject";
+  }) => void;
+  stakeholders: Relationship[] | undefined;
+  offers: Offer[] | undefined;
+  creatingOffer: boolean;
+  locale: Locale;
+  onCreateOffer: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {deal.fx_rate_to_base != null && (
+        <FxLine
+          amountMinor={deal.amount_minor ?? 0}
+          fxRateToBase={deal.fx_rate_to_base}
+          fxRateDate={deal.fx_rate_date ?? null}
+          locale={locale}
+        />
+      )}
+      {stages.length > 0 && (
+        <nav className="stepper" aria-label={t("deals.stage")}>
+          {stages.map((stage) => (
+            <span
+              key={stage.id}
+              className={stage.id === deal.stage_id ? "step current" : "step"}
+              aria-current={stage.id === deal.stage_id ? "step" : undefined}
+            >
+              {stage.name}
+            </span>
+          ))}
+        </nav>
+      )}
+      <DealApprovals approvals={dealApprovals} decide={onDecide} />
+      {stakeholders && stakeholders.length > 0 && (
+        <section className="card" style={{ marginBottom: 16 }}>
+          <SectionHeader title={t("deal.stakeholders")} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {stakeholders.map((stakeholder) => (
+              <Badge key={stakeholder.id}>
+                {stakeholder.role ?? stakeholder.person_id ?? stakeholder.kind}
+              </Badge>
+            ))}
+          </div>
+        </section>
+      )}
+      <OffersPanel
+        offers={offers}
+        creating={creatingOffer}
+        locale={locale}
+        onCreate={onCreateOffer}
+      />
+      <LogActivity entityType="deal" entityId={deal.id} />
+    </>
+  );
+}
+
 export function DealScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();
+  const [tab, setTab] = useState<DealTab>("overview");
   const dealQuery = useQuery({
     queryKey: ["deal", id],
     queryFn: async () => {
@@ -1330,57 +1413,35 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   : []
               }
             >
-              {deal.fx_rate_to_base != null && (
-                <FxLine
-                  amountMinor={deal.amount_minor ?? 0}
-                  fxRateToBase={deal.fx_rate_to_base}
-                  fxRateDate={deal.fx_rate_date ?? null}
+              <div style={{ marginBottom: 16 }}>
+                <SegmentedControl
+                  options={DEAL_TABS}
+                  value={tab}
+                  onChange={setTab}
+                  labels={{
+                    overview: t("tab.overview"),
+                    history: t("tab.history"),
+                  }}
+                />
+              </div>
+              {tab === "overview" && (
+                <DealOverviewPane
+                  deal={deal}
+                  stages={stages}
+                  dealApprovals={dealApprovals}
+                  onDecide={(input) => decide.mutate(input)}
+                  stakeholders={stakeholdersQuery.data?.data}
+                  offers={offersQuery.data?.data}
+                  creatingOffer={createOffer.isPending}
                   locale={locale}
+                  onCreateOffer={() =>
+                    createOffer.mutate(deal.currency ?? "EUR")
+                  }
                 />
               )}
-              {stages.length > 0 && (
-                <nav className="stepper" aria-label={t("deals.stage")}>
-                  {stages.map((stage) => (
-                    <span
-                      key={stage.id}
-                      className={
-                        stage.id === deal.stage_id ? "step current" : "step"
-                      }
-                      aria-current={
-                        stage.id === deal.stage_id ? "step" : undefined
-                      }
-                    >
-                      {stage.name}
-                    </span>
-                  ))}
-                </nav>
+              {tab === "history" && (
+                <RecordHistoryTab kind="deal" id={deal.id} />
               )}
-              <DealApprovals
-                approvals={dealApprovals}
-                decide={(input) => decide.mutate(input)}
-              />
-              {stakeholdersQuery.isSuccess &&
-                stakeholdersQuery.data.data.length > 0 && (
-                  <section className="card" style={{ marginBottom: 16 }}>
-                    <SectionHeader title={t("deal.stakeholders")} />
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {stakeholdersQuery.data.data.map((stakeholder) => (
-                        <Badge key={stakeholder.id}>
-                          {stakeholder.role ??
-                            stakeholder.person_id ??
-                            stakeholder.kind}
-                        </Badge>
-                      ))}
-                    </div>
-                  </section>
-                )}
-              <OffersPanel
-                offers={offersQuery.data?.data}
-                creating={createOffer.isPending}
-                locale={locale}
-                onCreate={() => createOffer.mutate(deal.currency ?? "EUR")}
-              />
-              <LogActivity entityType="deal" entityId={deal.id} />
             </RecordView>
           );
         }}
