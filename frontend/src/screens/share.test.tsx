@@ -199,7 +199,7 @@ describe("ShareScreen", () => {
       "/record-grants/g-1": (request) => {
         if (request.method === "DELETE") {
           deletedId = "g-1";
-          return jsonResponse({}, 204);
+          return new Response(null, { status: 204 });
         }
         return jsonResponse({}, 404);
       },

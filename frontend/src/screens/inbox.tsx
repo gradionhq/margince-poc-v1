@@ -121,6 +121,9 @@ function ApprovalDetailModal({
 }: Readonly<{ approvalId: string; open: boolean; onClose: () => void }>) {
   const t = useT();
   const { locale } = useLocale();
+  // The viewer's resolved IANA zone — never a hardcoded one — so the detail
+  // timestamps read correctly for whoever is looking at them.
+  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const headingId = useId();
   const detail = useQuery({
     queryKey: ["approval", approvalId],
@@ -158,12 +161,12 @@ function ApprovalDetailModal({
             }
             meta.push([
               "created_at",
-              formatDateTime(approval.created_at, locale, "Europe/Berlin"),
+              formatDateTime(approval.created_at, locale, viewerZone),
             ]);
             if (approval.decided_at) {
               meta.push([
                 "decided_at",
-                formatDateTime(approval.decided_at, locale, "Europe/Berlin"),
+                formatDateTime(approval.decided_at, locale, viewerZone),
               ]);
             }
             return (
@@ -554,6 +557,7 @@ export function ApprovalRow({
       )}
       <EvidenceList evidence={approval.evidence} />
       {!decided &&
+        !isExpired &&
         (editing ? (
           <div
             style={{

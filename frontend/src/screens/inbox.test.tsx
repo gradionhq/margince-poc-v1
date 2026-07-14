@@ -484,6 +484,59 @@ describe("InboxScreen — already decided (AC-6)", () => {
   });
 });
 
+// ── CodeRabbit [10]: pagination merges beyond the 50-item page cap ───────
+describe("InboxScreen — approval list pagination", () => {
+  it("follows next_cursor and merges a 2nd page instead of truncating at page 1", async () => {
+    const pageOneRow = {
+      ...approval,
+      id: "ap-page1",
+      summary: "Page one item",
+    };
+    const pageTwoRow = {
+      ...approval,
+      id: "ap-page2",
+      summary: "Page two item",
+    };
+    const cursorsSeen: (string | null)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (isListUrl(url)) {
+          const status = statusOf(url);
+          if (status !== "pending") {
+            return jsonResponse({ data: [], page: { next_cursor: null } });
+          }
+          const cursorMatch = /[?&]cursor=([^&]+)/.exec(url);
+          const cursor = cursorMatch ? cursorMatch[1] : null;
+          cursorsSeen.push(cursor);
+          if (!cursor) {
+            // Page 1: report more is available.
+            return jsonResponse({
+              data: [pageOneRow],
+              page: { next_cursor: "c1", has_more: true },
+            });
+          }
+          // Page 2 (fetched with the cursor page 1 handed back): the last page.
+          return jsonResponse({
+            data: [pageTwoRow],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({ data: [], page: { next_cursor: null } });
+      }),
+    );
+
+    render(<InboxScreen />);
+
+    await waitFor(() => expect(screen.getByText("Page one item")).toBeTruthy());
+    // The 2nd page must have been requested (with page 1's cursor) and its
+    // row merged into the same rendered list — not dropped at the 50-cap.
+    await waitFor(() => expect(screen.getByText("Page two item")).toBeTruthy());
+    expect(cursorsSeen).toEqual([null, "c1"]);
+  });
+});
+
 // ── AC-7: live expiry countdown → Expired badge ─────────────────────────
 describe("InboxScreen — live expiry countdown (AC-7)", () => {
   it("shows a live countdown that flips to Expired once expires_at passes", () => {
@@ -518,9 +571,11 @@ describe("InboxScreen — live expiry countdown (AC-7)", () => {
       </QueryClientProvider>,
     );
 
-    // Live countdown chip while time remains.
+    // Live countdown chip while time remains, decision controls still live.
     expect(screen.getByText("expires in 1m 0s")).toBeTruthy();
     expect(screen.queryByText("Expired")).toBeNull();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
 
     // Cross the expiry; the useNow interval re-renders with the new clock.
     act(() => {
@@ -529,6 +584,11 @@ describe("InboxScreen — live expiry countdown (AC-7)", () => {
 
     expect(screen.getByText("Expired")).toBeTruthy();
     expect(screen.queryByText("expires in 1m 0s")).toBeNull();
+    // CodeRabbit [12]: Accept/Edit/Reject must disappear the moment
+    // client-side expiry is detected — not linger until a refetch flips
+    // approval.status server-side.
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
   });
 });
 

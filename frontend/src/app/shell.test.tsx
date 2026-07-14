@@ -10,8 +10,27 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { App } from "../App";
 import { LocaleProvider } from "../i18n";
 import { Shell, TopBar, WorkspaceRail } from "./shell";
+
+function memoryStorage(): Storage {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
+    setItem: (key, value) => {
+      map.set(key, String(value));
+    },
+    removeItem: (key) => {
+      map.delete(key);
+    },
+    clear: () => map.clear(),
+    key: (index) => Array.from(map.keys())[index] ?? null,
+    get length() {
+      return map.size;
+    },
+  };
+}
 
 // B-EP09.4 acceptance: the canonical 9-item rail in order (AC-shell-1), at
 // most one active item tracking the route (AC-shell-2), badges only from live
@@ -128,6 +147,72 @@ describe("WorkspaceRail sign-out (AS-1)", () => {
     // if `onSuccess: () => queryClient.clear()` is removed from useLogout.
     await waitFor(() => expect(loggedOut).toBe(true));
     await waitFor(() => expect(client.getQueryData(["me"])).toBeUndefined());
+  });
+
+  // CodeRabbit [9]: queryClient.clear() alone empties the cache but does NOT
+  // force a mounted ["me"] observer to refetch — a component still watching
+  // it can keep rendering its last (stale, authenticated) snapshot. Render
+  // THROUGH the real AuthGate (App, not just the rail in isolation) and prove
+  // sign-out actually lands the user back on the login screen, driven by a
+  // real /v1/me re-probe — not merely that the cache entry disappeared.
+  it("drives the AuthGate back to the login screen after sign-out (bites on stale-cache regressions)", async () => {
+    let loggedOut = false;
+    let meCalls = 0;
+    vi.stubGlobal("localStorage", memoryStorage());
+    globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const method = input instanceof Request ? input.method : "GET";
+        if (url.endsWith("/v1/auth/logout") && method === "POST") {
+          loggedOut = true;
+          return new Response(null, { status: 204 });
+        }
+        if (url.endsWith("/v1/me")) {
+          meCalls += 1;
+          if (loggedOut) {
+            return new Response(JSON.stringify({ code: "unauthenticated" }), {
+              status: 401,
+              headers: { "Content-Type": "application/problem+json" },
+            });
+          }
+          return new Response(
+            JSON.stringify({ user: { id: "u1" }, roles: [], teams: [] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ code: "unavailable" }), {
+          status: 503,
+          headers: { "Content-Type": "application/problem+json" },
+        });
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    // Authenticated: the rail (and its sign-out control) is on screen.
+    const signOut = await screen.findByRole("button", { name: "Sign out" });
+    expect(meCalls).toBe(1);
+
+    await userEvent.click(signOut);
+
+    // The gate must re-probe /v1/me (not just drop the cache entry) and,
+    // seeing 401, render the auth (signup/login) screen — the rail must be
+    // gone. AuthScreen defaults to its signup mode, so assert on that
+    // heading rather than assuming "Sign in" is the first thing shown.
+    await screen.findByRole("heading", { name: "Create your workspace" });
+    expect(screen.queryByRole("navigation")).toBeNull();
+    expect(loggedOut).toBe(true);
+    expect(meCalls).toBeGreaterThanOrEqual(2);
   });
 });
 

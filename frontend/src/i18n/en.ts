@@ -136,7 +136,15 @@ export const en = {
   "share.approvalRequired":
     "This share needs approval before it takes effect — it's been queued to the approval inbox, not applied yet.",
   "share.empty": "No manual grants on this record yet.",
-  "share.teamMembers": "Team · {count} members",
+  "share.teamMembers.one": "Team · {count} member",
+  "share.teamMembers.other": "Team · {count} members",
+  "share.rosterLoading": "Loading people and teams…",
+  "share.rosterErrorUsers":
+    "Couldn't load the people list — teams are shown below.",
+  "share.rosterErrorTeams":
+    "Couldn't load the teams list — people are shown below.",
+  "share.rosterErrorBoth": "Couldn't load people or teams.",
+  "share.rosterEmpty": "No shareable people or teams found.",
 
   "edit.versionSkew":
     "This record changed since you opened it — reload and try again.",

@@ -422,7 +422,10 @@ function PassportCard() {
       </QueryGate>
       <ConfirmModal
         open={confirmId != null}
-        onClose={() => setConfirmId(null)}
+        onClose={() => {
+          setConfirmId(null);
+          revoke.reset();
+        }}
         title={t("settings.revoke")}
         confirmLabel={t("settings.revoke")}
         onConfirm={() => confirmId && revoke.mutate(confirmId)}

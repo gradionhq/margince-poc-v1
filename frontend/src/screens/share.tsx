@@ -139,12 +139,134 @@ export function ShareScreen({
   return <ShareScreenBody recordType={recordType} recordId={recordId} />;
 }
 
+// The subject-picker rows, shared between the normal render path and the
+// partial-roster-failure path (one roster query succeeded, the other
+// didn't) — kept as one function so a future field change on a row only
+// needs one edit.
+function renderSubjectList(
+  candidates: RosterSubject[],
+  grantedSubjectIds: Set<string>,
+  selected: RosterSubject | null,
+  t: ReturnType<typeof useT>,
+  onPick: (candidate: RosterSubject) => void,
+) {
+  return (
+    <ul className="share-subject-list">
+      {candidates.map((candidate) => {
+        const already = grantedSubjectIds.has(candidate.id);
+        return (
+          <li key={candidate.id}>
+            <button
+              type="button"
+              className="btn btn-ghost share-subject-row"
+              disabled={already}
+              aria-pressed={selected?.id === candidate.id}
+              onClick={() => onPick(candidate)}
+            >
+              <span>{candidate.name}</span>
+              <span className="share-subject-note">
+                {already ? t("share.alreadyGranted") : candidate.note}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// The whole "who can I share with" picker body — loading/error/empty/list —
+// pulled out of ShareScreenBody (CodeRabbit [16] pushed its cognitive
+// complexity over the lint budget). Owns nothing but the render ladder; all
+// state (term/subject) and the roster queries stay in the parent.
+function RosterPicker({
+  usersQuery,
+  teamsQuery,
+  filteredRoster,
+  grantedSubjectIds,
+  subject,
+  t,
+  onPick,
+}: Readonly<{
+  usersQuery: { isPending: boolean; isError: boolean; refetch: () => unknown };
+  teamsQuery: { isPending: boolean; isError: boolean; refetch: () => unknown };
+  filteredRoster: RosterSubject[];
+  grantedSubjectIds: Set<string>;
+  subject: RosterSubject | null;
+  t: ReturnType<typeof useT>;
+  onPick: (candidate: RosterSubject) => void;
+}>) {
+  // Both roster fetches collapse a failure to `[]` in the caller's `roster`
+  // (so the picker never crashes), which would otherwise make a failed
+  // request indistinguishable from a workspace with zero shareable subjects.
+  // Gate explicitly on loading/error first — the empty picker only renders
+  // once both queries have actually succeeded with no subjects.
+  if (usersQuery.isPending || teamsQuery.isPending) {
+    return (
+      <p className="t-caption" data-testid="share-roster-loading">
+        {t("share.rosterLoading")}
+      </p>
+    );
+  }
+  if (usersQuery.isError || teamsQuery.isError) {
+    return (
+      <div data-testid="share-roster-error">
+        <p className="t-caption share-error">
+          {usersQuery.isError && teamsQuery.isError
+            ? t("share.rosterErrorBoth")
+            : usersQuery.isError
+              ? t("share.rosterErrorUsers")
+              : t("share.rosterErrorTeams")}
+        </p>
+        <Button
+          small
+          style={{ marginTop: 6 }}
+          onClick={() => {
+            if (usersQuery.isError) usersQuery.refetch();
+            if (teamsQuery.isError) teamsQuery.refetch();
+          }}
+        >
+          {t("common.retry")}
+        </Button>
+        {/* A partial failure still lets the subject that DID load be picked
+            — the error is informational, not a hard block. */}
+        {filteredRoster.length > 0 &&
+          renderSubjectList(
+            filteredRoster,
+            grantedSubjectIds,
+            subject,
+            t,
+            onPick,
+          )}
+      </div>
+    );
+  }
+  if (filteredRoster.length === 0) {
+    return (
+      <p className="t-caption" data-testid="share-roster-empty">
+        {t("share.rosterEmpty")}
+      </p>
+    );
+  }
+  return renderSubjectList(
+    filteredRoster,
+    grantedSubjectIds,
+    subject,
+    t,
+    onPick,
+  );
+}
+
 function ShareScreenBody({
   recordType,
   recordId,
 }: Readonly<{ recordType: RecordType; recordId: string }>) {
   const t = useT();
   const { locale } = useLocale();
+  // Grant expiry must read in the viewer's own timezone, not a hardcoded
+  // one — the browser's resolved IANA zone is the honest signal for "what
+  // calendar date does this viewer see".
+  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const queryClient = useQueryClient();
   const headingId = useId();
   const grantsKey = ["record-grants", recordType, recordId];
@@ -175,12 +297,20 @@ function ShareScreenBody({
         note: u.email,
         kind: "user" as const,
       }));
-    const teams = ((teamsQuery.data ?? []) as Team[]).map((team) => ({
-      id: team.id,
-      name: team.name,
-      note: t("share.teamMembers", { count: team.member_count ?? 0 }),
-      kind: "team" as const,
-    }));
+    const teams = ((teamsQuery.data ?? []) as Team[]).map((team) => {
+      const count = team.member_count ?? 0;
+      return {
+        id: team.id,
+        name: team.name,
+        note: t(
+          count === 1 ? "share.teamMembers.one" : "share.teamMembers.other",
+          {
+            count,
+          },
+        ),
+        kind: "team" as const,
+      };
+    });
     return [...users, ...teams];
   }, [usersQuery.data, teamsQuery.data, t]);
 
@@ -326,31 +456,19 @@ function ShareScreenBody({
               dismissGrantError();
             }}
           />
-          <ul className="share-subject-list">
-            {filteredRoster.map((candidate) => {
-              const already = grantedSubjectIds.has(candidate.id);
-              return (
-                <li key={candidate.id}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost share-subject-row"
-                    disabled={already}
-                    aria-pressed={subject?.id === candidate.id}
-                    onClick={() => {
-                      setSubject(candidate);
-                      setTerm(candidate.name);
-                      dismissGrantError();
-                    }}
-                  >
-                    <span>{candidate.name}</span>
-                    <span className="share-subject-note">
-                      {already ? t("share.alreadyGranted") : candidate.note}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <RosterPicker
+            usersQuery={usersQuery}
+            teamsQuery={teamsQuery}
+            filteredRoster={filteredRoster}
+            grantedSubjectIds={grantedSubjectIds}
+            subject={subject}
+            t={t}
+            onPick={(candidate) => {
+              setSubject(candidate);
+              setTerm(candidate.name);
+              dismissGrantError();
+            }}
+          />
         </div>
 
         <div className="field">
@@ -456,7 +574,7 @@ function ShareScreenBody({
                       )}
                       {g.expires_at && (
                         <span className="share-expiry-badge">
-                          {formatDate(g.expires_at, locale, "Europe/Berlin")}
+                          {formatDate(g.expires_at, locale, viewerZone)}
                         </span>
                       )}
                     </div>
@@ -484,6 +602,7 @@ function ShareScreenBody({
         }}
         title={t("share.revoke")}
         confirmLabel={t("share.revoke")}
+        confirmVariant="danger"
         onConfirm={() => {
           if (revokingId) {
             revoke.mutate(revokingId);

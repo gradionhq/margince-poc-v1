@@ -139,7 +139,15 @@ export const de = {
   "share.approvalRequired":
     "Diese Freigabe braucht erst eine Genehmigung — sie wurde in den Genehmigungs-Posteingang eingereiht, aber noch nicht angewendet.",
   "share.empty": "Noch keine manuellen Freigaben für diesen Datensatz.",
-  "share.teamMembers": "Team · {count} Mitglieder",
+  "share.teamMembers.one": "Team · {count} Mitglied",
+  "share.teamMembers.other": "Team · {count} Mitglieder",
+  "share.rosterLoading": "Personen und Teams werden geladen…",
+  "share.rosterErrorUsers":
+    "Personenliste konnte nicht geladen werden — Teams werden unten angezeigt.",
+  "share.rosterErrorTeams":
+    "Teamliste konnte nicht geladen werden — Personen werden unten angezeigt.",
+  "share.rosterErrorBoth": "Personen und Teams konnten nicht geladen werden.",
+  "share.rosterEmpty": "Keine freigebbaren Personen oder Teams gefunden.",
 
   "edit.versionSkew":
     "Dieser Datensatz hat sich geändert, seit du ihn geöffnet hast — neu laden und erneut versuchen.",

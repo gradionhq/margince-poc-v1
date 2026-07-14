@@ -17,19 +17,35 @@ export type Approval = components["schemas"]["Approval"];
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalPage = { data: Approval[] };
 
+// A single page tops out at 50 (the server's page cap) — a 51st pending
+// approval, or decided history past 50 rows, must still be reachable. The
+// pending/decided partition below (and the expired salvage inside it) needs
+// the FULL set to sort/filter correctly, not a manually-paged slice, so this
+// walks every page via the API's opaque `next_cursor` and merges them into
+// one collection before the query resolves.
+async function fetchAllApprovals(status: ApprovalStatus): Promise<Approval[]> {
+  const all: Approval[] = [];
+  let cursor: string | null | undefined;
+  do {
+    const { data, error } = await api.GET("/approvals", {
+      params: { query: { status, limit: 50, cursor: cursor ?? undefined } },
+    });
+    if (error) {
+      throw new Error(problemMessage(error));
+    }
+    all.push(...data.data);
+    cursor = data.page?.has_more ? (data.page.next_cursor ?? null) : null;
+  } while (cursor);
+  return all;
+}
+
 export function useApprovals(status: ApprovalStatus, enabled = true) {
   return useQuery({
     queryKey: ["approvals", status],
     enabled,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/approvals", {
-        params: { query: { status, limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
+    queryFn: async (): Promise<ApprovalPage> => ({
+      data: await fetchAllApprovals(status),
+    }),
   });
 }
 

@@ -32,9 +32,18 @@ export function useMe() {
   });
 }
 
-// AS-1: sign out. Clears ALL cached tenant data on success, then the ["me"]
-// probe re-runs → 401 → AuthGate renders the login screen. No manual
-// redirect — the gate owns it.
+// AS-1: sign out. Clears ALL cached tenant data on success, then forces the
+// ["me"] probe to re-run → 401 → AuthGate renders the login screen.
+//
+// Order matters here: queryClient.clear() destroys every Query object in the
+// cache, INCLUDING ["me"]'s. If ["me"] were reset only after a full clear(),
+// resetQueries would find nothing matching that key to reset (it was already
+// removed) — the mounted AuthGate observer would keep rendering its last
+// (stale, authenticated) snapshot, since clear() alone never triggers a
+// refetch. So instead: drop every OTHER cache entry first (leaving ["me"]
+// intact), then resetQueries the shared ["me"] entry specifically — that
+// query still exists, has an active (mounted) observer, and resetQueries
+// forces it to refetch immediately, landing the AuthGate on 401 → login.
 export function useLogout() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -42,7 +51,12 @@ export function useLogout() {
       const { error } = await api.POST("/auth/logout");
       if (error) throw new Error(problemMessage(error));
     },
-    onSuccess: () => queryClient.clear(),
+    onSuccess: async () => {
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "me",
+      });
+      await queryClient.resetQueries({ queryKey: ["me"] });
+    },
   });
 }
 
