@@ -30,7 +30,7 @@ make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends
                         # with `OK: integration passed with 0 skips`, never skips silently
-make dev                # full local stack: db + api + Vite SPA on http://localhost:8080
+make dev                # full local stack: db + api (:8080) + Vite SPA (:5173)
                         # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
 ```
@@ -163,16 +163,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   entity.
 - `internal/contracts/` — GENERATED from `backend/api/crm.yaml`. Never edit.
 - `backend/api/crm.yaml` — the authoritative OpenAPI 3.1 contract.
-- `backend/web/` — the embedded SPA (static, no build chain); served at
-  `/`, talks only to `/v1`. `backend/migrations/core|custom/` — the
-  ADR-0017 namespaces. `modules/<name>/custom/` + `migrations/custom/` —
-  the fork-owned seam: upstream never writes there (ADR-0054 §7).
+- `backend/migrations/core|custom/` — the ADR-0017 namespaces.
+  `modules/<name>/custom/` + `migrations/custom/` — the fork-owned seam:
+  upstream never writes there (ADR-0054 §7).
 - `backend/tools/` — the codegen tool chain (contract-overlay,
   gen-stubs, gen-agentpolicy); its own Go module so the generators'
   dependencies stay out of the product module's go.mod.
-- `frontend/` — an in-flight Vite/React workspace tracked by a parallel
-  session; `make frontend-check` / `make dev`
-  exist at the repo root.
+- `frontend/` — the Vite/React web UI: a standalone static build served
+  separately from the API binary (which serves `/v1` only — no embedded
+  SPA); `make frontend-check` / `make dev` exist at the repo root.
 
 ## DO NOT TOUCH
 

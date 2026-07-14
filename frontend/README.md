@@ -63,6 +63,7 @@ the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
   offsets, no calendar diffs.
 - Staged / real / human-typed are three distinguishable styles, always.
   Confidence is never hidden. Absent data is omitted, never guessed.
-- Packaging: the app ships by copying `dist/` under
-  `backend/web/` for the existing `go:embed` once it reaches parity with
-  the handwritten prototype; until then the prototype serves `/`.
+- Packaging: the app is a standalone static `dist/` build (`pnpm build`),
+  served separately from the API binary (which serves `/v1` only). How
+  `dist/` is hosted — a static server, a CDN, or a reverse proxy in front
+  of the API — is a deployment choice, not baked into the build.

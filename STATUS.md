@@ -11,7 +11,7 @@
 Margince's **WP0 foundation + WP1 core spine** are built and green:
 schema, contract pipeline, auth, core CRUD, the event bus, RBAC, the
 governed MCP/agent surface, the transport-agnostic autonomy gate, the
-approval engine, two-record merge, and the embedded SPA. The full,
+approval engine, two-record merge, and the Vite/React web UI. The full,
 current inventory of built surface is
 [README.md → *What works today*](README.md#what-works-today); what is
 deliberately still stubbed (answering explicit 501) is
@@ -24,10 +24,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 **Skeleton-baseline batch** — this repo is being groomed into the
 baseline for the official open-source Margince repository, absorbing the
-tooling and gate suite the foundation skeleton carries. The classified
-delta and sequencing live in
-[docs/worklists/skeleton-baseline-2026-07-09.md](docs/worklists/skeleton-baseline-2026-07-09.md).
-Merged so far:
+tooling and gate suite the foundation skeleton carries. Merged so far:
 
 - **PR A** — craft gate v3, SHA-pinned GitHub Actions + an image-pin
   gate, `concurrency:` cancel groups, `.env.template`, `make tools`
@@ -206,11 +203,12 @@ Open work, roughly in priority order:
   already carries a key version so rotation is not foreclosed). Its own PR
   arc. The `oauth` signing keypairs (`workspace_signing_key`) fold onto the
   same vault next, as a distinct migration.
-- **ADR track** (parallel, each an open call recorded in the PR that resolves it): retiring or
-  keeping the second (embedded) SPA, the design-system of record, and the
-  optional advisory LLM craft-review CI job. (River shipped in #35, the
-  blobstore seam in the prior batch, the keyvault seam in this one.)
-- **Frontend DECISION items** from worklist §1d: router migration and a
+- **ADR track** (parallel, each an open call recorded in the PR that resolves it): the
+  design-system of record, and the optional advisory LLM craft-review CI
+  job. (River shipped in #35, the blobstore seam in the prior batch, the
+  keyvault seam in this one. The embedded SPA is retired — the API binary
+  serves `/v1` only; the web UI is served separately.)
+- **Frontend DECISION items**: router migration and a
   Storybook/component-test lane — adopt when the design system
   stabilizes, not before.
 - **Publication mechanics** (founder decision): whether to publish full

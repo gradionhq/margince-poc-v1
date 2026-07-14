@@ -12,7 +12,6 @@ reviews:
     - "!cli/craft/**"
     - "!.claude/**"
     - "!backend/tools/gen-evals/**"
-    - "!backend/web/static/**"
     - "!dev/**"
     - "!frontend/src/api/schema.d.ts"
     - "!frontend/.storybook/**"

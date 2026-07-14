@@ -1,7 +1,7 @@
 # Margince documentation
 
-Documentation for building and operating **Margince** — a governed, multi-tenant CRM (Go backend +
-embedded SPA). The docs follow the [Diátaxis](https://diataxis.fr/) split: **tutorials** to learn,
+Documentation for building and operating **Margince** — a governed, multi-tenant CRM (a Go `/v1` API
+backend; the Vite/React web UI ships separately). The docs follow the [Diátaxis](https://diataxis.fr/) split: **tutorials** to learn,
 **how-to** guides for tasks, **reference** for lookup, **explanation** for the *why*.
 
 **New to the backend? Start with [tutorials/getting-started.md](tutorials/getting-started.md), then
@@ -46,8 +46,3 @@ maps the codebase and links everything below.
 3. [architecture.md](explanation/architecture.md) → [contract-first.md](explanation/contract-first.md) → [authorization.md](explanation/authorization.md).
 4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [composition-layer.md](explanation/composition-layer.md), [agent-surface.md](explanation/agent-surface.md), [privacy-and-consent.md](explanation/privacy-and-consent.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
 5. [CONTRIBUTING.md](../CONTRIBUTING.md) + [AGENTS.md](../AGENTS.md) — the PR loop and the binding engineering rules.
-
----
-
-*`worklists/` holds transient implementation plans and dated session notes, not product/operator
-documentation — skip it as a reader.*

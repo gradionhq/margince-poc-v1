@@ -64,9 +64,9 @@ ANTHROPIC_API_KEY=ollama-not-used make dev   # look for: "using real Anthropic m
 > exercise them.
 
 `make dev` brings up the api on `:8080`, API-seeds the demo workspace on boot,
-and runs the Vite SPA on `:5173`. Open **http://localhost:8080** (the embedded
-UI) or **http://localhost:5173** (the Vite SPA) and log in with the seeded
-admin (`admin@demo.test` / `demo-password-123`, workspace `demo-workspace`).
+and runs the Vite SPA on `:5173`. Open **http://localhost:5173** and log in
+with the seeded admin (`admin@demo.test` / `demo-password-123`, workspace
+`demo-workspace`).
 Full first-run details:
 [tutorials/getting-started.md](../tutorials/getting-started.md).
 

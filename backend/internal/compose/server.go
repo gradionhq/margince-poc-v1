@@ -43,7 +43,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
-	"github.com/gradionhq/margince/backend/web"
 )
 
 // Aliases give the embedded handler sets distinct field names; each
@@ -428,12 +427,11 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 }
 
 // operationalMux mounts the contract surface next to the operational
-// edges: health probes, metrics, the anonymous public paths, the A2
-// authorization server, and the embedded SPA.
+// edges: health probes, metrics, the anonymous public paths, and the A2
+// authorization server.
 func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
-	// Only /v1 rides the session middleware; the embedded SPA and the
-	// health probe are static and unauthenticated (the SPA's every data
-	// access goes back through /v1 — it holds no privileged path).
+	// Only /v1 rides the session middleware; the health probes and the
+	// other operational edges are unauthenticated by design.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.readinessChecks(pool.Ping)...))
@@ -455,7 +453,6 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
 	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
-	mux.Handle("/", web.Handler())
 	return mux
 }
 
