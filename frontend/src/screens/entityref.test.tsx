@@ -107,4 +107,86 @@ describe("EntityRef", () => {
     expect(screen.getByText("—")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("resolves a user from the roster list and renders the name as plain text (no link)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [
+              { id: "u-1", display_name: "Priya Shah" },
+              { id: "u-2", display_name: "Someone Else" },
+            ],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="user" id="u-1" />);
+
+    await waitFor(() => expect(screen.getByText("Priya Shah")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Priya Shah" })).toBeNull();
+  });
+
+  it("resolves a team from the roster list and renders the name as plain text (no link)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/teams")) {
+          return jsonResponse({
+            data: [{ id: "t-1", name: "Platform Team" }],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="team" id="t-1" />);
+
+    await waitFor(() => expect(screen.getByText("Platform Team")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Platform Team" })).toBeNull();
+  });
+
+  it("falls back to the mono id (no link) when a user id isn't in the roster", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [{ id: "u-1", display_name: "Priya Shah" }],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="user" id="u-missing" />);
+
+    await waitFor(() => expect(screen.getByText("u-missing")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "u-missing" })).toBeNull();
+  });
+
+  it("resolves a lead and backlinks to the leads screen on click", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/leads/l-1")) {
+          return jsonResponse({
+            id: "l-1",
+            full_name: "Jonas Keller",
+            email: "jonas@example.com",
+          });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="lead" id="l-1" />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Jonas Keller" }),
+    );
+    expect(window.location.hash).toBe("#/leads/l-1");
+  });
 });
