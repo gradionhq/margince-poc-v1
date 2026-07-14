@@ -24,6 +24,7 @@ import {
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDate } from "../format/format";
@@ -218,6 +219,7 @@ function PassportCard() {
   const { locale } = useLocale();
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["read", "draft"]));
+  const [confirmId, setConfirmId] = useState<string | null>(null);
   const labelId = useId();
 
   // Metadata only — the wire schema carries no token (PassportSummary),
@@ -253,6 +255,24 @@ function PassportCard() {
       return data;
     },
     onSuccess: () => list.refetch(),
+  });
+
+  // AS-2 kill-switch: revoke is a hard DELETE, never a soft toggle in this
+  // client — ConfirmModal guards it so a stray click can't kill a live
+  // agent's credential.
+  const revoke = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await api.DELETE("/passports/{id}", {
+        params: { path: { id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    onSuccess: () => {
+      setConfirmId(null);
+      list.refetch();
+    },
   });
 
   return (
@@ -385,12 +405,32 @@ function PassportCard() {
                   {revoked && (
                     <Badge tone="danger">{t("settings.revoked")}</Badge>
                   )}
+                  {!revoked && (
+                    <Button
+                      small
+                      variant="danger"
+                      onClick={() => setConfirmId(passport.id)}
+                    >
+                      {t("settings.revoke")}
+                    </Button>
+                  )}
                 </li>
               );
             })}
           </ul>
         )}
       </QueryGate>
+      <ConfirmModal
+        open={confirmId != null}
+        onClose={() => setConfirmId(null)}
+        title={t("settings.revoke")}
+        confirmLabel={t("settings.revoke")}
+        onConfirm={() => confirmId && revoke.mutate(confirmId)}
+        pending={revoke.isPending}
+        error={revoke.error instanceof Error ? revoke.error.message : null}
+      >
+        <p>{t("settings.revokeConfirm")}</p>
+      </ConfirmModal>
     </section>
   );
 }

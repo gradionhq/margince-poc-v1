@@ -527,6 +527,9 @@ export const en = {
   "settings.created": "created {date}",
   "settings.expires": "expires {date}",
   "settings.revoked": "revoked",
+  "settings.revoke": "Revoke",
+  "settings.revokeConfirm":
+    "This passport's credential is invalidated immediately — the agent loses access on its next call.",
   "settings.automations": "Automations",
   "settings.automationsSub":
     "the bounded starter catalog — enable, parameterize, pause",

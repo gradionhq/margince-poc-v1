@@ -536,6 +536,9 @@ export const de = {
   "settings.created": "erstellt {date}",
   "settings.expires": "läuft ab {date}",
   "settings.revoked": "widerrufen",
+  "settings.revoke": "Widerrufen",
+  "settings.revokeConfirm":
+    "Das Credential dieses Passports wird sofort ungültig — der Agent verliert beim nächsten Aufruf den Zugriff.",
   "settings.automations": "Automatisierungen",
   "settings.automationsSub":
     "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",

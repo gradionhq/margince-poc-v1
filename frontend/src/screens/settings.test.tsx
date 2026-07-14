@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -96,6 +97,96 @@ describe("SettingsScreen RBAC surfaces", () => {
     await waitFor(() => expect(screen.getByText("Scout")).toBeTruthy());
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
     expect(screen.queryByText(/mgp_/)).toBeNull();
+  });
+});
+
+// AS-2: the per-row Revoke kill-switch. A dedicated backend so the DELETE
+// call can be asserted precisely, and a second passport is served already
+// revoked to prove the button never shows on a row that's already dead.
+function passportsBackend(opts: {
+  onDelete?: (id: string) => void;
+}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const method = input instanceof Request ? input.method : "GET";
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { email: "ada@acme.test" },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (/\/passports\/[^/]+$/.test(url) && method === "DELETE") {
+      const id = url.split("/passports/")[1];
+      opts.onDelete?.(id);
+      return new Response(null, { status: 204 });
+    }
+    if (url.includes("/passports")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "pp-1",
+            label: "Scout",
+            scopes: ["read"],
+            created_at: "2026-07-01T08:00:00Z",
+            expires_at: null,
+            revoked_at: null,
+          },
+          {
+            id: "pp-2",
+            label: "Retired",
+            scopes: ["read"],
+            created_at: "2026-06-01T08:00:00Z",
+            expires_at: null,
+            revoked_at: "2026-07-02T08:00:00Z",
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("PassportCard revoke (AS-2)", () => {
+  it("revokes a non-revoked passport: click Revoke, confirm, DELETE fires with its id and the list refetches", async () => {
+    const deleted: string[] = [];
+    const fetchMock = passportsBackend({ onDelete: (id) => deleted.push(id) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SettingsScreen tab="ai" />);
+    await screen.findByText("Scout");
+
+    // The already-revoked row shows no Revoke control at all.
+    const retiredRow = screen.getByText("Retired").closest("li");
+    expect(retiredRow).toBeTruthy();
+    expect(
+      retiredRow && Array.from(retiredRow.querySelectorAll("button")).length,
+    ).toBe(0);
+
+    const scoutRow = screen.getByText("Scout").closest("li");
+    expect(scoutRow).toBeTruthy();
+    const revokeButton = scoutRow?.querySelector("button");
+    expect(revokeButton).toBeTruthy();
+    await userEvent.click(revokeButton as HTMLButtonElement);
+
+    const dialog = await screen.findByRole("dialog");
+    const confirmButton = within(dialog).getByRole("button", {
+      name: "Revoke",
+    });
+    const callsBeforeConfirm = fetchMock.mock.calls.length;
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => expect(deleted).toEqual(["pp-1"]));
+    // The list refetches after a successful revoke — more fetch calls landed
+    // after confirm than just the single DELETE (the refetch GET /passports).
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(
+        callsBeforeConfirm + 1,
+      ),
+    );
   });
 });
 
