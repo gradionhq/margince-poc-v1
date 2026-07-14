@@ -22,6 +22,14 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Craft gate de-vendored** — `cli/craft` is now a locally-owned part of
+this repo, not a verbatim mirror of the foundation skeleton: the
+`craft-manifest.sha256` hash pin, the `craft-drift`/`craft-sync` targets,
+and all "vendored / hash-pinned / fix upstream" language are gone (its own
+Go tests gate its behaviour). `infra/branch-protection.json` and its
+wiring fitness test were retired with it; live GitHub branch protection
+remains the enforcement.
+
 **Skeleton-baseline batch** — this repo is being groomed into the
 baseline for the official open-source Margince repository, absorbing the
 tooling and gate suite the foundation skeleton carries. Merged so far:

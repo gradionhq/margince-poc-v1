@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install ai-routing-local check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
+.PHONY: help install ai-routing-local check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -38,7 +38,7 @@ ai-routing-local:
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
 ## tests, contract drift). No frontend toolchain needed — this is what the CI
 ## deterministic-gates job runs.
-check-backend: craft-drift check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction
+check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend (matches the skeleton's
@@ -209,21 +209,6 @@ craft-static:
 ## `craft-residue` job runs this so a marker can never ride to main.
 craft-residue:
 	go run -C cli/craft . residue --root ../../backend
-
-## craft-drift — verify cli/craft matches the foundation's hash manifest.
-## The gate is foundation-owned (spec architecture/15 §4): it is developed in
-## ../margince-foundation/skeleton/cli/craft and vendored here verbatim, so
-## every build repo provably runs the same tool the verdicts' gate_version
-## names. A local edit fails this target — fix the gate upstream, then
-## `make craft-sync`.
-craft-drift:
-	@shasum -a 256 -c cli/craft/craft-manifest.sha256 --quiet && echo "craft-drift: cli/craft matches the foundation manifest"
-
-## craft-sync — pull the foundation's current gate (source + manifest) over
-## the vendored copy. Review the diff like any dependency bump.
-craft-sync:
-	rsync -a --delete ../margince-foundation/skeleton/cli/craft/ cli/craft/
-	@$(MAKE) craft-drift
 
 ## check-craft-doc — assert AGENTS.md still carries the `## Craftsmanship`
 ## section (the craft gate's operating contract, ADR-0045). A cheap doc floor

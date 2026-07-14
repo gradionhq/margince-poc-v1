@@ -36,7 +36,7 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 
 | Target | What it does |
 |---|---|
-| `check` | **The merge gate.** Backend `make check` = build + vet + lint + arch-lint + test + drift. Root `make check` runs that **plus** craft-drift, image pins, contract breaking-change (`oasdiff`), test-lane hygiene, and the file-length ratchet |
+| `check` | **The merge gate.** Backend `make check` = build + vet + lint + arch-lint + test + drift. Root `make check` runs that **plus** the craft-doc floor, image pins, contract breaking-change (`oasdiff`), test-lane hygiene, and the file-length ratchet |
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture, enum sync, `audit_log` enum coherence, contract `$ref` resolution) run uncached |
@@ -92,8 +92,6 @@ ports. Stop either with `make dev-stop [DEV_SLUG=<slug>] [DROP=1]`.
 | Target | What it does |
 |---|---|
 | `craft-static` | Full deterministic craftsmanship sweep of `backend/` (the pre-push hook runs the diff-scoped subset) |
-| `craft-drift` | Verify the vendored `cli/craft` matches the foundation's `craft-manifest.sha256` — runs as a `check` prerequisite; a local gate edit fails it |
-| `craft-sync` | Pull the current gate (source + manifest) from `../margince/skeleton/cli/craft` over the vendored copy |
 
 ## Variables
 
