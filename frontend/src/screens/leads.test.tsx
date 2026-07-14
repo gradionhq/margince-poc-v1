@@ -683,6 +683,39 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
   });
 });
 
+describe("LeadScreen — History tab (Task 9)", () => {
+  it("shows a History tab that lists record changes", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/history")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "h1",
+              actor_type: "human",
+              actor_id: "u1",
+              action: "update",
+              occurred_at: "2026-07-13T10:00:00Z",
+              summary: "Lead score changed",
+            },
+          ],
+          page: { next_cursor: null },
+        });
+      }
+      return undefined;
+    });
+    render(<LeadScreen id="l-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /history/i })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /history/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Lead score changed")).toBeTruthy(),
+    );
+  });
+});
+
 describe("terminalBadge (archived/terminal labelling)", () => {
   it("labels disqualified and promoted distinctly and leaves open leads unbadged", () => {
     expect(terminalBadge("disqualified")).toEqual({
