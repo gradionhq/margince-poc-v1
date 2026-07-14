@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
-import { api } from "../api/client";
+import { api, workspaceSlug } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
@@ -1215,6 +1215,41 @@ function AiDisclosureBanner({ offer }: Readonly<{ offer: Offer }>) {
   );
 }
 
+// downloadOfferPdf (unlike every other endpoint here) is fetched by a plain
+// browser navigation, not the api client — so it never gets the client's
+// X-Workspace-Slug header (client.ts §"Workspace resolution": prod resolves
+// the workspace from the subdomain, local dev needs the header because
+// there is no subdomain). In prod a plain click needs no help. In dev,
+// intercept the click, fetch with the header by hand, and hand the browser
+// the resulting bytes as a blob URL instead — the href stays the real
+// endpoint so the link still behaves like a link (visible URL, opens in a
+// new tab, works unmodified in prod) when JS does nothing.
+async function openOfferPdf(
+  event: React.MouseEvent<HTMLAnchorElement>,
+  href: string,
+) {
+  const slug = workspaceSlug();
+  if (!slug) {
+    return;
+  }
+  event.preventDefault();
+  const tab = globalThis.open("", "_blank");
+  const response = await globalThis.fetch(href, {
+    credentials: "include",
+    headers: { "X-Workspace-Slug": slug },
+  });
+  if (!tab) {
+    return;
+  }
+  if (!response.ok) {
+    tab.document.title = "PDF unavailable";
+    tab.document.body.textContent = `Could not load the PDF (${response.status}).`;
+    return;
+  }
+  const blob = await response.blob();
+  tab.location.href = URL.createObjectURL(blob);
+}
+
 // Task 4.2 (OP-12): render the offer's branded PDF. Per the contract's own
 // doc comment, a 501 here means the deployment has no blobstore wired — the
 // same unwired-by-omission posture as the attachments seam — which is a
@@ -1230,6 +1265,7 @@ function AiDisclosureBanner({ offer }: Readonly<{ offer: Offer }>) {
 function RenderOfferPdfAction({ offer }: Readonly<{ offer: Offer }>) {
   const t = useT();
   const queryClient = useQueryClient();
+  const pdfHref = `${globalThis.location.origin}/v1/offers/${offer.id}/pdf`;
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -1272,10 +1308,11 @@ function RenderOfferPdfAction({ offer }: Readonly<{ offer: Offer }>) {
         </Button>
         {offer.pdf_asset_ref && (
           <a
-            href={offer.pdf_asset_ref}
+            href={pdfHref}
             target="_blank"
             rel="noreferrer"
             data-testid="pdf-link"
+            onClick={(event) => openOfferPdf(event, pdfHref)}
           >
             {t("offer.viewPdf")}
           </a>

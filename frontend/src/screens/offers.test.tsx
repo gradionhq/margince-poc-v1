@@ -544,7 +544,9 @@ describe("render PDF action (OP-12)", () => {
     const calls: { url: string }[] = [];
     const rendered = {
       ...baseOffer,
-      pdf_asset_ref: "https://assets.example/offers/o-1.pdf",
+      // An opaque blobstore key (offer_render.go's actual shape), never a
+      // browsable URL — the link's href is derived from offer.id instead.
+      pdf_asset_ref: "ws-1/offers/o-1/1/render-uuid.pdf",
     };
     stubOfferWithRender(baseOffer, { body: rendered, status: 200 }, calls);
     render(<OfferScreen id="o-1" />);
@@ -554,8 +556,11 @@ describe("render PDF action (OP-12)", () => {
 
     await waitFor(() => expect(calls).toHaveLength(1));
     const link = await screen.findByTestId("pdf-link");
+    // The link targets the downloadOfferPdf endpoint keyed off the offer's
+    // own id — pdf_asset_ref is an opaque blobstore key, never a browsable
+    // URL, so its presence only gates whether the link renders at all.
     expect(link.getAttribute("href")).toBe(
-      "https://assets.example/offers/o-1.pdf",
+      `${globalThis.location.origin}/v1/offers/o-1/pdf`,
     );
     expect(screen.queryByTestId("pdf-unavailable")).toBeNull();
   });
