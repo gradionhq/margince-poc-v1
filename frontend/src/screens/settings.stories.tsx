@@ -17,7 +17,9 @@ import {
 
 const me = () =>
   jsonResponse({
-    user: { email: "ada@acme.test" },
+    // id matches the audit fixture's human actor so the AuditTab story reads
+    // "You" for the viewer's own entry (AuditEntryLine resolves it via meUserId).
+    user: { id: "u-mor", email: "ada@acme.test" },
     roles: ["admin"],
     teams: [],
   });

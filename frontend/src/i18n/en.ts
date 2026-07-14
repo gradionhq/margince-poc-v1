@@ -69,7 +69,6 @@ export const en = {
   "action.newDeal": "New deal",
   "action.readCompany": "Read a company",
   "action.booking": "Booking page",
-  "action.connected": "Connected surfaces",
 
   "fab.open": "Ask about this",
   "fab.close": "Close",
@@ -912,11 +911,9 @@ export const en = {
     "Route it through the development path — your own engineers, an implementation partner, or Gradion services.",
   "cf.confirm": "Confirm & add field",
   "cf.reset": "Reset",
-  "cf.guardNoLabel": "Give the field a label first",
   "cf.writing": "writing…",
   "cf.added": 'Field "{label}" added — live on 360, filters, export & API',
   "cf.edit": "Edit label",
-  "cf.editOptions": "Edit options",
   "cf.archive": "Archive field",
   "cf.archived":
     '"{label}" archived — hidden from new records, retained in audit & history (reversible)',

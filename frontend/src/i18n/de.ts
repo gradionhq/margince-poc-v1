@@ -72,7 +72,6 @@ export const de = {
   "action.newDeal": "Neuer Deal",
   "action.readCompany": "Firma einlesen",
   "action.booking": "Buchungsseite",
-  "action.connected": "Verbundene Oberflächen",
 
   "fab.open": "Dazu fragen",
   "fab.close": "Schließen",
@@ -932,12 +931,10 @@ export const de = {
     "Leite es über den Entwicklungsweg — deine eigenen Entwickler, einen Implementierungspartner oder Gradion-Services.",
   "cf.confirm": "Bestätigen & Feld hinzufügen",
   "cf.reset": "Zurücksetzen",
-  "cf.guardNoLabel": "Gib dem Feld zuerst eine Bezeichnung",
   "cf.writing": "wird geschrieben…",
   "cf.added":
     'Feld "{label}" hinzugefügt — live auf 360, Filtern, Export & API',
   "cf.edit": "Bezeichnung bearbeiten",
-  "cf.editOptions": "Optionen bearbeiten",
   "cf.archive": "Feld archivieren",
   "cf.archived":
     '"{label}" archiviert — aus neuen Datensätzen ausgeblendet, in Audit & Historie behalten (umkehrbar)',

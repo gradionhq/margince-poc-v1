@@ -244,3 +244,16 @@
   color: var(--textTertiary);
   text-decoration: line-through;
 }
+
+/* recent-changes rail: the list wrapper + the loading/empty/error line */
+.cf-audit {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.cf-audit-empty {
+  font-size: 12px;
+  color: var(--textTertiary);
+  padding: 8px 0;
+}
