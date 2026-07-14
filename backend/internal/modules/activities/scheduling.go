@@ -180,7 +180,7 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 	// Booking writes onto the host's calendar; a caller may commit their
 	// OWN slots, and only an unbounded (admin) scope may book on behalf
 	// of another host — the spec's calendar_delegate grant (features/04
-	// §1) is not yet adopted in this build (decisions/0013).
+	// §1) is not yet adopted in this build.
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied

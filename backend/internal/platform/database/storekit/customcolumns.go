@@ -12,8 +12,8 @@ package storekit
 // in modules/customfields (the fieldcatalog.Reader implementation),
 // reached only through the fieldcatalog seam — this file is the other
 // half of the cross-module boundary the seam exists to keep clean
-// (ADR-0054 §3, decisions/0018 "every cross-module edge is injected in
-// compose"): platform may import shared, so storekit consumes
+// (ADR-0054 §3 — every cross-module edge is injected in
+// compose): platform may import shared, so storekit consumes
 // fieldcatalog.Column directly, but neither storekit nor a record store
 // ever imports modules/customfields.
 //

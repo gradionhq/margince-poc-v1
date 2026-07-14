@@ -111,7 +111,7 @@ type Server struct {
 	// schemaPoolReady is the /readyz schema-pool probe, injected only by
 	// WithSchemaPool — a role that never mounted --schema-dsn declares
 	// that by omission (customfields.Create/SetOptions stay their
-	// generated 501, decisions/0024) rather than probing a pool it
+	// generated 501) rather than probing a pool it
 	// doesn't have.
 	schemaPoolReady func(context.Context) error
 
@@ -160,7 +160,7 @@ func WithBlobstore(store blobstore.Store) Option {
 		s.activitiesHandlers = s.activitiesHandlers.WithBlobstore(store)
 		s.dealsHandlers = s.dealsHandlers.WithBlobstore(store)
 		// Erasure must reach the attachment bytes, not only the rows, so the
-		// DSR erase path gets a blob-aware eraser (decisions/0022, Art. 17).
+		// DSR erase path gets a blob-aware eraser (Art. 17).
 		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
 	}
 }
@@ -170,7 +170,7 @@ func WithBlobstore(store blobstore.Store) Option {
 // bundle, Sync resolves it). Without it a role that persists or resolves
 // connector credentials declares that gap at wiring time rather than
 // nil-derefing at Authenticate — a capture-capable role must pass this or
-// fail to boot (enforced in cmd, decisions/0023).
+// fail to boot (enforced in cmd).
 func WithKeyvault(vault keyvault.Vault) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.vault = vault
@@ -205,7 +205,7 @@ func (s *Server) readinessChecks(pgPing func(context.Context) error) []httpserve
 
 // WithSchemaPool wires the owner-privileged schema-change pool the
 // customfields engine's two runtime-DDL paths (Create, SetOptions) need
-// (decisions/0024: --schema-dsn / MARGINCE_SCHEMA_DSN). It feeds the
+// (--schema-dsn / MARGINCE_SCHEMA_DSN). It feeds the
 // /readyz probe and rebuilds the customfields handlers over the real
 // pool; without it those two operations stay their generated 501
 // (ErrSchemaChangesUnavailable) rather than nil-derefing a pool that was
@@ -384,7 +384,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		},
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
 		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
-		// The schema-change pool is boot-optional (decisions/0024); nil
+		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
 		customfieldsHandlers: customfields.NewHandlers(pool, nil),

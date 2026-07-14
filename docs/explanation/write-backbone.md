@@ -206,8 +206,7 @@ already committed:
 - For each row it `XADD`s the envelope to its stream (capped `MAXLEN ~`), then
   `UPDATE event_outbox SET published_at = now()` for the shipped prefix. Idle poll ~200ms.
 - **Where it runs:** inline in `cmd/api` by default (`--inline-relay=true`) — one process is a complete
-  install — or standalone in `cmd/worker` for split deployments
-  ([decisions/0005](../../decisions/0005-in-process-outbox-relay.md)). Domain code **never** `XADD`s
+  install — or standalone in `cmd/worker` for split deployments. Domain code **never** `XADD`s
   directly.
 - Delivery is **at-least-once** by design (a crash after XADD, before the `published_at` stamp,
   re-ships the row). Backlog + throughput are exported on `/metrics`

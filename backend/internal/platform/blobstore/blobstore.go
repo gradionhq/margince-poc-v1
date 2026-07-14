@@ -6,7 +6,7 @@
 // organization.logo_object_key). It is a peer of platform/events and
 // platform/jobs: technical plumbing that owns no domain. The DB row stays
 // the system of record and the tenant anchor; the store holds only opaque
-// bytes at a workspace-prefixed key. See decisions/0022-blobstore-seam.md.
+// bytes at a workspace-prefixed key.
 package blobstore
 
 import (

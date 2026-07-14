@@ -300,7 +300,7 @@ paths:
         returned ONCE and never stored. Human-only: an agent minting (or widening) a Passport would
         be self-granted authority. This is the local/A1 issuance path; the hosted A2 surface
         replaces it with the spec's full OAuth2 + PKCE + DCR Authorization-Server flow
-        (decisions/0012 records the deliberate contract lag).
+        (a deliberate lag: this contract does not yet carry those hosted-A2 paths).
       requestBody:
         required: true
         content:
@@ -5466,8 +5466,8 @@ components:
       description: |
         Bearer token — the token IS the Agent Seat Passport (ADR-0013: one governed surface, no
         privileged backdoors), minted via `POST /passports` (the local/A1 issuance path; the hosted
-        A2 surface replaces issuance with the spec's OAuth2 + PKCE + DCR Authorization Server —
-        decisions/0012). The token binds the workspace (tenant) and the principal — an agent acting
+        A2 surface replaces issuance with the spec's OAuth2 + PKCE + DCR Authorization Server).
+        The token binds the workspace (tenant) and the principal — an agent acting
         under a passport (`agent:<id>` + passport id + on-behalf-of `human:<user-uuid>`). The
         principal's effective RBAC (own/team/all + field masks) is enforced server-side; an agent can
         never exceed its granting human's permissions. Mutations by this scheme ride the autonomy

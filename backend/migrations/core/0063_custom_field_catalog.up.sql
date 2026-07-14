@@ -1,11 +1,11 @@
 -- 0063: custom_field — the catalog behind the governed runtime add-field
--- engine (decisions/0024, foundation tickets CF-T01-CF-T05). One row per
+-- engine (foundation tickets CF-T01-CF-T05). One row per
 -- admin-defined scalar field; the catalog is the system-of-record for
 -- every runtime cf_-prefixed column the engine later ADDs to a core
 -- object's table (person/organization/deal/lead/activity) — column_name is
 -- server-derived from label and never client-supplied
 -- (CUSTOM-FIELDS-SCHEMA-2). No cf_ columns land here — the ALTER TABLE
--- engine runs on its own owner-privileged schema pool (decisions/0024) and
+-- engine runs on its own owner-privileged schema pool and
 -- is a later ticket; this migration only ships the shape the engine will
 -- write into, plus the unique indexes that turn a mid-transaction
 -- slug/column collision into a whole-transaction rollback (including the

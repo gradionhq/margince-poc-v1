@@ -117,7 +117,7 @@ var tableOwners = map[string]string{
 	// privacy (the erasure suppression list is the module's own state;
 	// its other writes are ratified waivers below)
 	"erasure_suppression": "internal/modules/privacy",
-	// customfields (the governed add-field engine's catalog, decisions/0024)
+	// customfields (the governed add-field engine's catalog)
 	"custom_field": "internal/modules/customfields",
 	// quotas (RD-T06: owner-XOR-team revenue targets)
 	"quota": "internal/modules/quotas",
@@ -139,15 +139,15 @@ var tableOwners = map[string]string{
 // gate is self-contained on a clean checkout.
 var crossStoreWrites = map[string]string{
 	// people's merge/promotion relink rows across aggregates inside their
-	// single transaction — the ratified cross-aggregate ownership call in
-	// decisions/0011: a merge that could half-commit its relinks would
-	// corrupt referential history.
-	"internal/modules/people:deal":           "merge/promote relink deal FK rows in the decisions/0011 single transaction",
-	"internal/modules/people:activity_link":  "merge/promote relink timeline links in the decisions/0011 single transaction",
-	"internal/modules/people:list_member":    "merge relinks list memberships (and archive purges them) in the decisions/0011 single transaction",
-	"internal/modules/people:taggable":       "merge relinks tag rows (and archive purges them) in the decisions/0011 single transaction",
-	"internal/modules/people:person_consent": "merge carries the survivor's consent state in the decisions/0011 single transaction",
-	"internal/modules/people:consent_event":  "merge re-points the append-only consent proof log in the decisions/0011 single transaction",
+	// single transaction — the primary aggregate owns the single-tx
+	// cross-aggregate write, because a merge that could half-commit its
+	// relinks would corrupt referential history.
+	"internal/modules/people:deal":           "merge/promote relink deal FK rows in the single transaction",
+	"internal/modules/people:activity_link":  "merge/promote relink timeline links in the single transaction",
+	"internal/modules/people:list_member":    "merge relinks list memberships (and archive purges them) in the single transaction",
+	"internal/modules/people:taggable":       "merge relinks tag rows (and archive purges them) in the single transaction",
+	"internal/modules/people:person_consent": "merge carries the survivor's consent state in the single transaction",
+	"internal/modules/people:consent_event":  "merge re-points the append-only consent proof log in the single transaction",
 
 	// activities maintains the deal-timeline denormalization where the
 	// activity lands: deal.last_activity_at moves in the same transaction
@@ -171,10 +171,10 @@ var crossStoreWrites = map[string]string{
 	// privacy is the module whose JOB is crossing stores: a data-subject
 	// obligation (erasure Art. 17, retention ADR-0011) must reach every
 	// table holding the subject in ONE transaction per record — the
-	// decisions/0011 single-transaction exception; routing each purge
+	// sanctioned single-transaction exception; routing each purge
 	// through the owning module's API would trade the atomicity that IS
 	// the guarantee for boundary hygiene.
-	"internal/modules/privacy:person":           "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17, decisions/0011 exception)",
+	"internal/modules/privacy:person":           "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17)",
 	"internal/modules/privacy:person_email":     "erasure deletes the subject's email channel rows in the single erasure transaction",
 	"internal/modules/privacy:person_social":    "erasure and retention delete the subject's social-handle rows in the same anonymization transaction",
 	"internal/modules/privacy:person_phone":     "erasure deletes the subject's phone channel rows in the single erasure transaction",

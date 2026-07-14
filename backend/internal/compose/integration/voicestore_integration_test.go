@@ -26,7 +26,7 @@ import (
 )
 
 // voiceRepPerms mirrors the seeded rep grant for the voice_profile
-// object (decisions/0006 posture: create/read/update, no delete,
+// object (posture: create/read/update, no delete,
 // team scope).
 var voiceRepPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},

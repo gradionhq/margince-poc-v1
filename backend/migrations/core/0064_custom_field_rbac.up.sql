@@ -1,7 +1,7 @@
 -- 0064: backfill the `custom_field` RBAC object into the seeded
 -- system-role policy documents of EXISTING workspaces (new workspaces get
 -- it from the code-side seed, identity/internal/policy). Posture: the
--- pipeline-config precedent (decisions/0006) — a field definition
+-- pipeline-config precedent — a field definition
 -- reshapes what the system stores for everyone's records, so changing the
 -- catalog is admin/ops-owned while every role may read it (the admin
 -- field table and record payload projections both need the catalog).

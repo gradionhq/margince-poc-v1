@@ -79,7 +79,7 @@ type Relay struct {
 	maxLen int64
 }
 
-// NewRelay applies the operational defaults (decisions/0005): 200ms idle
+// NewRelay applies the operational defaults: 200ms idle
 // poll — well inside the "post-commit, best-effort" freshness consumers
 // expect — batches of 256, streams capped near 2^17 entries (≈ the 72h
 // §4.3 retention horizon at PoC write rates).

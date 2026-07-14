@@ -19,8 +19,6 @@ into `capture` (attachment content) and `privacy` (erasure/SAR object hooks).
 The DB row stays the system of record and the tenant anchor; the store holds
 only opaque bytes at a workspace-prefixed key.
 
-**Decision of record:** [decisions/0022-blobstore-seam.md](../../decisions/0022-blobstore-seam.md).
-
 **Tech Stack:** Go 1.26.5, pgx v5.10.0, an S3 client (pin `minio-go/v7` —
 first choice, since dev/CI is MinIO and it is the lighter dep; fall back to
 `aws-sdk-go-v2/service/s3` only if a non-MinIO S3 target is required),
@@ -262,7 +260,7 @@ register them in `internal/compose`.
 - **Errors never swallowed:** every `Put`/`Get`/`Delete` failure surfaces;
   messages actionable, no bucket/endpoint leaked to a client. ✅
 - **Ports-vs-platform:** interface in `platform/blobstore`, not
-  `shared/ports/` (decisions/0022 rationale); spec touchpoint flagged. ✅
+  `shared/ports/`; spec touchpoint flagged. ✅
 - **Gates:** license headers; image-pin on MinIO; no `time.Sleep`; file-length
   < 500; `make check` + `make test-integration` green, zero `--- SKIP`. ✅
 

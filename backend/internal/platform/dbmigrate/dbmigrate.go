@@ -6,7 +6,7 @@
 // (ADR-0017: sequential core/, timestamp custom/, per-jurisdiction packs),
 // each with its own tracking table and a fixed core-then-custom apply
 // order — a shape that would need one golang-migrate instance per
-// namespace anyway. See decisions/0002-hand-rolled-migration-runner.md.
+// namespace anyway.
 package dbmigrate
 
 import (
