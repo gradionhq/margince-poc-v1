@@ -83,6 +83,10 @@
 }
 
 .cf-typebtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
   border: 1px solid var(--borderSubtle);
   background: var(--bgElevated);
   border-radius: 8px;
@@ -91,6 +95,11 @@
   color: var(--textSecondary);
   font-size: 11.5px;
   font-weight: 500;
+}
+
+.cf-typebtn svg {
+  width: 17px;
+  height: 17px;
 }
 
 .cf-typebtn:hover {
@@ -160,6 +169,68 @@
   display: flex;
   gap: 8px;
   margin-top: 14px;
+}
+
+/* Field cell: a type-glyph tile, then the human label with the immutable API
+   key on its own muted mono line beneath it — never run together. */
+.cf-fieldcell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cf-fieldicon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+  color: var(--textSecondary);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.cf-fieldicon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cf-fieldmeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cf-fieldname {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cf-key {
+  display: block;
+  font-size: 11px;
+  color: var(--textTertiary);
+}
+
+/* Type chip: a soft pill echoing the mockup's .ftype, with the type glyph. */
+.cf-typechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--textSecondary);
+  background: var(--bgCard);
+  border-radius: var(--r-full);
+  padding: 4px 10px;
+}
+
+.cf-typechip svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 
 /* just-added optimistic row, pending the server commit */

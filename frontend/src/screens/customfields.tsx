@@ -1,4 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Calendar,
+  Euro,
+  Hash,
+  List,
+  type LucideIcon,
+  ToggleRight,
+  Type,
+} from "lucide-react";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -38,6 +47,18 @@ import "./customfields.css";
 // and the 🟡 gate states that Confirm writes a live column + an audit row. This
 // is NOT the ApprovalGate (Accept/Edit/Dismiss triad) — it is a local .cf-gate
 // preview block owned by this screen.
+
+// One glyph per scalar type, mirrored from the mockup's field icons and type
+// chips so a field's shape reads at a glance. Decorative only — every use is
+// aria-hidden, so the accessible name stays the translated type word.
+const TYPE_ICON: Record<CfType, LucideIcon> = {
+  text: Type,
+  number: Hash,
+  date: Calendar,
+  currency: Euro,
+  picklist: List,
+  boolean: ToggleRight,
+};
 
 export type NewFieldDraft = {
   object: CfObject;
@@ -128,19 +149,23 @@ export function FieldBuilder({
       <div className="field">
         <span className="t-label">{t("cf.typeLabel")}</span>
         <div className="cf-typegrid">
-          {CF_TYPES.map((candidate) => (
-            <button
-              key={candidate}
-              type="button"
-              aria-pressed={candidate === type}
-              className={
-                candidate === type ? "cf-typebtn active" : "cf-typebtn"
-              }
-              onClick={() => setType(candidate)}
-            >
-              {t(`cf.type.${candidate}`)}
-            </button>
-          ))}
+          {CF_TYPES.map((candidate) => {
+            const Icon = TYPE_ICON[candidate];
+            return (
+              <button
+                key={candidate}
+                type="button"
+                aria-pressed={candidate === type}
+                className={
+                  candidate === type ? "cf-typebtn active" : "cf-typebtn"
+                }
+                onClick={() => setType(candidate)}
+              >
+                <Icon aria-hidden />
+                <span>{t(`cf.type.${candidate}`)}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -293,15 +318,23 @@ export function FieldTable({
         } else if (field.status === "retired") {
           cellClass = "cf-cell-retired";
         }
+        const Icon = TYPE_ICON[field.type];
         return (
           <div className="cf-fieldcell">
-            <span className={cellClass}>{field.label}</span>
-            {field.status === "retired" && (
-              <Badge tone="warn">{t("cf.retired")}</Badge>
-            )}
-            <span className="cf-key t-mono">
-              {`${field.object}.${field.column_name}`}
+            <span className="cf-fieldicon" aria-hidden>
+              <Icon />
             </span>
+            <div className="cf-fieldmeta">
+              <span className="cf-fieldname">
+                <span className={cellClass}>{field.label}</span>
+                {field.status === "retired" && (
+                  <Badge tone="warn">{t("cf.retired")}</Badge>
+                )}
+              </span>
+              <span className="cf-key t-mono">
+                {`${field.object}.${field.column_name}`}
+              </span>
+            </div>
           </div>
         );
       },
@@ -309,7 +342,15 @@ export function FieldTable({
     {
       key: "type",
       header: t("cf.col.type"),
-      render: (field) => <span className="cf-typechip">{typeChip(field)}</span>,
+      render: (field) => {
+        const Icon = TYPE_ICON[field.type];
+        return (
+          <span className="cf-typechip">
+            <Icon aria-hidden />
+            {typeChip(field)}
+          </span>
+        );
+      },
     },
     {
       key: "addedBy",
