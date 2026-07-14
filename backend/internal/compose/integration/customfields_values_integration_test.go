@@ -173,42 +173,8 @@ func TestCustomFieldValues_OrganizationRoundTrip(t *testing.T) {
 	assertCF(t, list[0].AdditionalProperties, col, "apac")
 }
 
-func TestCustomFieldValues_LeadRoundTrip(t *testing.T) {
-	f := setupCFV(t)
-	col := f.defineField(t, customfields.FieldSpec{Object: "lead", Label: "Is Cool", Type: customfields.TypeBoolean, Source: "ui"})
-
-	created, _, err := f.store.CreateLead(f.ctx, people.CreateLeadInput{
-		FullName: strp("Grace Hopper"), Source: "ui",
-		CustomFields: map[string]any{col: true},
-	})
-	if err != nil {
-		t.Fatalf("CreateLead: %v", err)
-	}
-	assertCF(t, created.AdditionalProperties, col, true)
-
-	got, err := f.store.GetLead(f.ctx, leadIDOf(ids.UUID(created.Id)), storekit.LiveOnly)
-	if err != nil {
-		t.Fatalf("GetLead: %v", err)
-	}
-	assertCF(t, got.AdditionalProperties, col, true)
-
-	updated, err := f.store.UpdateLead(f.ctx, leadIDOf(ids.UUID(created.Id)), people.UpdateLeadInput{
-		CustomFields: map[string]any{col: false},
-	})
-	if err != nil {
-		t.Fatalf("UpdateLead: %v", err)
-	}
-	assertCF(t, updated.AdditionalProperties, col, false)
-
-	list, _, err := f.store.ListLeads(f.ctx, people.ListLeadsInput{})
-	if err != nil {
-		t.Fatalf("ListLeads: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("ListLeads returned %d rows, want 1", len(list))
-	}
-	assertCF(t, list[0].AdditionalProperties, col, false)
-}
+// Lead's custom-field round trip + the replay/disqualify read paths live in
+// customfields_values_lead_integration_test.go (mirrors the deal split).
 
 // TestCustomFieldValues_AllSixTypesRoundTrip writes every field type in
 // one create with the shape a JSON body decode hands the store (numbers
