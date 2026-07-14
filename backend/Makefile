@@ -25,7 +25,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen drift db-up db-init db-wait seed-reset migrate migrate-up migrate-down run psql tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -152,6 +152,9 @@ db-init: ## (Re)apply scripts/db-init.sql to the running Postgres
 
 seed-reset: ## Wipe the demo workspace (scripts/seed-reset.sql); make seed-dev rebuilds it
 	$(COMPOSE) exec -T postgres psql -U margince_owner -d $(DB_NAME) -v ON_ERROR_STOP=1 < ../scripts/seed-reset.sql
+
+seed-dev-db: ## Apply the dev DB seed for API-less demo data (scripts/seed-dev.sql); run after seed-dev
+	$(COMPOSE) exec -T postgres psql -U margince_owner -d $(DB_NAME) -v ON_ERROR_STOP=1 < ../scripts/seed-dev.sql
 
 migrate: ## Apply core + custom migrations (owner DSN)
 	$(GO) run ./cmd/migrate up --dsn "$(OWNER_DSN)"
