@@ -278,6 +278,7 @@ export const de = {
   "offer.edit": "Kopfdaten bearbeiten",
   "offer.currency": "Währung",
   "offer.buyerOrg": "Käufer-Organisation",
+  "offer.buyerOrgConfirm": "Käufer-Organisation: {name}",
   "offer.template": "Vorlage",
   "offer.validUntil": "Gültig bis",
   "offer.introText": "Einleitungstext",
@@ -295,6 +296,7 @@ export const de = {
   "offer.unpriced": "kein Preis — von der Summe ausgeschlossen",
   "offer.removeLine": "Entfernen",
   "offer.pickProduct": "Produkt wählen",
+  "offer.pickProductConfirm": "Produkt: {name}",
   "offer.send": "Senden",
   "offer.sendConfirm": "Dieses Angebot an den Käufer senden?",
   "offer.sendBody":

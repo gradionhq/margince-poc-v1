@@ -200,6 +200,11 @@ function EditOfferHeaderModal({
             setValues((prev) => ({ ...prev, buyer_org_id: candidate.id }));
           }}
         />
+        {buyerOrg && (
+          <p className="t-caption">
+            {t("offer.buyerOrgConfirm", { name: buyerOrg.name })}
+          </p>
+        )}
       </div>
       <div className="field" style={{ marginTop: 10 }}>
         <span className="t-label" id="offer-template-label">
@@ -792,6 +797,11 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
               selected={product}
               onPick={setProduct}
             />
+            {product && (
+              <p className="t-caption">
+                {t("offer.pickProductConfirm", { name: product.name })}
+              </p>
+            )}
           </div>
           <Button
             variant="primary"
