@@ -70,9 +70,9 @@ run in the background; stop them with `make dev-stop`):
 make dev
 ```
 
-**Log in.** Open http://localhost:8080 for the embedded web UI (people, the
-deal board, the timeline), or the Vite dev SPA on http://localhost:5173.
-Workspace `demo-workspace`, sign in as `admin@demo.test` /
+**Log in.** Open http://localhost:5173 for the web UI (people, the deal
+board, the timeline) — the Vite dev server; it proxies `/v1` to the api on
+:8080. Workspace `demo-workspace`, sign in as `admin@demo.test` /
 `demo-password-123` (dev-only credentials). The seed goes through the public
 API — same audit trail, same events as real traffic — and is idempotent;
 `make seed-reset` wipes the demo workspace for a clean re-seed.
@@ -107,9 +107,9 @@ pipeline that runs these as required checks:
 and the full flag/env reference live in [docs/](docs/) (tutorials,
 how-to, reference, explanation — see below).
 
-The embedded web UI is a hash-routed, dependency-free SPA served from
-the binary (`backend/web/`), and a plain client of the same `/v1`
-contract as everything else — no backdoors (ADR-0013).
+The web UI is the Vite/React app in `frontend/` — a standalone static
+build served separately from the API binary, and a plain client of the
+same `/v1` contract as everything else — no backdoors (ADR-0013).
 
 Connect an agent (Surface A1): mint a passport (`POST /v1/passports`,
 session-authed), then
@@ -253,11 +253,12 @@ per-client throttling at the proxy.
   itself needs; redemption is single-use, 15-minute window, bound to the
   staging passport and the content hash, refused on target version skew
   (the human's yes was about the world they saw).
-- **Web UI**: login/bootstrap, people, leads (with the
-  promote-on-engagement dialog), the stage-column deal board with
-  advance, and the activity timeline — embedded static SPA, no build
-  chain, design tokens from the spec's design language; security headers
-  (CSP, frame-denial, nosniff) on every response.
+- **Web UI**: the Vite/React app in `frontend/` — login/bootstrap,
+  people, leads (with the promote-on-engagement dialog), the stage-column
+  deal board with advance, the activity timeline, and more — a standalone
+  static build served separately from the API, design tokens from the
+  spec's design language. Security headers (CSP, frame-denial, nosniff)
+  are set on every API response.
 - **Gates**: golangci-lint (incl. depguard module DAG, default-deny for
   the Tier-0 layer) clean; go-arch-lint as a hard gate; leaf-purity and
   interface-freeze fitness tests; the ADR-0055 contract drift-lint; an

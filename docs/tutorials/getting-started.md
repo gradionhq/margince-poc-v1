@@ -48,9 +48,10 @@ and the servers run in the background — stop them with `make dev-stop`.
 
 ## 4. Bootstrap a workspace
 
-Open <http://localhost:8080> — the embedded web UI. The first screen
-lets you bootstrap a workspace (name, slug, your admin user). After
-login you have people, leads, the deal board, and the activity timeline.
+Open <http://localhost:5173> — the Vite/React web UI (it proxies `/v1`
+to the api on :8080). The first screen lets you bootstrap a workspace
+(name, slug, your admin user). After login you have people, leads, the
+deal board, and the activity timeline.
 
 Prefer the API? The same bootstrap is `POST /v1/workspaces`. A ready-made demo workspace already exists —
 `make dev` API-seeds `demo-workspace` (`admin@demo.test` / `demo-password-123`) on boot; `make seed-dev`

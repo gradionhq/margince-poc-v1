@@ -1,7 +1,7 @@
 # Margince documentation
 
-Documentation for building and operating **Margince** — a governed, multi-tenant CRM (Go backend +
-embedded SPA). The docs follow the [Diátaxis](https://diataxis.fr/) split: **tutorials** to learn,
+Documentation for building and operating **Margince** — a governed, multi-tenant CRM (a Go `/v1` API
+backend; the Vite/React web UI ships separately). The docs follow the [Diátaxis](https://diataxis.fr/) split: **tutorials** to learn,
 **how-to** guides for tasks, **reference** for lookup, **explanation** for the *why*.
 
 **New to the backend? Start with [tutorials/getting-started.md](tutorials/getting-started.md), then

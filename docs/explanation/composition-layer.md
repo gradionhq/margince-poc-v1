@@ -51,7 +51,7 @@ func New(pool, log, opts...) http.Handler {
     for _, opt := range opts { opt(&srv, pool) } // 2. per-role customization
 
     api := contractAPI(srv, pool, identitySvc)   // 3. mount /v1 (generated router + admission)
-    mux := operationalMux(srv, pool, log, authH, api) // 4. health/ready/metrics/public/oauth/SPA
+    mux := operationalMux(srv, pool, log, authH, api) // 4. health/ready/metrics/public/oauth
     return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux))) // 5.
 }
 ```
@@ -65,7 +65,7 @@ func New(pool, log, opts...) http.Handler {
    "the" response for an idempotency key (the approved retry is the same request under the same key).
 4. **`operationalMux`** mounts the contract surface next to `/healthz`, `/readyz` (role-specific
    dependency probes), `/metrics`, the anonymous `/v1/public/*` edges, the `/oauth` A2 authorization
-   server, and the embedded SPA.
+   server.
 5. The whole thing is wrapped `RecoverPanics → LimitBodies → SecureHeaders`.
 
 ## The workspace-bootstrap seed (one transaction)

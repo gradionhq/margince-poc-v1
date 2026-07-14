@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react";
 
-// Hash routing, like the prototype: "#/deals/01J9ZK" → { screen: "deals",
-// id: "01J9ZK" }. Client routes live behind '#' so the embedded static build
-// needs no server-side fallback (backend/web serves real files only).
+// Hash routing: "#/deals/01J9ZK" → { screen: "deals", id: "01J9ZK" }.
+// Client routes live behind '#', so any static host serves index.html for
+// every entry point — no server-side SPA fallback needed.
 
 export type Route = {
   screen: string;

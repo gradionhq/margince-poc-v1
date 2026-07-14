@@ -33,7 +33,7 @@ re-explain what they already own.
 ## The system in one screen
 
 Margince is a **governed, multi-tenant CRM** — a Go backend serving a contract-defined HTTP API under
-`/v1` (plus an MCP tool surface for AI agents) over Postgres + Redis, with an embedded SPA. "Governed"
+`/v1` (plus an MCP tool surface for AI agents) over Postgres + Redis. "Governed"
 is the theme: every read is tenant-isolated and RBAC-scoped, every write is audited and announced as an
 event, and every AI action is tiered (auto-execute vs. stage for human approval).
 
