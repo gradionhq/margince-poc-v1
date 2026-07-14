@@ -6,7 +6,7 @@
 // It owns no domain: the queue set, workers, and periodic jobs are
 // supplied by the composition layer. The boundary is deliberate: an event
 // announces that something happened (outbox); a job asks for work to be
-// done (here). See decisions/0021-river-job-queue.md.
+// done (here).
 package jobs
 
 import (

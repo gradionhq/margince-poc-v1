@@ -33,7 +33,7 @@ export function useMe() {
 }
 
 // Automation (and pipeline) config is admin/ops-owned in the seeded role
-// policies (decisions/0006) — manager and rep hold read-only grants. This
+// policies — manager and rep hold read-only grants. This
 // mirror gates AFFORDANCES only (UX honesty: no buttons that can only 403);
 // the server's auth.Require gate stays the authority on every mutation.
 export function canConfigureAutomations(

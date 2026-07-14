@@ -8,7 +8,7 @@ package compose
 // which registers them as periodic jobs. The adapters are the only code
 // that knows about River — the deals module's Sweep/Reconcile methods stay
 // the River-agnostic seam, which is what makes swapping the old ticker
-// loops for River behaviour-preserving. See decisions/0021-river-job-queue.md.
+// loops for River behaviour-preserving.
 
 import (
 	"context"

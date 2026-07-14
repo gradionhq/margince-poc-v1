@@ -6,9 +6,10 @@ and the spec disagree, the spec wins).
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
 session-pickup point; update it at the end of every working session.
-Route findings as you work: implementation decisions →
-decisions/; spec/ticket defects are reconciled upstream against
-the spec (contract-first, P3), never worked around in this source.
+Route findings as you work: implementation decisions are recorded in the
+commit and PR that makes the change (git history is the record); spec/ticket
+defects are reconciled upstream against the spec (contract-first, P3), never
+worked around in this source.
 
 ## Build / test / seed
 
@@ -42,7 +43,7 @@ pipeline that runs these gates as required checks — the change classifier, the
 job graph, and the SonarCloud coverage flow — is documented in
 [infra/ci-pipeline.md](infra/ci-pipeline.md).
 
-Four process-role binaries (decisions/0011), all wired through
+Four process-role binaries, all wired through
 `internal/compose`: `cmd/api` (HTTP; inline outbox relay behind
 `--inline-relay`, default true), `cmd/worker` (standalone relay),
 `cmd/migrate` (up|down), `cmd/mcp` (the A1 stdio server).
@@ -94,7 +95,7 @@ other path to merge.
    `gh pr merge <n> --squash`), then delete the branch. Never merge over
    a red or still-running check.
 
-## Layout (spec ADR-0054/A69 as amended; see decisions/0011)
+## Layout (spec ADR-0054/A69 as amended: four `cmd/<role>` binaries + the §9 single-tx exception)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is
 `shared → platform → modules → compose → cmd`, enforced three ways
@@ -114,15 +115,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
 - `internal/modules/` — sixteen bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
-  growing subpackages only under the decisions/0018 policy; a module NEVER
+  growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
-  RBAC policy docs ONLY in `identity/internal/policy`, decisions/0006),
+  RBAC policy docs ONLY in `identity/internal/policy`),
   `people` (person, organization, lead + merge + promote —
-  cross-aggregate single-tx SQL ownership per decisions/0011), `deals`
+  cross-aggregate single-tx SQL ownership per the §9 single-tx exception), `deals`
   (deal, pipeline/stage config, workspace seed, won/lost + FX freeze),
   `activities` (the timeline: idempotent logging + polymorphic links),
   `approvals` (the 🟡 confirm-first engine, ADR-0036: staged rows ARE
-  the authority object, decisions/0008), `agents` (the governed tool
+  the authority object), `agents` (the governed tool
   surface: registry, admission gate, stdio/hosted transports, the
   Surface-B loop — reaches records only through the datasource seam),
   `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
@@ -157,7 +158,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `compose/integration`, with the shared harness). Every cross-module
   edge is injected HERE (identity's workspace seed ← deals; agents'
   staging ← approvals). Cross-module ORCHESTRATION groups live in
-  subpackages under the decisions/0018 growth policy (`compose/briefs`
+  subpackages under the same named-trigger growth policy (`compose/briefs`
   is the pilot); a compose subpackage never durably owns a business
   entity.
 - `internal/contracts/` — GENERATED from `backend/api/crm.yaml`. Never edit.
@@ -170,7 +171,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   gen-stubs, gen-agentpolicy); its own Go module so the generators'
   dependencies stay out of the product module's go.mod.
 - `frontend/` — an in-flight Vite/React workspace tracked by a parallel
-  session (decisions/0014); `make frontend-check` / `make dev`
+  session; `make frontend-check` / `make dev`
   exist at the repo root.
 
 ## DO NOT TOUCH

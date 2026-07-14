@@ -12,8 +12,9 @@
 // touches it deliberately does NOT own: erasure and retention write
 // person, lead, activity, deal, embedding and raw_capture rows because
 // a data-subject obligation must reach every store that holds the
-// subject, in ONE transaction per record (the decisions/0011
-// single-transaction exception) — routing each purge through its owning
+// subject, in ONE transaction per record (the sanctioned
+// single-transaction exception to the module-boundary rule) — routing
+// each purge through its owning
 // module's API would trade the atomicity that IS the guarantee for
 // boundary hygiene. Those writes are ratified per table in the
 // table-ownership fitness test (backend/tableownership_test.go).

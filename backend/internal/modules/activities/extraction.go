@@ -132,7 +132,7 @@ func requestAccessBody(filename string) *string {
 // RequestAttachmentAccess writes one audited timeline note carrying the
 // requesting principal and answers {requested: true}. poc-v1 has no
 // restricted-but-disclosed attachment state — an out-of-scope parent is
-// always 404 here (decisions/0022), never a locked-row placeholder like
+// always 404 here, never a locked-row placeholder like
 // poc-1's RD-AC-2 disclosure model. Visibility already IS access in this
 // system, so this op cannot unlock anything a caller could not already
 // see: it is a courtesy audit trail for a caller who can already see the

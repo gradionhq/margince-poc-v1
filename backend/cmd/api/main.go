@@ -3,7 +3,7 @@
 
 // Command api is the HTTP process role (ADR-0054, amended §2): thin
 // main, a testable run(), wiring through internal/compose. By default it
-// also runs the outbox relay inline (decisions/0005 — one process for
+// also runs the outbox relay inline (one process for
 // dev and small self-hosted installs); a split deployment passes
 // --inline-relay=false and runs cmd/worker.
 package main
@@ -74,7 +74,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	var cfg apiConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	fs.StringVar(&cfg.schemaDSN, "schema-dsn", os.Getenv("MARGINCE_SCHEMA_DSN"),
-		"Postgres DSN (owner role) for the customfields runtime-DDL pool; unset = the two schema-change operations answer 501 (decisions/0024)")
+		"Postgres DSN (owner role) for the customfields runtime-DDL pool; unset = the two schema-change operations answer 501")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.BoolVar(&cfg.inlineRelay, "inline-relay", true, "run the outbox relay in this process (false when cmd/worker runs it)")
@@ -247,7 +247,7 @@ func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer) ([]compose.Option, er
 }
 
 // schemaPoolOptions wires the customfields engine's owner-privileged
-// schema-change pool (decisions/0024) — the second pgxpool the two
+// schema-change pool — the second pgxpool the two
 // runtime-DDL operations (createCustomField, updateCustomFieldOptions)
 // need — only when --schema-dsn/MARGINCE_SCHEMA_DSN is set. Without one
 // those two operations stay their generated 501 (ErrSchemaChangesUnavailable);

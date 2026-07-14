@@ -52,8 +52,7 @@ routing each purge through the owning module would trade away the atomicity that
 
 This is the one sanctioned exception to "a module writes only its own tables." Every such write is
 **ratified per table** in `backend/tableownership_test.go` with a self-contained rationale; a reasonless
-or stale waiver fails the test. (The exception is recorded in
-[decisions/0011](../../decisions/0011-triad-restructure.md).) See
+or stale waiver fails the test. See
 [reference/modules.md](../reference/modules.md) for the ownership map and
 [write-backbone.md](write-backbone.md) for the write shape these purges still ride.
 

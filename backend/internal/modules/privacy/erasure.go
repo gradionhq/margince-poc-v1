@@ -11,7 +11,7 @@ package privacy
 // certifies gone. One erasure spans people, capture and retrieval
 // tables in ONE transaction on purpose: erasure must reach every store
 // that holds the data subject, and atomicity IS the guarantee — a
-// per-module cascade could commit half an erasure (the decisions/0011
+// per-module cascade could commit half an erasure (the sanctioned
 // single-transaction exception).
 
 import (

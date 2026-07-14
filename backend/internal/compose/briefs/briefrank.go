@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package briefs is the Morning-Brief orchestration (E05) — a compose
-// subpackage under the decisions/0018 growth policy because it is a
-// cross-module composition, never a module: deal facts (deals),
+// subpackage because it is a cross-module composition, never a module:
+// deal facts (deals),
 // relationship warmth (people §4), and the overnight activity signal
 // (activities) rank into the persisted run the home surface reads.
 // The deterministic ranker (this file) implements formulas-and-rules

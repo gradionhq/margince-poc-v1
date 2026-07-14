@@ -29,8 +29,7 @@ shared  →  platform  →  modules  →  compose  →  cmd
   privacy, collections, signals, and the `de` jurisdiction pack). A
   module package starts flat (store + mapping + transport + provider in
   one package, ADR-0054 §3) and earns a subpackage only under the
-  growth policy in
-  [decisions/0018](../../decisions/0018-module-growth-policy.md) —
+  module growth policy —
   e.g. `capture/imap` (protocol adapter), `agents/runner` (independent
   engine), `identity/internal/policy` (hidden ruleset). A module
   **never imports a sibling**; every cross-module edge is injected by

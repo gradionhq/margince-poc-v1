@@ -37,8 +37,8 @@ CREATE POLICY automation_tenant_isolation ON automation
 
 -- Backfill the `automation` RBAC object into the seeded system-role
 -- policy documents of EXISTING workspaces (new workspaces get it from
--- the code-side seed). Config posture mirrors `pipeline`
--- (decisions/0006): admin/ops configure, everyone else reads.
+-- the code-side seed). Config posture mirrors `pipeline`:
+-- admin/ops configure, everyone else reads.
 UPDATE role SET permissions = jsonb_set(
   permissions, '{objects,automation}',
   '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
