@@ -142,6 +142,7 @@ function toBoardDeal(deal: Deal): BoardDeal {
     currency: deal.currency ?? "EUR",
     ageMs: Math.max(0, Date.now() - new Date(since).getTime()),
     stalled: deal.stalled ?? false,
+    archived: deal.archived_at != null,
   };
 }
 
@@ -359,7 +360,7 @@ function DealFilterSelects({
         value={pipelineId}
         onChange={(event) => setPipelineId(event.target.value)}
       >
-        <option value="" />
+        <option value="">{t("deals.pipeline")}</option>
         {pipelines.map((pipeline) => (
           <option key={pipeline.id} value={pipeline.id}>
             {pipeline.name}
@@ -374,7 +375,7 @@ function DealFilterSelects({
           setOrClearFilter(setQuery, "stage_id", event.target.value)
         }
       >
-        <option value="" />
+        <option value="">{t("deals.filterStageAll")}</option>
         {stages.map((stage) => (
           <option key={stage.id} value={stage.id}>
             {stage.name}
@@ -389,7 +390,7 @@ function DealFilterSelects({
           setOrClearFilter(setQuery, "organization_id", event.target.value)
         }
       >
-        <option value="" />
+        <option value="">{t("deals.filterOrgAll")}</option>
         {orgs.map((org) => (
           <option key={org.id} value={org.id}>
             {org.display_name}
@@ -641,12 +642,14 @@ export function DealsScreen({
             kind: "select",
             key: "stalled",
             label: "deals.filterStalled",
+            placeholder: "deals.filterStalledAll",
             options: [{ value: "true", label: "deals.filterStalled" }],
           },
           {
             kind: "select",
             key: "owner_id",
             label: "deals.filterOwnerMe",
+            placeholder: "deals.filterOwnerAll",
             options: [
               {
                 value: meQuery.data?.user.id ?? "",
@@ -658,6 +661,7 @@ export function DealsScreen({
             kind: "select",
             key: "partner_sourced",
             label: "deals.filterPartnerSourced",
+            placeholder: "deals.filterPartnerAll",
             options: [{ value: "true", label: "deals.filterPartnerSourced" }],
           },
         ]}
