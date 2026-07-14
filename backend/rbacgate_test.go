@@ -49,6 +49,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/identity:RevokePassport":        "gated by the explicit Identity parameter: owner-or-admin is checked against the passport's on_behalf_of before revoking",
 	"internal/modules/identity:DeactivateUser":        "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
 	"internal/modules/identity:ChangeUserRole":        "gated by the explicit Identity parameter: hasRole(admin) refuses before any read or write",
+	"internal/modules/identity:ListUsers":             "roster read (A52): any authenticated member may read the member list to pick a share subject / resolve a name — authN admits, RLS row-scopes to the workspace; there is no object-level record to narrow",
+	"internal/modules/identity:ListTeams":             "roster read (A52): any authenticated member may read the team list to pick a share subject — authN admits, RLS row-scopes to the workspace; there is no object-level record to narrow",
 
 	// Public-by-design token surfaces: possession of the single-use
 	// token is the authority; there is no authenticated principal.
