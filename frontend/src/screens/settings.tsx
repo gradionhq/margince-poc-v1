@@ -33,6 +33,7 @@ export function SettingsScreen() {
       <PassportCard />
       <AutonomyCard />
       <AutomationsLinkCard />
+      <CustomFieldsLinkCard />
       <ConsentPurposesCard />
       <AuditLogCard />
       <PrivacyInboxCard />
@@ -301,6 +302,21 @@ function AutomationsLinkCard() {
         sub={t("settings.automationsSub")}
       />
       <a href="#/automations">{t("settings.openAutomations")}</a>
+    </section>
+  );
+}
+
+// The door to the custom-fields admin (CF-T06) — a settings entry, not a
+// rail item: the 9-item rail is canonical (AC-shell-1).
+function CustomFieldsLinkCard() {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("settings.customFields")}
+        sub={t("settings.customFieldsSub")}
+      />
+      <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
     </section>
   );
 }
