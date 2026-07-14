@@ -7,6 +7,12 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  /* rendered as a <fieldset> for the grouped-control semantics, so the native
+     chrome (border, inline-size floor, spacing) is reset away */
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
 }
 
 .cf-objchip {

@@ -1,13 +1,28 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { FieldBuilder, FieldTable } from "./customfields";
+import { CustomFieldsScreen, FieldBuilder, FieldTable } from "./customfields";
 
 afterEach(cleanup);
+
+// The screen sits behind the app auth gate: useMe only asks /v1/me once a
+// workspace slug is resolved, so the integration harness seeds one and clears
+// the stubbed globals between cases.
+beforeEach(() => {
+  globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  globalThis.localStorage.clear();
+  window.location.hash = "";
+});
 
 const wrap = (ui: React.ReactNode) =>
   render(<LocaleProvider initial="en">{ui}</LocaleProvider>);
@@ -186,5 +201,170 @@ describe("FieldTable", () => {
       />,
     );
     expect(screen.getByText(/Retired/i)).toBeInTheDocument();
+  });
+});
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+type Recorded = { method: string; url: string; body: unknown };
+
+// A fetch stub over the shipped custom-fields contract: /v1/me for the role
+// probe, per-object list reads keyed off the `object` query param, a 201 echo
+// on create, and an empty audit page. Every route the screen touches is
+// answered so QueryGate renders content, never its error card.
+function customFieldsBackend(
+  dealFields: CustomField[],
+  orgFields: CustomField[],
+  calls: Recorded[],
+  roles: string[] = ["admin"],
+) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : null;
+    const url = String(request ? request.url : input);
+    const method = request ? request.method : (init?.method ?? "GET");
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({ user: { id: "u1" }, roles, teams: [] });
+    }
+    if (url.includes("/audit-log")) {
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    }
+    if (url.includes("/custom-fields") && method === "POST") {
+      const body = (
+        request ? await request.json() : JSON.parse(String(init?.body))
+      ) as Record<string, unknown>;
+      calls.push({ method, url, body });
+      const created = field({
+        id: `cf-new-${calls.length}`,
+        object: body.object as CustomField["object"],
+        label: String(body.label),
+        type: body.type as CustomField["type"],
+        currency: (body.currency as string | undefined) ?? null,
+        options: (body.options as string[] | undefined) ?? null,
+      });
+      return jsonResponse(created, 201);
+    }
+    if (url.includes("/custom-fields")) {
+      const object = new URL(url).searchParams.get("object");
+      calls.push({ method, url, body: null });
+      const data = object === "organization" ? orgFields : dealFields;
+      return jsonResponse({ data, page: { next_cursor: null } });
+    }
+    return jsonResponse({ data: [], page: { next_cursor: null } });
+  });
+}
+
+const renderScreen = () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">
+        <CustomFieldsScreen />
+      </LocaleProvider>
+    </QueryClientProvider>,
+  );
+};
+
+describe("CustomFieldsScreen", () => {
+  it("renders the four object chips and the selected object's fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend([field({ id: "d1", label: "Renewal date" })], [], []),
+    );
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText("Renewal date")).toBeInTheDocument(),
+    );
+    for (const name of [/Deal/, /Company/, /Contact/, /Lead/]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+  });
+
+  it("swaps to the organization fields when the Company chip is clicked", async () => {
+    const calls: Recorded[] = [];
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Renewal date" })],
+        [
+          field({
+            id: "o1",
+            object: "organization",
+            label: "Industry code",
+            column_name: "cf_industry_code",
+            type: "text",
+          }),
+        ],
+        calls,
+      ),
+    );
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText("Renewal date")).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Company/ }));
+    await waitFor(() =>
+      expect(screen.getByText("Industry code")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Renewal date")).toBeNull();
+    expect(calls.some((call) => call.url.includes("object=organization"))).toBe(
+      true,
+    );
+  });
+
+  it("creates a field with source:manual and shows the success toast", async () => {
+    const calls: Recorded[] = [];
+    vi.stubGlobal("fetch", customFieldsBackend([], [], calls));
+    renderScreen();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Confirm & add field/i }),
+      ).toBeInTheDocument(),
+    );
+    await userEvent.type(screen.getByLabelText(/^Label/i), "Deal size");
+    await userEvent.click(screen.getByRole("button", { name: /^Number$/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Confirm & add field/i }),
+    );
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "POST")).toBe(true),
+    );
+    const post = calls.find((call) => call.method === "POST");
+    expect(post?.body).toMatchObject({
+      object: "deal",
+      label: "Deal size",
+      type: "number",
+      source: "manual",
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Deal size" added/)).toBeInTheDocument(),
+    );
+  });
+
+  it("gives a non-managing role the read-only view with no builder or archive", async () => {
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Renewal date" })],
+        [],
+        [],
+        ["rep"],
+      ),
+    );
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByText("Renewal date")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Confirm & add field/i }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
+    expect(screen.getByText(/Admin role required/i)).toBeInTheDocument();
   });
 });
