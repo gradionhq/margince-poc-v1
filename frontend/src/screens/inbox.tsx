@@ -71,9 +71,10 @@ export function confidenceLevel(
   return "low";
 }
 
-export function useApprovals(status: ApprovalStatus) {
+export function useApprovals(status: ApprovalStatus, enabled = true) {
   return useQuery({
     queryKey: ["approvals", status],
+    enabled,
     queryFn: async () => {
       const { data, error } = await api.GET("/approvals", {
         params: { query: { status, limit: 50 } },
@@ -113,9 +114,14 @@ function decidedRank(approval: Approval): number {
 // rows the server wires back as status="expired". Merge, newest decision
 // first. Shaped to satisfy QueryGate's UseQueryResult surface without
 // re-rolling the loading/error/empty chrome for a merge of three queries.
-export function useDecidedApprovals(): UseQueryResult<ApprovalPage> {
-  const approved = useApprovals("approved");
-  const rejected = useApprovals("rejected");
+export function useDecidedApprovals(
+  enabled = true,
+): UseQueryResult<ApprovalPage> {
+  // The two decided-only fetches are gated so they don't fire on the default
+  // Pending view; the pending query is always-on (shared cache key with
+  // usePendingApprovals) and supplies the salvaged expired rows.
+  const approved = useApprovals("approved", enabled);
+  const rejected = useApprovals("rejected", enabled);
   const pending = useApprovals("pending");
   const all = [approved, rejected, pending];
   const isPending = all.some((query) => query.isPending);
@@ -301,16 +307,17 @@ function RowStatusChip({
   );
 }
 
-// The token / error / skew / already-decided outcomes of a decide mutation —
-// each an honest, distinct state (AC-4/5/6).
+// The row-local decide outcomes that KEEP the row mounted: a generic error
+// and the version-skew re-stage state. The success token (AC-4) and the
+// already-decided note (AC-6) are deliberately NOT here — both fire a pending
+// invalidation that unmounts this row, so they are surfaced at screen level
+// (InboxScreen) where they survive the refetch.
 function DecideOutcome({
-  token,
   decide,
   skew,
   alreadyDecided,
   onReRead,
 }: Readonly<{
-  token: string | null;
   decide: { isError: boolean; error: unknown };
   skew: boolean;
   alreadyDecided: boolean;
@@ -320,17 +327,6 @@ function DecideOutcome({
   const generic = decide.isError && !skew && !alreadyDecided;
   return (
     <>
-      {token && (
-        <div className="card card-inset" style={{ marginTop: 8 }}>
-          <p className="t-label">{t("inbox.tokenOnce")}</p>
-          <p className="t-mono" style={{ wordBreak: "break-all" }}>
-            {token}
-          </p>
-          <Button small onClick={() => navigator.clipboard?.writeText(token)}>
-            {t("inbox.copy")}
-          </Button>
-        </div>
-      )}
       {generic && (
         <p
           className="t-caption"
@@ -349,22 +345,56 @@ function DecideOutcome({
           </Button>
         </div>
       )}
-      {alreadyDecided && (
-        <p
-          className="t-caption"
-          style={{ color: "var(--danger)", marginTop: 8 }}
-        >
-          {t("inbox.alreadyDecided")}
-        </p>
-      )}
     </>
+  );
+}
+
+// The screen-level "shown once" approval-token surface (AC-4). Rendered by
+// InboxScreen — NOT the row — so the pending invalidation that unmounts the
+// just-approved row cannot take the token with it.
+function TokenOnceModal({
+  token,
+  onClose,
+}: Readonly<{ token: string | null; onClose: () => void }>) {
+  const t = useT();
+  const headingId = useId();
+  return (
+    <Modal open={token != null} onClose={onClose} labelledBy={headingId}>
+      <h2 id={headingId} className="t-label" style={{ marginBottom: 8 }}>
+        {t("inbox.tokenOnce")}
+      </h2>
+      <p className="t-mono" style={{ wordBreak: "break-all" }}>
+        {token}
+      </p>
+      <div className="actions">
+        <Button
+          small
+          onClick={() => token && navigator.clipboard?.writeText(token)}
+        >
+          {t("inbox.copy")}
+        </Button>
+        <Button small variant="primary" onClick={onClose}>
+          {t("inbox.tokenDone")}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
 export function ApprovalRow({
   approval,
   decided,
-}: Readonly<{ approval: Approval; decided?: boolean }>) {
+  onApproved,
+  onAlreadyDecided,
+}: Readonly<{
+  approval: Approval;
+  decided?: boolean;
+  // Lift the just-minted token / the already-decided signal to a surface that
+  // survives this row's unmount (the pending invalidation drops it). Optional
+  // so HomeScreen can reuse the row without a screen-level surface.
+  onApproved?: (approvalId: string, token: string) => void;
+  onAlreadyDecided?: () => void;
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -372,7 +402,6 @@ export function ApprovalRow({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [detailOpen, setDetailOpen] = useState(false);
-  const [token, setToken] = useState<string | null>(null);
   const now = useNow(1000);
 
   const decide = useMutation({
@@ -400,14 +429,17 @@ export function ApprovalRow({
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      // Lift the token FIRST — the parent state is set before the invalidation
+      // below unmounts this row, so the screen-level surface always receives it.
       if (data?.approval_token) {
-        setToken(data.approval_token);
+        onApproved?.(approval.id, data.approval_token);
       }
+      queryClient.invalidateQueries({ queryKey: ["approvals"] });
     },
     onError: (error) => {
       const problem = error instanceof ProblemError ? error.problem : null;
       if (problem && isAlreadyDecided(problem)) {
+        onAlreadyDecided?.();
         queryClient.invalidateQueries({ queryKey: ["approvals", "pending"] });
       }
     },
@@ -558,7 +590,6 @@ export function ApprovalRow({
           </div>
         ))}
       <DecideOutcome
-        token={token}
         decide={decide}
         skew={skew}
         alreadyDecided={alreadyDecided}
@@ -597,8 +628,13 @@ export function ApprovalRow({
 export function InboxScreen() {
   const t = useT();
   const [tab, setTab] = useState<"pending" | "decided">("pending");
+  // Screen-level surfaces that must outlive the row that triggered them (a
+  // decide invalidates the pending list, unmounting the row): the once-shown
+  // approval token (AC-4) and the "already decided by someone else" note (AC-6).
+  const [token, setToken] = useState<string | null>(null);
+  const [alreadyDecided, setAlreadyDecided] = useState(false);
   const pendingQuery = usePendingApprovals();
-  const decidedQuery = useDecidedApprovals();
+  const decidedQuery = useDecidedApprovals(tab === "decided");
   const query = tab === "pending" ? pendingQuery : decidedQuery;
   return (
     <div className="wrap narrow">
@@ -612,6 +648,24 @@ export function InboxScreen() {
           decided: t("inbox.tab.decided"),
         }}
       />
+      {alreadyDecided && (
+        <div
+          className="card card-inset"
+          style={{
+            marginTop: 12,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
+          <p className="t-caption" style={{ color: "var(--danger)", flex: 1 }}>
+            {t("inbox.alreadyDecided")}
+          </p>
+          <Button small onClick={() => setAlreadyDecided(false)}>
+            {t("inbox.dismiss")}
+          </Button>
+        </div>
+      )}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <div style={{ marginTop: 12 }}>
@@ -620,11 +674,14 @@ export function InboxScreen() {
                 key={approval.id}
                 approval={approval}
                 decided={tab === "decided"}
+                onApproved={(_id, mintedToken) => setToken(mintedToken)}
+                onAlreadyDecided={() => setAlreadyDecided(true)}
               />
             ))}
           </div>
         )}
       </QueryGate>
+      <TokenOnceModal token={token} onClose={() => setToken(null)} />
     </div>
   );
 }

@@ -400,6 +400,8 @@ export const de = {
     "Wird mit der Person geteilt, für die dies vorgemerkt wurde.",
   "inbox.tokenOnce": "Jetzt kopieren — dieses Token wird nur einmal angezeigt.",
   "inbox.copy": "Kopieren",
+  "inbox.tokenDone": "Fertig",
+  "inbox.dismiss": "Schließen",
   "inbox.versionSkew":
     "Dieser Datensatz hat sich seit dem Vormerken geändert — bitte neu vormerken.",
   "inbox.reRead": "Neu einlesen",

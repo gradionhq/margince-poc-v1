@@ -391,6 +391,8 @@ export const en = {
   "inbox.rejectReasonHint": "Shared with the person this was staged for.",
   "inbox.tokenOnce": "Copy it now — you'll only see this token once.",
   "inbox.copy": "Copy",
+  "inbox.tokenDone": "Done",
+  "inbox.dismiss": "Dismiss",
   "inbox.versionSkew":
     "This record changed since it was staged — re-stage it before deciding.",
   "inbox.reRead": "Re-read",

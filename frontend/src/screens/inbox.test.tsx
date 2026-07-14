@@ -271,6 +271,25 @@ describe("InboxScreen — Decided view (AC-1)", () => {
     expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
   });
+
+  it("orders decided rows by decided_at desc, expired falling back to expires_at", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", partitionBackend(urls));
+    const { container } = render(<InboxScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Still pending action")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Decided" }));
+    await waitFor(() =>
+      expect(screen.getByText("Committed action")).toBeTruthy(),
+    );
+    // rejected decided 07-06 10:00 > approved 07-06 09:00 > expired
+    // (no decided_at → expires_at fallback 07-01) — newest decision first.
+    const order = Array.from(container.querySelectorAll("[data-approval]")).map(
+      (el) => el.getAttribute("data-approval"),
+    );
+    expect(order).toEqual(["ap-rejected", "ap-approved", "ap-expired"]);
+  });
 });
 
 // ── AC-2: detail modal ──────────────────────────────────────────────────
@@ -315,7 +334,11 @@ describe("InboxScreen — detail modal (AC-2)", () => {
 
 // ── AC-4: approval token shown once ─────────────────────────────────────
 describe("InboxScreen — approval token (AC-4)", () => {
-  it("shows a copyable token inset when approve returns approval_token", async () => {
+  it("keeps the token copyable AFTER the approved row is dropped by the refetch", async () => {
+    // Simulate the REAL lifecycle: once approved, the pending refetch no longer
+    // returns the row, so it unmounts. A row-local token would vanish with it;
+    // the screen-level surface must survive.
+    let approved = false;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -323,6 +346,7 @@ describe("InboxScreen — approval token (AC-4)", () => {
         const url = String(request ? request.url : input);
         const method = request ? request.method : (init?.method ?? "GET");
         if (method === "POST" && /\/approve/.test(url)) {
+          approved = true;
           return jsonResponse({
             ...approval,
             status: "approved",
@@ -332,7 +356,7 @@ describe("InboxScreen — approval token (AC-4)", () => {
         if (isListUrl(url)) {
           const status = statusOf(url);
           return jsonResponse({
-            data: status === "pending" ? [approval] : [],
+            data: status === "pending" && !approved ? [approval] : [],
           });
         }
         return jsonResponse({ data: [] });
@@ -341,9 +365,10 @@ describe("InboxScreen — approval token (AC-4)", () => {
     render(<InboxScreen />);
     await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
-    await waitFor(() =>
-      expect(screen.getByText("tok_secret_123")).toBeTruthy(),
-    );
+    // The approved row leaves the pending list…
+    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    // …but the once-shown token + Copy stay visible at screen level.
+    expect(screen.getByText("tok_secret_123")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 });
@@ -407,7 +432,10 @@ describe("InboxScreen — version skew (AC-5)", () => {
 
 // ── AC-6: already-decided ───────────────────────────────────────────────
 describe("InboxScreen — already decided (AC-6)", () => {
-  it("invalidates the pending query and shows the already-decided note on a 409", async () => {
+  it("drops the stale row but the screen-level note survives the refetch", async () => {
+    // Same lifecycle as AC-4: the 409 invalidates pending, the row unmounts;
+    // the note must persist at screen level so the human still SEES it.
+    let decidedElsewhere = false;
     const listCalls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -416,6 +444,7 @@ describe("InboxScreen — already decided (AC-6)", () => {
         const url = String(request ? request.url : input);
         const method = request ? request.method : (init?.method ?? "GET");
         if (method === "POST" && /\/approve/.test(url)) {
+          decidedElsewhere = true;
           return jsonResponse(
             { title: "Conflict", code: "already_decided" },
             409,
@@ -425,7 +454,7 @@ describe("InboxScreen — already decided (AC-6)", () => {
           listCalls.push(url);
           const status = statusOf(url);
           return jsonResponse({
-            data: status === "pending" ? [approval] : [],
+            data: status === "pending" && !decidedElsewhere ? [approval] : [],
           });
         }
         return jsonResponse({ data: [] });
@@ -437,22 +466,21 @@ describe("InboxScreen — already decided (AC-6)", () => {
       (u) => statusOf(u) === "pending",
     ).length;
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
-    await waitFor(() =>
-      expect(
-        screen.getByText("Already decided — nothing left to do here."),
-      ).toBeTruthy(),
-    );
-    // Not the version-skew branch.
+    // Stale row leaves…
+    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    // …the note remains, and it is NOT the version-skew branch.
+    expect(
+      screen.getByText("Already decided — nothing left to do here."),
+    ).toBeTruthy();
     expect(
       screen.queryByText(
         "This record changed since it was staged — re-stage it before deciding.",
       ),
     ).toBeNull();
-    await waitFor(() =>
-      expect(
-        listCalls.filter((u) => statusOf(u) === "pending").length,
-      ).toBeGreaterThan(pendingBefore),
-    );
+    // The pending list was refetched (the invalidation fired).
+    expect(
+      listCalls.filter((u) => statusOf(u) === "pending").length,
+    ).toBeGreaterThan(pendingBefore);
   });
 });
 
