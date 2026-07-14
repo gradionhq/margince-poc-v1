@@ -37,6 +37,11 @@ export const en = {
   "autonomy.auto": "auto-execute",
   "autonomy.confirm": "confirm-first",
 
+  "entity.person": "Person",
+  "entity.organization": "Company",
+  "entity.deal": "Deal",
+  "entity.lead": "Lead",
+
   "nav.home": "Home",
   "nav.contacts": "Contacts",
   "nav.companies": "Companies",

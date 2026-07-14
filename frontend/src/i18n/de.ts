@@ -40,6 +40,11 @@ export const de = {
   "autonomy.auto": "automatisch",
   "autonomy.confirm": "erst bestätigen",
 
+  "entity.person": "Person",
+  "entity.organization": "Unternehmen",
+  "entity.deal": "Deal",
+  "entity.lead": "Lead",
+
   "nav.home": "Start",
   "nav.contacts": "Kontakte",
   "nav.companies": "Firmen",
