@@ -11,7 +11,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { FieldHistoryTimeline, RecordHistory } from "./history";
+import {
+  FieldHistoryTimeline,
+  RecordHistory,
+  RecordHistoryTab,
+} from "./history";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -150,5 +154,33 @@ describe("FieldHistoryTimeline", () => {
     await waitFor(() => expect(screen.getByText(/psp_7Q3fa91/)).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: /human/i }));
     await waitFor(() => expect(screen.queryByText(/psp_7Q3fa91/)).toBeNull());
+  });
+});
+
+describe("RecordHistoryTab", () => {
+  it("toggles between the changes list and the field-diff timeline", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/field-history")) {
+          return jsonResponse({
+            data: [fhUpdated],
+            page: { next_cursor: null },
+          });
+        }
+        return jsonResponse({ data: [created], page: { next_cursor: null } });
+      }),
+    );
+    render(<RecordHistoryTab kind="deal" id="d1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Demo Admin created the record")).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /field history/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Globex Renewal (updated)")).toBeTruthy(),
+    );
   });
 });

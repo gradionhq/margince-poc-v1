@@ -45,6 +45,8 @@ export const en = {
   "history.actorHuman": "Human",
   "history.actorAgent": "Agent",
   "history.typedByHuman": "typed by human",
+  "history.tabChanges": "Changes",
+  "history.tabFields": "Field history",
 
   "confidence.high": "high",
   "confidence.med": "medium",

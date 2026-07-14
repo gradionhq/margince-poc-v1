@@ -48,6 +48,8 @@ export const de = {
   "history.actorHuman": "Mensch",
   "history.actorAgent": "Agent",
   "history.typedByHuman": "von einem Menschen eingetragen",
+  "history.tabChanges": "Änderungen",
+  "history.tabFields": "Feldverlauf",
 
   "confidence.high": "hoch",
   "confidence.med": "mittel",

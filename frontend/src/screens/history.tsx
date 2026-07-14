@@ -423,3 +423,37 @@ export function FieldHistoryTimeline({
     </section>
   );
 }
+
+// The record-level entry point (B-EP09.x): a SegmentedControl toggling
+// between the plain-language change list and the per-field diff timeline —
+// two projections of the same audit spine, never fetched simultaneously.
+const HISTORY_TABS = ["changes", "fields"] as const;
+type HistoryTab = (typeof HISTORY_TABS)[number];
+
+export function RecordHistoryTab({
+  kind,
+  id,
+}: Readonly<{ kind: EntityKind; id: string }>) {
+  const t = useT();
+  const [tab, setTab] = useState<HistoryTab>("changes");
+  const tabLabels: Record<HistoryTab, string> = {
+    changes: t("history.tabChanges"),
+    fields: t("history.tabFields"),
+  };
+
+  return (
+    <div>
+      <SegmentedControl
+        options={HISTORY_TABS}
+        value={tab}
+        onChange={setTab}
+        labels={tabLabels}
+      />
+      {tab === "changes" ? (
+        <RecordHistory kind={kind} id={id} />
+      ) : (
+        <FieldHistoryTimeline kind={kind} id={id} />
+      )}
+    </div>
+  );
+}
