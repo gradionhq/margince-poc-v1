@@ -308,8 +308,8 @@ function ShareScreenBody({
           server-enforced: a POST that exceeds the granter's access comes back
           422 / approval_required and is surfaced honestly below. The
           client-side ceiling UI is deferred until a "my access for this
-          record" read exists — same call the 🟡 agent-proposed-grant card
-          made. */}
+          record" read exists — same call the agent-proposed-grant card
+          (held-for-approval) made. */}
       <div className="card">
         <SectionHeader title={t("share.grantAccess")} />
         <div className="field">

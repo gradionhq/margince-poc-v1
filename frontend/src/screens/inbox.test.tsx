@@ -350,7 +350,7 @@ describe("InboxScreen — approval token (AC-4)", () => {
           return jsonResponse({
             ...approval,
             status: "approved",
-            approval_token: "tok_secret_123",
+            approval_token: "example-approval-token",
           });
         }
         if (isListUrl(url)) {
@@ -368,7 +368,7 @@ describe("InboxScreen — approval token (AC-4)", () => {
     // The approved row leaves the pending list…
     await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
     // …but the once-shown token + Copy stay visible at screen level.
-    expect(screen.getByText("tok_secret_123")).toBeTruthy();
+    expect(screen.getByText("example-approval-token")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 });

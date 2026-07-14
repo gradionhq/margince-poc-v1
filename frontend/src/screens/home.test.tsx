@@ -207,7 +207,7 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
         return jsonResponse({
           ...staged,
           status: "approved",
-          approval_token: "tok_home_42",
+          approval_token: "example-home-token",
         });
       },
     });
@@ -217,7 +217,7 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     // The approved row leaves the pending list on refetch…
     await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
     // …but the once-shown token stays visible + copyable at screen level.
-    expect(screen.getByText("tok_home_42")).toBeTruthy();
+    expect(screen.getByText("example-home-token")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 

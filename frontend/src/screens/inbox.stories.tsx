@@ -203,7 +203,7 @@ export const TokenShown: Story = {
       jsonResponse({
         ...base,
         status: "approved",
-        approval_token: "tok_live_9f2c7a1e",
+        approval_token: "example-approval-token",
       }),
   }),
   play: async ({ canvasElement }) => {
@@ -211,7 +211,7 @@ export const TokenShown: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: "Accept" }),
     );
-    await canvas.findByText("tok_live_9f2c7a1e");
+    await canvas.findByText("example-approval-token");
   },
 };
 
