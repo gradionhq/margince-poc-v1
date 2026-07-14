@@ -25,16 +25,6 @@ export function groupByField(entries: FieldHistoryEntry[]): FieldGroup[] {
   }));
 }
 
-// The actor facet control: "human" vs anything non-human (agent/connector/system).
-export function matchesActor(
-  entry: { actor_type: string },
-  facet: ActorFacet,
-): boolean {
-  if (facet === "all") return true;
-  if (facet === "human") return entry.actor_type === "human";
-  return entry.actor_type !== "human";
-}
-
 export function distinctFields(entries: FieldHistoryEntry[]): string[] {
   const seen: string[] = [];
   for (const entry of entries) {

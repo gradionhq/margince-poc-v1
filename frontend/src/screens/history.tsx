@@ -11,27 +11,24 @@ import {
   Avatar,
   Button,
   EmptyState,
-  SectionHeader,
   SegmentedControl,
-  Skeleton,
 } from "../design-system/atoms";
 import {
-  type Evidence,
   EvidenceChip,
   FieldDiff,
   PassportChip,
   type Provenance,
   ProvenanceTag,
+  toEvidence,
 } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { problemMessage } from "./common";
+import { problemMessage, QueryStates } from "./common";
 import {
   type ActorFacet,
   distinctFields,
   type FieldGroup,
   groupByField,
-  matchesActor,
 } from "./history.logic";
 import "./history.css";
 
@@ -119,30 +116,11 @@ export function RecordHistory({
   const query = useRecordHistory(kind, id);
   const entries = query.data?.pages.flatMap((page) => page.data) ?? [];
 
-  // Honest state matrix (§3a): loading, error, empty, then the list — kept
-  // as sequential branches rather than a nested ternary in the JSX below.
+  // Honest state matrix (§3a): the pending/error halves are QueryStates'
+  // (shared with FieldHistoryTimeline and QueryGate); empty vs. the list is
+  // this component's own success rendering.
   let body: ReactNode;
-  if (query.isPending) {
-    body = (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-        <Skeleton width="75%" />
-      </div>
-    );
-  } else if (query.isError) {
-    body = (
-      <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: 6 }}>
-          {query.error instanceof Error ? query.error.message : null}
-        </p>
-        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
-          {t("common.retry")}
-        </Button>
-      </EmptyState>
-    );
-  } else if (entries.length === 0) {
+  if (entries.length === 0) {
     body = <EmptyState>{t("history.empty")}</EmptyState>;
   } else {
     body = (
@@ -168,8 +146,7 @@ export function RecordHistory({
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("history.title")} />
-      {body}
+      <QueryStates query={query}>{body}</QueryStates>
     </section>
   );
 }
@@ -214,21 +191,6 @@ export function useFieldHistory(
     },
     getNextPageParam: (last) => last.page.next_cursor ?? null,
   });
-}
-
-// The contract's `evidence` is an untyped free-form object (agent actors
-// only; no fixed shape yet at the contract level) — narrow it to the trust
-// vocabulary's Evidence before handing it to EvidenceChip. Anything that
-// doesn't carry both fields is treated as "no evidence" rather than guessed.
-function toEvidence(raw: FieldHistoryEntry["evidence"]): Evidence | null {
-  if (
-    raw &&
-    typeof raw.snippet === "string" &&
-    typeof raw.source === "string"
-  ) {
-    return { snippet: raw.snippet, source: raw.source };
-  }
-  return null;
 }
 
 function ChangeWho({ change }: Readonly<{ change: FieldHistoryEntry }>) {
@@ -289,17 +251,20 @@ export function FieldHistoryTimeline({
     field: fieldFilter,
     actorType: actorFacet === "all" ? undefined : actorFacet,
   });
-  const rawEntries = useMemo(
+  // The Agent/Human facet already narrows server-side via the actor_type
+  // query param (part of the queryKey, so a facet change refetches) — these
+  // rows are trusted as-is rather than re-sliced client-side, which also
+  // keeps pagination (hasNextPage) honest against what the server counted.
+  const entries = useMemo(
     () => query.data?.pages.flatMap((page) => page.data) ?? [],
     [query.data],
   );
-  const entries = rawEntries.filter((entry) => matchesActor(entry, actorFacet));
 
   useEffect(() => {
-    if (rawEntries.length === 0) {
+    if (entries.length === 0) {
       return;
     }
-    const discovered = distinctFields(rawEntries);
+    const discovered = distinctFields(entries);
     setFieldOptions((prev) => {
       const next = [...prev];
       for (const field of discovered) {
@@ -309,7 +274,7 @@ export function FieldHistoryTimeline({
       }
       return next;
     });
-  }, [rawEntries]);
+  }, [entries]);
 
   const isFiltered = actorFacet !== "all" || fieldFilter !== undefined;
   const clearFilters = () => {
@@ -317,30 +282,11 @@ export function FieldHistoryTimeline({
     setFieldFilter(undefined);
   };
 
-  // Honest state matrix (§3a): loading, error, filter-empty (a narrowing
-  // that found nothing) vs. truly empty (no edits at all), then the groups.
+  // Honest state matrix (§3a): the pending/error halves are QueryStates';
+  // filter-empty (a narrowing that found nothing) vs. truly empty (no edits
+  // at all) is this component's own success rendering.
   let body: ReactNode;
-  if (query.isPending) {
-    body = (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-        <Skeleton width="75%" />
-      </div>
-    );
-  } else if (query.isError) {
-    body = (
-      <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: 6 }}>
-          {query.error instanceof Error ? query.error.message : null}
-        </p>
-        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
-          {t("common.retry")}
-        </Button>
-      </EmptyState>
-    );
-  } else if (entries.length === 0 && isFiltered) {
+  if (entries.length === 0 && isFiltered) {
     body = (
       <EmptyState>
         <p>{t("history.filterEmpty")}</p>
@@ -380,7 +326,6 @@ export function FieldHistoryTimeline({
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader title={t("history.title")} />
       <div
         style={{
           display: "flex",
@@ -419,7 +364,7 @@ export function FieldHistoryTimeline({
           </div>
         )}
       </div>
-      {body}
+      <QueryStates query={query}>{body}</QueryStates>
     </section>
   );
 }

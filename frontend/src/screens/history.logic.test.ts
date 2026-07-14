@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
-import { distinctFields, groupByField, matchesActor } from "./history.logic";
+import { distinctFields, groupByField } from "./history.logic";
 
 type FieldHistoryEntry = components["schemas"]["FieldHistoryEntry"];
 
@@ -36,15 +36,6 @@ describe("groupByField", () => {
   });
   it("returns [] for no entries", () => {
     expect(groupByField([])).toEqual([]);
-  });
-});
-
-describe("matchesActor", () => {
-  it("filters by facet", () => {
-    expect(matchesActor({ actor_type: "human" }, "all")).toBe(true);
-    expect(matchesActor({ actor_type: "agent" }, "human")).toBe(false);
-    expect(matchesActor({ actor_type: "agent" }, "agent")).toBe(true);
-    expect(matchesActor({ actor_type: "connector" }, "agent")).toBe(true); // non-human origin reads as agent
   });
 });
 

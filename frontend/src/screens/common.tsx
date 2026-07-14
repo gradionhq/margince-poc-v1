@@ -42,14 +42,24 @@ export function canConfigureAutomations(
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
-export function QueryGate<Data>({
+// The pending/error halves of the screen-state matrix (§3a) — one skeleton
+// spelling, one error+retry spelling — shared by every query-backed screen
+// regardless of whether it's a plain useQuery or an useInfiniteQuery (both
+// expose this same isPending/isError/error/refetch shape). SUCCESS rendering
+// stays the caller's job: some screens want QueryGate's generic empty-check,
+// others (the History timelines) need custom grouping/pagination that no
+// single success renderer could cover.
+export function QueryStates({
   query,
-  empty,
   children,
 }: Readonly<{
-  query: UseQueryResult<Data>;
-  empty?: (data: Data) => boolean;
-  children: (data: Data) => ReactNode;
+  query: Readonly<{
+    isPending: boolean;
+    isError: boolean;
+    error: unknown;
+    refetch: () => unknown;
+  }>;
+  children: ReactNode;
 }>) {
   const t = useT();
   if (query.isPending) {
@@ -74,10 +84,28 @@ export function QueryGate<Data>({
       </EmptyState>
     );
   }
-  if (empty?.(query.data)) {
-    return <EmptyState>{t("common.empty")}</EmptyState>;
+  return <>{children}</>;
+}
+
+export function QueryGate<Data>({
+  query,
+  empty,
+  children,
+}: Readonly<{
+  query: UseQueryResult<Data>;
+  empty?: (data: Data) => boolean;
+  children: (data: Data) => ReactNode;
+}>) {
+  const t = useT();
+  let success: ReactNode = null;
+  if (query.isSuccess) {
+    success = empty?.(query.data) ? (
+      <EmptyState>{t("common.empty")}</EmptyState>
+    ) : (
+      children(query.data)
+    );
   }
-  return <>{children(query.data)}</>;
+  return <QueryStates query={query}>{success}</QueryStates>;
 }
 
 // captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".

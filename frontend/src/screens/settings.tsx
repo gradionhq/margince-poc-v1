@@ -20,10 +20,10 @@ import {
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import {
   AutonomyDot,
-  type Evidence,
   EvidenceChip,
   FieldDiff,
   PassportChip,
+  toEvidence,
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -777,21 +777,6 @@ function ConsentPurposesCard() {
 
 type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 
-// The contract's `evidence` is an untyped free-form object — narrow it to
-// the trust vocabulary's Evidence before handing it to EvidenceChip, mirroring
-// history.tsx's toEvidence. Anything that doesn't carry both fields reads as
-// "no evidence" rather than guessed.
-function toAuditEvidence(raw: AuditLogEntry["evidence"]): Evidence | null {
-  if (
-    raw &&
-    typeof raw.snippet === "string" &&
-    typeof raw.source === "string"
-  ) {
-    return { snippet: raw.snippet, source: raw.source };
-  }
-  return null;
-}
-
 function isEntityKind(kind: string): kind is EntityKind {
   return (ENTITY_KINDS as readonly string[]).includes(kind);
 }
@@ -868,7 +853,7 @@ function AuditLogRow({ entry }: Readonly<{ entry: AuditLogEntry }>) {
   const { locale } = useLocale();
   const [expanded, setExpanded] = useState(false);
   const keys = diffKeys(entry.before, entry.after);
-  const evidence = toAuditEvidence(entry.evidence);
+  const evidence = toEvidence(entry.evidence);
 
   return (
     <li style={{ display: "flex", flexDirection: "column", gap: 6 }}>

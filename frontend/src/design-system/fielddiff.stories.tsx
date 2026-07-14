@@ -3,7 +3,7 @@ import { LocaleProvider } from "../i18n";
 import { FieldDiff, PassportChip } from "./trust";
 
 const meta: Meta = {
-  title: "DesignSystem/FieldDiff",
+  title: "Design System/FieldDiff",
   decorators: [
     (Story) => (
       <LocaleProvider initial="en">
