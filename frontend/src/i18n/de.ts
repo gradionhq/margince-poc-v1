@@ -33,6 +33,10 @@ export const de = {
   "trust.resolvedValue": "übernommener Wert",
   "trust.editValue": "{description} bearbeiten",
 
+  "history.created": "— angelegt —",
+  "history.cleared": "— geleert —",
+  "history.passport": "Agent-Passport",
+
   "confidence.high": "hoch",
   "confidence.med": "mittel",
   "confidence.low": "niedrig",

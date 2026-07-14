@@ -1,3 +1,4 @@
+import { ArrowRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useT } from "../i18n";
 import "./trust.css";
@@ -225,5 +226,39 @@ export function StagedProposal({
         />
       )}
     </StagingCard>
+  );
+}
+
+// The inline old→new field diff: struck-through prior value, arrow, highlighted
+// new value. A null side is an honest marker, never a blank or a guessed value.
+export function FieldDiff({
+  oldValue,
+  newValue,
+}: Readonly<{ oldValue: string | null; newValue: string | null }>) {
+  const t = useT();
+  return (
+    <span className="field-diff">
+      {oldValue === null ? (
+        <span className="field-diff-empty">{t("history.created")}</span>
+      ) : (
+        <span className="field-diff-from">{oldValue}</span>
+      )}
+      <ArrowRight className="field-diff-arrow" aria-hidden size={14} />
+      {newValue === null ? (
+        <span className="field-diff-empty">{t("history.cleared")}</span>
+      ) : (
+        <span className="field-diff-to">{newValue}</span>
+      )}
+    </span>
+  );
+}
+
+// A governed agent's passport id, shown mono so it reads as an identifier.
+export function PassportChip({ id }: Readonly<{ id: string }>) {
+  const t = useT();
+  return (
+    <span className="passport-chip" title={t("history.passport")}>
+      {id}
+    </span>
   );
 }

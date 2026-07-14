@@ -111,3 +111,44 @@ button.evidence-chip:hover {
   border-radius: var(--r-sm);
   padding: 6px 10px;
 }
+
+.field-diff {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-family: var(--f-mono);
+  font-size: 12px;
+}
+
+.field-diff-from {
+  color: var(--textTertiary);
+  text-decoration: line-through;
+}
+
+.field-diff-to {
+  color: var(--success);
+  background: var(--successBg);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+
+.field-diff-empty {
+  color: var(--textTertiary);
+  font-style: italic;
+}
+
+.field-diff-arrow {
+  color: var(--textTertiary);
+}
+
+.passport-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--aiText);
+  background: var(--aiLight);
+  border-radius: var(--r-full);
+  padding: 1px 8px;
+}

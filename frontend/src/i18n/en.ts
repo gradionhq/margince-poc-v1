@@ -30,6 +30,10 @@ export const en = {
   "trust.resolvedValue": "resolved value",
   "trust.editValue": "Edit {description}",
 
+  "history.created": "— created —",
+  "history.cleared": "— cleared —",
+  "history.passport": "Agent passport",
+
   "confidence.high": "high",
   "confidence.med": "medium",
   "confidence.low": "low",
