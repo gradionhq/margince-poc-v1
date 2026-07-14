@@ -1,21 +1,29 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
+  fireEvent,
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { CompanyScreen } from "./organizations";
+import { CompaniesScreen, CompanyScreen } from "./organizations";
 
 // Company-360 enrichment (EP05 scrapeCompany): one click stages a 🟡
 // evidence-backed proposal — human field labels, per-field confidence +
 // evidence, the confirm-first banner (nothing written until the inbox
 // accept), and honest 422 degradation with the server's detail verbatim.
+//
+// Below that: the same P-14/15/16/1 shared-block wiring as contacts
+// (people.test.tsx) — search/sort/pagination, the rich create modal
+// (display_name/legal_name/industry/size_band/domains), the company-360
+// If-Match edit, and the duplicate_domain dedupe link.
 
 afterEach(() => {
   cleanup();
@@ -53,6 +61,17 @@ const org = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
+// The dormant/no-interactions strength response — the default backstop for
+// every fetch stub below that isn't itself exercising the strength card
+// (P-4): the Company Overview now fires this GET unconditionally, and none
+// of the pre-existing tests below care about its shape.
+const dormantStrength = {
+  score: 0,
+  bucket: "dormant",
+  factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+  last_interaction: null,
+};
+
 const proposal = {
   proposal_id: "pr-1",
   organization_id: "o-1",
@@ -81,6 +100,9 @@ function stubApi(enrich: () => Response) {
       const method = request?.method ?? init?.method ?? "GET";
       if (method === "POST" && url.pathname.endsWith("/enrich")) {
         return enrich();
+      }
+      if (url.pathname.endsWith("/strength")) {
+        return jsonResponse(dormantStrength);
       }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -127,5 +149,590 @@ describe("company-360 enrichment", () => {
         screen.getByText("the organization has no domain to read"),
       ).toBeTruthy(),
     );
+  });
+});
+
+// A URL-capturing fetch stub shared across the P-14/15/16 wiring tests
+// below: every request is recorded so a test can assert the params it
+// carried, and a caller-supplied responder decides what comes back. Strength
+// requests are answered with the dormant default up front (overridable via
+// `strength`) so tests that don't care about relationship strength don't have
+// to plumb a branch for it.
+function stubFetch(
+  responder: (
+    url: string,
+    method: string,
+    request: Request,
+  ) => Promise<Response>,
+  options?: Readonly<{ strength?: unknown }>,
+): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
+  const urls: string[] = [];
+  const fetchMock = vi.fn(async (request: Request) => {
+    urls.push(request.url);
+    if (new URL(request.url).pathname.endsWith("/strength")) {
+      return jsonResponse(options?.strength ?? dormantStrength);
+    }
+    return responder(request.url, request.method, request);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { fetchMock, urls };
+}
+
+function emptyPage() {
+  return jsonResponse({
+    data: [],
+    page: { next_cursor: null, has_more: false },
+  });
+}
+
+describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
+  it("carries the debounced search term into the next fetch", async () => {
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(screen.getByRole("searchbox"), {
+        target: { value: "brandt" },
+      });
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("q=brandt"))).toBe(true),
+    );
+  });
+
+  it("shows Load more on has_more and fetches the next cursor on click", async () => {
+    const { urls } = stubFetch(async (url) => {
+      if (url.includes("cursor=c1")) {
+        return jsonResponse({
+          data: [{ ...org, id: "o-2", display_name: "Nordwind Logistik" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse({
+        data: [org],
+        page: { next_cursor: "c1", has_more: true },
+      });
+    });
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+
+    const loadMore = screen.getByRole("button", { name: "Load more" });
+    await userEvent.click(loadMore);
+
+    await waitFor(() =>
+      expect(screen.getByText("Nordwind Logistik")).toBeTruthy(),
+    );
+    expect(urls.some((url) => url.includes("cursor=c1"))).toBe(true);
+  });
+});
+
+describe("CompaniesScreen — rich create (P-15)", () => {
+  it("posts display_name + size_band + domains + source:manual on submit", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/organizations")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...org, id: "o-new" }, 201);
+      }
+      return emptyPage();
+    });
+    render(<CompaniesScreen />);
+    await userEvent.click(screen.getByTestId("new-record"));
+    await userEvent.type(
+      screen.getByLabelText("Company name *"),
+      "Otto Fischer GmbH",
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Company size"),
+      "11-50",
+    );
+    await userEvent.click(screen.getByText("Add domain"));
+    await userEvent.type(screen.getByLabelText("Domain *"), "otto.example");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      display_name: "Otto Fischer GmbH",
+      size_band: "11-50",
+      source: "manual",
+      domains: [{ domain: "otto.example", is_primary: false }],
+    });
+  });
+});
+
+describe("CompanyScreen — edit with If-Match (P-1)", () => {
+  it("PATCHes /organizations/{id} with If-Match:<version> and only update fields", async () => {
+    let patchHeader: string | null = null;
+    let patchBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchHeader = request.headers.get("If-Match");
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...org, industry: "Manufacturing", version: 2 });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    const industry = await screen.findByLabelText("Industry");
+    await userEvent.clear(industry);
+    await userEvent.type(industry, "Manufacturing");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchHeader).toBe("1");
+    expect(patchBody).toMatchObject({ industry: "Manufacturing" });
+    expect(patchBody).not.toHaveProperty("domains");
+  });
+});
+
+describe("CompanyScreen — archive (P-3)", () => {
+  it("opens a confirm, DELETEs /organizations/{id} on confirm, and navigates to the list", async () => {
+    let deleted = false;
+    stubFetch(async (url, method) => {
+      if (method === "DELETE" && url.includes("/organizations/o-1")) {
+        deleted = true;
+        return jsonResponse({ ...org, archived_at: "2026-07-13T00:00:00Z" });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("archive-record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("archive-record"));
+    await userEvent.click(screen.getByTestId("archive-confirm"));
+
+    await waitFor(() => expect(deleted).toBe(true));
+    expect(window.location.hash).toBe("#/companies");
+  });
+});
+
+describe("CompaniesScreen — archived marking (P-3)", () => {
+  it("shows an Archived badge on a row with archived_at set", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, archived_at: "2026-07-01T00:00:00Z" }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    expect(screen.getByText("Archived")).toBeTruthy();
+  });
+});
+
+describe("CompaniesScreen — dedupe view-existing link (P-16)", () => {
+  it("renders a link to the collided record on a duplicate_domain 409", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "POST" && url.includes("/organizations")) {
+        return jsonResponse(
+          {
+            type: "about:blank",
+            title: "Conflict",
+            detail: "domain already in use",
+            code: "duplicate_domain",
+            details: { existing_id: "01X" },
+          },
+          409,
+        );
+      }
+      return emptyPage();
+    });
+    render(<CompaniesScreen />);
+    await userEvent.click(screen.getByTestId("new-record"));
+    await userEvent.type(
+      screen.getByLabelText("Company name *"),
+      "Dup Company",
+    );
+    await userEvent.click(screen.getByText("Add domain"));
+    await userEvent.type(screen.getByLabelText("Domain *"), "dup.example");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("View existing record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByText("View existing record"));
+    expect(window.location.hash).toBe("#/companies/01X");
+  });
+});
+
+describe("CompanyScreen — merge into target (P-2)", () => {
+  const acme = { ...org, id: "o-2", display_name: "Acme Corp" };
+
+  it("searches, excludes the source row, and merges into the picked target", async () => {
+    let mergeBody: unknown = null;
+    let mergeHeader: string | null = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/organizations/o-1/merge")) {
+        mergeHeader = request.headers.get("If-Match");
+        mergeBody = JSON.parse(await request.text());
+        return jsonResponse({ ...acme, version: 2 });
+      }
+      if (url.includes("/organizations?") && url.includes("q=acme")) {
+        return jsonResponse({
+          data: [org, acme],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("merge-record")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("merge-record"));
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByText("Acme Corp")).toBeTruthy(),
+    );
+    // The source row must never appear as a mergeable target.
+    expect(within(dialog).queryByText("Brandt Automotive GmbH")).toBeNull();
+
+    await userEvent.click(within(dialog).getByText("Acme Corp"));
+    await userEvent.click(screen.getByTestId("merge-confirm"));
+
+    await waitFor(() => expect(mergeBody).toBeTruthy());
+    expect(mergeBody).toMatchObject({ target_id: "o-2" });
+    expect(mergeHeader).toBe("1");
+    expect(window.location.hash).toBe("#/companies/o-2");
+  });
+});
+
+const employmentRel = {
+  id: "rel-1",
+  workspace_id: "w",
+  kind: "employment",
+  person_id: "p-1",
+  organization_id: "o-1",
+  role: "cto",
+  is_current_primary: true,
+  started_at: "2024-01-01",
+  ended_at: null,
+  source: "manual",
+  captured_by: "human:u1",
+  version: 1,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+describe("CompanyScreen — Relationships tab (P-5)", () => {
+  it("shows an Overview/Relationships tab bar and lists relationships by organization_id", async () => {
+    stubFetch(async (url) => {
+      if (
+        url.includes("/relationships") &&
+        url.includes("organization_id=o-1")
+      ) {
+        return jsonResponse({
+          data: [employmentRel],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+
+    await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
+    expect(screen.getByText("cto")).toBeTruthy();
+    expect(screen.getByText("p-1")).toBeTruthy();
+  });
+
+  it("adding a relationship from the company side POSTs organization_id + the picked person_id", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/relationships")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...employmentRel, id: "rel-new" }, 201);
+      }
+      if (
+        url.includes("/relationships") &&
+        url.includes("organization_id=o-1")
+      ) {
+        return emptyPage();
+      }
+      if (url.includes("/people?") && url.includes("q=anna")) {
+        return jsonResponse({
+          data: [{ id: "p-1", full_name: "Anna Weber" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("add-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("add-relationship"));
+
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "anna");
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
+    await userEvent.click(screen.getByText("Anna Weber"));
+    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      organization_id: "o-1",
+      person_id: "p-1",
+      kind: "employment",
+      source: "manual",
+    });
+  });
+});
+
+const rollup = {
+  root_id: "o-1",
+  scope: "tree",
+  weighted_pipeline: { amount_minor: 4_800_000, currency: "EUR" },
+  closed_won: { amount_minor: 1_200_000, currency: "EUR" },
+  activity_count_30d: 12,
+  aggregated_account_count: 3,
+  restricted_excluded: [],
+  computed_at: "2026-07-01T09:30:00Z",
+};
+
+describe("CompanyScreen — Roll-up tab (P-7)", () => {
+  it("shows the weighted pipeline, closed-won, activity, and account figures", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/hierarchy-rollup")) {
+        return jsonResponse(rollup);
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Roll-up"));
+
+    await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
+    expect(screen.getByText("€12,000.00")).toBeTruthy();
+    expect(screen.getByText("12")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+  });
+
+  it("renders the honest FX-unavailable message instead of zeros on a 422", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/hierarchy-rollup")) {
+        return jsonResponse(
+          { title: "Unprocessable", code: "fx_rate_unavailable" },
+          422,
+        );
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Roll-up"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "A currency conversion rate is missing — the roll-up cannot be computed.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("€0.00")).toBeNull();
+  });
+
+  it("discloses accounts excluded because the viewer cannot read them", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/hierarchy-rollup")) {
+        return jsonResponse({
+          ...rollup,
+          restricted_excluded: [
+            { id: "o-9", display_name: "Hidden Subsidiary GmbH" },
+          ],
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Roll-up"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("1 account(s) not visible to you were excluded"),
+      ).toBeTruthy(),
+    );
+  });
+});
+
+describe("CompanyScreen — relationship-strength card (P-4)", () => {
+  it("renders the org's strength bucket, score, and factor breakdown", async () => {
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(org);
+      },
+      {
+        strength: {
+          score: 41,
+          bucket: "weak",
+          factors: {
+            recency: 0.3,
+            frequency: 0.2,
+            reciprocity: 0.4,
+            direction: 0.5,
+          },
+          last_interaction: "2026-06-20T12:00:00Z",
+        },
+      },
+    );
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Weak")).toBeTruthy());
+    expect(screen.getByText("Score 41/100")).toBeTruthy();
+    expect(screen.getByText("Recency")).toBeTruthy();
+    expect(screen.getByText("Frequency")).toBeTruthy();
+    expect(screen.getByText("Reciprocity")).toBeTruthy();
+    expect(screen.getByText("Direction")).toBeTruthy();
+  });
+});
+
+describe("CompanyScreen — archived is read-only (P-3)", () => {
+  it("hides edit/merge/archive and shows the Archived badge on an archived company", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse({ ...org, archived_at: "2026-07-13T00:00:00Z" });
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
+    expect(screen.queryByTestId("edit-record")).toBeNull();
+    expect(screen.queryByTestId("merge-record")).toBeNull();
+    expect(screen.queryByTestId("archive-record")).toBeNull();
+  });
+});
+
+describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
+  it("offers org↔org kinds (not deal_stakeholder) from a company and POSTs counterparty_org_id", async () => {
+    let posted: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/relationships")) {
+        posted = JSON.parse(await request.text());
+        return jsonResponse({ ...employmentRel, id: "rel-new" }, 201);
+      }
+      if (
+        url.includes("/relationships") &&
+        url.includes("organization_id=o-1")
+      ) {
+        return emptyPage();
+      }
+      if (url.includes("/organizations?") && url.includes("q=acme")) {
+        return jsonResponse({
+          data: [{ id: "o-2", display_name: "Acme Corp" }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await userEvent.click(screen.getByText("Relationships"));
+    await waitFor(() =>
+      expect(screen.getByTestId("add-relationship")).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByTestId("add-relationship"));
+
+    // An org anchors employment + the org↔org kinds; deal_stakeholder needs a
+    // person endpoint and must not be offered here.
+    const kind = screen.getByLabelText("Kind");
+    expect(within(kind).queryByText("Deal stakeholder")).toBeNull();
+    await userEvent.selectOptions(kind, "partner_of");
+
+    await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => expect(screen.getByText("Acme Corp")).toBeTruthy());
+    await userEvent.click(screen.getByText("Acme Corp"));
+    await userEvent.click(screen.getByTestId("add-relationship-submit"));
+
+    await waitFor(() => expect(posted).toBeTruthy());
+    expect(posted).toMatchObject({
+      organization_id: "o-1",
+      counterparty_org_id: "o-2",
+      kind: "partner_of",
+      source: "manual",
+    });
+    expect(posted).not.toHaveProperty("person_id");
   });
 });

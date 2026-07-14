@@ -88,6 +88,7 @@ type Server struct {
 	imapConnectHandlers
 	filteredExportHandlers
 	orgRollupHandlers
+	strengthHandlers
 	customfieldsHandlers
 	quotasHandlers
 	attachmentExtractionHandlers
@@ -382,6 +383,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 			collections: collections.NewStore(pool),
 		},
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
+		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
 		// The schema-change pool is boot-optional (decisions/0024); nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.

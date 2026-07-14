@@ -129,7 +129,9 @@ describe("contact create flow", () => {
     render(<ContactsScreen />);
     await userEvent.click(screen.getByText("New contact"));
     await userEvent.type(screen.getByLabelText("Full name *"), "Peter Neu");
-    await userEvent.type(screen.getByLabelText("Email"), "peter@neu.example");
+    await userEvent.click(screen.getByText("Add email"));
+    await userEvent.type(screen.getByLabelText("Email *"), "peter@neu.example");
+    await userEvent.click(screen.getByRole("radio", { name: "Primary" }));
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-new"));
     const post = captured.find((entry) => entry.key === "POST /people");

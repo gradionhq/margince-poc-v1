@@ -562,6 +562,23 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/strength:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPersonStrength
+      summary: Relationship strength for a person (deterministic recency × frequency × reciprocity).
+      responses:
+        '200':
+          description: The person's relationship-strength breakdown.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelationshipStrength' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # --------------------------- /organizations -------------------------------
   /organizations:
     get:
@@ -829,6 +846,23 @@ paths:
                     status: 422
                     code: company_unreadable
                     detail: Couldn't read enough from this company's site. Retry or add a URL.
+
+  /organizations/{id}/strength:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationStrength
+      summary: Relationship strength for an organization (max over current employees).
+      responses:
+        '200':
+          description: The organization's relationship-strength breakdown.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelationshipStrength' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /partners:
     get:
@@ -5774,6 +5808,9 @@ components:
           items: { type: string, format: uuid }
           description: The activities the score was computed from (the receipts behind the number).
         computed_at: { type: string, format: date-time, description: When this value was last recomputed (fixed-clock reproducible). }
+        last_interaction: { type: [string, 'null'], format: date-time, description: Timestamp of the most recent qualifying interaction; null when there are none. }
+        inbound_90d: { type: integer, minimum: 0, description: Count of qualifying inbound interactions in the trailing 90-day window. }
+        outbound_90d: { type: integer, minimum: 0, description: Count of qualifying outbound interactions in the trailing 90-day window. }
 
     Person:
       type: object

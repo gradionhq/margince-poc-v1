@@ -227,6 +227,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/strength": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Relationship strength for a person (deterministic recency × frequency × reciprocity). */
+        get: operations["getPersonStrength"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations": {
         parameters: {
             query?: never;
@@ -375,6 +395,26 @@ export interface paths {
          *     human-set value. A blocked or thin page degrades to 422, zero fabricated fields.
          */
         post: operations["scrapeCompany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/strength": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Relationship strength for an organization (max over current employees). */
+        get: operations["getOrganizationStrength"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2953,6 +2993,15 @@ export interface components {
              * @description When this value was last recomputed (fixed-clock reproducible).
              */
             computed_at?: string;
+            /**
+             * Format: date-time
+             * @description Timestamp of the most recent qualifying interaction; null when there are none.
+             */
+            last_interaction?: string | null;
+            /** @description Count of qualifying inbound interactions in the trailing 90-day window. */
+            inbound_90d?: number;
+            /** @description Count of qualifying outbound interactions in the trailing 90-day window. */
+            outbound_90d?: number;
         };
         /** @description A contact. Mirrors the `person` table. */
         Person: {
@@ -6675,6 +6724,32 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    getPersonStrength: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person's relationship-strength breakdown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationshipStrength"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listOrganizations: {
         parameters: {
             query?: {
@@ -7065,6 +7140,32 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    getOrganizationStrength: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's relationship-strength breakdown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationshipStrength"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listPartners: {

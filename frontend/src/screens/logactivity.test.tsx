@@ -44,6 +44,16 @@ function render(ui: ReactNode) {
 
 const emptyPage = { data: [], page: { next_cursor: null } };
 
+// The dormant/no-interactions strength response — the default backstop for
+// any test below that doesn't itself register a "GET .../strength" route:
+// the Person Overview now fires this GET unconditionally (P-4).
+const dormantStrength = {
+  score: 0,
+  bucket: "dormant",
+  factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+  last_interaction: null,
+};
+
 type Captured = { key: string; body: unknown };
 
 function stubApi(
@@ -72,7 +82,13 @@ function stubApi(
       }
       captured?.push({ key, body });
       const handler = routes[key];
-      return handler ? handler(body) : jsonResponse(emptyPage);
+      if (handler) {
+        return handler(body);
+      }
+      if (url.pathname.endsWith("/strength")) {
+        return jsonResponse(dormantStrength);
+      }
+      return jsonResponse(emptyPage);
     }),
   );
 }
