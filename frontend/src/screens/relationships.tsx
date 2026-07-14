@@ -153,8 +153,15 @@ async function searchDealCandidates(q: string): Promise<Candidate[]> {
     .map((deal) => ({ id: deal.id, name: deal.name }));
 }
 
+// The entity kinds this tab can ever pick as a relationship's other side —
+// organization/person/deal, per the rel_*_shape CHECKs (migration 0007). A
+// lead has no relationship edges (it is promoted into a person first), so
+// this narrows EntityRefKind rather than switching on a kind the module can
+// never produce.
+type RelationshipEntity = Exclude<EntityRefKind, "lead">;
+
 function searchByEntity(
-  entity: EntityRefKind,
+  entity: RelationshipEntity,
   query: string,
 ): Promise<Candidate[]> {
   switch (entity) {
@@ -173,7 +180,7 @@ function searchByEntity(
 // comes from scope (scopeQuery); this describes the rest.
 export type EdgeOption = {
   kind: RelationshipKind;
-  entity: EntityRefKind;
+  entity: RelationshipEntity;
   field: "organization_id" | "person_id" | "counterparty_org_id" | "deal_id";
 };
 

@@ -1,17 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
+import type { EntityKind } from "../app/entity";
 import { Button, SectionHeader, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage } from "./common";
 
-// Log a note or task from a 360 (person/company/deal): the contract's
+// Log a note or task from a 360 (person/company/deal/lead): the contract's
 // logActivity POST, linked to the record being viewed, occurred_at stamped
 // at submit, source=manual. On success the screen's timeline query is
 // invalidated so the fresh entry appears without a reload. Server-side
 // validation is the truth — a 422 renders its RFC 7807 detail verbatim.
 
-export type LinkedEntityType = "person" | "organization" | "deal";
+// Back-compat alias for pre-registry callers; exactly EntityKind now.
+export type LinkedEntityType = EntityKind;
 
 type ActivityDraft = {
   kind: "note" | "task";
