@@ -1032,6 +1032,9 @@ export const en = {
   "template.localeEN": "English (US)",
   "template.sortName": "Name",
   "template.empty": "No offer templates yet.",
+
+  "countdown.minutesSeconds": "{minutes}m {seconds}s",
+  "countdown.expired": "Expired",
 } as const;
 
 export type MessageKey = keyof typeof en;

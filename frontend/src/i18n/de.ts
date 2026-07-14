@@ -1055,4 +1055,7 @@ export const de = {
   "template.localeEN": "Englisch (US)",
   "template.sortName": "Name",
   "template.empty": "Noch keine Angebotsvorlagen.",
+
+  "countdown.minutesSeconds": "{minutes}m {seconds}s",
+  "countdown.expired": "Abgelaufen",
 } as const satisfies Record<MessageKey, string>;
