@@ -42,6 +42,17 @@ export function canConfigureAutomations(
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
+// custom_field CRUD is admin/ops-owned in the seeded role matrix
+// (identity/internal/policy/policy.go: custom_field grant is crud for
+// admin/ops, read-only for manager/rep/read_only). The server enforces it;
+// this predicate keeps the builder and lifecycle controls honestly disabled
+// for a role whose call could only 403.
+export function canManageCustomFields(
+  roles: readonly string[] | undefined,
+): boolean {
+  return (roles ?? []).some((role) => role === "admin" || role === "ops");
+}
+
 // The pending/error halves of the screen-state matrix (§3a) — one skeleton
 // spelling, one error+retry spelling — shared by every query-backed screen
 // regardless of whether it's a plain useQuery or an useInfiniteQuery (both

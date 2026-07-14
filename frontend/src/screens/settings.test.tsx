@@ -82,7 +82,7 @@ const render = (ui: ReactNode) => {
 };
 
 describe("SettingsScreen RBAC surfaces", () => {
-  it("renders the session roles as localized badges; a custom key stays its raw self", async () => {
+  it("renders the session roles as localized badges on the default Account tab; a custom key stays its raw self", async () => {
     render(<SettingsScreen />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     expect(screen.getByText("Admin")).toBeTruthy();
@@ -91,17 +91,66 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.queryByText("admin")).toBeNull();
   });
 
-  it("the passport row's token reads as withheld — masked, never re-disclosed", async () => {
-    render(<SettingsScreen />);
+  it("the passport row's token reads as withheld — masked, never re-disclosed — on the AI tab", async () => {
+    render(<SettingsScreen tab="ai" />);
     await waitFor(() => expect(screen.getByText("Scout")).toBeTruthy());
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
     expect(screen.queryByText(/mgp_/)).toBeNull();
   });
 });
 
-// Routed by URL, same shape as settingsBackend() above, but with the
-// pipelines list stubbed to the D-8 shape (an array with embedded stages)
-// and a POST /stages hook so a test can inspect the exact body shipped.
+describe("SettingsScreen tab layout", () => {
+  it("shows a settings-sections nav with the six tabs, Account current by default", () => {
+    render(<SettingsScreen />);
+    const nav = screen.getByRole("navigation", { name: /settings sections/i });
+    expect(nav).toBeTruthy();
+    for (const label of [
+      "Account",
+      "AI & autonomy",
+      "Data model",
+      "Catalog",
+      "Privacy & consent",
+      "Audit log",
+    ]) {
+      expect(
+        screen.getByRole("link", { name: new RegExp(label, "i") }),
+      ).toBeTruthy();
+    }
+    const account = screen.getByRole("link", { name: /Account/i });
+    expect(account.getAttribute("aria-current")).toBe("page");
+    expect(
+      screen.getByRole("link", { name: /Data model/i }).getAttribute("href"),
+    ).toBe("#/settings/data");
+  });
+
+  it("renders only the active tab's cards — the passport is off the Account tab", async () => {
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    // Scout lives on the AI tab; the default Account tab must not render it.
+    expect(screen.queryByText("Scout")).toBeNull();
+  });
+
+  it("surfaces the custom-fields door on the Data model tab", () => {
+    render(<SettingsScreen tab="data" />);
+    expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy();
+  });
+
+  it("surfaces the Products and Offer-templates doors on the Catalog tab", () => {
+    render(<SettingsScreen tab="catalog" />);
+    expect(
+      screen.getByRole("link", { name: /products/i }).getAttribute("href"),
+    ).toBe("#/products");
+    expect(
+      screen
+        .getByRole("link", { name: /offer templates/i })
+        .getAttribute("href"),
+    ).toBe("#/offer-templates");
+  });
+});
+
+// Routed by URL, with the pipelines list stubbed to the D-8 shape (an array
+// with embedded stages) and a POST /stages hook so a test can inspect the exact
+// body shipped.
 function settingsStub(opts: {
   roles: string[];
   onStagePost?: (body: unknown) => void;
@@ -111,15 +160,7 @@ function settingsStub(opts: {
     const method = input instanceof Request ? input.method : "GET";
     if (url.endsWith("/v1/me")) {
       return jsonResponse({
-        user: {
-          id: "u1",
-          email: "a@acme.test",
-          display_name: "A",
-          workspace_id: "w",
-          timezone: "UTC",
-          status: "active",
-          is_agent: false,
-        },
+        user: { id: "u1", email: "a@acme.test", display_name: "A" },
         roles: opts.roles,
         teams: [],
       });
@@ -290,23 +331,5 @@ describe("AuditLogCard", () => {
     expect(await screen.findByText('{"city":"Berlin"}')).toBeTruthy();
     expect(screen.getByText('{"city":"Munich"}')).toBeTruthy();
     expect(screen.queryByText("[object Object]")).toBeNull();
-  });
-});
-
-describe("SettingsScreen link cards", () => {
-  it("renders Products and Offer-templates link cards with correct hrefs", async () => {
-    render(<SettingsScreen />);
-    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
-    const allLinks = screen.getAllByRole("link");
-    const productsLink = allLinks.find((link) =>
-      link.getAttribute("href")?.includes("#/products"),
-    );
-    const offerTemplatesLink = allLinks.find((link) =>
-      link.getAttribute("href")?.includes("#/offer-templates"),
-    );
-    expect(productsLink).toBeTruthy();
-    expect(productsLink?.getAttribute("href")).toBe("#/products");
-    expect(offerTemplatesLink).toBeTruthy();
-    expect(offerTemplatesLink?.getAttribute("href")).toBe("#/offer-templates");
   });
 });

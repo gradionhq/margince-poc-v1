@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Contract-drift gate, breaking-change half (ported from the foundation
-# skeleton). Severity-classifies every change to backend/api/crm.yaml since the
+# Contract-drift gate, breaking-change half.
+# Severity-classifies every change to backend/api/crm.yaml since the
 # base ref and fails on ERR-level (breaking) changes; WARN/INFO-level changes
 # (additive, deprecation) pass.
 #

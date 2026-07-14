@@ -4,7 +4,16 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  Database,
+  type LucideIcon,
+  Package,
+  ScrollText,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api, setWorkspaceSlug, workspaceSlug } from "../api/client";
 import type { components } from "../api/schema";
@@ -38,6 +47,7 @@ import {
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
+import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
 // /me (identity + effective roles), passports (mint + the metadata list,
@@ -47,22 +57,89 @@ import { EntityRef } from "./entityref";
 // and the door to the automations editor. EP09 renders governance; it
 // never authors policy.
 
-export function SettingsScreen() {
+// The tab register: one section nav entry per real settings surface. Only
+// surfaces this app actually renders get a tab — the mockup's Members /
+// Booking / Flow / Connected-surfaces tabs have no live seam here, so they are
+// omitted rather than stubbed (STATE-5). The tab is selected by the route id
+// (#/settings/<id>), so a tab is linkable and the palette can deep-link one.
+const SETTINGS_TABS = [
+  { id: "account", icon: Building2 },
+  { id: "ai", icon: Sparkles },
+  { id: "data", icon: Database },
+  { id: "catalog", icon: Package },
+  { id: "privacy", icon: ShieldCheck },
+  { id: "audit", icon: ScrollText },
+] as const satisfies readonly { id: string; icon: LucideIcon }[];
+
+type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
+
+function tabContent(id: SettingsTabId): ReactNode {
+  switch (id) {
+    case "account":
+      return (
+        <>
+          <IdentityCard />
+          <WorkspaceCard />
+        </>
+      );
+    case "ai":
+      return (
+        <>
+          <AutonomyCard />
+          <PassportCard />
+          <AutomationsLinkCard />
+        </>
+      );
+    case "data":
+      return <CustomFieldsLinkCard />;
+    case "catalog":
+      return (
+        <>
+          <ProductsLinkCard />
+          <OfferTemplatesLinkCard />
+          <PipelinesCard />
+        </>
+      );
+    case "privacy":
+      return (
+        <>
+          <ConsentPurposesCard />
+          <PrivacyInboxCard />
+        </>
+      );
+    case "audit":
+      return <AuditLogCard />;
+  }
+}
+
+export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const t = useT();
+  // Unknown / absent id falls back to the first tab — a stale deep-link lands
+  // on Account rather than a blank screen.
+  const active =
+    SETTINGS_TABS.find((entry) => entry.id === tab) ?? SETTINGS_TABS[0];
   return (
-    <div className="wrap narrow">
+    <div className="wrap">
       <SectionHeader title={t("nav.settings")} />
-      <IdentityCard />
-      <WorkspaceCard />
-      <ProductsLinkCard />
-      <OfferTemplatesLinkCard />
-      <PassportCard />
-      <AutonomyCard />
-      <AutomationsLinkCard />
-      <PipelinesCard />
-      <ConsentPurposesCard />
-      <AuditLogCard />
-      <PrivacyInboxCard />
+      <div className="set-grid">
+        <nav className="set-nav" aria-label={t("settings.navAria")}>
+          {SETTINGS_TABS.map(({ id, icon: Icon }) => {
+            const isActive = id === active.id;
+            return (
+              <a
+                key={id}
+                href={`#/settings/${id}`}
+                className={isActive ? "active" : undefined}
+                aria-current={isActive ? "page" : undefined}
+              >
+                <Icon aria-hidden />
+                {t(`settings.tab.${id}`)}
+              </a>
+            );
+          })}
+        </nav>
+        <div className="set-content">{tabContent(active.id)}</div>
+      </div>
     </div>
   );
 }
@@ -328,6 +405,21 @@ function AutomationsLinkCard() {
         sub={t("settings.automationsSub")}
       />
       <a href="#/automations">{t("settings.openAutomations")}</a>
+    </section>
+  );
+}
+
+// The door to the custom-fields admin (CF-T06) — a settings entry, not a
+// rail item: the 9-item rail is canonical (AC-shell-1).
+function CustomFieldsLinkCard() {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("settings.customFields")}
+        sub={t("settings.customFieldsSub")}
+      />
+      <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
     </section>
   );
 }

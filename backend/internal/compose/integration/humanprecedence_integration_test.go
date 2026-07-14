@@ -103,11 +103,15 @@ func TestEndToEnd_humanEditPrecedenceOnAgentUpdate(t *testing.T) {
 
 // A differently-cased field key cannot slip a human-owned overwrite
 // through the 🟢 path. The precedence probe matches audit keys
-// case-sensitively (jsonb), so it would clear `{"FULL_NAME":…}` as
-// touching no human-owned field; the store must then refuse that same
-// key rather than write it via encoding/json's case-insensitive match.
-// Lead is the entity whose update request has no AdditionalProperties
-// catch-all, so it is the one that would have written the variant key.
+// case-sensitively (jsonb), so it clears `{"FULL_NAME":…}` as touching no
+// human-owned field. The store is the backstop: every record object's
+// generated request decoder matches its known fields by EXACT key, so a
+// case-variant never binds to the core column via encoding/json's
+// case-insensitive fallback — it lands in the additionalProperties
+// catch-all and is dropped as a non-catalog custom key. The write is a
+// no-op (200), and the human value is left intact. Lead is exercised here
+// because it was the last object to gain the catch-all (custom fields on
+// records); the protection is now uniform across person/org/deal/lead.
 func TestEndToEnd_caseVariantKeyCannotBypassPrecedence(t *testing.T) {
 	e := setup(t)
 	e.bootstrapWorkspace(t)
@@ -128,15 +132,18 @@ func TestEndToEnd_caseVariantKeyCannotBypassPrecedence(t *testing.T) {
 	}
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
-	// The green path clears the case-variant key (no case-sensitive audit
-	// match), so the store must be the backstop: a 422 naming the unknown
-	// field, never a silent overwrite.
-	var problem struct {
-		Code string `json:"code"`
+	// The case-variant key binds to no known field (exact-key decode) and no
+	// active custom column, so it drops to an empty patch: 200, no write.
+	var patched struct {
+		FullName string `json:"full_name"`
 	}
-	if status := e.call(t, "PATCH", "/v1/leads/"+lead.ID, anyMap{"FULL_NAME": "Otto Machine"}, bearer, &problem); status != 422 {
-		t.Fatalf("case-variant overwrite → %d, want 422 (refused, not written)", status)
+	if status := e.call(t, "PATCH", "/v1/leads/"+lead.ID, anyMap{"FULL_NAME": "Otto Machine"}, bearer, &patched); status != 200 {
+		t.Fatalf("case-variant patch → %d, want 200 (dropped, not written)", status)
 	}
+	if patched.FullName != "Otto Human" {
+		t.Fatalf("case-variant key must not overwrite the human value: got %q", patched.FullName)
+	}
+	// And it survives a fresh read — the human-owned value was never touched.
 	var current struct {
 		FullName string `json:"full_name"`
 	}

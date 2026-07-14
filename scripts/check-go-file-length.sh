@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Go file-length gate with a ratchet (ported from the foundation skeleton,
-# waiver list added). A hand-written Go file above the cap is a god-file split
-# candidate; generated (*_gen.go / *.gen.go) and test (*_test.go) files are
-# exempt, as is cli/craft (vendored verbatim from the foundation, hash-pinned).
+# Go file-length gate with a ratchet (plus a waiver list). A hand-written Go
+# file above the cap is a god-file split candidate; generated (*_gen.go /
+# *.gen.go) and test (*_test.go) files are exempt, as is cli/craft (the
+# craftsmanship gate tooling, not product code).
 #
 # The ratchet: scripts/go-file-length-waivers.txt records each pre-existing
 # offender with its frozen line count. A waived file may shrink but never

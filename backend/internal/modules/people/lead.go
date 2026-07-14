@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
 // DuplicateLeadError carries the live lead already holding an email
@@ -45,6 +46,10 @@ type CreateLeadInput struct {
 	SourceSystem    *string
 	SourceID        *string
 	Source          string
+	// CustomFields carries the request body's extra top-level keys
+	// (additionalProperties); only active cf_* catalog columns land,
+	// drop-on-mismatch (customfields.go).
+	CustomFields map[string]any
 }
 
 // CreateLead inserts into the segregated lead table — never person, never
@@ -63,13 +68,17 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	if err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
+	active, err := s.activeColumns(ctx, "lead")
+	if err != nil {
+		return crmcontracts.Lead{}, false, err
+	}
 
 	var out crmcontracts.Lead
 	created := true
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		wsID := workspaceID(ctx)
 
-		replay, err := replayedLead(ctx, tx, in)
+		replay, err := replayedLead(ctx, tx, in, active)
 		if err != nil {
 			return err
 		}
@@ -85,12 +94,16 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		// The initial score is the §3 fit component — a fresh lead has no
 		// behavioral history yet; signal recompute moves it later.
 		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
+		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 16)
+		args := []any{
+			id, wsID, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
+			in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by,
+		}
 		_, err = tx.Exec(ctx,
 			`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-			                   linkedin_url, status, score, owner_id, source_system, source_id, source, captured_by)
-			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-			id, wsID, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
-			in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by)
+			                   linkedin_url, status, score, owner_id, source_system, source_id, source, captured_by`+cfCols+`)
+			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15`+cfHolders+`)`,
+			append(args, cfArgs...)...)
 		if err != nil {
 			// Race behind the pre-checks: the constraint name tells an
 			// email dedupe hit from a concurrent same-source import — the
@@ -110,7 +123,7 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		if err := storekit.Emit(ctx, tx, auditID, "lead.created", "lead", id.UUID, nil); err != nil {
 			return fmt.Errorf("emit lead.created: %w", err)
 		}
-		if out, err = readLead(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if out, err = readLead(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read created lead: %w", err)
 		}
 		return nil
@@ -153,7 +166,7 @@ func normalizedCreateLeadInput(in CreateLeadInput) (CreateLeadInput, error) {
 // record, so it carries the read's row scope: re-importing someone
 // else's source key must not hand over their lead — out of scope
 // answers the same 409 the unique-index race does.
-func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput) (*crmcontracts.Lead, error) {
+func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []fieldcatalog.Column) (*crmcontracts.Lead, error) {
 	if in.SourceSystem == nil || in.SourceID == nil {
 		return nil, nil
 	}
@@ -174,7 +187,7 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput) (*crmcontr
 	if !visible {
 		return nil, apperrors.ErrConflict
 	}
-	out, err := readLead(ctx, tx, existing, storekit.IncludeArchived)
+	out, err := readLead(ctx, tx, existing, storekit.IncludeArchived, active)
 	if err != nil {
 		return nil, fmt.Errorf("read replayed lead: %w", err)
 	}
@@ -240,10 +253,12 @@ func (s *Store) FindLeadByLinkedInURL(ctx context.Context, rawURL string) (*crmc
 
 	var out *crmcontracts.Lead
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// A dedupe probe for the capture path — its result is not rendered
+		// with custom fields, so no catalog columns are carried (nil active).
 		l, err := scanLead(tx.QueryRow(ctx,
 			`SELECT `+leadColumns+` FROM lead
 			 WHERE linkedin_url = $1 AND archived_at IS NULL AND `+scope+`
-			 ORDER BY created_at ASC, id ASC LIMIT 1`, args...))
+			 ORDER BY created_at ASC, id ASC LIMIT 1`, args...), nil)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -260,12 +275,16 @@ func (s *Store) GetLead(ctx context.Context, id ids.LeadID, archived storekit.Ar
 	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	active, err := s.activeColumns(ctx, "lead")
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	var out crmcontracts.Lead
-	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+	err = s.tx(ctx, func(tx pgx.Tx) (err error) {
 		if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 			return err
 		}
-		out, err = readLead(ctx, tx, id, archived)
+		out, err = readLead(ctx, tx, id, archived, active)
 		return err
 	})
 	return out, err
@@ -282,6 +301,10 @@ type ListLeadsInput struct {
 
 func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontracts.Lead, storekit.Page, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	active, err := s.activeColumns(ctx, "lead")
+	if err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
@@ -322,7 +345,7 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	var page storekit.Page
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT `+leadColumns+` FROM lead WHERE `+strings.Join(where, " AND ")+
+			`SELECT `+leadColumns+storekit.SelectSuffix(active)+` FROM lead WHERE `+strings.Join(where, " AND ")+
 				storekit.SQLf(` ORDER BY created_at DESC, id DESC LIMIT %d`, limit+1),
 			args...)
 		if err != nil {
@@ -330,7 +353,7 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 		}
 		defer rows.Close()
 		for rows.Next() {
-			l, err := scanLead(rows)
+			l, err := scanLead(rows, active)
 			if err != nil {
 				return err
 			}
@@ -373,8 +396,12 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 	if err := auth.Require(ctx, "lead", principal.ActionDelete); err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	active, err := s.activeColumns(ctx, "lead")
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	var out crmcontracts.Lead
-	err := s.tx(ctx, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 			return err
 		}
@@ -383,7 +410,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 		if _, err := storekit.LockRow(ctx, tx, "lead", id.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
-		current, err := readLead(ctx, tx, id, storekit.LiveOnly)
+		current, err := readLead(ctx, tx, id, storekit.LiveOnly, active)
 		if err != nil {
 			return err
 		}
@@ -400,7 +427,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 		if err := storekit.Emit(ctx, tx, auditID, "lead.disqualified", "lead", id.UUID, nil); err != nil {
 			return err
 		}
-		out, err = readLead(ctx, tx, id, storekit.IncludeArchived)
+		out, err = readLead(ctx, tx, id, storekit.IncludeArchived, active)
 		return err
 	})
 	return out, err
@@ -410,19 +437,25 @@ const leadColumns = `id, workspace_id, full_name, email, title, company_name, ca
 	linkedin_url, status, score, score_override_reason, score_computed, owner_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at`
 
-func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.ArchivedFilter) (crmcontracts.Lead, error) {
-	q := `SELECT ` + leadColumns + ` FROM lead WHERE id = $1`
+// readLead resolves one lead row; active names the custom-field columns
+// to carry alongside the core ones — nil for internal decision reads whose
+// result never reaches the wire.
+func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
+	q := `SELECT ` + leadColumns + storekit.SelectSuffix(active) + ` FROM lead WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
-	l, err := scanLead(tx.QueryRow(ctx, q, id))
+	l, err := scanLead(tx.QueryRow(ctx, q, id), active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Lead{}, apperrors.ErrNotFound
 	}
 	return l, err
 }
 
-func scanLead(row pgx.Row) (crmcontracts.Lead, error) {
+// scanLead scans core + active custom columns. Lead lists page by a
+// (created_at, id) WHERE cursor, not a SELECT cursor-key suffix, so there
+// are no trailing expressions to scan — unlike scanPerson's keyset page.
+func scanLead(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
 	var l crmcontracts.Lead
 	var id, wsID ids.UUID
 	var ownerID, promotedPerson *ids.UUID
@@ -430,11 +463,17 @@ func scanLead(row pgx.Row) (crmcontracts.Lead, error) {
 	var status string
 	var version int64
 
-	err := row.Scan(&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
+	dests := []any{
+		&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &l.SourceSystem, &l.SourceId,
-		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt)
-	if err != nil {
+		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
+	}
+	cf := storekit.ScanDests(active)
+	if err := row.Scan(append(dests, cf...)...); err != nil {
 		return l, err
+	}
+	if values := storekit.ExtractValues(active, cf); len(values) > 0 {
+		l.AdditionalProperties = values
 	}
 
 	l.Id = openapi_types.UUID(id)

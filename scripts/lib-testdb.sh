@@ -4,7 +4,7 @@
 # throwaway per-package database, and derive a per-slot MinIO bucket. Source
 # this; don't execute it.
 #
-# Adapted from the foundation skeleton (external/target) to this repo's shape:
+# This repo's clone-per-package test-DB shape:
 #   - TWO roles, not one — MARGINCE_TEST_DSN (owner: migrates + seeds) and
 #     MARGINCE_TEST_APP_DSN (the RLS-bound app role the stores connect as). A
 #     clone must be reachable by both, so we swap the db segment of each.

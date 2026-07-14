@@ -26,6 +26,8 @@ import {
   useMe,
 } from "./common";
 import { CreateAction, type CreateField } from "./create";
+import { CustomFieldsCard } from "./customfields.card";
+import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import {
@@ -208,9 +210,12 @@ const leadStatusFilterOptions = [
   { value: "disqualified", label: "lead.statusDisqualified" },
 ] as const;
 
-async function createLead(values: Record<string, string>): Promise<Lead> {
+async function createLead(
+  values: Record<string, string>,
+  customFields: Record<string, unknown>,
+): Promise<Lead> {
   const { data, error } = await api.POST("/leads", {
-    body: mapLeadBody(values),
+    body: { ...mapLeadBody(values), ...customFields },
   });
   if (error) {
     throwProblem(error);
@@ -220,6 +225,7 @@ async function createLead(values: Record<string, string>): Promise<Lead> {
 
 export function LeadsScreen() {
   const t = useT();
+  const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
     initialSort: "-created_at",
@@ -235,9 +241,9 @@ export function LeadsScreen() {
           label={t("create.lead")}
           invalidate="leads"
           screen="leads"
-          create={createLead}
+          create={(values) => createLead(values, cf.toBody(values))}
           resolveExisting={(_code, id) => ({ screen: "leads", id })}
-          fields={leadCreateFields}
+          fields={[...leadCreateFields, ...cf.formFields]}
         />
       </div>
       <ListToolbar
@@ -672,12 +678,14 @@ function LeadOverviewPane({
           <LeadLifecycle lead={lead} id={id} onChanged={onLifecycleChanged} />
         </>
       )}
+      <CustomFieldsCard object="lead" record={lead} />
     </>
   );
 }
 
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
+  const cf = useObjectCustomFields("lead");
   const queryClient = useQueryClient();
   const headingId = useId();
   const [tab, setTab] = useState<LeadTab>("overview");
@@ -757,7 +765,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 <>
                   <EditAction
                     label={t("record.edit")}
-                    fields={leadEditFields}
+                    fields={[...leadEditFields, ...cf.formFields]}
                     record={{
                       id: lead.id,
                       version: lead.version,
@@ -766,6 +774,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                       title: lead.title ?? "",
                       company_name: lead.company_name ?? "",
                       candidate_org_key: lead.candidate_org_key ?? "",
+                      ...cf.recordSlice(lead),
                     }}
                     update={async (values) => {
                       const { data, error } = await api.PATCH("/leads/{id}", {
@@ -773,7 +782,10 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                           path: { id },
                           ...ifMatch(lead.version),
                         },
-                        body: mapLeadUpdate(values),
+                        body: {
+                          ...mapLeadUpdate(values),
+                          ...cf.toBody(values),
+                        },
                       });
                       if (error) {
                         throwProblem(error);

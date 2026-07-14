@@ -31,6 +31,8 @@ import {
   throwProblem,
 } from "./common";
 import { CreateAction, type CreateField, type FormRows } from "./create";
+import { CustomFieldsCard } from "./customfields.card";
+import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import { confidenceLevel } from "./inbox";
@@ -198,10 +200,11 @@ const companyEditFields: CreateField[] = [
 
 async function createCompany(
   values: Record<string, string>,
-  rows?: FormRows,
+  rows: FormRows | undefined,
+  customFields: Record<string, unknown>,
 ): Promise<Organization> {
   const { data, error } = await api.POST("/organizations", {
-    body: mapOrgBody(values, rows ?? {}),
+    body: { ...mapOrgBody(values, rows ?? {}), ...customFields },
   });
   if (error) {
     throwProblem(error);
@@ -211,6 +214,7 @@ async function createCompany(
 
 export function CompaniesScreen() {
   const t = useT();
+  const cf = useObjectCustomFields("organization");
   const state = useListQuery<Organization>({
     key: "organizations",
     initialSort: "-created_at",
@@ -230,9 +234,11 @@ export function CompaniesScreen() {
             label={t("create.company")}
             invalidate="organizations"
             screen="companies"
-            create={createCompany}
+            create={(values, rows) =>
+              createCompany(values, rows, cf.toBody(values))
+            }
             resolveExisting={(_code, id) => ({ screen: "companies", id })}
-            fields={companyCreateFields}
+            fields={[...companyCreateFields, ...cf.formFields]}
           />
         </div>
       </div>
@@ -499,6 +505,7 @@ type CompanyTab = (typeof COMPANY_TABS)[number];
 // affordance. Extracted from CompanyScreen so its render stays legible.
 function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
   const t = useT();
+  const cf = useObjectCustomFields("organization");
   return (
     <>
       {org.classification && <Badge>{org.classification}</Badge>}
@@ -509,7 +516,7 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
         <>
           <EditAction
             label={t("record.edit")}
-            fields={companyEditFields}
+            fields={[...companyEditFields, ...cf.formFields]}
             record={{
               id: org.id,
               version: org.version,
@@ -517,6 +524,7 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
               legal_name: org.legal_name ?? "",
               industry: org.industry ?? "",
               size_band: org.size_band ?? "",
+              ...cf.recordSlice(org),
             }}
             update={async (values) => {
               const { data, error } = await api.PATCH("/organizations/{id}", {
@@ -524,7 +532,7 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
                   path: { id: org.id },
                   ...ifMatch(org.version),
                 },
-                body: mapOrgUpdate(values),
+                body: { ...mapOrgUpdate(values), ...cf.toBody(values) },
               });
               if (error) {
                 throwProblem(error);
@@ -680,6 +688,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                     )}
                   </dl>
                 </section>
+                <CustomFieldsCard object="organization" record={org} />
                 <EnrichCard orgId={org.id} />
                 <LogActivity entityType="organization" entityId={org.id} />
               </>

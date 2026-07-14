@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Design-token purity gate (ported from the foundation skeleton, adapted to
-# the Ledger-Green token system): every colour in hand-written frontend code
+# Design-token purity gate for the Ledger-Green token system: every colour in
+# hand-written frontend code
 # reads a token — literal colours live ONLY in src/design-system/tokens.css,
 # where tokens.test.ts pins each value to the design source of truth.
 #
@@ -10,9 +10,8 @@
 #
 # This is the fail-closed grep arm on top of the vitest conformance suite
 # (design-system/conformance.test.ts): the same discipline holds even if the
-# test tree regresses. The skeleton's Tailwind-utility checks (text-[Npx],
-# gf-prefix classes) have no equivalent here — our DS is CSS-custom-property
-# based, not Tailwind-class based.
+# test tree regresses. This DS is CSS-custom-property based, not
+# Tailwind-class based, so there are no text-[Npx]/utility-class checks.
 #
 # Usage: frontend/scripts/check-ds-purity.sh   (wired into `make frontend-check`)
 

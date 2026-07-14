@@ -1,0 +1,60 @@
+/* Settings tab layout — a sticky left section nav + the active tab's content.
+   Layout only; the cards keep the atom look. Colours read design tokens (the
+   ds-purity gate). Mirrors corpus/design/mockups/settings.html's .set-grid. */
+
+.set-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 22px;
+  align-items: start;
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .set-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.set-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 14px;
+}
+
+.set-nav a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--textSecondary);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: 0.12s;
+}
+
+.set-nav a:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+
+.set-nav a.active {
+  background: var(--accentLight);
+  color: var(--accent);
+  border-color: var(--accentMed);
+}
+
+.set-nav a svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.set-content {
+  min-width: 0;
+}

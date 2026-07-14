@@ -22,6 +22,8 @@ import {
   throwProblem,
 } from "./common";
 import { CreateAction, type CreateField, type FormRows } from "./create";
+import { CustomFieldsCard } from "./customfields.card";
+import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import {
@@ -236,10 +238,11 @@ const personEditFields: CreateField[] = [
 
 async function createContact(
   values: Record<string, string>,
-  rows?: FormRows,
+  rows: FormRows | undefined,
+  customFields: Record<string, unknown>,
 ): Promise<Person> {
   const { data, error } = await api.POST("/people", {
-    body: mapPersonBody(values, rows ?? {}),
+    body: { ...mapPersonBody(values, rows ?? {}), ...customFields },
   });
   if (error) {
     throwProblem(error);
@@ -289,6 +292,7 @@ export function activityTimeline(activities: Activity[]): TimelineEntry[] {
 
 export function ContactsScreen() {
   const t = useT();
+  const cf = useObjectCustomFields("person");
   const state = useListQuery<Person>({
     key: "people",
     initialSort: "-created_at",
@@ -304,9 +308,11 @@ export function ContactsScreen() {
           label={t("create.contact")}
           invalidate="people"
           screen="contacts"
-          create={createContact}
+          create={(values, rows) =>
+            createContact(values, rows, cf.toBody(values))
+          }
           resolveExisting={(_code, id) => ({ screen: "contacts", id })}
-          fields={contactCreateFields(t)}
+          fields={[...contactCreateFields(t), ...cf.formFields]}
         />
       </div>
       <ListToolbar
@@ -477,6 +483,7 @@ type PersonTab = (typeof PERSON_TABS)[number];
 
 export function PersonScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
+  const cf = useObjectCustomFields("person");
   const [tab, setTab] = useState<PersonTab>("overview");
   const personQuery = useQuery({
     queryKey: ["person", id],
@@ -513,7 +520,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   <>
                     <EditAction
                       label={t("record.edit")}
-                      fields={personEditFields}
+                      fields={[...personEditFields, ...cf.formFields]}
                       record={{
                         id: person.id,
                         version: person.version,
@@ -522,6 +529,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                         last_name: person.last_name ?? "",
                         title: person.title ?? "",
                         "social.linkedin": stringField(person.social?.linkedin),
+                        ...cf.recordSlice(person),
                       }}
                       update={async (values) => {
                         const { data, error } = await api.PATCH(
@@ -531,7 +539,10 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                               path: { id },
                               ...ifMatch(person.version),
                             },
-                            body: mapPersonUpdate(values),
+                            body: {
+                              ...mapPersonUpdate(values),
+                              ...cf.toBody(values),
+                            },
                           },
                         );
                         if (error) {
@@ -632,6 +643,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                     </div>
                   </section>
                 )}
+                <CustomFieldsCard object="person" record={person} />
                 <LogActivity entityType="person" entityId={person.id} />
               </>
             )}

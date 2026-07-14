@@ -89,8 +89,8 @@ func assertOrganizationWireRoundTrip(t *testing.T, e *env, col string) {
 }
 
 // assertDealWireRoundTrip mirrors assertPersonWireRoundTrip's full
-// create/get/update/list shape for the deal object — the third and last
-// core object the fieldcatalog seam rides.
+// create/get/update/list shape for the deal object — one of the four
+// core objects the fieldcatalog seam rides (person/organization/deal/lead).
 func assertDealWireRoundTrip(t *testing.T, e *env, col string) {
 	t.Helper()
 	stages := discoverSeededPipeline(t, e)
@@ -122,6 +122,40 @@ func assertDealWireRoundTrip(t *testing.T, e *env, col string) {
 		t.Fatalf("list deals returned %d rows, want 1", len(list.Data))
 	}
 	assertWireCF(t, list.Data[0], col, "mid-market")
+}
+
+// assertLeadWireRoundTrip mirrors the deal round trip for the lead object,
+// the fourth fieldcatalog-riding core object — create/get/update/list all
+// carry the cf key top-level over the wire.
+func assertLeadWireRoundTrip(t *testing.T, e *env, col string) {
+	t.Helper()
+	created, id := createWithCF(t, e, "/v1/leads", anyMap{
+		"full_name": "Grace Hopper", "source": "ui", col: "champion",
+	})
+	assertWireCF(t, created, col, "champion")
+
+	var got anyMap
+	if status := e.call(t, "GET", "/v1/leads/"+id, nil, nil, &got); status != http.StatusOK {
+		t.Fatalf("get lead status = %d", status)
+	}
+	assertWireCF(t, got, col, "champion")
+
+	var updated anyMap
+	if status := e.call(t, "PATCH", "/v1/leads/"+id, anyMap{col: "detractor"}, nil, &updated); status != http.StatusOK {
+		t.Fatalf("update lead status = %d (%v)", status, updated)
+	}
+	assertWireCF(t, updated, col, "detractor")
+
+	var list struct {
+		Data []anyMap `json:"data"`
+	}
+	if status := e.call(t, "GET", "/v1/leads", nil, nil, &list); status != http.StatusOK {
+		t.Fatalf("list leads status = %d", status)
+	}
+	if len(list.Data) != 1 {
+		t.Fatalf("list leads returned %d rows, want 1", len(list.Data))
+	}
+	assertWireCF(t, list.Data[0], col, "detractor")
 }
 
 // sixTypeWireFields creates one active field of every closed type on the
@@ -218,6 +252,12 @@ func TestCustomFieldValuesHTTP(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("create deal field status = %d: %+v", status, problem)
 	}
+	status, persona, problem := createCustomField(t, e, anyMap{
+		"object": "lead", "label": "Persona", "type": "text", "source": "ui",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create lead field status = %d: %+v", status, problem)
+	}
 
 	t.Run("person create/get/update/list carry the key top-level", func(t *testing.T) {
 		assertPersonWireRoundTrip(t, e, tier.ColumnName)
@@ -227,6 +267,9 @@ func TestCustomFieldValuesHTTP(t *testing.T) {
 	})
 	t.Run("deal create/get/update/list carry the key top-level", func(t *testing.T) {
 		assertDealWireRoundTrip(t, e, segment.ColumnName)
+	})
+	t.Run("lead create/get/update/list carry the key top-level", func(t *testing.T) {
+		assertLeadWireRoundTrip(t, e, persona.ColumnName)
 	})
 	t.Run("picklist CHECK violation answers 422", func(t *testing.T) {
 		assertPicklistCheckViolation422(t, e, tier.ColumnName)

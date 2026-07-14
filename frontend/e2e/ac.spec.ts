@@ -183,20 +183,26 @@ test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, n
 test("AC-settings-16: the audit log renders attributed entries, filters live, and loads more", async ({
   page,
 }) => {
-  await page.goto("/#/settings");
-  await expect(page.getByText("human:u1")).toBeVisible();
-  await expect(page.getByText("agent:runner")).toBeVisible();
+  // The audit log lives on the Audit tab of the settings section layout, and
+  // renders attribution in human terms (AuditEntryLine): the signed-in human
+  // (u1) reads as "Du", agents/connectors show their readable slug — never the
+  // raw `type:uuid`.
+  await page.goto("/#/settings/audit");
+  await expect(page.getByText("Du", { exact: true })).toBeVisible();
+  await expect(page.getByText("runner", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Mehr laden" }).click();
-  await expect(page.getByText("connector:gmail")).toBeVisible();
+  await expect(page.getByText("gmail", { exact: true })).toBeVisible();
+  // The actor filter still speaks the API's `type:id` vocabulary.
   await page.getByRole("textbox", { name: "Akteur" }).fill("agent:runner");
-  await expect(page.getByText("agent:runner")).toBeVisible();
-  await expect(page.getByText("human:u1")).toHaveCount(0);
+  await expect(page.getByText("runner", { exact: true })).toBeVisible();
+  await expect(page.getByText("Du", { exact: true })).toHaveCount(0);
 });
 
 test("AC-settings: the passport list is metadata-only and strikes revoked rows", async ({
   page,
 }) => {
-  await page.goto("/#/settings");
+  // Agent passports live on the AI & autonomy tab of the settings layout.
+  await page.goto("/#/settings/ai");
   await expect(page.getByText("Marcus' Claude")).toBeVisible();
   const revoked = page.locator('[data-passport="pp-2"]');
   await expect(revoked.getByText("widerrufen")).toBeVisible();

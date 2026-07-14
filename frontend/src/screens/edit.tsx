@@ -41,6 +41,35 @@ export function useUpdateRecord<Updated extends { id: string }>({
   });
 }
 
+// One field's initial form string: a divider holds no value; a field with a
+// `toInput` transform (e.g. currency minor→major) uses it; otherwise the raw
+// record value is stringified, or blank when the record doesn't carry it.
+function prefillField(
+  field: CreateField,
+  record: Record<string, unknown>,
+): string {
+  const current = record[field.key];
+  if (field.toInput) {
+    return field.toInput(current);
+  }
+  return current == null ? "" : String(current);
+}
+
+// The record's field values as form strings, keyed by field — dividers omitted.
+function prefillFromRecord(
+  fields: CreateField[],
+  record: Record<string, unknown>,
+): Record<string, string> {
+  const prefilled: Record<string, string> = {};
+  for (const field of fields) {
+    if (field.divider) {
+      continue;
+    }
+    prefilled[field.key] = prefillField(field, record);
+  }
+  return prefilled;
+}
+
 // The edit modal: prefilled from the record's current field values (each
 // field's key projected off the record, coerced to a string; a field the
 // record doesn't carry starts blank rather than throwing). The screen's
@@ -86,12 +115,7 @@ export function EditRecordModal({
     if (open && !wasOpen.current) {
       // A fresh open starts from the record's current values, never a
       // previous attempt's leftovers.
-      const prefilled: Record<string, string> = {};
-      for (const field of fields) {
-        const current = record[field.key];
-        prefilled[field.key] = current == null ? "" : String(current);
-      }
-      setValues(prefilled);
+      setValues(prefillFromRecord(fields, record));
       setRows({});
     }
     wasOpen.current = open;

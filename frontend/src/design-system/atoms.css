@@ -251,6 +251,15 @@
   gap: 12px;
 }
 
+/* Group divider inside a form (create.tsx RecordFormBody): sets custom fields
+   apart from core fields with a labeled rule, no input of its own. */
+.form-divider {
+  margin: 4px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--borderSubtle);
+  color: var(--textMeta);
+}
+
 .input {
   font-family: var(--f-body);
   font-size: 13.5px;
