@@ -19,12 +19,17 @@ export function groupByField(entries: FieldHistoryEntry[]): FieldGroup[] {
   }
   return [...byField.entries()].map(([field, changes]) => ({
     field,
-    changes: [...changes].sort((a, b) => b.changed_at.localeCompare(a.changed_at)),
+    changes: [...changes].sort((a, b) =>
+      b.changed_at.localeCompare(a.changed_at),
+    ),
   }));
 }
 
 // The actor facet control: "human" vs anything non-human (agent/connector/system).
-export function matchesActor(entry: { actor_type: string }, facet: ActorFacet): boolean {
+export function matchesActor(
+  entry: { actor_type: string },
+  facet: ActorFacet,
+): boolean {
   if (facet === "all") return true;
   if (facet === "human") return entry.actor_type === "human";
   return entry.actor_type !== "human";

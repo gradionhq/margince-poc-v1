@@ -1,4 +1,5 @@
 import {
+  type InfiniteData,
   type UseInfiniteQueryResult,
   useInfiniteQuery,
 } from "@tanstack/react-query";
@@ -46,7 +47,7 @@ type AuditHistoryListResponse =
 export function useRecordHistory(
   kind: EntityKind,
   id: string,
-): UseInfiniteQueryResult<AuditHistoryListResponse> {
+): UseInfiniteQueryResult<InfiniteData<AuditHistoryListResponse>> {
   return useInfiniteQuery({
     queryKey: ["record-history", kind, id],
     initialPageParam: null as string | null,
@@ -188,7 +189,7 @@ export function useFieldHistory(
   kind: EntityKind,
   id: string,
   opts: Readonly<{ field?: string; actorType?: "human" | "agent" }>,
-): UseInfiniteQueryResult<FieldHistoryListResponse> {
+): UseInfiniteQueryResult<InfiniteData<FieldHistoryListResponse>> {
   const { field, actorType } = opts;
   return useInfiniteQuery({
     queryKey: ["field-history", kind, id, field ?? "", actorType ?? ""],
