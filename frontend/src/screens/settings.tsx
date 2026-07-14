@@ -20,8 +20,9 @@ import {
 } from "../design-system/atoms";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { AutonomyDot } from "../design-system/trust";
-import { formatDate, formatDateTime } from "../format/format";
+import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import { AuditEntryLine } from "./audit";
 import { problemMessage, QueryGate, useMe } from "./common";
 import "./settings.css";
 
@@ -499,7 +500,8 @@ function ConsentPurposesCard() {
 // Filtering restarts the cursor chain (a filter change is a new question).
 function AuditLogCard() {
   const t = useT();
-  const { locale } = useLocale();
+  // The current user's id resolves audit "You" vs "A teammate" in AuditEntryLine.
+  const meUserId = useMe().data?.user.id;
   const [actor, setActor] = useState("");
   const [entityType, setEntityType] = useState("");
   const [action, setAction] = useState("");
@@ -566,26 +568,8 @@ function AuditLogCard() {
           }}
         >
           {entries.map((entry) => (
-            <li
-              key={entry.id}
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <span className="t-small">
-                {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
-              </span>
-              <span className="t-mono t-small">
-                {entry.actor_type}:{entry.actor_id}
-              </span>
-              <Badge tone="accent">{entry.action}</Badge>
-              <span className="t-mono t-small">
-                {entry.entity_type}
-                {entry.entity_id ? ` ${entry.entity_id}` : ""}
-              </span>
+            <li key={entry.id}>
+              <AuditEntryLine entry={entry} meUserId={meUserId} />
             </li>
           ))}
         </ul>

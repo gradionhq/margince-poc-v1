@@ -22,6 +22,7 @@ import {
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
+import { AuditEntryLine } from "./audit";
 import {
   canManageCustomFields,
   problemMessage,
@@ -418,10 +419,12 @@ export function AuditRail({
   entries,
   isError,
   isLoading,
+  meUserId,
 }: Readonly<{
   entries: AuditLogEntry[];
   isError?: boolean;
   isLoading?: boolean;
+  meUserId?: string;
 }>) {
   const t = useT();
 
@@ -452,13 +455,8 @@ export function AuditRail({
   return (
     <ul className="cf-audit">
       {recentFirst.map((entry) => (
-        <li className="cf-audit-row" key={entry.id}>
-          <span className="cf-audit-action">{entry.action}</span>
-          <span className="cf-audit-entity">{entry.entity_type}</span>
-          <span className="cf-audit-actor">{entry.actor_id}</span>
-          <time className="cf-audit-when" dateTime={entry.occurred_at}>
-            {new Date(entry.occurred_at).toLocaleString()}
-          </time>
+        <li key={entry.id}>
+          <AuditEntryLine entry={entry} meUserId={meUserId} />
         </li>
       ))}
     </ul>
@@ -747,6 +745,7 @@ export function CustomFieldsScreen() {
           entries={audit.data?.data ?? []}
           isError={audit.isError}
           isLoading={audit.isPending}
+          meUserId={meUserId}
         />
         <p className="t-caption">{t("cf.audit.footer")}</p>
       </section>
