@@ -48,4 +48,62 @@ BEGIN
   RAISE NOTICE 'seed-dev.sql: FX rates USD/GBP/CHF → EUR seeded for demo-workspace (rate_date=%)', CURRENT_DATE;
 END $$;
 
+DO $$
+DECLARE
+  ws uuid;
+  admin_id uuid;
+  admin_hash text;
+  rep_id uuid;
+  dach_team_id uuid;
+BEGIN
+  SELECT id INTO ws FROM workspace WHERE slug = 'demo-workspace';
+  IF ws IS NULL THEN
+    RAISE NOTICE 'seed-dev.sql: no demo-workspace row — run make seed-dev first';
+    RETURN;
+  END IF;
+
+  -- Tenant tables carry FORCE RLS; bind the GUC so writes are visible even on a
+  -- non-superuser owner connection (mirrors seed-reset.sql).
+  PERFORM set_config('app.workspace_id', ws::text, true);
+
+  -- The demo admin is bootstrapped through the public API (scripts/seed-dev.sh),
+  -- never here — reuse its password_hash verbatim so the 2nd seat shares the
+  -- demo password, without re-implementing Argon2id hashing in SQL.
+  SELECT id, password_hash INTO admin_id, admin_hash
+    FROM app_user
+    WHERE workspace_id = ws AND lower(email) = lower('admin@demo.test');
+  IF admin_id IS NULL THEN
+    RAISE NOTICE 'seed-dev.sql: no admin@demo.test user — run make seed-dev first';
+    RETURN;
+  END IF;
+
+  -- 2nd full-seat user so the Share picker / "who has access" have a real
+  -- subject beyond the lone admin.
+  INSERT INTO app_user (workspace_id, email, password_hash, display_name, seat_type, status)
+  VALUES (ws, 'rep@demo.test', admin_hash, 'Rep One', 'full', 'active')
+  ON CONFLICT (workspace_id, lower(email)) DO NOTHING;
+
+  SELECT id INTO rep_id
+    FROM app_user
+    WHERE workspace_id = ws AND lower(email) = lower('rep@demo.test');
+
+  -- A team with both seats as members, so roster + sharing UI (later tasks)
+  -- have a demonstrable, non-trivial membership.
+  INSERT INTO team (workspace_id, name)
+  VALUES (ws, 'DACH Sales')
+  ON CONFLICT (workspace_id, name) DO NOTHING;
+
+  SELECT id INTO dach_team_id
+    FROM team
+    WHERE workspace_id = ws AND name = 'DACH Sales';
+
+  INSERT INTO team_membership (workspace_id, team_id, user_id)
+  VALUES
+    (ws, dach_team_id, admin_id),
+    (ws, dach_team_id, rep_id)
+  ON CONFLICT (team_id, user_id) DO NOTHING;
+
+  RAISE NOTICE 'seed-dev.sql: rep@demo.test + team "DACH Sales" (2 members) seeded for demo-workspace';
+END $$;
+
 COMMIT;
