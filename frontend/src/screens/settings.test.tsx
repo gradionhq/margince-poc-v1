@@ -6,10 +6,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { SettingsScreen } from "./settings";
+import { PipelinesCard, SettingsScreen } from "./settings";
 
 // The settings identity + passport surfaces through the RBAC primitives:
 // roles render as localized RoleBadges (a workspace-defined key stays raw),
@@ -144,5 +145,90 @@ describe("SettingsScreen tab layout", () => {
         .getByRole("link", { name: /offer templates/i })
         .getAttribute("href"),
     ).toBe("#/offer-templates");
+  });
+});
+
+// Routed by URL, with the pipelines list stubbed to the D-8 shape (an array
+// with embedded stages) and a POST /stages hook so a test can inspect the exact
+// body shipped.
+function settingsStub(opts: {
+  roles: string[];
+  onStagePost?: (body: unknown) => void;
+}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const method = input instanceof Request ? input.method : "GET";
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { id: "u1", email: "a@acme.test", display_name: "A" },
+        roles: opts.roles,
+        teams: [],
+      });
+    }
+    if (url.includes("/pipelines")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "pl",
+            workspace_id: "w",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages: [
+              {
+                id: "s1",
+                workspace_id: "w",
+                pipeline_id: "pl",
+                name: "Qualify",
+                position: 1,
+                semantic: "open",
+                win_probability: 20,
+              },
+            ],
+          },
+        ],
+        page: { next_cursor: null },
+      });
+    }
+    if (url.includes("/stages") && method === "POST") {
+      const raw = input instanceof Request ? await input.clone().text() : "";
+      const body = raw ? JSON.parse(raw) : {};
+      opts.onStagePost?.(body);
+      return jsonResponse(body);
+    }
+    return jsonResponse({ data: [], page: { next_cursor: null } });
+  });
+}
+
+describe("PipelinesCard", () => {
+  it("shows create controls for an admin", async () => {
+    vi.stubGlobal("fetch", settingsStub({ roles: ["admin"] }));
+    render(<PipelinesCard />);
+    expect(await screen.findByText("New pipeline")).toBeTruthy();
+  });
+  it("hides create controls for a rep", async () => {
+    vi.stubGlobal("fetch", settingsStub({ roles: ["rep"] }));
+    render(<PipelinesCard />);
+    await screen.findByText("Sales");
+    expect(screen.queryByText("New pipeline")).toBeNull();
+  });
+  it("create stage posts the pipeline_id + semantic + win_probability", async () => {
+    const posts: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      settingsStub({ roles: ["admin"], onStagePost: (b) => posts.push(b) }),
+    );
+    render(<PipelinesCard />);
+    await userEvent.click(await screen.findByTestId("new-stage-pl"));
+    await userEvent.type(screen.getByLabelText(/Name/), "Discovery");
+    await userEvent.type(screen.getByLabelText(/Win probability/), "15");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() =>
+      expect(posts[0]).toMatchObject({
+        pipeline_id: "pl",
+        semantic: "open",
+        win_probability: 15,
+      }),
+    );
   });
 });

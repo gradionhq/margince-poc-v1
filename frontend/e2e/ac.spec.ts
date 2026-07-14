@@ -294,7 +294,12 @@ test("AC-create-2: the palette's New-deal action opens the create form; only ope
   page,
 }) => {
   await page.goto("/#/deals/new");
-  const stageSelect = page.getByLabel("Phase");
+  // Scope to the create dialog: the deals list now also renders a stage FILTER
+  // select (bespoke, over ALL stages) whose accessible name likewise contains
+  // "Phase", so a page-wide getByLabel would ambiguously match it. The create
+  // form's stage select — the subject of this AC — lives inside the modal and
+  // still offers open stages only.
+  const stageSelect = page.getByRole("dialog").getByLabel("Phase");
   await expect(stageSelect).toBeVisible();
   const stageNames = await stageSelect.locator("option").allTextContents();
   expect(stageNames.filter(Boolean)).toEqual([

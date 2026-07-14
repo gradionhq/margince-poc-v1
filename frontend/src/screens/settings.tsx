@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Building2,
   Database,
@@ -10,6 +15,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { api, setWorkspaceSlug, workspaceSlug } from "../api/client";
+import type { components } from "../api/schema";
 import {
   Badge,
   Button,
@@ -23,7 +29,15 @@ import { AutonomyDot } from "../design-system/trust";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { AuditEntryLine } from "./audit";
-import { problemMessage, QueryGate, useMe } from "./common";
+import {
+  canConfigureAutomations,
+  problemMessage,
+  QueryGate,
+  throwProblem,
+  useMe,
+} from "./common";
+import { CreateAction, type CreateField, CreateRecordModal } from "./create";
+import { EditAction } from "./edit";
 import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
@@ -74,6 +88,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ProductsLinkCard />
           <OfferTemplatesLinkCard />
+          <PipelinesCard />
         </>
       );
     case "privacy":
@@ -396,6 +411,355 @@ function CustomFieldsLinkCard() {
         sub={t("settings.customFieldsSub")}
       />
       <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
+    </section>
+  );
+}
+
+type Pipeline = components["schemas"]["Pipeline"];
+type Stage = components["schemas"]["Stage"];
+
+// The 3 shared scalar fields between create and edit pipeline forms.
+function pipelineFields(t: ReturnType<typeof useT>): CreateField[] {
+  return [
+    { key: "name", label: "pipeline.name", required: true },
+    {
+      key: "is_default",
+      label: "pipeline.default",
+      type: "select",
+      required: true,
+      options: [
+        { value: "false", label: t("pipeline.notDefault") },
+        { value: "true", label: t("pipeline.default") },
+      ],
+    },
+    { key: "position", label: "pipeline.position", type: "number" },
+  ];
+}
+
+// Coerces a form value (CreateAction's values are strings; EditAction's
+// update callback widens to Record<string, unknown> so a screen COULD prefill
+// non-string values) down to the trimmed string this form always produces —
+// mirrors deals.tsx's mapDealUpdate `str` helper, keeping both create's and
+// edit's transports on the one map function without an `as` cast.
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function mapPipelineBody(v: Record<string, unknown>) {
+  return {
+    name: str(v.name),
+    is_default: v.is_default === "true",
+    position: v.position ? Number(str(v.position)) : 0,
+  };
+}
+
+// Narrows the form's free-text semantic value into the Stage enum WITHOUT a
+// cast (mirrors deals.tsx's forecastCategory) — an unrecognized value falls
+// back to "open" rather than shipping a bad literal to the wire.
+function stageSemantic(v: unknown): Stage["semantic"] {
+  switch (v) {
+    case "won":
+      return "won";
+    case "lost":
+      return "lost";
+    default:
+      return "open";
+  }
+}
+
+// UpdateStageRequest carries no pipeline_id (a stage never moves pipelines
+// via this form) while CreateStageRequest requires one — so this returns
+// only the fields the two requests share, and the create transport adds
+// pipeline_id on top.
+function mapStageBody(v: Record<string, unknown>) {
+  return {
+    name: str(v.name),
+    position: v.position ? Number(str(v.position)) : 0,
+    semantic: stageSemantic(v.semantic),
+    win_probability: v.win_probability ? Number(str(v.win_probability)) : 0,
+  };
+}
+
+function stageFields(t: ReturnType<typeof useT>): CreateField[] {
+  return [
+    { key: "name", label: "stage.name", required: true },
+    { key: "position", label: "pipeline.position", type: "number" },
+    {
+      key: "semantic",
+      label: "stage.semantic",
+      type: "select",
+      required: true,
+      options: [
+        { value: "open", label: t("stage.semOpen") },
+        { value: "won", label: t("stage.semWon") },
+        { value: "lost", label: t("stage.semLost") },
+      ],
+    },
+    { key: "win_probability", label: "stage.winProb", type: "number" },
+  ];
+}
+
+// Localized badge for a stage's semantic — open/won/lost each render as a
+// short label rather than the raw enum value.
+function stageSemanticLabel(
+  semantic: Stage["semantic"],
+  t: ReturnType<typeof useT>,
+): string {
+  if (semantic === "won") {
+    return t("stage.semWon");
+  }
+  if (semantic === "lost") {
+    return t("stage.semLost");
+  }
+  return t("stage.semOpen");
+}
+
+// Tone-less Badge shares the card-inset background it sits on (both resolve
+// to var(--bgCard)) — the semantic pill needs an explicit tone to be visible.
+function stageSemanticTone(
+  semantic: Stage["semantic"],
+): "success" | "danger" | "accent" {
+  switch (semantic) {
+    case "won":
+      return "success";
+    case "lost":
+      return "danger";
+    default:
+      return "accent"; // open
+  }
+}
+
+// The bespoke per-pipeline "new stage" trigger: CreateAction's testid
+// (`new-record`) can't disambiguate multiple pipelines on one screen, so
+// this composes the same Button + CreateRecordModal pieces directly rather
+// than adding new form infra.
+function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (values: Record<string, string>) => {
+      const { data, error } = await api.POST("/stages", {
+        body: { ...mapStageBody(values), pipeline_id: pipelineId },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      setOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["pipelines"] });
+    },
+  });
+  return (
+    <>
+      <Button
+        small
+        data-testid={`new-stage-${pipelineId}`}
+        onClick={() => setOpen(true)}
+      >
+        {t("stage.new")}
+      </Button>
+      <CreateRecordModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t("stage.new")}
+        fields={stageFields(t)}
+        pending={mutation.isPending}
+        error={mutation.isError ? mutation.error.message : null}
+        onSubmit={(values) => mutation.mutate(values)}
+      />
+    </>
+  );
+}
+
+function StageRow({
+  stage,
+  canConfig,
+  t,
+}: Readonly<{
+  stage: Stage;
+  canConfig: boolean;
+  t: ReturnType<typeof useT>;
+}>) {
+  return (
+    <li
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) 88px 56px auto",
+        gap: 8,
+        alignItems: "center",
+      }}
+    >
+      <span>{stage.name}</span>
+      <Badge tone={stageSemanticTone(stage.semantic)}>
+        {stageSemanticLabel(stage.semantic, t)}
+      </Badge>
+      <span className="t-mono t-small">{stage.win_probability}%</span>
+      {canConfig && (
+        <EditAction
+          label={t("stage.edit")}
+          invalidate="pipelines"
+          recordKey="stage"
+          record={{
+            id: stage.id,
+            name: stage.name,
+            position: String(stage.position),
+            semantic: stage.semantic,
+            win_probability: String(stage.win_probability),
+          }}
+          fields={stageFields(t)}
+          update={async (values) => {
+            const { data, error } = await api.PATCH("/stages/{id}", {
+              params: { path: { id: stage.id } },
+              body: mapStageBody(values),
+            });
+            if (error) {
+              throwProblem(error);
+            }
+            return data;
+          }}
+        />
+      )}
+    </li>
+  );
+}
+
+function PipelineRow({
+  pipeline,
+  canConfig,
+  t,
+}: Readonly<{
+  pipeline: Pipeline;
+  canConfig: boolean;
+  t: ReturnType<typeof useT>;
+}>) {
+  const stages = [...(pipeline.stages ?? [])].sort(
+    (a, b) => a.position - b.position,
+  );
+  return (
+    <div className="card card-inset" style={{ marginBottom: 10 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <span className="t-h2">{pipeline.name}</span>
+        <Badge tone={pipeline.is_default ? "success" : undefined}>
+          {pipeline.is_default
+            ? t("pipeline.default")
+            : t("pipeline.notDefault")}
+        </Badge>
+        {canConfig && (
+          <>
+            <EditAction
+              label={t("pipeline.edit")}
+              invalidate="pipelines"
+              recordKey="pipeline"
+              record={{
+                id: pipeline.id,
+                name: pipeline.name,
+                is_default: String(pipeline.is_default),
+                position: String(pipeline.position),
+              }}
+              fields={pipelineFields(t)}
+              update={async (values) => {
+                const { data, error } = await api.PATCH("/pipelines/{id}", {
+                  params: { path: { id: pipeline.id } },
+                  body: mapPipelineBody(values),
+                });
+                if (error) {
+                  throwProblem(error);
+                }
+                return data;
+              }}
+            />
+            <StageCreate pipelineId={pipeline.id} />
+          </>
+        )}
+      </div>
+      <ul
+        style={{
+          listStyle: "none",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          marginTop: 8,
+        }}
+      >
+        {stages.map((stage) => (
+          <StageRow key={stage.id} stage={stage} canConfig={canConfig} t={t} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// D-8: Settings → Pipelines config. Reads via the SAME ["pipelines","all"]
+// key the deals screen's plural selector uses (an array shape, distinct
+// from DealScreen's single-pipeline ["pipelines"] cache entry) — any
+// mutation here invalidates the ["pipelines"] prefix, so both shapes stay
+// fresh. Write affordances are gated on canConfigureAutomations; the list
+// itself is read-only for everyone (the server stays the RBAC authority).
+export function PipelinesCard() {
+  const t = useT();
+  const me = useMe();
+  const canConfig = canConfigureAutomations(me.data?.roles);
+  const query = useQuery({
+    queryKey: ["pipelines", "all"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/pipelines", {
+        params: { query: {} },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data.data;
+    },
+  });
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("settings.pipelines")}
+        sub={t("settings.pipelinesSub")}
+      />
+      {canConfig && (
+        <div style={{ marginBottom: 10 }}>
+          <CreateAction
+            label={t("pipeline.new")}
+            invalidate="pipelines"
+            screen="settings"
+            create={async (values) => {
+              const { data, error } = await api.POST("/pipelines", {
+                body: { ...mapPipelineBody(values), stages: [] },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            fields={pipelineFields(t)}
+          />
+        </div>
+      )}
+      <QueryGate query={query} empty={(pipelines) => pipelines.length === 0}>
+        {(pipelines) => (
+          <>
+            {pipelines.map((pipeline) => (
+              <PipelineRow
+                key={pipeline.id}
+                pipeline={pipeline}
+                canConfig={canConfig}
+                t={t}
+              />
+            ))}
+          </>
+        )}
+      </QueryGate>
     </section>
   );
 }

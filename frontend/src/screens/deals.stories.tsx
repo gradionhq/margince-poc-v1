@@ -1,5 +1,9 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { DealScreen } from "./deals";
+import { LocaleProvider } from "../i18n";
+import { DealScreen, FxLine } from "./deals";
 import {
   emptyPage,
   installFetchStub,
@@ -7,12 +11,43 @@ import {
   StoryProviders,
 } from "./story-utils";
 
+// FxLine is prop-driven (no fetch/react-query inside) — the deal 360 supplies
+// the amount/currency/rate. Rendered here in its converted state and, since the
+// deal screen only mounts it when a rate exists, a low/zero-rate variant. The
+// DealScreen stories exercise the offers panel over the shared fetch stub.
 const meta: Meta = {
-  title: "Screens/Deal",
+  title: "Screens/Deals",
   parameters: { layout: "padded" },
 };
 export default meta;
+
 type Story = StoryObj;
+
+export const FxConverted: Story = {
+  render: () => (
+    <LocaleProvider initial="en">
+      <FxLine
+        amountMinor={100000}
+        fxRateToBase="0.92"
+        fxRateDate="2026-07-01"
+        locale="en"
+      />
+    </LocaleProvider>
+  ),
+};
+
+export const FxNoDate: Story = {
+  render: () => (
+    <LocaleProvider initial="en">
+      <FxLine
+        amountMinor={250000}
+        fxRateToBase="1.17"
+        fxRateDate={null}
+        locale="en"
+      />
+    </LocaleProvider>
+  ),
+};
 
 const deal = {
   id: "d1",

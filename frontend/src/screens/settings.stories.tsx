@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { SettingsScreen } from "./settings";
+import { PipelinesCard, SettingsScreen } from "./settings";
 import {
   installFetchStub,
   jsonResponse,
@@ -104,3 +104,72 @@ export const PrivacyTab: Story = {
 export const AuditTab: Story = {
   render: tab("audit", { "GET /me": me, "GET /audit-log": auditLog }),
 };
+
+// PipelinesCard (D-8, on the Catalog tab) reads GET /me (roles →
+// canConfigureAutomations gate) and GET /pipelines. Rendered directly here so
+// the admin write affordances vs the rep read-only state each get a story.
+const pipelinesFixture = {
+  data: [
+    {
+      id: "pl",
+      workspace_id: "w",
+      name: "Sales",
+      is_default: true,
+      position: 0,
+      stages: [
+        {
+          id: "s1",
+          workspace_id: "w",
+          pipeline_id: "pl",
+          name: "Qualify",
+          position: 1,
+          semantic: "open",
+          win_probability: 20,
+        },
+        {
+          id: "s2",
+          workspace_id: "w",
+          pipeline_id: "pl",
+          name: "Proposal",
+          position: 2,
+          semantic: "open",
+          win_probability: 50,
+        },
+        {
+          id: "s3",
+          workspace_id: "w",
+          pipeline_id: "pl",
+          name: "Won",
+          position: 3,
+          semantic: "won",
+          win_probability: 100,
+        },
+      ],
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
+};
+
+const pipelineMe = (roles: string[]) =>
+  jsonResponse({ user: { id: "u-1", display_name: "Me" }, roles, teams: [] });
+
+// useMe() fails fast without a workspace slug, collapsing the admin state into
+// read-only — seed the slug so /me resolves and the affordances render.
+function pipelinesCard(roles: string[]) {
+  return () => {
+    globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+    installFetchStub({
+      "GET /me": () => pipelineMe(roles),
+      "GET /pipelines": () => jsonResponse(pipelinesFixture),
+    });
+    return (
+      <StoryProviders>
+        <PipelinesCard />
+      </StoryProviders>
+    );
+  };
+}
+
+export const PipelinesAdmin: Story = { render: pipelinesCard(["admin"]) };
+
+export const PipelinesReadOnly: Story = { render: pipelinesCard(["rep"]) };

@@ -169,6 +169,14 @@ up)
     kill "$be_pid" 2>/dev/null || true
     exit 1
   fi
+  # Dev DB seed for API-less demo data (FX rates today; see scripts/seed-dev.sql).
+  # Applied here too so a plain `make dev` pre-fills everything — e.g. winning a
+  # non-EUR deal shows the frozen FX line with no manual step.
+  if ! psql "$dev_owner_url" -v ON_ERROR_STOP=1 -f scripts/seed-dev.sql >>"$log" 2>&1; then
+    echo "FAIL: $label dev DB seed failed — see ${log}" >&2
+    kill "$be_pid" 2>/dev/null || true
+    exit 1
+  fi
 
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
