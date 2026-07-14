@@ -618,7 +618,13 @@ export function DealsScreen({
       <DealFilterSelects
         pipelines={pipelinesQuery.data ?? []}
         pipelineId={effectivePipeline?.id ?? ""}
-        setPipelineId={setPipelineId}
+        setPipelineId={(id) => {
+          // A stage belongs to one pipeline; switching pipeline strands any
+          // stage_id filter (its <select> blanks out but useDeals would still
+          // forward the old id and filter against a foreign stage → 0 rows).
+          setPipelineId(id);
+          setOrClearFilter(setQuery, "stage_id", "");
+        }}
         stages={stages}
         orgs={orgsQuery.data?.data ?? []}
         query={query}

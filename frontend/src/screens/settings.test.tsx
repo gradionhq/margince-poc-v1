@@ -185,6 +185,7 @@ describe("PipelinesCard", () => {
     await waitFor(() =>
       expect(posts[0]).toMatchObject({
         pipeline_id: "pl",
+        semantic: "open",
         win_probability: 15,
       }),
     );

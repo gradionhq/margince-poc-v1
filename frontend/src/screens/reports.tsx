@@ -139,11 +139,15 @@ export function ReportsScreen() {
     queryKey: ["derivation", derivationUrl],
     enabled: explain && derivationUrl != null,
     queryFn: async () => {
+      // parsed carries by/agg PLUS every equality predicate from the handle
+      // (group-key values + plan filters). The endpoint treats each extra key
+      // as a predicate, so forward the whole object — dropping the predicates
+      // would explain the wrong slice (or 422 on a bound grouping dimension).
       const parsed = parseDerivationQuery(derivationUrl ?? "");
       const { data, error } = await api.GET("/reports/{report}/derivation", {
         params: {
           path: { report: derivationReportKey(derivationUrl ?? "") },
-          query: { by: parsed.by, agg: parsed.agg },
+          query: parsed,
         },
       });
       if (error) {

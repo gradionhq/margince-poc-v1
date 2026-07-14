@@ -46,6 +46,7 @@ type ReportsStubOpts = {
   forecastRows?: Record<string, unknown>[];
   companyRows?: Record<string, unknown>[];
   derivation?: Record<string, unknown>;
+  onDerivation?: (url: string) => void;
 };
 
 function reportsStub(opts: ReportsStubOpts = {}) {
@@ -54,6 +55,7 @@ function reportsStub(opts: ReportsStubOpts = {}) {
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
     if (method === "GET" && url.includes("/derivation")) {
+      opts.onDerivation?.(url);
       return jsonResponse(opts.derivation ?? {});
     }
     if (url.includes("/pipelines")) {
@@ -106,7 +108,7 @@ function reportsStub(opts: ReportsStubOpts = {}) {
         plan: {},
         columns: [],
         rows,
-        derivation_url: `/v1/reports/${key}/derivation?by=stage_id&agg=sum:amount_minor:raw_minor`,
+        derivation_url: `/v1/reports/${key}/derivation?by=stage_id&agg=sum:amount_minor:raw_minor&stage_id=pl-s1`,
       });
     }
     return jsonResponse({ data: [], page: { next_cursor: null } });
@@ -173,9 +175,11 @@ describe("ReportsScreen", () => {
   });
 
   it("explain fetches the derivation and renders source rows, not raw JSON", async () => {
+    const derivationUrls: string[] = [];
     vi.stubGlobal(
       "fetch",
       reportsStub({
+        onDerivation: (u) => derivationUrls.push(u),
         derivation: {
           report: "deals-by-stage",
           definition: "Sum over open deals",
@@ -193,6 +197,10 @@ describe("ReportsScreen", () => {
       expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
     );
     expect(screen.queryByText(/"plan":/)).toBeNull();
+    // The equality predicate from derivation_url must survive to the request —
+    // by/agg alone would explain the wrong slice.
+    expect(derivationUrls[0]).toContain("stage_id=pl-s1");
+    expect(derivationUrls[0]).toContain("by=stage_id");
   });
 });
 
