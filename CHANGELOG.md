@@ -37,9 +37,9 @@ numbers appear here when releases start.
 - **GDPR arm**: per-purpose consent with default-deny suppression,
   retention evaluator with DE (GoBD) statutory floors, legal hold,
   Art. 17 erasure with re-capture suppression, Art. 15 SAR assembly.
-- **Embedded web UI**: login/bootstrap, people, leads, deal board,
-  timeline, search, reports, privacy inbox — a dependency-free SPA
-  served from the binary.
+- **Web UI**: login/bootstrap, people, leads, deal board, timeline,
+  search, reports, privacy inbox — the Vite/React app in `frontend/`, a
+  standalone static build served separately from the API.
 - **Quality gates**: golangci-lint + depguard, go-arch-lint, tree-derived
   architecture/schema/license fitness tests, contract drift-lint, and a
   real-Postgres integration lane covering the security invariants.

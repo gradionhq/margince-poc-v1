@@ -51,7 +51,7 @@ func New(pool, log, opts...) http.Handler {
     for _, opt := range opts { opt(&srv, pool) } // 2. per-role customization
 
     api := contractAPI(srv, pool, identitySvc)   // 3. mount /v1 (generated router + admission)
-    mux := operationalMux(srv, pool, log, authH, api) // 4. health/ready/metrics/public/oauth/SPA
+    mux := operationalMux(srv, pool, log, authH, api) // 4. health/ready/metrics/public/oauth
     return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux))) // 5.
 }
 ```

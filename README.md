@@ -70,9 +70,9 @@ run in the background; stop them with `make dev-stop`):
 make dev
 ```
 
-**Log in.** Open http://localhost:8080 for the embedded web UI (people, the
-deal board, the timeline), or the Vite dev SPA on http://localhost:5173.
-Workspace `demo-workspace`, sign in as `admin@demo.test` /
+**Log in.** Open http://localhost:5173 for the web UI (people, the deal
+board, the timeline) — the Vite dev server; it proxies `/v1` to the api on
+:8080. Workspace `demo-workspace`, sign in as `admin@demo.test` /
 `demo-password-123` (dev-only credentials). The seed goes through the public
 API — same audit trail, same events as real traffic — and is idempotent;
 `make seed-reset` wipes the demo workspace for a clean re-seed.
