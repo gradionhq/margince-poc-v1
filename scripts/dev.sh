@@ -119,6 +119,15 @@ up)
     echo "=== servers ==="
   } >>"$log" 2>&1
 
+  # Per-engineer routing lives in a gitignored config/ai-routing.yaml; seed it
+  # from the committed template on first run so `make dev` is green without a
+  # prior `make install`. Editing the copy binds your own local models.
+  routing_src="config/ai-routing.yaml"
+  if [[ ! -f "$routing_src" ]]; then
+    cp config/ai-routing.example.yaml "$routing_src"
+    echo "dev: seeded $routing_src from config/ai-routing.example.yaml — edit it to bind local models"
+  fi
+
   # BYOK: real model powers the /coldstart read-back when a key is present; the
   # offline fake otherwise. The routing parser reads api_key literally (no ${ENV}
   # expansion), so the key is injected into a scratch copy under the rundir.
@@ -128,7 +137,7 @@ up)
   fi
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     sed "s#provider: anthropic, model: \([^ }]*\)#provider: anthropic, model: \1, api_key: ${ANTHROPIC_API_KEY}#g" \
-      backend/ai-routing.yaml > "$routing"
+      "$routing_src" > "$routing"
     ai_flag=(--ai-routing "$routing")
     echo "dev: using real Anthropic model for the cold-start read-back (key from .env.local)"
   else

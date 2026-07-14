@@ -18,6 +18,11 @@ coverage.out
 # Local secrets — never commit
 .env.local
 
+# Per-engineer AI model routing — each engineer copies config/ai-routing.example.yaml
+# here (via `make install` / `make dev`) and binds their own local models. Anchored
+# so the committed .example template is never matched.
+/config/ai-routing.yaml
+
 # Storybook static build + fe-uat capture artifacts
 frontend/storybook-static/
 .tmp/

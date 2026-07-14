@@ -22,7 +22,8 @@ it too (`ollama pull mistral`) if enrich grounding is weak.
 
 ## 2. Point the AI lanes at Ollama
 
-The shipped `backend/ai-routing.yaml` already binds `local_small` to
+Your local `config/ai-routing.yaml` (seeded from the template by `make install` /
+`make dev`) already binds `local_small` to
 `ollama`/`gemma3` with no `base_url` (so it defaults to `localhost:11434`), and
 `enrich`'s tier ladder is `local_small` → `cheap_cloud`. **For a local Ollama,
 enrich works with no config change.**
@@ -37,9 +38,9 @@ Edit the tiers only to:
 - **run cold-start / offer-draft locally too** (they ladder `cheap_cloud` →
   `premium`, cloud by default) — rebind those tiers to `ollama` as well.
 
-> A routing change for local dev is a **local edit — don't commit it** (revert
-> with `git checkout backend/ai-routing.yaml`). Never commit a personal endpoint
-> or collapse the shipped cloud tiers.
+> `config/ai-routing.yaml` is **gitignored** — edit it freely for local dev; it
+> can never be committed. To reset, delete it and re-run `make install` (or
+> `make dev`) to re-seed from `config/ai-routing.example.yaml`.
 
 ## 3. Start the stack
 
