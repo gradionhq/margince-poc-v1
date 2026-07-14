@@ -443,6 +443,8 @@ export const de = {
   "field.phoneOther": "Sonstige",
   "field.primary": "Primär",
   "field.removeRow": "Entfernen",
+  "field.yes": "Ja",
+  "field.no": "Nein",
 
   "dedupe.viewExisting": "Vorhandenen Eintrag anzeigen",
 
@@ -874,6 +876,7 @@ export const de = {
   "strength.computedFrom": "Berechnet aus {count} Aktivitäten",
 
   "cf.title": "Benutzerdefinierte Felder",
+  "cf.formSection": "Benutzerdefinierte Felder",
   "cf.subtitle":
     "Füge einem vorhandenen Objekt ein einfaches typisiertes Feld hinzu — zur Laufzeit, ohne Entwickler, ohne Deploy. Neue Objekte und Beziehungen laufen weiterhin über Code.",
   "cf.object": "Objekt",

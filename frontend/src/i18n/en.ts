@@ -435,6 +435,8 @@ export const en = {
   "field.phoneOther": "Other",
   "field.primary": "Primary",
   "field.removeRow": "Remove",
+  "field.yes": "Yes",
+  "field.no": "No",
 
   "dedupe.viewExisting": "View existing record",
 
@@ -855,6 +857,7 @@ export const en = {
   "strength.computedFrom": "Computed from {count} activities",
 
   "cf.title": "Custom fields",
+  "cf.formSection": "Custom fields",
   "cf.subtitle":
     "Add a simple typed field to an object you already have — at runtime, no developer, no deploy. New objects and relationships still go through code.",
   "cf.object": "Object",

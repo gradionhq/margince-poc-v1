@@ -254,7 +254,9 @@ func promotableLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLea
 	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	lead, err := readLead(ctx, tx, id, storekit.IncludeArchived)
+	// An internal read that builds the promoted person; its result is not
+	// returned to the wire as a lead, so it carries no custom columns (nil).
+	lead, err := readLead(ctx, tx, id, storekit.IncludeArchived, nil)
 	if err != nil {
 		return crmcontracts.Lead{}, fmt.Errorf("read lead before promote: %w", err)
 	}

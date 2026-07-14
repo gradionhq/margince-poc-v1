@@ -74,3 +74,28 @@ func TestOrganizationUpdateInputCarriesCustomFieldKeys(t *testing.T) {
 		t.Errorf(`CustomFields["cf_region"] = %v, want "apac"`, got)
 	}
 }
+
+func TestLeadCreateInputCarriesCustomFieldKeys(t *testing.T) {
+	var req crmcontracts.CreateLeadRequest
+	decodeInto(t, `{"source":"ui","cf_iscool":true,"cf_tier":"gold"}`, &req)
+
+	in := leadCreateInput(req)
+	if got := in.CustomFields["cf_iscool"]; got != true {
+		t.Errorf(`CustomFields["cf_iscool"] = %v, want true`, got)
+	}
+	if got := in.CustomFields["cf_tier"]; got != "gold" {
+		t.Errorf(`CustomFields["cf_tier"] = %v, want "gold"`, got)
+	}
+}
+
+func TestLeadUpdateInputCarriesCustomFieldKeys(t *testing.T) {
+	// The lead update decodes through LeadUpdateRequest (the null-vs-absent
+	// wrapper), so the cf carry must survive that indirection too.
+	var req LeadUpdateRequest
+	decodeInto(t, `{"title":"VP Sales","cf_iscool":false}`, &req)
+
+	in := leadUpdateInput(req, nil)
+	if got := in.CustomFields["cf_iscool"]; got != false {
+		t.Errorf(`CustomFields["cf_iscool"] = %v, want false`, got)
+	}
+}
