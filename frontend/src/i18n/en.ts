@@ -808,6 +808,7 @@ export const en = {
   "cf.renamed": 'Renamed to "{label}"',
   "cf.audit.title": "Recent field changes",
   "cf.audit.empty": "No custom-field changes yet.",
+  "cf.audit.loading": "Loading recent changes…",
   "cf.audit.error": "Could not load recent changes — retry shortly.",
   "cf.audit.footer":
     "Every add / edit / archive is recorded permanently in the audit log.",

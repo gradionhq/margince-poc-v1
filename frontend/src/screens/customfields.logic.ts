@@ -85,7 +85,13 @@ export function ddlPreview(
 // that merely contains one as a substring ("Objective score" has "object",
 // "Notable accounts" / "Portable device" have "table") is not refused. The
 // multi-word relationship phrases are distinctive enough to match as substrings.
-const STRUCTURE_TOKENS: readonly string[] = ["object", "table", "entity"];
+// Word-boundary alternatives, singular and plural (entity → entities), so
+// "New objects" / "Related entities" are refused, not just their singular.
+const STRUCTURE_TOKENS: readonly string[] = [
+  "objects?",
+  "tables?",
+  "entit(?:y|ies)",
+];
 
 const STRUCTURE_PHRASES: readonly string[] = [
   "relationship",

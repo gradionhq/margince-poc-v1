@@ -47,6 +47,10 @@ describe("custom-fields logic", () => {
     // The genuine structural requests still refuse.
     expect(looksStructural("Link to parent account")).toBe(true);
     expect(looksStructural("New object")).toBe(true);
+    // plural forms are structural too (entity → entities)
+    expect(looksStructural("New objects")).toBe(true);
+    expect(looksStructural("Related tables")).toBe(true);
+    expect(looksStructural("Related entities")).toBe(true);
     expect(looksStructural("one-to-many mapping")).toBe(true);
   });
 });

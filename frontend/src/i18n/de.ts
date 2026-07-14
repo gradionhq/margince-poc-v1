@@ -826,6 +826,7 @@ export const de = {
   "cf.renamed": 'Umbenannt in "{label}"',
   "cf.audit.title": "Letzte Feldänderungen",
   "cf.audit.empty": "Noch keine Änderungen an benutzerdefinierten Feldern.",
+  "cf.audit.loading": "Aktuelle Änderungen werden geladen…",
   "cf.audit.error":
     "Letzte Änderungen konnten nicht geladen werden — bitte kurz erneut versuchen.",
   "cf.audit.footer":

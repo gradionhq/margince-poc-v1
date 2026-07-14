@@ -6,7 +6,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { CustomFieldsScreen, FieldBuilder, FieldTable } from "./customfields";
+import {
+  AuditRail,
+  CustomFieldsScreen,
+  FieldBuilder,
+  FieldTable,
+} from "./customfields";
 
 afterEach(cleanup);
 
@@ -497,5 +502,28 @@ describe("CustomFieldsScreen", () => {
     const patch = calls.find((call) => call.method === "PATCH");
     expect(patch?.url).toContain("/custom-fields/d1");
     expect(patch?.body).toMatchObject({ label: "Contract end date" });
+  });
+});
+
+describe("AuditRail states", () => {
+  it("shows the loading line while the read is pending, not the empty line", () => {
+    wrap(<AuditRail entries={[]} isLoading />);
+    expect(screen.getByText(/Loading recent changes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No custom-field changes yet/i)).toBeNull();
+  });
+
+  it("shows the error line on a failed read, not the empty line", () => {
+    wrap(<AuditRail entries={[]} isError />);
+    expect(
+      screen.getByText(/Could not load recent changes/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No custom-field changes yet/i)).toBeNull();
+  });
+
+  it("shows the empty line only for a settled, genuinely empty read", () => {
+    wrap(<AuditRail entries={[]} />);
+    expect(
+      screen.getByText(/No custom-field changes yet/i),
+    ).toBeInTheDocument();
   });
 });

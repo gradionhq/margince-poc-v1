@@ -417,8 +417,19 @@ export function FieldTable({
 export function AuditRail({
   entries,
   isError,
-}: Readonly<{ entries: AuditLogEntry[]; isError?: boolean }>) {
+  isLoading,
+}: Readonly<{
+  entries: AuditLogEntry[];
+  isError?: boolean;
+  isLoading?: boolean;
+}>) {
   const t = useT();
+
+  // A still-loading read is not an empty history — the "no changes yet" line
+  // must not stand in for a fetch that hasn't returned.
+  if (isLoading) {
+    return <p className="cf-audit-empty">{t("cf.audit.loading")}</p>;
+  }
 
   // A failed audit read is not an empty history — say so honestly rather than
   // letting "no changes yet" stand in for a load that never completed.
@@ -732,7 +743,11 @@ export function CustomFieldsScreen() {
 
       <section className="card">
         <SectionHeader title={t("cf.audit.title")} />
-        <AuditRail entries={audit.data?.data ?? []} isError={audit.isError} />
+        <AuditRail
+          entries={audit.data?.data ?? []}
+          isError={audit.isError}
+          isLoading={audit.isPending}
+        />
         <p className="t-caption">{t("cf.audit.footer")}</p>
       </section>
 
