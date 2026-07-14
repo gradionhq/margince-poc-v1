@@ -588,6 +588,14 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
             recordKey="organization"
             onArchived={() => navigate({ screen: "companies" })}
           />
+          <Button
+            small
+            onClick={() =>
+              navigate({ screen: "share", id: "organization", id2: org.id })
+            }
+          >
+            {t("record.share")}
+          </Button>
         </>
       )}
     </>

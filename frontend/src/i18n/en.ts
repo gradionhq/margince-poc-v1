@@ -101,6 +101,38 @@ export const en = {
   "record.disqualifyConfirm":
     "Are you sure? This disqualifies and archives the lead — there is no undo control.",
   "record.archived": "Archived",
+  "record.share": "Share",
+
+  "share.title": "Share this record",
+  "share.ceiling":
+    "A grant changes who can see exactly this one record — nothing else about a person's scope moves. You can only grant up to your own access on this record.",
+  "share.grantAccess": "Grant access",
+  "share.subject": "Person or team",
+  "share.alreadyGranted": "already has a grant",
+  "share.access": "Access level",
+  "share.access.read": "Read",
+  "share.access.write": "Write",
+  "share.access.readNote":
+    "Can open and read this record — cannot edit or send.",
+  "share.access.writeNote":
+    "Can open, edit, and add to this record — not change ownership or sharing.",
+  "share.expiry": "Expiry",
+  "share.expiry.none": "No expiry (until revoked)",
+  "share.expiry.day": "Expires in 24 hours",
+  "share.expiry.week": "Expires in 7 days",
+  "share.expiry.month": "Expires in 30 days",
+  "share.reason": "Reason",
+  "share.grant": "Grant access",
+  "share.whoHasAccess": "Who has access",
+  "share.grantedBy": "granted by",
+  "share.revoke": "Revoke",
+  "share.revokeConfirm":
+    "Revoke this grant? The subject loses this record's access at the next request — there is no undo control.",
+  "share.approvalRequired":
+    "This share needs approval before it takes effect — it's been queued to the approval inbox, not applied yet.",
+  "share.empty": "No manual grants on this record yet.",
+  "share.teamMembers": "Team · {count} members",
+
   "edit.versionSkew":
     "This record changed since you opened it — reload and try again.",
 

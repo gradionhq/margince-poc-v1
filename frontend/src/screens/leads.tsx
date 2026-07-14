@@ -668,6 +668,14 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                       recordKey="lead"
                       onArchived={() => navigate({ screen: "leads" })}
                     />
+                    <Button
+                      small
+                      onClick={() =>
+                        navigate({ screen: "share", id: "lead", id2: lead.id })
+                      }
+                    >
+                      {t("record.share")}
+                    </Button>
                   </>
                 )}
               </div>

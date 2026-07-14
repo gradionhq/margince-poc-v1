@@ -104,6 +104,38 @@ export const de = {
   "record.disqualifyConfirm":
     "Bist du sicher? Das disqualifiziert und archiviert den Lead — es gibt keine Rückgängig-Funktion.",
   "record.archived": "Archiviert",
+  "record.share": "Teilen",
+
+  "share.title": "Diesen Datensatz teilen",
+  "share.ceiling":
+    "Eine Freigabe ändert nur, wer genau diesen einen Datensatz sehen kann — sonst nichts am Zugriffsbereich einer Person. Du kannst höchstens deinen eigenen Zugriff auf diesen Datensatz vergeben.",
+  "share.grantAccess": "Zugriff gewähren",
+  "share.subject": "Person oder Team",
+  "share.alreadyGranted": "hat bereits eine Freigabe",
+  "share.access": "Zugriffsstufe",
+  "share.access.read": "Lesen",
+  "share.access.write": "Schreiben",
+  "share.access.readNote":
+    "Kann diesen Datensatz öffnen und lesen — nicht bearbeiten oder senden.",
+  "share.access.writeNote":
+    "Kann diesen Datensatz öffnen, bearbeiten und ergänzen — nicht Eigentümerschaft oder Freigaben ändern.",
+  "share.expiry": "Ablauf",
+  "share.expiry.none": "Kein Ablauf (bis zum Widerruf)",
+  "share.expiry.day": "Läuft in 24 Stunden ab",
+  "share.expiry.week": "Läuft in 7 Tagen ab",
+  "share.expiry.month": "Läuft in 30 Tagen ab",
+  "share.reason": "Grund",
+  "share.grant": "Zugriff gewähren",
+  "share.whoHasAccess": "Wer hat Zugriff",
+  "share.grantedBy": "gewährt von",
+  "share.revoke": "Widerrufen",
+  "share.revokeConfirm":
+    "Diese Freigabe widerrufen? Der Zugriff auf diesen Datensatz entfällt beim nächsten Request — es gibt keine Rückgängig-Funktion.",
+  "share.approvalRequired":
+    "Diese Freigabe braucht erst eine Genehmigung — sie wurde in den Genehmigungs-Posteingang eingereiht, aber noch nicht angewendet.",
+  "share.empty": "Noch keine manuellen Freigaben für diesen Datensatz.",
+  "share.teamMembers": "Team · {count} Mitglieder",
+
   "edit.versionSkew":
     "Dieser Datensatz hat sich geändert, seit du ihn geöffnet hast — neu laden und erneut versuchen.",
 

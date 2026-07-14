@@ -1,0 +1,129 @@
+/* Scoped styles for the record-share screen (AS-3/4/5, A52/ADR-0039).
+   Layout only — atoms (Button, SegmentedControl, ConfirmModal) carry their
+   own look; this file owns the header ceiling note, the subject picker
+   list, the access/expiry pills, and the who-has-access rows. Mirrors the
+   share.html mockup's structure with our own CSS-custom-property tokens
+   (design-system/tokens.css) — no hex/rgb literals (make ds-purity). */
+
+.share-screen > .card {
+  margin-top: 16px;
+}
+
+.share-backlink {
+  margin-top: 6px;
+}
+
+.share-ceiling {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: var(--bgCard);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--textSecondary);
+  line-height: 1.5;
+  margin-top: 14px;
+}
+
+.share-subject-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+}
+
+.share-subject-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.share-subject-note {
+  font-size: 11.5px;
+  color: var(--textTertiary);
+  font-family: var(--f-mono);
+}
+
+.share-access-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-full);
+  padding: 3px 9px;
+  text-transform: capitalize;
+}
+
+.share-access-read {
+  background: var(--accentLight);
+  color: var(--teal);
+}
+
+.share-access-write {
+  background: var(--accentLight);
+  color: var(--accent);
+}
+
+.share-expiry-badge {
+  font-size: 10.5px;
+  font-family: var(--f-mono);
+  color: var(--warn);
+  background: var(--warnBg);
+  border-radius: var(--r-full);
+  padding: 2px 8px;
+}
+
+.share-acl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.share-acl-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.share-acl-row:last-child {
+  border-bottom: 0;
+}
+
+.share-acl-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.share-acl-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.share-error {
+  color: var(--danger);
+  margin-top: 8px;
+}
+
+.share-reason {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+  font-family: var(--f-body);
+}

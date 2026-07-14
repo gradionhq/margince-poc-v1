@@ -1067,6 +1067,14 @@ function DealBadges({
         recordKey="deal"
         onArchived={() => navigate({ screen: "deals" })}
       />
+      <Button
+        small
+        onClick={() =>
+          navigate({ screen: "share", id: "deal", id2: deal.id })
+        }
+      >
+        {t("record.share")}
+      </Button>
       {(deal.status === "won" || deal.status === "lost") && (
         <ReopenAction dealId={deal.id} openStages={openStages} />
       )}

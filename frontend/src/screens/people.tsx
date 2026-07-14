@@ -599,6 +599,18 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                       recordKey="person"
                       onArchived={() => navigate({ screen: "contacts" })}
                     />
+                    <Button
+                      small
+                      onClick={() =>
+                        navigate({
+                          screen: "share",
+                          id: "person",
+                          id2: person.id,
+                        })
+                      }
+                    >
+                      {t("record.share")}
+                    </Button>
                   </>
                 )}
               </>

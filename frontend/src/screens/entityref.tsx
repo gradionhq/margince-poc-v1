@@ -29,7 +29,7 @@ export type EntityRefKind =
   | "team";
 
 type RecordKind = "person" | "organization" | "deal" | "lead";
-type RosterKind = "user" | "team";
+export type RosterKind = "user" | "team";
 
 const ROUTE_OF: Record<RecordKind, (id: string) => Route> = {
   person: (id) => ({ screen: "contacts", id }),
@@ -76,7 +76,10 @@ async function fetchEntityName(
 // picker: `/users` and `/teams` are small workspace-wide lists, so paging one
 // list once and finding-by-id is cheaper (and more cacheable) than a per-id
 // GET for every rendered reference.
-function useRoster(kind: RosterKind, enabled: boolean) {
+// Exported so the Share subject picker (screens/share.tsx) can build a
+// merged users+teams roster off the exact same cache entry EntityRef's own
+// user/team resolution reads — one fetch, one cache key, both consumers.
+export function useRoster(kind: RosterKind, enabled: boolean) {
   return useQuery({
     queryKey: [kind === "user" ? "users" : "teams"],
     queryFn: async (): Promise<Array<User | Team>> => {
