@@ -1,14 +1,14 @@
 # AGENTS.md — operating this repo
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built
-from the spec in `../margince/specs/` (contract-first, P3: when this code
+from a separate spec repo (contract-first, P3: when this code
 and the spec disagree, the spec wins).
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
 session-pickup point; update it at the end of every working session.
 Route findings as you work: implementation decisions →
-decisions/; spec/ticket defects → a local note in
-`feedback/` (git-ignored session scratch — see [feedback/README.md](feedback/README.md)).
+decisions/; spec/ticket defects are reconciled upstream against
+the spec (contract-first, P3), never worked around in this source.
 
 ## Build / test / seed
 
