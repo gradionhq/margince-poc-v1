@@ -575,66 +575,6 @@ function LeadOverviewPane({
   const t = useT();
   return (
     <>
-      <div className="list-head">
-        <SectionHeader
-          title={lead.full_name ?? lead.email ?? t("nav.leads")}
-          sub={t("lead.segregated")}
-        />
-        {/* A promoted or disqualified lead is archived and terminal —
-            the backend rejects edit/disqualify/promote/score-override on
-            it, so those affordances would only 404. Read-only past that
-            point. */}
-        {!lead.archived_at && (
-          <>
-            <EditAction
-              label={t("record.edit")}
-              fields={leadEditFields}
-              record={{
-                id: lead.id,
-                version: lead.version,
-                full_name: lead.full_name ?? "",
-                email: lead.email ?? "",
-                title: lead.title ?? "",
-                company_name: lead.company_name ?? "",
-                candidate_org_key: lead.candidate_org_key ?? "",
-              }}
-              update={async (values) => {
-                const { data, error } = await api.PATCH("/leads/{id}", {
-                  params: {
-                    path: { id },
-                    ...ifMatch(lead.version),
-                  },
-                  body: mapLeadUpdate(values),
-                });
-                if (error) {
-                  throwProblem(error);
-                }
-                return data;
-              }}
-              invalidate="leads"
-              recordKey="lead"
-            />
-            <ArchiveAction
-              label={t("record.disqualify")}
-              confirmText={t("record.disqualifyConfirm")}
-              archive={async () => {
-                const { data, error } = await api.DELETE("/leads/{id}", {
-                  params: { path: { id } },
-                });
-                if (error) {
-                  throwProblem(error);
-                }
-                return data;
-              }}
-              invalidate="leads"
-              recordKey="lead"
-              onArchived={() => navigate({ screen: "leads" })}
-            />
-          </>
-        )}
-      </div>
-      <LeadBadges lead={lead} />
-      {lead.email && <p className="t-mono">{lead.email}</p>}
       {!lead.archived_at && (
         <>
           <div
@@ -804,6 +744,66 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       <QueryGate query={leadQuery}>
         {(lead) => (
           <div className="card lead-detail">
+            <div className="list-head">
+              <SectionHeader
+                title={lead.full_name ?? lead.email ?? t("nav.leads")}
+                sub={t("lead.segregated")}
+              />
+              {/* A promoted or disqualified lead is archived and terminal —
+                  the backend rejects edit/disqualify/promote/score-override on
+                  it, so those affordances would only 404. Read-only past that
+                  point. */}
+              {!lead.archived_at && (
+                <>
+                  <EditAction
+                    label={t("record.edit")}
+                    fields={leadEditFields}
+                    record={{
+                      id: lead.id,
+                      version: lead.version,
+                      full_name: lead.full_name ?? "",
+                      email: lead.email ?? "",
+                      title: lead.title ?? "",
+                      company_name: lead.company_name ?? "",
+                      candidate_org_key: lead.candidate_org_key ?? "",
+                    }}
+                    update={async (values) => {
+                      const { data, error } = await api.PATCH("/leads/{id}", {
+                        params: {
+                          path: { id },
+                          ...ifMatch(lead.version),
+                        },
+                        body: mapLeadUpdate(values),
+                      });
+                      if (error) {
+                        throwProblem(error);
+                      }
+                      return data;
+                    }}
+                    invalidate="leads"
+                    recordKey="lead"
+                  />
+                  <ArchiveAction
+                    label={t("record.disqualify")}
+                    confirmText={t("record.disqualifyConfirm")}
+                    archive={async () => {
+                      const { data, error } = await api.DELETE("/leads/{id}", {
+                        params: { path: { id } },
+                      });
+                      if (error) {
+                        throwProblem(error);
+                      }
+                      return data;
+                    }}
+                    invalidate="leads"
+                    recordKey="lead"
+                    onArchived={() => navigate({ screen: "leads" })}
+                  />
+                </>
+              )}
+            </div>
+            <LeadBadges lead={lead} />
+            {lead.email && <p className="t-mono">{lead.email}</p>}
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl
                 options={LEAD_TABS}

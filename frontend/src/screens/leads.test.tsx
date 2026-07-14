@@ -713,6 +713,10 @@ describe("LeadScreen — History tab (Task 9)", () => {
     await waitFor(() =>
       expect(screen.getByText("Lead score changed")).toBeTruthy(),
     );
+    // The identity header (name) must stay visible on the History tab, not
+    // just the overview — it lives in LeadScreen above the tab switch now,
+    // matching person/company/deal's persistent RecordView header.
+    expect(screen.getByText(lead.full_name)).toBeTruthy();
   });
 });
 
