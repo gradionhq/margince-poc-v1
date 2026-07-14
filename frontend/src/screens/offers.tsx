@@ -789,6 +789,15 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
               }
             />
           </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "flex-start",
+            marginTop: 12,
+          }}
+        >
           <div className="field" style={{ minWidth: 220 }}>
             <span className="t-label">{t("offer.pickProduct")}</span>
             <RecordPicker
@@ -807,6 +816,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
             variant="primary"
             data-testid="add-line"
             disabled={addMutation.isPending}
+            style={{ marginTop: 24 }}
             onClick={() =>
               addMutation.mutate({
                 product_id: product?.id ?? undefined,
