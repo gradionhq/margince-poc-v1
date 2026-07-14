@@ -5,7 +5,7 @@
 
 package integration
 
-// The customfields engine suite (decisions/0024): the one-transaction
+// The customfields engine suite: the one-transaction
 // schema-pool dance — real ALTER TABLE + catalog INSERT + audit row
 // landing or rolling back together over a real migrated Postgres — plus
 // the catalog lifecycle, the cross-workspace column-namespace answer,
@@ -25,7 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// CFAdminPerms is the decisions/0006 admin posture narrowed to what this
+// CFAdminPerms is the admin RBAC posture narrowed to what this
 // suite exercises: full custom_field config authority plus the person
 // grants the value-preservation assertions need.
 var cfAdminPerms = principal.Permissions{

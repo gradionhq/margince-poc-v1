@@ -27,8 +27,8 @@ type Handlers struct {
 	svc *Service
 }
 
-// NewHandlers wires the module. schemaPool MAY be nil (decisions/0024
-// "unwired by default"): Create/SetOptions then answer their generated
+// NewHandlers wires the module. schemaPool MAY be nil (unwired by
+// default): Create/SetOptions then answer their generated
 // 501 rather than nil-derefing at request time.
 func NewHandlers(pool, schemaPool *pgxpool.Pool) Handlers {
 	return Handlers{svc: NewService(pool, schemaPool)}

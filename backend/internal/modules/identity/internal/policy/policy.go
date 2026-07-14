@@ -3,7 +3,7 @@
 
 // Package policy owns the role permission-policy documents (B-EP03.1,
 // data-model §2.4): the JSONB shape stored in role.permissions, the five
-// seeded system-role defaults (decisions/0006), the validator that keeps
+// seeded system-role defaults, the validator that keeps
 // a policy honest, and the merge that resolves a user's role set into
 // one effective principal.Permissions at authentication time.
 package policy
@@ -48,7 +48,7 @@ var (
 	readOnly = grant{Read: true}
 )
 
-// defaults are the seeded system-role policies (decisions/0006 records
+// defaults are the seeded system-role policies (they encode
 // the choices: reps work team-scoped without delete; managers are
 // team-scoped with delete; pipeline, automation, custom-field config AND
 // quota targets are admin/ops-owned — each reshapes what the system does

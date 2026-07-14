@@ -76,7 +76,7 @@ func seedAuditDiffRow(t *testing.T, e *Env, entityType string, entityID ids.UUID
 func TestFieldHistoryGatesOnReadPermissionAndVisibility(t *testing.T) {
 	e := Setup(t)
 	// Owned by Rep1 (Team1): an ownerless record is workspace-shared at
-	// every tier (decisions/0006), so the out-of-scope assertion below
+	// every tier, so the out-of-scope assertion below
 	// needs a real owner to exclude the Team2-only caller.
 	personID := e.SeedPerson(t, "History Subject", &e.Rep1)
 

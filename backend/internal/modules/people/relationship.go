@@ -354,7 +354,7 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 
 // EnsureDealVisible probes a deal id under the caller's row scope —
 // the deal-scoped stakeholder view needs the anchor's own answer when
-// the edge list is empty (owned SQL on the deal row, decisions/0011).
+// the edge list is empty (owned SQL on the deal row).
 func (s *Store) EnsureDealVisible(ctx context.Context, dealID ids.DealID) error {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return err

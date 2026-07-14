@@ -99,7 +99,7 @@ describe("SettingsScreen RBAC surfaces", () => {
 });
 
 describe("SettingsScreen tab layout", () => {
-  it("shows a settings-sections nav with the five tabs, Account current by default", () => {
+  it("shows a settings-sections nav with the six tabs, Account current by default", () => {
     render(<SettingsScreen />);
     const nav = screen.getByRole("navigation", { name: /settings sections/i });
     expect(nav).toBeTruthy();
@@ -107,6 +107,7 @@ describe("SettingsScreen tab layout", () => {
       "Account",
       "AI & autonomy",
       "Data model",
+      "Catalog",
       "Privacy & consent",
       "Audit log",
     ]) {
@@ -131,5 +132,17 @@ describe("SettingsScreen tab layout", () => {
   it("surfaces the custom-fields door on the Data model tab", () => {
     render(<SettingsScreen tab="data" />);
     expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy();
+  });
+
+  it("surfaces the Products and Offer-templates doors on the Catalog tab", () => {
+    render(<SettingsScreen tab="catalog" />);
+    expect(
+      screen.getByRole("link", { name: /products/i }).getAttribute("href"),
+    ).toBe("#/products");
+    expect(
+      screen
+        .getByRole("link", { name: /offer templates/i })
+        .getAttribute("href"),
+    ).toBe("#/offer-templates");
   });
 });

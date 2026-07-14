@@ -75,7 +75,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		// River owns its schema through its own migrator, applied as the
 		// fourth namespace after core+custom (ADR-0017 order). Its migrator
 		// wants a pool, not the single conn the SQL runner uses; open one on
-		// the same owner DSN. See decisions/0021-river-job-queue.md.
+		// the same owner DSN.
 		riverPool, err := database.NewPool(ctx, *dsn)
 		if err != nil {
 			return fmt.Errorf("migrate: opening river pool: %w", err)

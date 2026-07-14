@@ -7,7 +7,7 @@ import {
 } from "react";
 import "./atoms.css";
 
-// The Margince atom library (B-EP09.2 as re-scoped by decisions/0014: our own
+// The Margince atom library (B-EP09.2, re-scoped to our own
 // system, no gw-ui port; atoms are added as screens need them). Copy always
 // arrives through props — callers translate with t(); atoms never hard-code
 // user-facing words.

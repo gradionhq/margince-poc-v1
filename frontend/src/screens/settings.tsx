@@ -3,6 +3,7 @@ import {
   Building2,
   Database,
   type LucideIcon,
+  Package,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -41,6 +42,7 @@ const SETTINGS_TABS = [
   { id: "account", icon: Building2 },
   { id: "ai", icon: Sparkles },
   { id: "data", icon: Database },
+  { id: "catalog", icon: Package },
   { id: "privacy", icon: ShieldCheck },
   { id: "audit", icon: ScrollText },
 ] as const satisfies readonly { id: string; icon: LucideIcon }[];
@@ -66,6 +68,13 @@ function tabContent(id: SettingsTabId): ReactNode {
       );
     case "data":
       return <CustomFieldsLinkCard />;
+    case "catalog":
+      return (
+        <>
+          <ProductsLinkCard />
+          <OfferTemplatesLinkCard />
+        </>
+      );
     case "privacy":
       return (
         <>
@@ -386,6 +395,32 @@ function CustomFieldsLinkCard() {
         sub={t("settings.customFieldsSub")}
       />
       <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
+    </section>
+  );
+}
+
+function ProductsLinkCard() {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("product.title")}
+        sub={t("product.settingsSub")}
+      />
+      <a href="#/products">{t("product.open")}</a>
+    </section>
+  );
+}
+
+function OfferTemplatesLinkCard() {
+  const t = useT();
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader
+        title={t("template.title")}
+        sub={t("template.settingsSub")}
+      />
+      <a href="#/offer-templates">{t("template.open")}</a>
     </section>
   );
 }

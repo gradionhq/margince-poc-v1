@@ -144,29 +144,28 @@ Skeleton gates we lack entirely (each is a small script; wire into
       `origin/main` (we only have whole-file drift on generated Go).
       (Done PR C — `scripts/check-contract-breaking.sh`, pinned oasdiff via
       `go run`, hard-fail default with a `CONTRACT_STABILITY=pre-live`
-      escape for deliberate spec re-syncs; decisions/0020 §2.)
+      escape for deliberate spec re-syncs.)
 - [x] **TS type drift** — `frontend/src/api/schema.d.ts` is generated but
       *not* drift-gated; a `crm.yaml` change can silently strand the
       frontend types. Fold `pnpm gen:api` + `git diff --exit-code` into the
       gate (skeleton: `gen-types.sh check`).
       (Done PR C — in `make frontend-check`, so the frontend CI job runs it;
       the gate immediately caught schema.d.ts 400+ lines stale, regenerated
-      and committed with the PR; decisions/0020 §3.)
+      and committed with the PR.)
 - [x] `go-file-length` — hard 500-LOC cap (non-test, non-generated). We
       already carry known >500 offenders (`people/person.go`,
       `people/lead.go`, `deals/offer.go`) — adopt diff-scoped or with a
       ratchet/waiver list so the gate lands without a big-bang split.
       (Done PR C — ratchet via `scripts/go-file-length-waivers.txt`; the
       named offenders had already been split <500 by the Strojny work; the
-      only live waiver is `backend/internal/compose/report.go` at 501;
-      decisions/0020 §6.)
+      only live waiver is `backend/internal/compose/report.go` at 501.)
 - [x] `test-lanes` — hermetic-unit-lane check (no untagged test opens real
       PG/Redis). We rely on the `//go:build integration` convention with no
       enforcement. (Done PR C — `scripts/check-test-lanes.sh`, markers
-      adapted to our `MARGINCE_TEST_*` env contract; decisions/0020 §4.)
+      adapted to our `MARGINCE_TEST_*` env contract.)
 - [x] `check-image-pins` — see 1a. (Workflow `uses:` pins done PR A; PR C
       extended the script to `image:` lines — CI service containers and the
-      compose stack are digest-pinned and gated; decisions/0020 §7.)
+      compose stack are digest-pinned and gated.)
 - [x] **Stricter `.golangci.yml`** — skeleton runs ~20 linters incl.
       gofumpt+gci, gocritic, staticcheck, funlen/cyclop/gocognit, errcheck,
       rowserrcheck/sqlclosecheck/bodyclose, forcetypeassert, nolintlint;
@@ -175,14 +174,14 @@ Skeleton gates we lack entirely (each is a small script; wire into
       is gated. Recommend `new-from-rev`.
       (Done PR C — the recommended arm, as `backend/.golangci.strict.yml`
       with `new-from-merge-base: origin/main`; the baseline config is
-      untouched so the depguard DAG stays repo-wide; decisions/0020 §1.)
+      untouched so the depguard DAG stays repo-wide.)
 - [ ] `check-doc-style` / subsystem-doc conventions — only if we adopt the
       foundation's subsystem-chapter format for `docs/` (ties to §0
       spec-reconciliation decision).
 - [x] **Zero-skip integration enforcement** — our lane's "fails loudly
       without a DB" claim is convention; skeleton scripts assert a skipped
       test fails the run. Cheap to add. (Done PR C — `make test-integration`
-      greps `-v` output for `--- SKIP` and fails; decisions/0020 §5.)
+      greps `-v` output for `--- SKIP` and fails.)
 - [ ] Consider skeleton's **parallel integration harness** (per-package
       throwaway DB clones) — ours is `-p 1` serial; adopt when lane time
       hurts, not before.
@@ -245,7 +244,7 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       (Done PR D — adapted to our IA: the canonical 9-item rail has no
       admin-only screen (AC-shell-1), so the nav-gating concept lands where
       the server actually differentiates roles — the automations editor
-      (admin/ops-owned config per decisions/0006) hides its mutation
+      (admin/ops-owned config) hides its mutation
       affordances for other roles behind `canConfigureAutomations` and says
       why. One shared `useMe()` (screens/common) feeds the auth gate and
       every role-aware surface; `RoleBadge` renders localized role labels in
@@ -423,14 +422,14 @@ Before pushing this repo to the official public org:
       "boot it / log in / verify" quickstart (depends on 1a compose +
       1c seed). (Done PR B — the quickstart; PR E finished the broader
       internal-flavor scrub — the review-loop session narration.)
-- [x] **decisions/ + feedback/ audit** — decisions/ is committed history;
-      review for private references before public push. `feedback/` is
-      git-ignored (fine). (Audited PR E — findings reported in the PR
-      body; no edits to `decisions/` this pass. `decisions/0019` names a
-      reviewer + carries the review PR title; `0017` names an untracked
-      local review file; several records cite the sibling spec path.
-      None are secrets; whether to soften named-reviewer references is a
-      founder call, filed alongside §0 and the git-history decision.)
+- [x] **Decision log + feedback/ audit** — the decision log is committed
+      history; review for private references before public push. `feedback/`
+      is git-ignored (fine). (Audited PR E — findings reported in the PR
+      body; the log left unedited this pass. Some records named a reviewer
+      and carried the review PR title, named an untracked local review file,
+      or cited the sibling spec path. None are secrets; whether to soften
+      named-reviewer references is a founder call, filed alongside §0 and
+      the git-history decision.)
 - [ ] **git history** `DECISION (founder)` — the history contains internal
       session narration in commit messages. Publish full history vs
       squash-import into the public repo.

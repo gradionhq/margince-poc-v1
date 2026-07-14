@@ -93,6 +93,10 @@ export const DataTab: Story = {
   render: tab("data", { "GET /me": me }),
 };
 
+export const CatalogTab: Story = {
+  render: tab("catalog", { "GET /me": me }),
+};
+
 export const PrivacyTab: Story = {
   render: tab("privacy", { "GET /me": me }),
 };

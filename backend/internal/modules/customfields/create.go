@@ -43,7 +43,7 @@ func lockTimedOut(err error) bool {
 // structural request, derives slug/column_name, and then commits the
 // physical column + the catalog row + one audit entry in ONE transaction
 // on the owner-privileged schema pool — Postgres transactional DDL makes
-// the three land or roll back together (decisions/0024).
+// the three land or roll back together.
 //
 // Deliberately NOT database.WithWorkspaceTx: that helper runs on the app
 // pool, whose margince_app role carries DML-only grants and cannot ALTER
@@ -219,7 +219,7 @@ func serializeSchemaChange(ctx context.Context, tx pgx.Tx, object string) error 
 	return nil
 }
 
-// refuseTakenColumn is the decisions/0024 collision answer, decided
+// refuseTakenColumn is the collision answer, decided
 // under the advisory lock BEFORE the ALTER: the per-workspace unique
 // indexes cannot see that the physical column namespace on the shared
 // table is global. A live column with a catalog row in THIS workspace is
