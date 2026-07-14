@@ -39,6 +39,15 @@ export const de = {
   "history.title": "Verlauf",
   "history.empty": "Keine Änderungen erfasst",
   "history.onBehalfOf": "im Auftrag von {name}",
+  "history.fieldEmpty":
+    "Beim Anlegen gesetzt und nie geändert — der Audit-Log verzeichnet keine Bearbeitungen. Ein leerer Verlauf ist ehrlich, keine Lücke.",
+  "history.filterEmpty": "Keine Änderungen entsprechen diesem Filter.",
+  "history.clearFilter": "Filter zurücksetzen",
+  "history.allFields": "Alle Felder",
+  "history.actorAll": "Alle",
+  "history.actorHuman": "Mensch",
+  "history.actorAgent": "Agent",
+  "history.typedByHuman": "von einem Menschen eingetragen",
 
   "confidence.high": "hoch",
   "confidence.med": "mittel",
