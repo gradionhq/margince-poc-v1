@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Icon-glyph gate (ported from the foundation skeleton): UI glyphs are
+# Icon-glyph gate: UI glyphs are
 # lucide-react only — no emoji/pictographic Unicode in rendered frontend
 # code. The sanctioned 🟢/🟡 autonomy semantics render through the CSS .dot
 # component (design-system/trust.tsx AutonomyDot), never as text glyphs.

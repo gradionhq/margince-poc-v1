@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Jurisdiction-isolation gate (adapted from the foundation skeleton). A
+# Jurisdiction-isolation gate. A
 # fitness function for the pack boundary: country-specific regulatory
 # identifiers must live in the jurisdiction seam, never in core. Core code
 # that hard-codes a country string cannot be reused across jurisdictions and

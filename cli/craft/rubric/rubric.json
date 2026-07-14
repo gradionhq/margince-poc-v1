@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "source": "specs/quality/craftsmanship.md (foundation architecture/15, ADR-0045/A60)",
+  "source": "specs/quality/craftsmanship.md (architecture/15, ADR-0045/A60)",
   "binds": [
     "Google Go Style Guide",
     "Google Go Style Decisions",

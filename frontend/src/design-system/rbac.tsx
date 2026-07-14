@@ -3,10 +3,9 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Badge } from "./atoms";
 
-// RBAC presentation primitives (ported concepts from the foundation
-// skeleton's shared/ui): how a principal's role and a withheld value read on
-// screen. Presentation ONLY — the server's admission gates are the authority
-// on what a role may do and what the wire discloses.
+// RBAC presentation primitives: how a principal's role and a withheld value
+// read on screen. Presentation ONLY — the server's admission gates are the
+// authority on what a role may do and what the wire discloses.
 
 // The five seeded system roles. A workspace-defined role key
 // outside this set renders as its raw key — honest, never invented copy.

@@ -13,7 +13,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 | `install` | One-shot fresh-worktree setup (frontend deps + Go gate binaries + git hooks). The factory's `worktree-init` runs this by name |
 | `dev` | Full local stack: db-up + migrate + `cmd/api` + API-seed + the Vite SPA, on `http://localhost:5173` (api `:8080`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Reads an optional Anthropic BYOK key from `.env.local` for the live cold-start read-back |
 | `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — stop the stack started by `make dev` and free its ports; `DROP=1` also drops an isolated `margince_dev_<slug>` database |
-| `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is a skeleton-compatible alias) |
+| `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is an alias) |
 | `db-init` | (Re)apply `scripts/db-init.sql` to the running Postgres |
 | `migrate` | Apply core + custom migrations with the owner DSN |
 | `infra-down` | Stop the dev containers but keep the data volumes |

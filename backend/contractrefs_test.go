@@ -3,8 +3,8 @@
 
 package backendarch
 
-// Contract $ref pre-flight as a fitness function (ported from the foundation
-// skeleton's contract-lint). It resolves every local $ref in api/crm.yaml and
+// Contract $ref pre-flight as a fitness function. It resolves every local
+// $ref in api/crm.yaml and
 // fails on a dangling pointer with a precise message. This catches the
 // dangling-ref class of bug — a typo'd component name like `ProblemDetail`
 // where the schema is `Problem` — with a readable error, instead of the

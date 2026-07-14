@@ -41,8 +41,8 @@ ai-routing-local:
 check-backend: check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction
 	$(MAKE) -C backend check
 
-## check — the full merge gate: backend + frontend (matches the skeleton's
-## `check = check-backend check-fe`). check-fe fails if the frontend deps are
+## check — the full merge gate: backend + frontend
+## (`check = check-backend check-fe`). check-fe fails if the frontend deps are
 ## missing, so run `make install` first.
 check: check-backend check-fe
 
@@ -63,8 +63,8 @@ check-q:
 check-go:
 	$(MAKE) -C backend check
 
-## infra-up / infra-down — skeleton-compatible aliases for the dev stack (the
-## factory tooling + its UAT guides call the infra lane by these names). infra-up
+## infra-up / infra-down — aliases for the dev stack (some deploy tooling and
+## UAT guides call the infra lane by these names). infra-up
 ## is `db-up`; infra-down STOPS the containers but keeps the data volumes — use
 ## `make clean` to also drop them.
 infra-up: db-up
@@ -149,7 +149,7 @@ eval:
 	cd backend && go test ./internal/compose -run 'TestColdStartGolden' -v
 
 ## frontend-check — the frontend merge lane. The three token-purity gates
-## (ported from the foundation skeleton) run first: cheap fail-closed greps
+## run first: cheap fail-closed greps
 ## on top of the vitest conformance suite, so the discipline holds even if
 ## the test tree regresses. The gen:api + diff pair is the
 ## TS type-drift gate: src/api/schema.d.ts is generated from crm.yaml, and a

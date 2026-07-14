@@ -3,8 +3,7 @@
 // its modules are fenced by internal/ + depguard + go-arch-lint, never by
 // workspace membership. backend/tools is build tooling only — a separate
 // module so the codegen tool chain's dependencies stay out of the product
-// module's go.mod. cli/craft is the code-craftsmanship gate (ADR-0045),
-// copied from the foundation repo (github.com/gradionhq/margince/cli/craft);
+// module's go.mod. cli/craft is the code-craftsmanship gate (ADR-0045);
 // stdlib-only, run pre-push via .githooks/pre-push. The local dev stack is a
 // plain shell script (scripts/dev.sh, `make dev`) — no Go module of its own.
 go 1.26.5
