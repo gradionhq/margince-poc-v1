@@ -30,6 +30,14 @@
 .wrap.narrow {
   max-width: 780px;
 }
+/* Screens drop content blocks straight into .wrap, which has no row gap, so two
+   stacked top-level cards would otherwise touch. This is the default rhythm so
+   they never do; a screen wanting a different gap sets an inline margin (which
+   wins over this rule). Only direct-child siblings match — nested .card-inset
+   blocks keep their own spacing. */
+.wrap > .card + .card {
+  margin-top: 16px;
+}
 
 /* List header row: the section title grows, the create action sits beside it. */
 .list-head {

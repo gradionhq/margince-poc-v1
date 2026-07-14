@@ -686,7 +686,7 @@ export function CustomFieldsScreen() {
   };
 
   return (
-    <div className="wrap">
+    <div className="wrap cf-screen">
       <SectionHeader title={t("cf.title")} sub={t("cf.subtitle")} />
 
       <fieldset className="cf-objbar" aria-label={t("cf.object")}>

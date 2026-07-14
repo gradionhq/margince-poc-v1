@@ -2,6 +2,15 @@
    their own look; this file owns the object chips, the type grid, the staged
    (writing) tint, the confirm-gate, the refusal banner, and the retired-cell dim. */
 
+/* .wrap is a plain block with no row gap, so space this screen's stacked blocks
+   — the object bar and each card (table, builder, audit) — explicitly, matching
+   the 16px card rhythm used across the app. The fixed toast and the modal are
+   out of flow and deliberately excluded. */
+.cf-screen > .cf-objbar,
+.cf-screen > .card {
+  margin-top: 16px;
+}
+
 .cf-objbar {
   display: flex;
   align-items: center;
