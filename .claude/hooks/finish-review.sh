@@ -159,7 +159,7 @@ if [ "$phase" = "craft" ]; then
 Step 1 — craft static (the deterministic ADR-0045 gate): PASSED.
 
 Step 2 — launch the two review subagents IN PARALLEL (one message, two Agent tool calls):
-  • subagent_type \"craft-reviewer\" — craftsmanship double-check against the dossier at /Users/lars/develop/margince/specs/research/craftsmanship-loved-and-anti-patterns.md
+  • subagent_type \"craft-reviewer\" — craftsmanship double-check against the CLAUDE.md craftsmanship rules
   • subagent_type \"security-redteam\" — adversarial security / tenant-isolation review of the diff
 
 Both review the backend files this session changed and report findings; they do not edit. When they return, apply every confirmed finding, then finish. (If your fixes change those files, craft static and this review will re-run on the new code — that is intended.)"

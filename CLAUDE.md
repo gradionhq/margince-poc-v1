@@ -9,20 +9,19 @@ repo (see below); this code is built **from** that spec, contract-first.
 
 ## Where the spec is (read before building)
 
-The normative spec is the sibling repo, at **`../margince/specs/`**
-(absolute: `/Users/lars/develop/margince/specs/`; renamed from
-`margince specs/` — no space — on 2026-07-04).
+The normative spec is a separate sibling repo; its key trees (paths
+relative to the spec repo root):
 
-- **`../margince/specs/spec/README.md`** — live status + reading order; the
+- **`spec/README.md`** — live status + reading order; the
   "Continue here" block is the canonical spec-side pickup point.
-- **`../margince/specs/spec/contract/`** — implementation source-of-truth:
+- **`spec/contract/`** — implementation source-of-truth:
   `crm.yaml` (OpenAPI 3.1), `data-model.md`, `events.md`, `interfaces.md` (incl. the
   §0 error-sentinel registry), `ai-operational-spec.md`, `formulas-and-rules.md`.
-- **`../margince/specs/spec/architecture/`** — the build blueprint (`00`–`13`);
+- **`spec/architecture/`** — the build blueprint (`00`–`13`);
   `11-conventions.md` is the style guide.
-- **`../margince/specs/spec/product/build-backlog/`** — the 701-leaf V1 ticket
+- **`spec/product/build-backlog/`** — the 701-leaf V1 ticket
   breakdown this repo is working through.
-- **`../margince/specs/spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
+- **`spec/decisions/`** — `DECISIONS.md` (locked) + `ADR-*.md`;
   **ADR-0054/A69** mandates this repo's layout (amended 2026-07-04 —
   cmd shape + §9 single-tx exception; full record in
   decisions/0011).
@@ -30,13 +29,13 @@ The normative spec is the sibling repo, at **`../margince/specs/`**
 **Contract-first (principle P3): when this code and the spec disagree, the spec wins.**
 Product name **Margince** is locked; older docs say "Gradion CRM" — same product.
 The spec is under active cleanup by another session: some docs still show the old
-`crm-*` layout. Don't edit the spec from here — jot discrepancies as local
-notes in `feedback/` (git-ignored, not committed).
+`crm-*` layout. Don't edit the spec from here — raise discrepancies for
+upstream reconciliation.
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the session-pickup
 point; update it at the end of every working session. Route findings as you work:
-implementation decisions → decisions/; spec/ticket defects → a local note
-in `feedback/` (git-ignored session scratch — see [feedback/README.md](feedback/README.md)).
+implementation decisions → decisions/; spec/ticket defects are reconciled
+upstream against the spec (contract-first, P3), never worked around in this source.
 
 ## Build / test / seed
 
