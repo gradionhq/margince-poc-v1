@@ -319,10 +319,12 @@ function BriefSection() {
 
 export function HomeScreen() {
   const t = useT();
-  // Approving from the morning brief mints an approval_token too; catch it at
-  // screen level (the row unmounts on the pending invalidation) — same shared
-  // sink InboxScreen uses, so the "shown once" token is never lost on Home.
-  const { onApproved, tokenModal } = useApprovalTokenSink();
+  // Approving from the morning brief mints an approval_token and can 409
+  // already_decided too; both must survive the row's unmount (pending
+  // invalidation), so Home uses the same shared sink InboxScreen does — the
+  // "shown once" token AND the honest already-decided note show on Home too.
+  const { onApproved, onAlreadyDecided, tokenModal, decidedNote } =
+    useApprovalTokenSink();
   const approvalsQuery = usePendingApprovals();
   const dealsQuery = useQuery({
     queryKey: ["deals"],
@@ -347,6 +349,9 @@ export function HomeScreen() {
   return (
     <div className="wrap narrow">
       <SectionHeader title={t("home.brief")} sub={t("home.sub")} />
+      {/* Screen-level so it survives the approved/decided row (and its whole
+          section) unmounting on the pending invalidation. */}
+      {decidedNote}
       <QueryGate query={approvalsQuery} empty={() => false}>
         {(approvals) =>
           approvals.data.length > 0 ? (
@@ -360,6 +365,7 @@ export function HomeScreen() {
                   key={approval.id}
                   approval={approval}
                   onApproved={onApproved}
+                  onAlreadyDecided={onAlreadyDecided}
                 />
               ))}
             </section>

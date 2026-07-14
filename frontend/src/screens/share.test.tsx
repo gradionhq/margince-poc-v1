@@ -44,6 +44,13 @@ const usersPage = {
   data: [
     { id: "u-1", display_name: "Priya Shah", email: "priya@example.com" },
     { id: "u-2", display_name: "Mor Adler", email: "mor@example.com" },
+    // An agent seat — must NOT be offered as a share subject (spec §2.1).
+    {
+      id: "u-agent",
+      display_name: "SDR Bot",
+      email: "bot@example.com",
+      is_agent: true,
+    },
   ],
   page: { next_cursor: null, has_more: false },
 };
@@ -163,6 +170,17 @@ describe("ShareScreen", () => {
       reason: "Deal-desk review",
     });
     expect((posted as Record<string, unknown>).expires_at).toBeDefined();
+  });
+
+  it("excludes agent seats from the subject picker (spec §2.1)", async () => {
+    installBaseFetch();
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+
+    // A human roster member is a selectable subject…
+    await screen.findByRole("button", { name: /Priya Shah/ });
+    // …but the agent seat (is_agent) is never offered as one.
+    expect(screen.queryByRole("button", { name: /SDR Bot/ })).toBeNull();
+    expect(screen.queryByText("SDR Bot")).toBeNull();
   });
 
   it("disables a subject who already has a grant on this record", async () => {

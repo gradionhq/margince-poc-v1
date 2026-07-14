@@ -165,12 +165,16 @@ function ShareScreenBody({
   );
 
   const roster: RosterSubject[] = useMemo(() => {
-    const users = ((usersQuery.data ?? []) as User[]).map((u) => ({
-      id: u.id,
-      name: u.display_name,
-      note: u.email,
-      kind: "user" as const,
-    }));
+    // Agent seats carry is_agent (spec §2.1) precisely so the share picker
+    // excludes them — a record is shared with people/teams, never an agent.
+    const users = ((usersQuery.data ?? []) as User[])
+      .filter((u) => !u.is_agent)
+      .map((u) => ({
+        id: u.id,
+        name: u.display_name,
+        note: u.email,
+        kind: "user" as const,
+      }));
     const teams = ((teamsQuery.data ?? []) as Team[]).map((team) => ({
       id: team.id,
       name: team.name,

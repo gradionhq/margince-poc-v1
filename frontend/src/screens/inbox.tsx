@@ -355,23 +355,48 @@ function TokenOnceModal({
   );
 }
 
-// Shared token sink (AC-4, cross-surface): owns the once-shown token state and
-// renders the screen-level TokenOnceModal. BOTH InboxScreen and HomeScreen
-// consume it so approving from either surface catches the minted token — the
-// modal must NOT live in ApprovalRow (it unmounts on the pending invalidation).
+// Shared decision sink (AC-4/AC-6, cross-surface): owns the screen-level state
+// that must OUTLIVE the row that triggered it (a decide invalidates the
+// pending list, unmounting the row) — the once-shown approval token and the
+// "already decided by someone else" note. BOTH InboxScreen and HomeScreen
+// consume it so either surface catches the minted token AND shows the honest
+// already-decided note; neither may live in ApprovalRow (it unmounts).
 export function useApprovalTokenSink(): {
   onApproved: (approvalId: string, token: string) => void;
+  onAlreadyDecided: () => void;
   tokenModal: ReactNode;
+  decidedNote: ReactNode;
 } {
+  const t = useT();
   const [token, setToken] = useState<string | null>(null);
+  const [alreadyDecided, setAlreadyDecided] = useState(false);
   const onApproved = useCallback(
     (_approvalId: string, minted: string) => setToken(minted),
     [],
   );
+  const onAlreadyDecided = useCallback(() => setAlreadyDecided(true), []);
   const tokenModal = (
     <TokenOnceModal token={token} onClose={() => setToken(null)} />
   );
-  return { onApproved, tokenModal };
+  const decidedNote = alreadyDecided ? (
+    <div
+      className="card card-inset"
+      style={{
+        marginTop: 12,
+        display: "flex",
+        gap: 8,
+        alignItems: "center",
+      }}
+    >
+      <p className="t-caption" style={{ color: "var(--danger)", flex: 1 }}>
+        {t("inbox.alreadyDecided")}
+      </p>
+      <Button small onClick={() => setAlreadyDecided(false)}>
+        {t("inbox.dismiss")}
+      </Button>
+    </div>
+  ) : null;
+  return { onApproved, onAlreadyDecided, tokenModal, decidedNote };
 }
 
 export function ApprovalRow({
@@ -632,8 +657,8 @@ export function InboxScreen() {
   // decide invalidates the pending list, unmounting the row): the once-shown
   // approval token (AC-4, via the shared sink) and the "already decided by
   // someone else" note (AC-6).
-  const { onApproved, tokenModal } = useApprovalTokenSink();
-  const [alreadyDecided, setAlreadyDecided] = useState(false);
+  const { onApproved, onAlreadyDecided, tokenModal, decidedNote } =
+    useApprovalTokenSink();
   const pendingQuery = usePendingApprovals();
   const decidedQuery = useDecidedApprovals(tab === "decided");
   const query = tab === "pending" ? pendingQuery : decidedQuery;
@@ -649,24 +674,7 @@ export function InboxScreen() {
           decided: t("inbox.tab.decided"),
         }}
       />
-      {alreadyDecided && (
-        <div
-          className="card card-inset"
-          style={{
-            marginTop: 12,
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <p className="t-caption" style={{ color: "var(--danger)", flex: 1 }}>
-            {t("inbox.alreadyDecided")}
-          </p>
-          <Button small onClick={() => setAlreadyDecided(false)}>
-            {t("inbox.dismiss")}
-          </Button>
-        </div>
-      )}
+      {decidedNote}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (
           <div style={{ marginTop: 12 }}>
@@ -676,7 +684,7 @@ export function InboxScreen() {
                 approval={approval}
                 decided={tab === "decided"}
                 onApproved={onApproved}
-                onAlreadyDecided={() => setAlreadyDecided(true)}
+                onAlreadyDecided={onAlreadyDecided}
               />
             ))}
           </div>

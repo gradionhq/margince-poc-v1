@@ -220,4 +220,42 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(screen.getByText("tok_home_42")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   });
+
+  // AC-6 cross-surface: a 409 already_decided from a Home-rendered row must
+  // show the honest screen-level note (same shared sink as InboxScreen), not
+  // drop the row silently.
+  it("shows the already-decided note at screen level when a Home approve 409s", async () => {
+    let decidedElsewhere = false;
+    const staged = {
+      id: "ap-h2",
+      workspace_id: "w",
+      kind: "send_email",
+      status: "pending",
+      proposed_by: "agent:runner",
+      summary: "Send the Home follow-up",
+      proposed_change: { subject: "Hi" },
+      created_at: "2026-07-05T05:00:00Z",
+    };
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /approvals": () =>
+        jsonResponse({ data: decidedElsewhere ? [] : [staged] }),
+      "POST /approvals/ap-h2/approve": () => {
+        decidedElsewhere = true;
+        return jsonResponse(
+          { title: "Conflict", code: "already_decided" },
+          409,
+        );
+      },
+    });
+    render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await userEvent.click(screen.getByRole("button", { name: "Accept" }));
+    // Stale row leaves…
+    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    // …and the honest note is surfaced at screen level (not a silent drop).
+    expect(
+      screen.getByText("Already decided — nothing left to do here."),
+    ).toBeTruthy();
+  });
 });
