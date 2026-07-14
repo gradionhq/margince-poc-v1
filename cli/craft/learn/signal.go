@@ -1,5 +1,5 @@
 // Package learn captures the craftsmanship gate's learning signals and the
-// dispute-adjudication queue (foundation architecture/17). The signals feed the
+// dispute-adjudication queue (architecture/17). The signals feed the
 // exemplar memory (B-EP11.8a) and the golden set (B-EP11.6); adjudications are the
 // gold signal because they sit on the decision boundary.
 //

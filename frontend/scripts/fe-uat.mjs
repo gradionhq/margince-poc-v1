@@ -3,7 +3,7 @@
 // no live stack, no DB. It is a GATE: it fails on a render error, on a changed
 // component that has no story, and on a changed story the build does not
 // register — and writes a machine-readable manifest a UAT runner can consume.
-// Ported from the foundation skeleton, adapted to this repo's plain frontend/.
+// Built for this repo's plain frontend/.
 //
 // Usage: node frontend/scripts/fe-uat.mjs [--allow-missing]
 //   --allow-missing  do not fail when a changed component has no story yet

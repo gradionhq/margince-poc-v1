@@ -22,9 +22,17 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
-**Skeleton-baseline batch** — this repo is being groomed into the
+**Craft gate de-vendored** — `cli/craft` is now a first-class, locally-owned
+part of this repo rather than a hash-pinned vendored copy: the
+`craft-manifest.sha256` hash pin, the `craft-drift`/`craft-sync` targets,
+and all "vendored / hash-pinned / fix upstream" language are gone (its own
+Go tests gate its behaviour). `infra/branch-protection.json` and its
+wiring fitness test were retired with it; live GitHub branch protection
+remains the enforcement.
+
+**OSS-baseline batch** — this repo is being groomed into the
 baseline for the official open-source Margince repository, absorbing the
-tooling and gate suite the foundation skeleton carries. Merged so far:
+tooling and gate suite the baseline needs. Merged so far:
 
 - **PR A** — craft gate v3, SHA-pinned GitHub Actions + an image-pin
   gate, `concurrency:` cancel groups, `.env.template`, `make tools`
@@ -193,7 +201,7 @@ Open work, roughly in priority order:
   under the NoOp/Fixture seams; essential the moment a real extractor
   (riding `modules/ai`) reads unvetted content.
 - **§0 baseline ratification** (founder decision): confirm this repo as
-  the OSS baseline and reconcile the foundation spec tree with this
+  the OSS baseline and reconcile the spec tree with this
   repo's actual architecture. Until it lands, the docs refer to the spec
   as "a separate spec repo" without a literal path; they gain a concrete
   public spec URL once the canonical public spec home is decided.

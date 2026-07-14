@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# RLS store-path gate (adapted from the foundation skeleton to this repo's
-# WithWorkspaceTx seam). The dev/app pool runs as a superuser role that
+# RLS store-path gate for this repo's WithWorkspaceTx seam.
+# The dev/app pool runs as a superuser role that
 # BYPASSES FORCE RLS, so a per-workspace statement issued against the bare
 # pool has ZERO tenant isolation — the `WHERE workspace_id=$1` predicate is
 # not a substitute. Every per-workspace statement must run inside

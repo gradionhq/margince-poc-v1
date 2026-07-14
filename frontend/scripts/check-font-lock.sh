@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Font-lock gate (ported from the foundation skeleton): the three-family type
+# Font-lock gate: the three-family type
 # rule (design §2) — every font-family declaration under frontend/src names
 # only Outfit (display), DM Sans (body), or JetBrains Mono (mono).
 #
