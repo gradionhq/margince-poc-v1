@@ -1,0 +1,7 @@
+/* RecordHistory (B-EP09.x): the standalone per-record plain-language change
+ * list. Reuses the .timeline/.tl-* rhythm from design-system/composed.css;
+ * this file only adds the bits specific to this panel. */
+
+.history-onbehalf {
+  color: var(--textMeta);
+}

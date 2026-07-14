@@ -36,6 +36,9 @@ export const de = {
   "history.created": "— angelegt —",
   "history.cleared": "— geleert —",
   "history.passport": "Agent-Passport",
+  "history.title": "Verlauf",
+  "history.empty": "Keine Änderungen erfasst",
+  "history.onBehalfOf": "im Auftrag von {name}",
 
   "confidence.high": "hoch",
   "confidence.med": "mittel",

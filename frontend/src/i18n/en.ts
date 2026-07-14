@@ -33,6 +33,9 @@ export const en = {
   "history.created": "— created —",
   "history.cleared": "— cleared —",
   "history.passport": "Agent passport",
+  "history.title": "History",
+  "history.empty": "No changes recorded",
+  "history.onBehalfOf": "on behalf of {name}",
 
   "confidence.high": "high",
   "confidence.med": "medium",
