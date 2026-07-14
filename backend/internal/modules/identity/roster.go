@@ -156,7 +156,7 @@ func decodeRosterCursor(token *string) (rosterCursor, error) {
 // (never a concatenated WHERE), and truncate the (limit+1)-row window into
 // a page + continuation cursor. Generic over the row type so ListUsers and
 // ListTeams share this instead of carrying two copies of the same plumbing.
-func listRosterPage[T any](
+func listRosterPage[T userRow | teamRow](
 	ctx context.Context, pool *pgxpool.Pool,
 	q, cursor *string, limitIn *int,
 	plainQuery, filteredQuery string,
@@ -169,7 +169,7 @@ func listRosterPage[T any](
 		return nil, storekit.Page{}, err
 	}
 
-	var out []T
+	var pageRows []T
 	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		var rows pgx.Rows
 		var err error
@@ -183,21 +183,21 @@ func listRosterPage[T any](
 		}
 		defer rows.Close()
 		for rows.Next() {
-			v, err := scan(rows)
+			row, err := scan(rows)
 			if err != nil {
 				return err
 			}
-			out = append(out, v)
+			pageRows = append(pageRows, row)
 		}
 		return rows.Err()
 	})
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	if len(out) <= limit {
-		return out, storekit.Page{}, nil
+	if len(pageRows) <= limit {
+		return pageRows, storekit.Page{}, nil
 	}
-	out = out[:limit]
-	createdAt, id := cursorKey(out[len(out)-1])
-	return out, storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(createdAt, id)}, nil
+	pageRows = pageRows[:limit]
+	createdAt, id := cursorKey(pageRows[len(pageRows)-1])
+	return pageRows, storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(createdAt, id)}, nil
 }
