@@ -4,8 +4,11 @@
 # (env fallback MARGINCE_AI_ROUTING). Unset, the AI lanes simply do not
 # start; core CRUD and auth work normally.
 #
-# backend/ai-routing.yaml is the terse dev default this repo ships; this file
-# is the annotated reference. The parser (modules/ai/routing.go) rejects
+# `make install` / `make dev` copy this template to a gitignored
+# config/ai-routing.yaml — each engineer edits that local copy to bind their own
+# models. This file is the committed annotated reference and the copy source; to
+# reset a local config, delete config/ai-routing.yaml and re-run either target.
+# The parser (modules/ai/routing.go) rejects
 # unknown keys and unknown tier names — a typo fails at STARTUP, never on the
 # first model call.
 #

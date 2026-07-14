@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
+.PHONY: help install ai-routing-local check check-backend check-q check-go check-fe build test test-v test-cover test-integration test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift db-up db-init db-wait migrate migrate-up migrate-down run psql tidy dev dev-stop clean eval tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue craft-drift craft-sync check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction hooks
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -23,8 +23,16 @@ help:
 ## this by name): frontend deps + the Go gate binaries + the repo git hooks.
 ## Idempotent; extend here as new setup steps are needed. A fresh worktree can
 ## run `make check` / `make dev` immediately after.
-install: fe-install tools hooks
-	@echo "install: worktree ready (frontend deps + gate tools + hooks)"
+install: fe-install tools hooks ai-routing-local
+	@echo "install: worktree ready (frontend deps + gate tools + hooks + local ai-routing)"
+
+## ai-routing-local — seed the gitignored per-engineer config/ai-routing.yaml
+## from the committed template on first run; never clobbers an existing copy.
+ai-routing-local:
+	@test -f config/ai-routing.yaml || { \
+		cp config/ai-routing.example.yaml config/ai-routing.yaml; \
+		echo "ai-routing-local: seeded config/ai-routing.yaml from config/ai-routing.example.yaml — edit it to bind local models"; \
+	}
 
 ## check-backend — the backend half of the gate: the root deterministic script
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness

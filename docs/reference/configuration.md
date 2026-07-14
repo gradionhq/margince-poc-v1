@@ -155,5 +155,7 @@ Model credentials (BYOK cloud tiers) are configured in
 `ai-routing.yaml`, not through binary flags. The annotated reference is
 [`config/ai-routing.example.yaml`](../../config/ai-routing.example.yaml)
 (kept parseable by the fitness test in
-`backend/internal/modules/ai/exampleconfig_test.go`);
-`backend/ai-routing.yaml` is the terse dev default the repo ships.
+`backend/internal/modules/ai/exampleconfig_test.go`). `make install` /
+`make dev` copy it to a gitignored `config/ai-routing.yaml` — the
+per-engineer local config each engineer edits to bind their own models;
+delete it and re-run either target to reset.
