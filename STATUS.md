@@ -24,10 +24,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 **Skeleton-baseline batch** — this repo is being groomed into the
 baseline for the official open-source Margince repository, absorbing the
-tooling and gate suite the foundation skeleton carries. The classified
-delta and sequencing live in
-[docs/worklists/skeleton-baseline-2026-07-09.md](docs/worklists/skeleton-baseline-2026-07-09.md).
-Merged so far:
+tooling and gate suite the foundation skeleton carries. Merged so far:
 
 - **PR A** — craft gate v3, SHA-pinned GitHub Actions + an image-pin
   gate, `concurrency:` cancel groups, `.env.template`, `make tools`
@@ -211,7 +208,7 @@ Open work, roughly in priority order:
   job. (River shipped in #35, the blobstore seam in the prior batch, the
   keyvault seam in this one. The embedded SPA is retired — the API binary
   serves `/v1` only; the web UI is served separately.)
-- **Frontend DECISION items** from worklist §1d: router migration and a
+- **Frontend DECISION items**: router migration and a
   Storybook/component-test lane — adopt when the design system
   stabilizes, not before.
 - **Publication mechanics** (founder decision): whether to publish full
