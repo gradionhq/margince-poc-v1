@@ -1,6 +1,6 @@
 /* Scoped styles for the custom-fields admin screen. Layout only — atoms carry
    their own look; this file owns the object chips, the type grid, the staged
-   (writing…) tint, the 🟡 gate, the refusal banner, and the retired-cell dim. */
+   (writing) tint, the confirm-gate, the refusal banner, and the retired-cell dim. */
 
 .cf-objbar {
   display: flex;

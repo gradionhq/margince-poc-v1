@@ -785,10 +785,11 @@ export const en = {
   "cf.removeOption": "Remove option",
   "cf.optionPlaceholder": "Option label",
   "cf.lastOptionBlocked": "A picklist needs at least one option",
-  "cf.gate.title": "🟡 Adding a field is gated.",
+  "cf.gate.title": "Adding a field is gated.",
   "cf.gate.body":
     "On confirm it becomes a live column on every {object} — on the 360, in search & filters, lists, export, and the API. The add is written to the audit trail.",
-  "cf.refuse.title": "That looks like a new object or relationship, not a field.",
+  "cf.refuse.title":
+    "That looks like a new object or relationship, not a field.",
   "cf.refuse.body":
     "This builder adds simple fields to existing records only. A new object, a link between objects, or a calculated roll-up is a structural change — it ships as a reviewed change to Margince in a new version, done by people, not by the product editing its own code.",
   "cf.refuse.route":
@@ -797,14 +798,14 @@ export const en = {
   "cf.reset": "Reset",
   "cf.guardNoLabel": "Give the field a label first",
   "cf.writing": "writing…",
-  "cf.added": "Field \"{label}\" added — live on 360, filters, export & API",
+  "cf.added": 'Field "{label}" added — live on 360, filters, export & API',
   "cf.edit": "Edit label",
   "cf.editOptions": "Edit options",
   "cf.archive": "Archive field",
   "cf.archived":
-    "\"{label}\" archived — hidden from new records, retained in audit & history (reversible)",
+    '"{label}" archived — hidden from new records, retained in audit & history (reversible)',
   "cf.renamePrompt": "New label",
-  "cf.renamed": "Renamed to \"{label}\"",
+  "cf.renamed": 'Renamed to "{label}"',
   "cf.audit.title": "Recent field changes",
   "cf.audit.empty": "No custom-field changes yet.",
   "cf.audit.footer":

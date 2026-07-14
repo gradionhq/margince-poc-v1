@@ -802,7 +802,7 @@ export const de = {
   "cf.removeOption": "Option entfernen",
   "cf.optionPlaceholder": "Optionsbezeichnung",
   "cf.lastOptionBlocked": "Eine Auswahlliste braucht mindestens eine Option",
-  "cf.gate.title": "🟡 Ein Feld hinzuzufügen ist bestätigungspflichtig.",
+  "cf.gate.title": "Ein Feld hinzuzufügen ist bestätigungspflichtig.",
   "cf.gate.body":
     "Bei Bestätigung wird es zu einer Live-Spalte auf jedem {object} — auf der 360, in Suche & Filtern, Listen, Export und der API. Das Hinzufügen wird im Audit-Trail festgehalten.",
   "cf.refuse.title":
@@ -816,14 +816,14 @@ export const de = {
   "cf.guardNoLabel": "Gib dem Feld zuerst eine Bezeichnung",
   "cf.writing": "wird geschrieben…",
   "cf.added":
-    "Feld \"{label}\" hinzugefügt — live auf 360, Filtern, Export & API",
+    'Feld "{label}" hinzugefügt — live auf 360, Filtern, Export & API',
   "cf.edit": "Bezeichnung bearbeiten",
   "cf.editOptions": "Optionen bearbeiten",
   "cf.archive": "Feld archivieren",
   "cf.archived":
-    "\"{label}\" archiviert — aus neuen Datensätzen ausgeblendet, in Audit & Historie behalten (umkehrbar)",
+    '"{label}" archiviert — aus neuen Datensätzen ausgeblendet, in Audit & Historie behalten (umkehrbar)',
   "cf.renamePrompt": "Neue Bezeichnung",
-  "cf.renamed": "Umbenannt in \"{label}\"",
+  "cf.renamed": 'Umbenannt in "{label}"',
   "cf.audit.title": "Letzte Feldänderungen",
   "cf.audit.empty": "Noch keine Änderungen an benutzerdefinierten Feldern.",
   "cf.audit.footer":

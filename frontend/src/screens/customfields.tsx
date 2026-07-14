@@ -20,6 +20,7 @@ import {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import {
   canManageCustomFields,
@@ -228,7 +229,7 @@ export function FieldBuilder({
       )}
 
       <div className="cf-gate">
-        <strong>{t("cf.gate.title")}</strong>
+        <AutonomyDot tier="confirm" /> <strong>{t("cf.gate.title")}</strong>
         <p>{t("cf.gate.body", { object })}</p>
         <code className="cf-ddl">
           {ddlPreview(object, label, type, currency)}
