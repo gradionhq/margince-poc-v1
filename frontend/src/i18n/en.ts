@@ -389,8 +389,10 @@ export const en = {
   "inbox.tab.decided": "Decided",
   "inbox.rejectReason": "Reason",
   "inbox.rejectReasonHint": "Shared with the person this was staged for.",
+  "inbox.tokenTitle": "Approval token",
   "inbox.tokenOnce": "Copy it now — you'll only see this token once.",
   "inbox.copy": "Copy",
+  "inbox.copied": "Copied",
   "inbox.tokenDone": "Done",
   "inbox.dismiss": "Dismiss",
   "inbox.versionSkew":

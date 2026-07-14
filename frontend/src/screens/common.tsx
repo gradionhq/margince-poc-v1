@@ -1,9 +1,4 @@
-import {
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api, workspaceSlug } from "../api/client";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
@@ -72,12 +67,24 @@ export function canManageCustomFields(
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
+// The minimal read surface QueryGate needs. A real react-query
+// `UseQueryResult<Data>` is structurally assignable to it, and a hook that
+// MERGES several queries (e.g. the decided-approvals fan-out) can return a
+// plain object of this shape — no `as unknown as UseQueryResult` lie required.
+export interface QueryLike<Data> {
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  data: Data | undefined;
+  refetch: () => unknown;
+}
+
 export function QueryGate<Data>({
   query,
   empty,
   children,
 }: Readonly<{
-  query: UseQueryResult<Data>;
+  query: QueryLike<Data>;
   empty?: (data: Data) => boolean;
   children: (data: Data) => ReactNode;
 }>) {
@@ -104,10 +111,13 @@ export function QueryGate<Data>({
       </EmptyState>
     );
   }
-  if (empty?.(query.data)) {
+  // Past the pending/error guards data is present; QueryLike isn't a
+  // discriminated union so TS can't narrow it — assert it defensively.
+  const data = query.data;
+  if (data === undefined || empty?.(data)) {
     return <EmptyState>{t("common.empty")}</EmptyState>;
   }
-  return <>{children(query.data)}</>;
+  return <>{children(data)}</>;
 }
 
 // captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".

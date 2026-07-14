@@ -182,4 +182,42 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
       ).toBeTruthy(),
     );
   });
+
+  // AC-4 cross-surface: approving a morning-brief row mints an approval_token
+  // too. The row unmounts on the pending invalidation, so the token must be
+  // caught at screen level (the shared useApprovalTokenSink) on Home as well —
+  // not just InboxScreen.
+  it("surfaces the minted token at screen level when approving a Home-rendered row, surviving the refetch", async () => {
+    let approved = false;
+    const staged = {
+      id: "ap-h1",
+      workspace_id: "w",
+      kind: "send_email",
+      status: "pending",
+      proposed_by: "agent:runner",
+      summary: "Send the Home follow-up",
+      proposed_change: { subject: "Hi" },
+      created_at: "2026-07-05T05:00:00Z",
+    };
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /approvals": () => jsonResponse({ data: approved ? [] : [staged] }),
+      "POST /approvals/ap-h1/approve": () => {
+        approved = true;
+        return jsonResponse({
+          ...staged,
+          status: "approved",
+          approval_token: "tok_home_42",
+        });
+      },
+    });
+    render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await userEvent.click(screen.getByRole("button", { name: "Accept" }));
+    // The approved row leaves the pending list on refetch…
+    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    // …but the once-shown token stays visible + copyable at screen level.
+    expect(screen.getByText("tok_home_42")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+  });
 });

@@ -13,6 +13,12 @@ export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
+    // A non-positive interval disables the clock: the caller doesn't render
+    // anything time-dependent (e.g. a read-only row), so there is no reason to
+    // re-render every tick. `now` stays pinned at its mount value.
+    if (intervalMs <= 0) {
+      return;
+    }
     const id = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);

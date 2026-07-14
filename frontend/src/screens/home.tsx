@@ -20,7 +20,11 @@ import { formatDateTime, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate } from "./common";
-import { ApprovalRow, usePendingApprovals } from "./inbox";
+import {
+  ApprovalRow,
+  useApprovalTokenSink,
+  usePendingApprovals,
+} from "./inbox";
 import "./home.css";
 
 // Home / Morning Brief (B-EP09.12b on the E05 spine): the persisted /brief
@@ -315,6 +319,10 @@ function BriefSection() {
 
 export function HomeScreen() {
   const t = useT();
+  // Approving from the morning brief mints an approval_token too; catch it at
+  // screen level (the row unmounts on the pending invalidation) — same shared
+  // sink InboxScreen uses, so the "shown once" token is never lost on Home.
+  const { onApproved, tokenModal } = useApprovalTokenSink();
   const approvalsQuery = usePendingApprovals();
   const dealsQuery = useQuery({
     queryKey: ["deals"],
@@ -348,7 +356,11 @@ export function HomeScreen() {
                 sub={t("brief.nothingSent")}
               />
               {approvals.data.map((approval) => (
-                <ApprovalRow key={approval.id} approval={approval} />
+                <ApprovalRow
+                  key={approval.id}
+                  approval={approval}
+                  onApproved={onApproved}
+                />
               ))}
             </section>
           ) : null
@@ -383,6 +395,7 @@ export function HomeScreen() {
           </div>
         </section>
       )}
+      {tokenModal}
     </div>
   );
 }

@@ -1,12 +1,7 @@
-import {
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { TriangleAlert } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
-import type { components } from "../api/schema";
 import {
   Badge,
   Button,
@@ -35,6 +30,14 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import {
+  type Approval,
+  useDecidedApprovals,
+  usePendingApprovals,
+} from "./inbox.queries";
+
+// Re-exported so existing consumers (home.tsx) keep importing from "./inbox".
+export { useDecidedApprovals, usePendingApprovals } from "./inbox.queries";
 
 // The approval inbox (B-EP09.12a) — the CANONICAL 🟡 surface. Per-row
 // approve/reject plus the inline staged-draft editor: string fields of the
@@ -44,17 +47,6 @@ import {
 // back as an honest "the world changed, re-stage" row error; a 409
 // already-decided drops the stale row instead of offering a re-stage retry
 // (Task 10, AC-1..7).
-
-type Approval = components["schemas"]["Approval"];
-// The listApprovals contract only accepts these three (crm.yaml: enum
-// [pending, approved, rejected]); "expired" is NOT a queryable filter. The
-// server computes expiry LAZILY at read time (approvals/inbox.go
-// effectiveStatus) — a pending row past its expiry is stored status=pending
-// but WIRED back as status="expired". So there is no status=expired query to
-// issue; expired items ride in on the status=pending response and we
-// re-partition them client-side (Option-1 correction, see the report).
-type ApprovalStatus = "pending" | "approved" | "rejected";
-type ApprovalPage = { data: Approval[] };
 
 export function confidenceLevel(
   confidence: number | null | undefined,
@@ -71,94 +63,32 @@ export function confidenceLevel(
   return "low";
 }
 
-export function useApprovals(status: ApprovalStatus, enabled = true) {
-  return useQuery({
-    queryKey: ["approvals", status],
-    enabled,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/approvals", {
-        params: { query: { status, limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
-}
-
-// The Pending tab: status=pending, but a lazily-expired row (wire
-// status="expired") is DROPPED — it is not actionable, it belongs in
-// Decided (AC-7: expired never listed as pending). Shaped to satisfy
-// QueryGate's UseQueryResult surface without re-rolling its chrome.
-export function usePendingApprovals(): UseQueryResult<ApprovalPage> {
-  const pending = useApprovals("pending");
-  const data: ApprovalPage | undefined = pending.data
-    ? { data: pending.data.data.filter((a) => a.status !== "expired") }
-    : undefined;
-  return { ...pending, data } as unknown as UseQueryResult<ApprovalPage>;
-}
-
-// decided_at is the honest sort key (when the human actually acted); an
-// expired item auto-transitioned with no decided_at, so it falls back to
-// expires_at — never created_at, which would misrepresent an old-but-just-
-// expired item as freshly decided.
-function decidedRank(approval: Approval): number {
-  const at = approval.decided_at ?? approval.expires_at ?? approval.created_at;
-  return at ? new Date(at).getTime() : 0;
-}
-
-// The Decided tab (Option-1 correction): approved + rejected come from their
-// own typed status queries; EXPIRED items cannot be queried (no such filter)
-// so they are salvaged from the status=pending response — the lazily-expired
-// rows the server wires back as status="expired". Merge, newest decision
-// first. Shaped to satisfy QueryGate's UseQueryResult surface without
-// re-rolling the loading/error/empty chrome for a merge of three queries.
-export function useDecidedApprovals(
-  enabled = true,
-): UseQueryResult<ApprovalPage> {
-  // The two decided-only fetches are gated so they don't fire on the default
-  // Pending view; the pending query is always-on (shared cache key with
-  // usePendingApprovals) and supplies the salvaged expired rows.
-  const approved = useApprovals("approved", enabled);
-  const rejected = useApprovals("rejected", enabled);
-  const pending = useApprovals("pending");
-  const all = [approved, rejected, pending];
-  const isPending = all.some((query) => query.isPending);
-  const isError = all.some((query) => query.isError);
-  const firstError = all.find((query) => query.isError)?.error ?? null;
-  const expired = (pending.data?.data ?? []).filter(
-    (a) => a.status === "expired",
-  );
-  const data: ApprovalPage | undefined =
-    isPending || isError
-      ? undefined
-      : {
-          data: [
-            ...(approved.data?.data ?? []),
-            ...(rejected.data?.data ?? []),
-            ...expired,
-          ].sort((a, b) => decidedRank(b) - decidedRank(a)),
-        };
-  const refetch = () => {
-    approved.refetch();
-    rejected.refetch();
-    pending.refetch();
-    return Promise.resolve();
-  };
-  return {
-    isPending,
-    isError,
-    error: firstError,
-    data,
-    refetch,
-  } as unknown as UseQueryResult<ApprovalPage>;
-}
-
 function editableStrings(change: Record<string, unknown>): [string, string][] {
   return Object.entries(change).filter((entry): entry is [string, string] => {
     return typeof entry[1] === "string";
   });
+}
+
+// The per-claim evidence chips, shared by the row and the detail modal (was
+// duplicated verbatim in both). A snippet-less evidence item is dropped.
+function EvidenceList({
+  evidence,
+}: Readonly<{ evidence: Approval["evidence"] }>) {
+  return (
+    <>
+      {evidence?.map((item) =>
+        item.evidence_snippet ? (
+          <EvidenceChip
+            key={`${item.source_id}-${item.evidence_snippet.slice(0, 12)}`}
+            evidence={{
+              snippet: item.evidence_snippet,
+              source: item.source_type ?? "",
+            }}
+          />
+        ) : null,
+      )}
+    </>
+  );
 }
 
 const STATUS_BADGE_KEY: Record<
@@ -175,6 +105,11 @@ const STATUS_BADGE_TONE: Record<string, "success" | "danger" | "warn"> = {
   rejected: "danger",
   expired: "warn",
 };
+// An unexpected status must never yield tone={undefined} (mirrors the label
+// lookup's fallback) — an unknown decided state reads as a neutral warn.
+function statusTone(status: string): "success" | "danger" | "warn" {
+  return STATUS_BADGE_TONE[status] ?? "warn";
+}
 
 // AC-2: the row's "view everything" affordance — the full proposed_change
 // (key→value), evidence, target_version, proposed_by/on_behalf_of and
@@ -243,17 +178,7 @@ function ApprovalDetailModal({
                     </p>
                   </div>
                 ))}
-                {approval.evidence?.map((item) =>
-                  item.evidence_snippet ? (
-                    <EvidenceChip
-                      key={`${item.source_id}-${item.evidence_snippet.slice(0, 12)}`}
-                      evidence={{
-                        snippet: item.evidence_snippet,
-                        source: item.source_type ?? "",
-                      }}
-                    />
-                  ) : null,
-                )}
+                <EvidenceList evidence={approval.evidence} />
                 {meta.map(([key, value]) => (
                   <div className="field" key={key}>
                     <span className="t-label">{key}</span>
@@ -287,7 +212,7 @@ function RowStatusChip({
   const t = useT();
   if (decided) {
     return (
-      <Badge tone={STATUS_BADGE_TONE[status]}>
+      <Badge tone={statusTone(status)}>
         {t(STATUS_BADGE_KEY[status] ?? "inbox.status.expired")}
       </Badge>
     );
@@ -298,12 +223,19 @@ function RowStatusChip({
   if (isExpired) {
     return <Badge tone="danger">{t("inbox.expired")}</Badge>;
   }
+  // TTL as a chip that escalates as expiry nears (mockup's amber→red): warn
+  // under 6h, danger under 1h, neutral beyond — never inert gray text.
+  const remaining = expiresAtMs - now;
+  const urgency =
+    remaining < 60 * 60 * 1000
+      ? "danger"
+      : remaining < 6 * 60 * 60 * 1000
+        ? "warn"
+        : undefined;
   return (
-    <span className="t-small">
-      {t("inbox.expiresIn", {
-        countdown: formatCountdown(expiresAtMs - now, t),
-      })}
-    </span>
+    <Badge tone={urgency}>
+      {t("inbox.expiresIn", { countdown: formatCountdown(remaining, t) })}
+    </Badge>
   );
 }
 
@@ -350,28 +282,70 @@ function DecideOutcome({
 }
 
 // The screen-level "shown once" approval-token surface (AC-4). Rendered by
-// InboxScreen — NOT the row — so the pending invalidation that unmounts the
-// just-approved row cannot take the token with it.
+// InboxScreen/HomeScreen — NOT the row — so the pending invalidation that
+// unmounts the just-approved row cannot take the token with it. This is the
+// most consequential irrecoverable state on the surface, so it leads with a
+// strong heading + a warn-tinted banner, not a small gray caption.
 function TokenOnceModal({
   token,
   onClose,
 }: Readonly<{ token: string | null; onClose: () => void }>) {
   const t = useT();
   const headingId = useId();
+  const [copied, setCopied] = useState(false);
+  // A fresh token clears the previous "copied" acknowledgement (referencing
+  // `token` in the body keeps it a genuine effect dependency).
+  useEffect(() => {
+    if (token != null) {
+      setCopied(false);
+    }
+  }, [token]);
+  const handleCopy = () => {
+    if (!token) {
+      return;
+    }
+    const clip = navigator.clipboard;
+    if (!clip) {
+      setCopied(false);
+      return;
+    }
+    clip.writeText(token).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    );
+  };
   return (
     <Modal open={token != null} onClose={onClose} labelledBy={headingId}>
-      <h2 id={headingId} className="t-label" style={{ marginBottom: 8 }}>
-        {t("inbox.tokenOnce")}
+      <h2
+        id={headingId}
+        className="t-h2"
+        style={{ color: "var(--textPrimary)", marginBottom: 10 }}
+      >
+        {t("inbox.tokenTitle")}
       </h2>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+          background: "var(--warnBg)",
+          border: "1px solid var(--warnBorder)",
+          borderRadius: "var(--r-sm)",
+          padding: "8px 10px",
+          marginBottom: 10,
+        }}
+      >
+        <TriangleAlert size={16} color="var(--warn)" aria-hidden />
+        <span className="t-caption" style={{ color: "var(--warn)" }}>
+          {t("inbox.tokenOnce")}
+        </span>
+      </div>
       <p className="t-mono" style={{ wordBreak: "break-all" }}>
         {token}
       </p>
       <div className="actions">
-        <Button
-          small
-          onClick={() => token && navigator.clipboard?.writeText(token)}
-        >
-          {t("inbox.copy")}
+        <Button small onClick={handleCopy}>
+          {copied ? t("inbox.copied") : t("inbox.copy")}
         </Button>
         <Button small variant="primary" onClick={onClose}>
           {t("inbox.tokenDone")}
@@ -379,6 +353,25 @@ function TokenOnceModal({
       </div>
     </Modal>
   );
+}
+
+// Shared token sink (AC-4, cross-surface): owns the once-shown token state and
+// renders the screen-level TokenOnceModal. BOTH InboxScreen and HomeScreen
+// consume it so approving from either surface catches the minted token — the
+// modal must NOT live in ApprovalRow (it unmounts on the pending invalidation).
+export function useApprovalTokenSink(): {
+  onApproved: (approvalId: string, token: string) => void;
+  tokenModal: ReactNode;
+} {
+  const [token, setToken] = useState<string | null>(null);
+  const onApproved = useCallback(
+    (_approvalId: string, minted: string) => setToken(minted),
+    [],
+  );
+  const tokenModal = (
+    <TokenOnceModal token={token} onClose={() => setToken(null)} />
+  );
+  return { onApproved, tokenModal };
 }
 
 export function ApprovalRow({
@@ -402,7 +395,12 @@ export function ApprovalRow({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [detailOpen, setDetailOpen] = useState(false);
-  const now = useNow(1000);
+  // Only a live pending row with an expiry needs the per-second clock; a
+  // read-only decided row (or one without expires_at) never shows a countdown,
+  // so its interval is disabled — no needless per-second re-renders on long
+  // Decided lists (interval 0 ⇒ useNow does not tick).
+  const needsCountdown = !decided && approval.expires_at != null;
+  const now = useNow(needsCountdown ? 1000 : 0);
 
   const decide = useMutation({
     mutationFn: async (input: {
@@ -503,7 +501,8 @@ export function ApprovalRow({
         }}
       >
         {!decided && <AutonomyDot tier="confirm" />}
-        <span className="t-label">{approval.kind}</span>
+        {/* kind is meta, not the headline — the human reads the summary first */}
+        <span className="t-small">{approval.kind}</span>
         <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />
         {level && <ConfidenceMeter level={level} />}
         <RowStatusChip
@@ -513,22 +512,22 @@ export function ApprovalRow({
           isExpired={isExpired}
           now={now}
         />
-        <Button small onClick={() => setDetailOpen(true)}>
+        {/* lighter, secondary affordance — must not compete with Accept/Reject */}
+        <button
+          type="button"
+          className="link-button"
+          style={{ marginInlineStart: "auto" }}
+          onClick={() => setDetailOpen(true)}
+        >
           {t("inbox.detail")}
-        </Button>
+        </button>
       </div>
-      {approval.summary && <p style={{ marginTop: 8 }}>{approval.summary}</p>}
-      {approval.evidence?.map((item) =>
-        item.evidence_snippet ? (
-          <EvidenceChip
-            key={`${item.source_id}-${item.evidence_snippet.slice(0, 12)}`}
-            evidence={{
-              snippet: item.evidence_snippet,
-              source: item.source_type ?? "",
-            }}
-          />
-        ) : null,
+      {approval.summary && (
+        <p className="t-h2" style={{ marginTop: 8 }}>
+          {approval.summary}
+        </p>
       )}
+      <EvidenceList evidence={approval.evidence} />
       {!decided &&
         (editing ? (
           <div
@@ -600,6 +599,7 @@ export function ApprovalRow({
         onClose={() => setRejecting(false)}
         title={t("inbox.reject")}
         confirmLabel={t("inbox.reject")}
+        confirmVariant="danger"
         pending={decide.isPending}
         onConfirm={confirmReject}
       >
@@ -630,8 +630,9 @@ export function InboxScreen() {
   const [tab, setTab] = useState<"pending" | "decided">("pending");
   // Screen-level surfaces that must outlive the row that triggered them (a
   // decide invalidates the pending list, unmounting the row): the once-shown
-  // approval token (AC-4) and the "already decided by someone else" note (AC-6).
-  const [token, setToken] = useState<string | null>(null);
+  // approval token (AC-4, via the shared sink) and the "already decided by
+  // someone else" note (AC-6).
+  const { onApproved, tokenModal } = useApprovalTokenSink();
   const [alreadyDecided, setAlreadyDecided] = useState(false);
   const pendingQuery = usePendingApprovals();
   const decidedQuery = useDecidedApprovals(tab === "decided");
@@ -674,14 +675,14 @@ export function InboxScreen() {
                 key={approval.id}
                 approval={approval}
                 decided={tab === "decided"}
-                onApproved={(_id, mintedToken) => setToken(mintedToken)}
+                onApproved={onApproved}
                 onAlreadyDecided={() => setAlreadyDecided(true)}
               />
             ))}
           </div>
         )}
       </QueryGate>
-      <TokenOnceModal token={token} onClose={() => setToken(null)} />
+      {tokenModal}
     </div>
   );
 }

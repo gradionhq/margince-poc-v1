@@ -398,8 +398,10 @@ export const de = {
   "inbox.rejectReason": "Begründung",
   "inbox.rejectReasonHint":
     "Wird mit der Person geteilt, für die dies vorgemerkt wurde.",
+  "inbox.tokenTitle": "Freigabe-Token",
   "inbox.tokenOnce": "Jetzt kopieren — dieses Token wird nur einmal angezeigt.",
   "inbox.copy": "Kopieren",
+  "inbox.copied": "Kopiert",
   "inbox.tokenDone": "Fertig",
   "inbox.dismiss": "Schließen",
   "inbox.versionSkew":
