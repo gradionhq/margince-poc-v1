@@ -189,16 +189,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   entity.
 - `internal/contracts/` — GENERATED from `backend/api/crm.yaml`. Never edit.
 - `backend/api/crm.yaml` — the authoritative OpenAPI 3.1 contract.
-- `backend/web/` — the embedded SPA (static, no build chain); served at
-  `/`, talks only to `/v1`. `backend/migrations/core|custom/` — the
-  ADR-0017 namespaces. `modules/<name>/custom/` + `migrations/custom/` —
-  the fork-owned seam: upstream never writes there (ADR-0054 §7).
+- `backend/migrations/core|custom/` — the ADR-0017 namespaces.
+  `modules/<name>/custom/` + `migrations/custom/` — the fork-owned seam:
+  upstream never writes there (ADR-0054 §7).
 - `backend/tools/` — the codegen tool chain (contract-overlay,
   gen-stubs, gen-agentpolicy); its own Go module so the generators'
   dependencies stay out of the product module's go.mod.
-- `frontend/` — an in-flight Vite/React workspace tracked by a parallel
-  session; `make frontend-check` / `make dev`
-  exist at the repo root.
+- `frontend/` — the Vite/React web UI: a standalone static build served
+  separately from the API binary (which serves `/v1` only — no embedded
+  SPA); `make frontend-check` / `make dev` exist at the repo root.
 
 ## DO NOT TOUCH
 

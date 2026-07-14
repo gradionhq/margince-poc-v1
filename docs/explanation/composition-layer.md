@@ -65,7 +65,7 @@ func New(pool, log, opts...) http.Handler {
    "the" response for an idempotency key (the approved retry is the same request under the same key).
 4. **`operationalMux`** mounts the contract surface next to `/healthz`, `/readyz` (role-specific
    dependency probes), `/metrics`, the anonymous `/v1/public/*` edges, the `/oauth` A2 authorization
-   server, and the embedded SPA.
+   server.
 5. The whole thing is wrapped `RecoverPanics → LimitBodies → SecureHeaders`.
 
 ## The workspace-bootstrap seed (one transaction)

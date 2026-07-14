@@ -77,8 +77,9 @@ per-item annotations below are historical context.
   long term (retries/backoff/scheduling/uniqueness/dead-letter/
   observability, Postgres-native). Each seam needs an ADR.
 - **Frontend (§1d)** — (D1) **retire the embedded vanilla SPA**
-  (`backend/web`); make the Vite/React app the single frontend, embed its
-  build output. (D2) **keep the bespoke design system** (not Forge). (D3)
+  (`backend/web`); make the Vite/React app the single frontend, served
+  separately from the API (deployment's choice, not embedded). (D2) **keep
+  the bespoke design system** (not Forge). (D3)
   **keep the hash router** (skip react-router v7 — churn, tech-debt note).
   (D4) **adopt Storybook + component-test lane now.** Reframe: on the
   frontend this repo is AHEAD of the skeleton (19 screens vs 1-page
@@ -280,11 +281,11 @@ Skeleton FE is a scaffold (1 real page) but with better *infrastructure*:
       `@shared/{token,ui}` (Forge); we have a bespoke ~740-LOC design
       system. Which is the product's DS of record? Ties to the foundation's
       web-design-system chapter.
-- [ ] `DECISION` **the second SPA** — `backend/web/static/` (691-line
-      vanilla embedded SPA) duplicates the Vite app's job. For an OSS
-      baseline, two frontends is confusing. Decide: keep as the embedded
-      zero-toolchain fallback (document why) or retire it and embed the
-      Vite build output.
+- [x] `DECISION` **the second SPA** — `backend/web/static/` (the 691-line
+      vanilla embedded SPA) duplicated the Vite app's job. RESOLVED:
+      retired — `backend/web` is deleted, the API binary serves `/v1` only,
+      and the Vite/React app is served separately (how it is hosted is a
+      deployment choice, deliberately left open for the OSS release).
 
 ### 1e. CI / repo hygiene
 

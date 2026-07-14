@@ -107,9 +107,9 @@ pipeline that runs these as required checks:
 and the full flag/env reference live in [docs/](docs/) (tutorials,
 how-to, reference, explanation — see below).
 
-The embedded web UI is a hash-routed, dependency-free SPA served from
-the binary (`backend/web/`), and a plain client of the same `/v1`
-contract as everything else — no backdoors (ADR-0013).
+The web UI is the Vite/React app in `frontend/` — a standalone static
+build served separately from the API binary, and a plain client of the
+same `/v1` contract as everything else — no backdoors (ADR-0013).
 
 Connect an agent (Surface A1): mint a passport (`POST /v1/passports`,
 session-authed), then
@@ -253,11 +253,12 @@ per-client throttling at the proxy.
   itself needs; redemption is single-use, 15-minute window, bound to the
   staging passport and the content hash, refused on target version skew
   (the human's yes was about the world they saw).
-- **Web UI**: login/bootstrap, people, leads (with the
-  promote-on-engagement dialog), the stage-column deal board with
-  advance, and the activity timeline — embedded static SPA, no build
-  chain, design tokens from the spec's design language; security headers
-  (CSP, frame-denial, nosniff) on every response.
+- **Web UI**: the Vite/React app in `frontend/` — login/bootstrap,
+  people, leads (with the promote-on-engagement dialog), the stage-column
+  deal board with advance, the activity timeline, and more — a standalone
+  static build served separately from the API, design tokens from the
+  spec's design language. Security headers (CSP, frame-denial, nosniff)
+  are set on every API response.
 - **Gates**: golangci-lint (incl. depguard module DAG, default-deny for
   the Tier-0 layer) clean; go-arch-lint as a hard gate; leaf-purity and
   interface-freeze fitness tests; the ADR-0055 contract drift-lint; an
