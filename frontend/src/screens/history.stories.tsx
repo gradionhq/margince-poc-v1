@@ -3,14 +3,22 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RecordHistoryTab } from "./history";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  emptyPage,
+  installFetchStub,
+  jsonResponse,
+  StoryProviders,
+} from "./story-utils";
 
 // RecordHistoryTab (B-EP09.x) reads through two endpoints depending on the
-// SegmentedControl toggle — GET /records/{entity_type}/{id}/history (Changes)
-// and GET /field-history (Field history) — both carrying an :id/query-param
-// path openapi-fetch resolves at request time, so exact-key stubbing can't
-// pin them; every story here answers via installFetchStub's `fallback`,
-// which routes any unmatched GET to the fixture the story cares about.
+// SegmentedControl toggle — GET /records/{entity_type}/{id}/history (Changes,
+// the default tab on mount) and GET /field-history (Field history) — both
+// resolving to a static pathname for the kind="deal" id="d1" every story
+// below hardcodes, so each route is stubbed explicitly by its own key. A
+// blanket fallback would answer the Changes-tab mount with field-history-
+// shaped fixtures (`changed_at`, no `occurred_at`), which crashes
+// formatDateTime on an Invalid time value — this keeps each endpoint's
+// response shaped for the schema it actually is.
 const meta: Meta = {
   title: "Screens/History",
   parameters: { layout: "padded" },
@@ -44,12 +52,14 @@ const updated = {
 export const Changes: Story = {
   render: () => {
     seedWorkspace();
-    installFetchStub({}, () =>
-      jsonResponse({
-        data: [created, updated],
-        page: { next_cursor: null, has_more: false },
-      }),
-    );
+    installFetchStub({
+      "GET /records/deal/d1/history": () =>
+        jsonResponse({
+          data: [created, updated],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "GET /field-history": () => jsonResponse(emptyPage),
+    });
     return (
       <StoryProviders>
         <RecordHistoryTab kind="deal" id="d1" />
@@ -83,18 +93,25 @@ const fhUpdated = {
   evidence: { snippet: "renewal signed", source: "email#42" },
 };
 
-// The field-history fixture answers both endpoints the same way so the
-// story reads correctly whichever tab is active on mount, then the user can
-// click "Field history" to see the old→new diff grouping directly.
+// The record-history fixture is a single unrelated "name field touched"
+// entry — the story mounts on the Changes tab first (no initialTab prop on
+// the component), then the reviewer clicks "Field history" to see the
+// old→new diff grouping this story is actually named for.
 export const FieldDiffs: Story = {
   render: () => {
     seedWorkspace();
-    installFetchStub({}, () =>
-      jsonResponse({
-        data: [fhUpdated, fhCreated],
-        page: { next_cursor: null, has_more: false },
-      }),
-    );
+    installFetchStub({
+      "GET /records/deal/d1/history": () =>
+        jsonResponse({
+          data: [updated],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "GET /field-history": () =>
+        jsonResponse({
+          data: [fhUpdated, fhCreated],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
     return (
       <StoryProviders>
         <RecordHistoryTab kind="deal" id="d1" />
@@ -106,9 +123,10 @@ export const FieldDiffs: Story = {
 export const Empty: Story = {
   render: () => {
     seedWorkspace();
-    installFetchStub({}, () =>
-      jsonResponse({ data: [], page: { next_cursor: null, has_more: false } }),
-    );
+    installFetchStub({
+      "GET /records/deal/d1/history": () => jsonResponse(emptyPage),
+      "GET /field-history": () => jsonResponse(emptyPage),
+    });
     return (
       <StoryProviders>
         <RecordHistoryTab kind="deal" id="d1" />
@@ -120,7 +138,14 @@ export const Empty: Story = {
 export const ErrorState: Story = {
   render: () => {
     seedWorkspace();
-    installFetchStub({}, () => jsonResponse({ title: "boom" }, 500));
+    // The Changes tab is what's shown on mount, so that's the route the
+    // error has to come back on for the story to demonstrate the error
+    // state; field-history stays healthy in case the reviewer switches tabs.
+    installFetchStub({
+      "GET /records/deal/d1/history": () =>
+        jsonResponse({ title: "boom" }, 500),
+      "GET /field-history": () => jsonResponse(emptyPage),
+    });
     return (
       <StoryProviders>
         <RecordHistoryTab kind="deal" id="d1" />
@@ -134,12 +159,18 @@ export const ErrorState: Story = {
 export const AgentAttribution: Story = {
   render: () => {
     seedWorkspace();
-    installFetchStub({}, () =>
-      jsonResponse({
-        data: [fhUpdated],
-        page: { next_cursor: null, has_more: false },
-      }),
-    );
+    installFetchStub({
+      "GET /records/deal/d1/history": () =>
+        jsonResponse({
+          data: [updated],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "GET /field-history": () =>
+        jsonResponse({
+          data: [fhUpdated],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
     return (
       <StoryProviders>
         <RecordHistoryTab kind="deal" id="d1" />
