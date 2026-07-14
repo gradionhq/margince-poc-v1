@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   Modal,
   SectionHeader,
   SegmentedControl,
@@ -36,6 +37,7 @@ import { activityTimeline } from "./people";
 
 type Deal = components["schemas"]["Deal"];
 type Stage = components["schemas"]["Stage"];
+type Offer = components["schemas"]["Offer"];
 
 function usePipeline() {
   return useQuery({
@@ -574,6 +576,33 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
+  const offersQuery = useQuery({
+    queryKey: ["deal-offers", id],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/deals/{id}/offers", {
+        params: { path: { id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const createOffer = useMutation({
+    mutationFn: async (currency: string) => {
+      const { data, error } = await api.POST("/deals/{id}/offers", {
+        params: { path: { id } },
+        body: { currency, source: "manual" },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (offer: Offer) => {
+      navigate({ screen: "offers", id: offer.id });
+    },
+  });
   const decide = useMutation({
     mutationFn: async (input: {
       approvalId: string;
@@ -703,6 +732,62 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     </div>
                   </section>
                 )}
+              <section className="card" style={{ marginBottom: 16 }}>
+                <div className="list-head">
+                  <SectionHeader title={t("deal.offers")} />
+                  <Button
+                    small
+                    disabled={createOffer.isPending}
+                    onClick={() => createOffer.mutate(deal.currency ?? "EUR")}
+                  >
+                    {t("deal.newOffer")}
+                  </Button>
+                </div>
+                {offersQuery.isSuccess &&
+                  (offersQuery.data.data.length > 0 ? (
+                    <DataTable
+                      columns={[
+                        {
+                          key: "offer_number",
+                          header: t("deal.offerNumber"),
+                          render: (offer: Offer) => offer.offer_number,
+                        },
+                        {
+                          key: "revision",
+                          header: t("deal.offerRevision"),
+                          render: (offer: Offer) => String(offer.revision),
+                        },
+                        {
+                          key: "status",
+                          header: t("lead.status"),
+                          render: (offer: Offer) => (
+                            <Badge>{offer.status}</Badge>
+                          ),
+                        },
+                        {
+                          key: "gross",
+                          header: t("deals.amount"),
+                          render: (offer: Offer) => (
+                            <span className="t-mono">
+                              {formatMoney(
+                                offer.gross_minor,
+                                offer.currency,
+                                locale,
+                              )}
+                            </span>
+                          ),
+                        },
+                      ]}
+                      rows={offersQuery.data.data}
+                      rowKey={(offer) => offer.id}
+                      onRowClick={(offer) =>
+                        navigate({ screen: "offers", id: offer.id })
+                      }
+                    />
+                  ) : (
+                    <EmptyState>{t("deal.offersEmpty")}</EmptyState>
+                  ))}
+              </section>
               <LogActivity entityType="deal" entityId={deal.id} />
             </RecordView>
           );

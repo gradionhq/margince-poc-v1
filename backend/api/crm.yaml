@@ -4494,6 +4494,43 @@ paths:
                     code: not_implemented
                     detail: operation RenderOffer is specified but not yet implemented
 
+  /offers/{id}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Offers]
+      operationId: downloadOfferPdf
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Download the offer's most recently rendered PDF.
+      description: |
+        Streams the bytes `pdf_asset_ref` points at (set by `renderOffer`). 404 both when the
+        offer has never been rendered (`pdf_asset_ref` is null) and on the usual row-scope
+        miss — neither leaks which case applies. 501 mirrors `renderOffer`'s own posture when
+        the deployment has no blobstore wired.
+      responses:
+        '200':
+          description: The PDF bytes; Content-Disposition names the file.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '501':
+          description: >-
+            The object store (blobstore) is not wired on this deployment — the same
+            unwired-by-omission posture as renderOffer.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              examples:
+                blobstoreUnwired:
+                  value:
+                    type: 'https://errors.gradion.com/not_implemented'
+                    title: Not Implemented
+                    status: 501
+                    code: not_implemented
+                    detail: operation DownloadOfferPdf is specified but not yet implemented
+
   # -------------------------- /signals (E08 warm room) ----------------------
   # The warm-room signal spine (B-E08.1–.4, features/07 §9, data-model §12.5):
   # company-level, consent-gated, droppable. A signal resolves to an

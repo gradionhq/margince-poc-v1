@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -105,26 +104,20 @@ func (h Handlers) DownloadAttachment(w http.ResponseWriter, r *http.Request, id 
 		writeAttachmentErr(w, r, err)
 		return
 	}
-	defer func(ctx context.Context) {
-		if cerr := rc.Close(); cerr != nil {
-			slog.WarnContext(ctx, "closing attachment object reader", "err", cerr)
-		}
-	}(r.Context())
-
 	contentType := "application/octet-stream"
 	if meta.ContentType != nil && *meta.ContentType != "" {
 		contentType = *meta.ContentType
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", meta.Filename))
+	var size int64
 	if meta.ByteSize != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*meta.ByteSize, 10))
+		size = *meta.ByteSize
 	}
-	// The status is already 200 once bytes flow; a copy failure (usually a
-	// client disconnect mid-download) can only be logged, not re-reported.
-	if _, err := io.Copy(w, rc); err != nil {
-		slog.WarnContext(r.Context(), "streaming attachment download", "attachment", id.String(), "err", err)
-	}
+	httperr.StreamObject(w, r, httperr.StreamedObject{
+		Body:        rc,
+		ContentType: contentType,
+		Filename:    meta.Filename,
+		Size:        size,
+	}, "attachment "+id.String())
 }
 
 // DeleteAttachment soft-archives an attachment (its object is purged by the

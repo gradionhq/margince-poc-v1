@@ -97,3 +97,21 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.queryByText(/mgp_/)).toBeNull();
   });
 });
+
+describe("SettingsScreen link cards", () => {
+  it("renders Products and Offer-templates link cards with correct hrefs", async () => {
+    render(<SettingsScreen />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    const allLinks = screen.getAllByRole("link");
+    const productsLink = allLinks.find((link) =>
+      link.getAttribute("href")?.includes("#/products"),
+    );
+    const offerTemplatesLink = allLinks.find((link) =>
+      link.getAttribute("href")?.includes("#/offer-templates"),
+    );
+    expect(productsLink).toBeTruthy();
+    expect(productsLink?.getAttribute("href")).toBe("#/products");
+    expect(offerTemplatesLink).toBeTruthy();
+    expect(offerTemplatesLink?.getAttribute("href")).toBe("#/offer-templates");
+  });
+});

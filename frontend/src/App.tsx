@@ -19,10 +19,13 @@ import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
+import { OfferScreen } from "./screens/offers";
+import { OfferTemplatesScreen } from "./screens/offertemplates";
 import { OnboardingScreen } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen, PersonScreen } from "./screens/people";
+import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
 import { SettingsScreen } from "./screens/settings";
 import { TasksScreen } from "./screens/tasks";
@@ -70,6 +73,12 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
     case "settings":
       return <SettingsScreen />;
     // reached from Settings, not the rail — the 9-item rail is canonical
+    case "products":
+      return <ProductsScreen />;
+    case "offers":
+      return id ? <OfferScreen id={id} /> : <PendingScreen />;
+    case "offer-templates":
+      return <OfferTemplatesScreen />;
     case "automations":
       return <AutomationsScreen />;
     case "onboarding":
