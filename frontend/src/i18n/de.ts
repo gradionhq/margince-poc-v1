@@ -393,6 +393,24 @@ export const de = {
   "inbox.expires": "läuft ab {at}",
   "inbox.approveEdited": "Bearbeitet übernehmen",
   "inbox.reject": "Ablehnen",
+  "inbox.tab.pending": "Ausstehend",
+  "inbox.tab.decided": "Entschieden",
+  "inbox.rejectReason": "Begründung",
+  "inbox.rejectReasonHint":
+    "Wird mit der Person geteilt, für die dies vorgemerkt wurde.",
+  "inbox.tokenOnce": "Jetzt kopieren — dieses Token wird nur einmal angezeigt.",
+  "inbox.copy": "Kopieren",
+  "inbox.versionSkew":
+    "Dieser Datensatz hat sich seit dem Vormerken geändert — bitte neu vormerken.",
+  "inbox.reRead": "Neu einlesen",
+  "inbox.alreadyDecided":
+    "Bereits entschieden — hier gibt es nichts mehr zu tun.",
+  "inbox.expired": "Abgelaufen",
+  "inbox.expiresIn": "läuft ab in {countdown}",
+  "inbox.detail": "Freigabe-Detail",
+  "inbox.status.approved": "Genehmigt",
+  "inbox.status.rejected": "Abgelehnt",
+  "inbox.status.expired": "Abgelaufen",
 
   "home.brief": "Morgenbriefing",
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",

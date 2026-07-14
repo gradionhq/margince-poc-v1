@@ -180,6 +180,17 @@ export function isVersionSkew(problem: unknown): boolean {
   return record.code === "version_skew";
 }
 
+// A 409 whose code names the "already decided" race — another caller (or
+// the same one, replayed) already approved/rejected this staged item before
+// this request landed. Distinguished from version_skew: the row itself
+// didn't change, the DECISION already happened, so the honest response is
+// to drop the stale pending row rather than offer a re-stage retry.
+export function isAlreadyDecided(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  const record = problem as Record<string, unknown>;
+  return record.code === "already_decided";
+}
+
 // The cold-start / enrichment field vocabulary (compose/enrichextract.go)
 // rendered as human labels; an unmapped field falls back to its key with the
 // underscores spaced out — readable, never raw snake_case.
