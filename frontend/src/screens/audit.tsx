@@ -79,13 +79,16 @@ export function AuditEntryLine({
   meUserId,
 }: Readonly<{ entry: AuditLogEntry; meUserId?: string }>) {
   const { locale } = useLocale();
+  // Audit times read in the viewer's own timezone, not a fixed one — an
+  // investigator in any region sees the moment in their local wall-clock.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
     <div className="audit-line">
       <ActorTag entry={entry} meUserId={meUserId} />
       <Badge tone="accent">{humanizeToken(entry.action)}</Badge>
       <span className="audit-entity">{humanizeToken(entry.entity_type)}</span>
       <time className="audit-when" dateTime={entry.occurred_at}>
-        {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
+        {formatDateTime(entry.occurred_at, locale, zone)}
       </time>
     </div>
   );
