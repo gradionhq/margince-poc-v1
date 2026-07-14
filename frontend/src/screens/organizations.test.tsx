@@ -736,3 +736,39 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
     expect(posted).not.toHaveProperty("person_id");
   });
 });
+
+describe("CompanyScreen — History tab (Task 7)", () => {
+  it("shows a History tab that lists record changes", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/history")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "h1",
+              actor_type: "human",
+              actor_id: "u1",
+              action: "create",
+              occurred_at: "2026-07-13T10:00:00Z",
+              summary: "Created the record",
+            },
+          ],
+          page: { next_cursor: null },
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /history/i })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /history/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Created the record")).toBeTruthy(),
+    );
+  });
+});

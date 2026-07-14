@@ -138,6 +138,7 @@ export const en = {
   "tab.relationships": "Relationships",
   "tab.partner": "Partner",
   "tab.rollup": "Roll-up",
+  "tab.history": "History",
 
   "rollup.weightedPipeline": "Weighted pipeline",
   "rollup.closedWon": "Closed-won (current quarter)",

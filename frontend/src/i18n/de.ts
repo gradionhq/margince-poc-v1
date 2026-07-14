@@ -142,6 +142,7 @@ export const de = {
   "tab.relationships": "Beziehungen",
   "tab.partner": "Partner",
   "tab.rollup": "Roll-up",
+  "tab.history": "Verlauf",
 
   "rollup.weightedPipeline": "Gewichtete Pipeline",
   "rollup.closedWon": "Abgeschlossen (aktuelles Quartal)",

@@ -32,6 +32,7 @@ import {
 } from "./common";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { EditAction } from "./edit";
+import { RecordHistoryTab } from "./history";
 import { confidenceLevel } from "./inbox";
 import {
   ListGate,
@@ -488,6 +489,7 @@ const COMPANY_TABS = [
   "relationships",
   "partner",
   "rollup",
+  "history",
 ] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
@@ -641,6 +643,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                   relationships: t("tab.relationships"),
                   partner: t("tab.partner"),
                   rollup: t("tab.rollup"),
+                  history: t("tab.history"),
                 }}
               />
             </div>
@@ -686,6 +689,9 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
             )}
             {tab === "partner" && <PartnerTab organizationId={org.id} />}
             {tab === "rollup" && <HierarchyRollupCard orgId={org.id} />}
+            {tab === "history" && (
+              <RecordHistoryTab kind="organization" id={org.id} />
+            )}
           </RecordView>
         )}
       </QueryGate>
