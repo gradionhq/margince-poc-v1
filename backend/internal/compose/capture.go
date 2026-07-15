@@ -18,10 +18,15 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// gmailReadonlyScope is the single Google scope the read-only capture
+// connector requests (mail read; no send, no modify).
+const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 
 // NewCaptureRegistry builds the connector registry; process roles register
 // their compiled-in connectors on it and drive SyncOnce. The vault seals and
@@ -30,6 +35,78 @@ import (
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault) *capture.Registry {
 	sink := capture.NewSink(pool).WithStager(mergeStager{svc: approvals.NewService(pool)})
 	return capture.NewRegistry(pool, sink, identity.NewService(pool), vault)
+}
+
+// GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app
+// per deployment, supplied by whoever operates it (EP05.8 — per-workspace apps
+// are a follow-up). ClientID+ClientSecret enable the background sync (token
+// refresh); StateKey+PublicBaseURL additionally enable the connect/callback
+// transport (the signed state and the redirect target).
+type GmailConfig struct {
+	ClientID      string
+	ClientSecret  string
+	StateKey      string
+	PublicBaseURL string
+}
+
+// canSync reports whether the connector can be registered + polled (token
+// refresh needs the client id/secret).
+func (c GmailConfig) canSync() bool { return c.ClientID != "" && c.ClientSecret != "" }
+
+// canConnect reports whether the human-facing connect/callback transport can
+// run (additionally needs the state-signing key + the callback base URL).
+func (c GmailConfig) canConnect() bool {
+	return c.canSync() && c.StateKey != "" && c.PublicBaseURL != ""
+}
+
+func newGmailOAuth(c GmailConfig) gmail.OAuth {
+	return gmail.NewOAuth(gmail.OAuthConfig{
+		ClientID:     c.ClientID,
+		ClientSecret: c.ClientSecret,
+		Scopes:       []string{gmailReadonlyScope},
+	})
+}
+
+// NewCaptureRegistryWithGmail builds the capture registry and, when the Gmail
+// OAuth app is configured, registers the read-only Gmail connector so
+// Registry.Connect (api) and SyncOnce (worker poller) can resolve it by name.
+// A deployment without the app configured gets a plain registry (Gmail absent
+// by omission). Returns nil only if pool is nil.
+func NewCaptureRegistryWithGmail(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) *capture.Registry {
+	reg := NewCaptureRegistry(pool, vault)
+	if c.canSync() {
+		reg.Register(gmail.New(newGmailOAuth(c), gmail.NewAPI(nil, "")))
+	}
+	return reg
+}
+
+// GmailPollRegistry returns a Gmail-registered capture registry for the
+// worker's background poller, or nil when the Gmail app is not configured —
+// nil tells NewJobRunner to skip the poll entirely (no connector, no job).
+func GmailPollRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) *capture.Registry {
+	if !c.canSync() {
+		return nil
+	}
+	return NewCaptureRegistryWithGmail(pool, vault, c)
+}
+
+// WithGmailCapture wires the Gmail OAuth connect/callback/disconnect/list
+// transport (api role). It requires the vault (so WithKeyvault must precede it
+// in the option list) and a fully-configured app; absent any of those the
+// connector surface keeps its declared-but-unimplemented 501 by omission.
+func WithGmailCapture(c GmailConfig) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		if !c.canConnect() {
+			return
+		}
+		s.connectorHandlers = connectorHandlers{
+			registry:      NewCaptureRegistryWithGmail(pool, s.vault, c),
+			oauth:         newGmailOAuth(c),
+			gmailAPI:      gmail.NewAPI(nil, ""),
+			signer:        newStateSigner([]byte(c.StateKey)),
+			publicBaseURL: c.PublicBaseURL,
+		}
+	}
 }
 
 // mergeStager adapts the approvals engine to capture's dedupe seam.

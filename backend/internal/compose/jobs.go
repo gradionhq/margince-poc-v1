@@ -19,8 +19,10 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // CloseDateSweepArgs schedules one close-date hygiene pass (INV-CLOSE-PAST).
@@ -56,6 +58,35 @@ func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowU
 	return w.reconciler.Reconcile(ctx)
 }
 
+// GmailSyncArgs schedules one incremental-sync pass over every active Gmail
+// connection (capture.md CAP-WIRE-N-1: capture rides provider delta, driven
+// here by a poll rather than a push watch in this slice).
+type GmailSyncArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (GmailSyncArgs) Kind() string { return "gmail_sync" }
+
+// gmailSyncWorker walks the fleet's active Gmail connections and runs one
+// incremental SyncOnce per connection under that connection's workspace. A
+// single connection's failure is logged and skipped, never aborting the pass;
+// only a fleet-enumeration failure is returned (so River retries the tick).
+type gmailSyncWorker struct {
+	river.WorkerDefaults[GmailSyncArgs]
+	registry *capture.Registry
+	log      *slog.Logger
+}
+
+func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs]) error {
+	due, enumErr := w.registry.DueConnections(ctx, "gmail")
+	for _, d := range due {
+		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
+		if err := w.registry.SyncOnce(wsCtx, d.ID); err != nil {
+			w.log.WarnContext(ctx, "gmail connection sync failed", "connection", d.ID.String(), "err", err)
+		}
+	}
+	return enumErr
+}
+
 // activeSweepStates is the uniqueness window for the periodic passes: a new
 // tick is suppressed only while a prior run is still in flight (available,
 // pending, running, scheduled, retryable) — reproducing the old ticker's
@@ -80,7 +111,11 @@ func sweepInsertOpts() *river.InsertOpts {
 // worker process role. The intervals keep the operator-facing
 // --close-date-interval / --reconcile-interval flags as the schedule source;
 // RunOnStart preserves the old ticker's boot-time first pass.
-func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval time.Duration) (*jobs.Runner, error) {
+//
+// When gmailReg is non-nil (the deployment configured the Gmail OAuth app),
+// a Gmail incremental-sync poll is added on gmailInterval — leader-elected
+// like the sweeps, so replicas never double-poll.
+func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval time.Duration, gmailReg *capture.Registry, gmailInterval time.Duration) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
@@ -96,6 +131,15 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, recon
 			func() (river.JobArgs, *river.InsertOpts) { return FollowUpReconcileArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+	}
+
+	if gmailReg != nil {
+		river.AddWorker(workers, &gmailSyncWorker{registry: gmailReg, log: log})
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(gmailInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	return jobs.New(pool, jobs.Config{
