@@ -24,11 +24,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -151,40 +153,40 @@ func (g *gatedEraser) ErasePerson(ctx context.Context, personID ids.UUID, reason
 	return g.inner.ErasePerson(ctx, personID, reason)
 }
 
+// errLockHeld marks the one expected failure of the probe below — the row is
+// locked by the in-flight fulfilment (55P03). Returning it (rather than nil)
+// keeps WithWorkspaceTx on its rollback path: a FOR UPDATE NOWAIT that trips
+// 55P03 leaves the transaction aborted, and committing an aborted tx would
+// surface pgx.ErrTxCommitRollback instead of the clean signal we want.
+var errLockHeld = errors.New("request row lock held")
+
 // dsrRowLockHeld probes whether the request row is currently locked by another
 // transaction, WITHOUT blocking: FOR UPDATE NOWAIT turns a contended lock into
 // an immediate 55P03 rather than a wait, so the assertion is deterministic (no
-// sleep, no racing timeout). The probe binds the workspace GUC because the row
-// is FORCE-RLS — the app role sees zero rows otherwise.
+// sleep, no racing timeout). It runs through database.WithWorkspaceTx like every
+// other tenant query — binding app.workspace_id the one sanctioned way, never a
+// hand-rolled GUC over a raw pool connection (the row is FORCE-RLS; the app role
+// sees zero rows unbound).
 func dsrRowLockHeld(t *testing.T, e *Env, id ids.UUID) bool {
 	t.Helper()
-	ctx := context.Background()
-	conn, err := e.Pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquiring probe connection: %v", err)
-	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("beginning probe tx: %v", err)
-	}
-	defer func() {
-		if err := tx.Rollback(ctx); err != nil {
-			t.Errorf("rolling back probe tx: %v", err)
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		var got ids.UUID
+		scanErr := tx.QueryRow(context.Background(),
+			`SELECT id FROM data_subject_request WHERE id = $1 FOR UPDATE NOWAIT`, id).Scan(&got)
+		if scanErr == nil {
+			return nil // the lock was free — nobody is holding it
 		}
-	}()
-	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, e.WS.String()); err != nil {
-		t.Fatalf("binding workspace GUC on the probe: %v", err)
-	}
-	var got ids.UUID
-	err = tx.QueryRow(ctx,
-		`SELECT id FROM data_subject_request WHERE id = $1 FOR UPDATE NOWAIT`, id).Scan(&got)
+		var pgErr *pgconn.PgError
+		if errors.As(scanErr, &pgErr) && pgErr.Code == "55P03" {
+			return errLockHeld
+		}
+		return scanErr
+	})
 	if err == nil {
-		return false // the lock was free — nobody is holding it
+		return false
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
-		return true // lock_not_available — held by the in-flight fulfilment
+	if errors.Is(err, errLockHeld) {
+		return true
 	}
 	t.Fatalf("probing the request lock: %v", err)
 	return false
