@@ -1,6 +1,0 @@
-{
-  "min_cases": 100,
-  "min_long_tail": 30,
-  "min_adversarial": 20,
-  "classes": ["happy", "long_tail", "adversarial"]
-}
