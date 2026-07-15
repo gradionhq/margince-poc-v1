@@ -50,11 +50,11 @@ export function RecordContextPanel({
       <SectionHeader title={t("context.title")} />
       <QueryGate query={query as QueryLike<ContextResponse>}>
         {(data) =>
-          data.sections.length === 0 ? (
+          (data.sections ?? []).length === 0 ? (
             <EmptyState>{t("context.empty")}</EmptyState>
           ) : (
             <div className="context-sections">
-              {data.sections.map((section) => (
+              {(data.sections ?? []).map((section) => (
                 <div key={section.name} className="context-section">
                   <h3 className="t-label">{section.name}</h3>
                   <ul className="context-items">
