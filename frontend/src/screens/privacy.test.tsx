@@ -394,7 +394,7 @@ describe("PrivacyInboxCard", () => {
     expect(await screen.findByText(/moved on/i)).toBeInTheDocument();
   });
 
-  // Finding 1: a patch failure that is NOT the illegal-transition 422 must
+  // A patch failure that is NOT the illegal-transition 422 must
   // never wear the "moved on" copy — that would tell the officer a colleague
   // made a decision that never happened. A 403 (no `details.errors`, code
   // "permission_denied") gets the server's own honest detail instead.
