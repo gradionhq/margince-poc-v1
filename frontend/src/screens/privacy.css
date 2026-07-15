@@ -55,3 +55,7 @@
 .dsr-error {
   color: var(--danger);
 }
+
+.dsr-form {
+  margin-top: 10px;
+}

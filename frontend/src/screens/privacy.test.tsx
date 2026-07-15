@@ -493,3 +493,108 @@ describe("PrivacyInboxCard", () => {
     expect(await screen.findByText(/permission denied/i)).toBeInTheDocument();
   });
 });
+
+describe("opening a DSR (G-2)", () => {
+  // An erasure fulfils by resolving subject_ref to a person id. Free text
+  // there means the server refuses (BE-2) — so the form must not offer it.
+  it("requires a picked person for an erasure", async () => {
+    stubRoutes();
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "erasure");
+    expect(screen.getByLabelText(/person/i)).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/subject reference/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("allows a free-text subject for an access request — the subject may not be in the CRM", async () => {
+    stubRoutes();
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    expect(screen.getByLabelText(/subject reference/i)).toBeInTheDocument();
+  });
+
+  it("says an access request is fulfilled by hand — nothing is exported", async () => {
+    stubRoutes();
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    expect(screen.getByText(/fulfilled by hand/i)).toBeInTheDocument();
+  });
+
+  it("requires a due date — the statutory clock is not optional", async () => {
+    stubRoutes();
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await userEvent.type(
+      screen.getByLabelText(/subject reference/i),
+      "anna@acme.test",
+    );
+    expect(
+      screen.getByRole("button", { name: /open request/i }),
+    ).toBeDisabled();
+  });
+});
+
+describe("fulfilling an erasure", () => {
+  it("holds the confirm until ERASE is typed", async () => {
+    stubRoutes();
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    await userEvent.type(screen.getByLabelText(/resolution/i), "verified");
+    // "Fulfil" also substring-matches the facet bar's "Fulfilled" filter
+    // button — scope to the row under test, same idiom as findDsrRow's other
+    // callers above.
+    const row = await findDsrRow("8f3a-person-uuid");
+    await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
+    const confirm = await screen.findByRole("button", {
+      name: /erase \+ suppress/i,
+    });
+    expect(confirm).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/type erase/i), "ERASE");
+    expect(confirm).toBeEnabled();
+  });
+
+  // gobd.html: retention wins for the statutory window (Art. 17(3)(b)). The
+  // 409 is not a generic error — it is a documented, explicit outcome.
+  it("renders a legal hold as a blocked state, not a red toast", async () => {
+    stubRoutes({
+      "PATCH /data-subject-requests/d1": () =>
+        jsonResponse(
+          {
+            title: "person is under legal hold",
+            status: 409,
+            code: "conflict",
+            retain_until: "2036-12-31",
+          },
+          409,
+        ),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    await userEvent.type(screen.getByLabelText(/resolution/i), "verified");
+    const row = await findDsrRow("8f3a-person-uuid");
+    await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
+    await userEvent.type(screen.getByLabelText(/type erase/i), "ERASE");
+    await userEvent.click(
+      screen.getByRole("button", { name: /erase \+ suppress/i }),
+    );
+    expect(await screen.findByText(/legal hold/i)).toBeInTheDocument();
+    expect(screen.getByText(/no override/i)).toBeInTheDocument();
+  });
+});

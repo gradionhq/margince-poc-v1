@@ -670,6 +670,24 @@ export const en = {
   "privacy.inProgress": "In progress",
   "privacy.fulfil": "Fulfil",
   "privacy.reject": "Reject",
+  "privacy.newRequest": "New request",
+  "privacy.kind": "Kind",
+  "privacy.person": "Person",
+  "privacy.subjectRef": "Subject reference",
+  "privacy.dueAt": "Due",
+  "privacy.openRequest": "Open request",
+  "privacy.erasureNeedsPerson":
+    "An erasure request must name a person in this workspace — fulfilling it erases that record. A free-text subject cannot be erased.",
+  "privacy.accessManual":
+    "An access request is fulfilled by hand: record what you sent in the resolution. This system does not assemble or export the data for you.",
+  "privacy.fulfilErasureTitle": "Fulfil erasure request",
+  "privacy.erasureIrreversible":
+    "This permanently erases the person across the whole system — record, captured activity, and derived values. It cannot be undone. The erasure is itself audited.",
+  "privacy.typeErase": "Type ERASE to confirm",
+  "privacy.erasureConfirm": "Erase + suppress",
+  "privacy.legalHold":
+    "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
+  "privacy.retainUntil": "Retained until {date}",
 
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Configure pipelines and their stages (admin/ops).",

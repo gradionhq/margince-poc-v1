@@ -683,6 +683,24 @@ export const de = {
   "privacy.inProgress": "In Bearbeitung",
   "privacy.fulfil": "Erfüllen",
   "privacy.reject": "Ablehnen",
+  "privacy.newRequest": "Neuer Antrag",
+  "privacy.kind": "Art",
+  "privacy.person": "Person",
+  "privacy.subjectRef": "Betroffenen-Referenz",
+  "privacy.dueAt": "Frist",
+  "privacy.openRequest": "Antrag anlegen",
+  "privacy.erasureNeedsPerson":
+    "Ein Löschantrag muss eine Person in diesem Workspace benennen — bei Erfüllung wird genau dieser Datensatz gelöscht. Eine Freitext-Referenz kann nicht gelöscht werden.",
+  "privacy.accessManual":
+    "Ein Auskunftsantrag wird von Hand erfüllt: Halte im Ergebnis fest, was du versendet hast. Dieses System stellt die Daten nicht automatisch zusammen und exportiert sie nicht für dich.",
+  "privacy.fulfilErasureTitle": "Löschantrag erfüllen",
+  "privacy.erasureIrreversible":
+    "Dies löscht die Person dauerhaft im gesamten System — Datensatz, erfasste Aktivität und abgeleitete Werte. Das kann nicht rückgängig gemacht werden. Die Löschung selbst wird protokolliert.",
+  "privacy.typeErase": "Zum Bestätigen ERASE eingeben",
+  "privacy.erasureConfirm": "Löschen + sperren",
+  "privacy.legalHold":
+    "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
+  "privacy.retainUntil": "Aufbewahrt bis {date}",
 
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub":

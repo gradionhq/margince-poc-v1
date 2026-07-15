@@ -16,6 +16,11 @@ import {
   Skeleton,
   TextInput,
 } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
+import {
+  RecordPicker,
+  type RecordPickerCandidate,
+} from "../design-system/recordpicker";
 import { formatDate } from "../format/format";
 import { useNow } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -41,9 +46,12 @@ import {
 import "./privacy.css";
 
 type DataSubjectRequest = components["schemas"]["DataSubjectRequest"];
+type CreateDataSubjectRequest =
+  components["schemas"]["CreateDataSubjectRequest"];
 type UpdateDataSubjectRequest =
   components["schemas"]["UpdateDataSubjectRequest"];
 type User = components["schemas"]["User"];
+type DsrKind = CreateDataSubjectRequest["kind"];
 
 // The two settings/privacy surfaces, extracted out of the 1309-line
 // settings.tsx (the audit.tsx extraction precedent): the consent-purpose
@@ -243,6 +251,175 @@ export function ConsentPurposesCard() {
 const SUBJECT_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const DSR_KINDS: readonly DsrKind[] = ["access", "rectify", "erasure"];
+
+// The erasure fulfiller (consent/dsr.go) resolves subject_ref to a person id
+// and erases that record — free text there cannot be erased, so an erasure
+// request must be opened against a picked person, never typed in by hand.
+// No purpose-built person-search endpoint exists yet (offers.tsx's org/product
+// pickers are RecordPicker's only other callers today), so this reuses the
+// person list's own full-text `q` param, exactly as searchOrganizationCandidates
+// reuses /organizations.
+async function searchPersonCandidates(
+  q: string,
+): Promise<RecordPickerCandidate[]> {
+  const { data, error } = await api.GET("/people", {
+    params: { query: { q, limit: 10 } },
+  });
+  if (error) {
+    throwProblem(error);
+  }
+  return data.data.map((person) => ({ id: person.id, name: person.full_name }));
+}
+
+// G-2: the inline DSR-open form, toggled by "New request" — the same
+// inline-card precedent as PurposeCreateForm above (create is never a modal;
+// the modal here is reserved for the one destructive action, fulfilling an
+// erasure). kind flips the subject field's very shape: an erasure locks onto
+// a picked person (RecordPicker, uuid subject_ref) so the create form is
+// physically incapable of producing the free-text-erasure state the server
+// now refuses; access/rectify keep the free-text field the contract's
+// "person id or external identifier" wording actually allows.
+function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [kind, setKind] = useState<DsrKind>("access");
+  const [subjectRef, setSubjectRef] = useState("");
+  const [person, setPerson] = useState<RecordPickerCandidate | null>(null);
+  const [dueAt, setDueAt] = useState("");
+  const kindId = useId();
+  const subjectId = useId();
+  const dueId = useId();
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const body: CreateDataSubjectRequest = {
+        kind,
+        subject_ref: subjectRef.trim(),
+        due_at: new Date(dueAt).toISOString(),
+      };
+      const { data, error } = await api.POST("/data-subject-requests", {
+        body,
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+      setKind("access");
+      setSubjectRef("");
+      setPerson(null);
+      setDueAt("");
+      onDone();
+    },
+  });
+
+  function dismissCreateError() {
+    if (create.isError) {
+      create.reset();
+    }
+  }
+
+  function changeKind(next: DsrKind) {
+    setKind(next);
+    // The subject field's meaning changes with kind (a picked person's uuid
+    // vs. free text) — carrying either value across the switch would let a
+    // stale value from the OTHER shape ride into the request unnoticed.
+    setSubjectRef("");
+    setPerson(null);
+    dismissCreateError();
+  }
+
+  return (
+    <div className="card card-inset dsr-form">
+      <div className="form-stack">
+        <div className="field">
+          <label className="t-label" htmlFor={kindId}>
+            {t("privacy.kind")}
+          </label>
+          <select
+            id={kindId}
+            className="input"
+            value={kind}
+            onChange={(event) => changeKind(event.target.value as DsrKind)}
+          >
+            {DSR_KINDS.map((value) => (
+              <option key={value} value={value}>
+                {humanizeToken(value)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {kind === "erasure" ? (
+          <div className="field">
+            <span className="t-label">{t("privacy.person")}</span>
+            <RecordPicker
+              label={t("privacy.person")}
+              searchTargets={searchPersonCandidates}
+              selected={person}
+              onPick={(candidate) => {
+                setPerson(candidate);
+                setSubjectRef(candidate.id);
+                dismissCreateError();
+              }}
+            />
+            <p className="t-caption">{t("privacy.erasureNeedsPerson")}</p>
+          </div>
+        ) : (
+          <div className="field">
+            <label className="t-label" htmlFor={subjectId}>
+              {t("privacy.subjectRef")}
+            </label>
+            <TextInput
+              id={subjectId}
+              value={subjectRef}
+              onChange={(event) => {
+                setSubjectRef(event.target.value);
+                dismissCreateError();
+              }}
+            />
+            {kind === "access" && (
+              <p className="t-caption">{t("privacy.accessManual")}</p>
+            )}
+          </div>
+        )}
+
+        <div className="field">
+          <label className="t-label" htmlFor={dueId}>
+            {t("privacy.dueAt")}
+          </label>
+          <input
+            id={dueId}
+            type="date"
+            className="input"
+            value={dueAt}
+            onChange={(event) => {
+              setDueAt(event.target.value);
+              dismissCreateError();
+            }}
+          />
+        </div>
+
+        {create.isError && (
+          <p className="t-caption dsr-error">{honestMessage(create.error)}</p>
+        )}
+
+        <Button
+          small
+          variant="primary"
+          disabled={!subjectRef.trim() || !dueAt || create.isPending}
+          onClick={() => create.mutate()}
+        >
+          {t("privacy.openRequest")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function statusTone(
   status: DsrStatus,
 ): "success" | "warn" | "danger" | undefined {
@@ -284,7 +461,7 @@ function DsrRow({
   nowMs: number;
   tz: string;
   locale: Locale;
-  onFulfilErasure?: (dsr: DataSubjectRequest) => void;
+  onFulfilErasure: (dsr: DataSubjectRequest) => void;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -340,7 +517,7 @@ function DsrRow({
     // Deferred to Task 9 (the typed-ERASE confirmation + legal-hold 409
     // handling) — an erasure fulfil never goes through this plain PATCH.
     if (dsr.kind === "erasure" && next === "fulfilled") {
-      onFulfilErasure?.(dsr);
+      onFulfilErasure(dsr);
       return;
     }
     const body: UpdateDataSubjectRequest = { status: next };
@@ -467,11 +644,130 @@ function DsrRow({
   );
 }
 
-export function PrivacyInboxCard({
-  onFulfilErasure,
+// This mutation's ONE possible 409: fulfilling an erasure calls into the
+// erasure engine (ErasePerson), and the ONLY thing that engine ever wraps in
+// ErrConflict is a person under statutory legal hold — there is no second
+// conflict source on this call to confuse it with. So code === "conflict"
+// here is an unambiguous legal-hold signal, not a guess (unlike the
+// consent-purpose or record-grant 409s elsewhere in this codebase, which
+// carry a more specific discriminating code).
+function isLegalHold(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  return (problem as Record<string, unknown>).code === "conflict";
+}
+
+// retain_until is not yet on the real conflict body (the erasure engine's
+// legal-hold check is a bare boolean column today, not a retention-window
+// timestamp) — this reads it defensively so the blocked state still renders
+// honestly once the server starts sending one, instead of assuming a field
+// that may be absent.
+function retainUntilOf(problem: unknown): string | null {
+  if (!problem || typeof problem !== "object") return null;
+  const value = (problem as Record<string, unknown>).retain_until;
+  return typeof value === "string" ? value : null;
+}
+
+function legalHoldMessage(
+  problem: unknown,
+  t: ReturnType<typeof useT>,
+  locale: Locale,
+  tz: string,
+): string {
+  const retainUntil = retainUntilOf(problem);
+  const base = t("privacy.legalHold");
+  return retainUntil
+    ? `${base} ${t("privacy.retainUntil", { date: formatDate(retainUntil, locale, tz) })}`
+    : base;
+}
+
+// The single most destructive action in the product: fulfilling an erasure
+// permanently wipes a person across the whole system. Follows share.tsx's
+// revoke-confirm id-in-state pattern — ONE modal at the card root (never one
+// per row), gated by a typed "ERASE" rather than a plain confirm click. A
+// legal-hold 409 is a documented, lawful refusal (Art. 17(3)(b)), not a
+// malfunction — it gets its own honest copy ahead of the generic fallback,
+// same branch-before-generic shape as isIllegalTransition above.
+function FulfilErasureModal({
+  dsr,
+  onClose,
+  locale,
+  tz,
 }: Readonly<{
-  onFulfilErasure?: (dsr: DataSubjectRequest) => void;
-}> = {}) {
+  dsr: DataSubjectRequest | null;
+  onClose: () => void;
+  locale: Locale;
+  tz: string;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [typed, setTyped] = useState("");
+
+  const patch = useMutation({
+    mutationFn: async () => {
+      if (!dsr) {
+        // The confirm button only exists while a request is staged in
+        // `dsr` — this guard only protects a stale closure, never a real path.
+        throw new Error("no request selected");
+      }
+      const { data, error } = await api.PATCH("/data-subject-requests/{id}", {
+        params: { path: { id: dsr.id } },
+        body: { status: "fulfilled" },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+      setTyped("");
+      onClose();
+    },
+  });
+
+  function close() {
+    onClose();
+    setTyped("");
+    patch.reset();
+  }
+
+  const problem =
+    patch.error instanceof ProblemError ? patch.error.problem : null;
+  const held = problem !== null && isLegalHold(problem);
+  const errorMessage = !patch.isError
+    ? null
+    : held
+      ? legalHoldMessage(problem, t, locale, tz)
+      : honestMessage(patch.error);
+
+  return (
+    <ConfirmModal
+      open={dsr !== null}
+      onClose={close}
+      title={t("privacy.fulfilErasureTitle")}
+      confirmLabel={t("privacy.erasureConfirm")}
+      confirmVariant="danger"
+      confirmDisabled={typed.trim().toUpperCase() !== "ERASE"}
+      onConfirm={() => dsr && patch.mutate()}
+      pending={patch.isPending}
+      error={errorMessage}
+    >
+      <p>{t("privacy.erasureIrreversible")}</p>
+      <div className="field">
+        <label className="t-label" htmlFor="dsr-type-erase">
+          {t("privacy.typeErase")}
+        </label>
+        <TextInput
+          id="dsr-type-erase"
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+        />
+      </div>
+    </ConfirmModal>
+  );
+}
+
+export function PrivacyInboxCard() {
   const t = useT();
   const { locale } = useLocale();
   // useNow is the only clock touching rendering (format/now.ts) — isOverdue
@@ -488,6 +784,11 @@ export function PrivacyInboxCard({
   // the facet bar) stays on screen throughout; an officer working a case
   // never loses sight of what else is waiting.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  // Which request is staged for the destructive fulfil, not per-row — same
+  // id-in-state shape as share.tsx's revokingId, so ONE modal lives at the
+  // card root instead of one per row.
+  const [fulfilling, setFulfilling] = useState<DataSubjectRequest | null>(null);
 
   // The facet is server-side (part of the queryKey and the query param), not
   // a client re-slice of one big page — a re-slice would hide rows the
@@ -563,7 +864,7 @@ export function PrivacyInboxCard({
               nowMs={nowMs}
               tz={tz}
               locale={locale}
-              onFulfilErasure={onFulfilErasure}
+              onFulfilErasure={setFulfilling}
             />
           ))}
         </ul>
@@ -574,10 +875,16 @@ export function PrivacyInboxCard({
 
   return (
     <section className="card">
-      <SectionHeader
-        title={t("settings.privacy")}
-        sub={t("settings.privacySub")}
-      />
+      <div className="list-head">
+        <SectionHeader
+          title={t("settings.privacy")}
+          sub={t("settings.privacySub")}
+        />
+        <Button small onClick={() => setCreating((value) => !value)}>
+          {t("privacy.newRequest")}
+        </Button>
+      </div>
+      {creating && <NewDsrForm onDone={() => setCreating(false)} />}
       <SegmentedControl
         options={DSR_STATUS_FACETS}
         value={facet}
@@ -585,6 +892,12 @@ export function PrivacyInboxCard({
         labels={facetLabels}
       />
       {body}
+      <FulfilErasureModal
+        dsr={fulfilling}
+        onClose={() => setFulfilling(null)}
+        locale={locale}
+        tz={tz}
+      />
     </section>
   );
 }
