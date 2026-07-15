@@ -131,6 +131,13 @@ up)
   # BYOK: real model powers the /coldstart read-back when a key is present; the
   # offline fake otherwise. The routing parser reads api_key literally (no ${ENV}
   # expansion), so the key is injected into a scratch copy under the rundir.
+  # Seed .env.local from the tracked template on first run, so a fresh clone
+  # has a documented place for BYOK / Gmail / vault keys. Everything in the
+  # template is commented, so nothing is enabled until you uncomment it.
+  if [[ ! -f .env.local && -f .env.template ]]; then
+    cp .env.template .env.local
+    echo "dev: seeded .env.local from .env.template — edit it to set keys (ANTHROPIC_API_KEY, MARGINCE_GMAIL_*, …)"
+  fi
   ai_flag=(--ai-fake)
   if [[ -f .env.local ]]; then
     set -a; . ./.env.local; set +a
