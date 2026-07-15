@@ -189,6 +189,27 @@ func (e AdvanceDealRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for AgentToolTier.
+const (
+	AgentToolTierDynamic AgentToolTier = "dynamic"
+	AgentToolTierGreen   AgentToolTier = "green"
+	AgentToolTierYellow  AgentToolTier = "yellow"
+)
+
+// Valid indicates whether the value is a known member of the AgentToolTier enum.
+func (e AgentToolTier) Valid() bool {
+	switch e {
+	case AgentToolTierDynamic:
+		return true
+	case AgentToolTierGreen:
+		return true
+	case AgentToolTierYellow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApplyTagRequestEntityType.
 const (
 	ApplyTagRequestEntityTypeDeal         ApplyTagRequestEntityType = "deal"
@@ -512,16 +533,16 @@ func (e AutomationRunOutcome) Valid() bool {
 
 // Defines values for AutomationRunTier.
 const (
-	AutomationRunTierGreen  AutomationRunTier = "green"
-	AutomationRunTierYellow AutomationRunTier = "yellow"
+	Green  AutomationRunTier = "green"
+	Yellow AutomationRunTier = "yellow"
 )
 
 // Valid indicates whether the value is a known member of the AutomationRunTier enum.
 func (e AutomationRunTier) Valid() bool {
 	switch e {
-	case AutomationRunTierGreen:
+	case Green:
 		return true
-	case AutomationRunTierYellow:
+	case Yellow:
 		return true
 	default:
 		return false
@@ -4089,6 +4110,30 @@ type AdvanceDealRequest struct {
 
 // AdvanceDealRequestStatus Set when advancing into a terminal stage.
 type AdvanceDealRequestStatus string
+
+// AgentTool defines model for AgentTool.
+type AgentTool struct {
+	// Egress True if the tool reaches outside the workspace.
+	Egress bool `json:"egress"`
+
+	// Name The tool name (tools/list identity).
+	Name string `json:"name"`
+
+	// RequiredScope Passport scope required to call it.
+	RequiredScope *string       `json:"required_scope,omitempty"`
+	Tier          AgentToolTier `json:"tier"`
+
+	// Verb The action verb (search_records
+	Verb string `json:"verb"`
+}
+
+// AgentToolTier defines model for AgentTool.Tier.
+type AgentToolTier string
+
+// AgentToolListResponse defines model for AgentToolListResponse.
+type AgentToolListResponse struct {
+	Data []AgentTool `json:"data"`
+}
 
 // ApplyTagRequest defines model for ApplyTagRequest.
 type ApplyTagRequest struct {
@@ -14022,6 +14067,9 @@ type ServerInterface interface {
 	// Send a (possibly edited) email draft — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-email)
 	SendEmail(w http.ResponseWriter, r *http.Request, id Id, params SendEmailParams)
+	// The governed tool surface (registry metadata) for the operator UI.
+	// (GET /agent-tools)
+	ListAgentTools(w http.ResponseWriter, r *http.Request)
 	// The approval inbox — list staged 🟡 actions awaiting human decision.
 	// (GET /approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams)
@@ -14583,6 +14631,12 @@ func (_ Unimplemented) RelinkActivity(w http.ResponseWriter, r *http.Request, id
 // Send a (possibly edited) email draft — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-email)
 func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, params SendEmailParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The governed tool surface (registry metadata) for the operator UI.
+// (GET /agent-tools)
+func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16114,6 +16168,26 @@ func (siw *ServerInterfaceWrapper) SendEmail(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendEmail(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTools operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTools(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -24937,6 +25011,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/send-email", wrapper.SendEmail)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/approvals", wrapper.ListApprovals)

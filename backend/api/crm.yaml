@@ -134,6 +134,8 @@ tags:
     description: Current user / principal, plus Agent Seat Passport issuance (the local/A1 path).
   - name: Quotas
     description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
+  - name: Agents
+    description: The governed agent tool surface — registry metadata for the operator UI.
 
 # =============================================================================
 paths:
@@ -2708,6 +2710,26 @@ paths:
                     page: { next_cursor: null, has_more: false }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  /agent-tools:
+    get:
+      tags: [Agents]
+      operationId: listAgentTools
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The governed tool surface (registry metadata) for the operator UI.
+      description: >
+        Read-only inventory of the tools an agent passport can call — name, action verb, the
+        passport scope each requires, its autonomy tier (green/yellow/dynamic) and whether it
+        reaches outside the workspace. This is governance metadata, not tenant data; it mirrors
+        exactly what an MCP client sees from `tools/list`.
+      responses:
+        '200':
+          description: The governed tool surface, stably ordered by name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentToolListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------- /coldstart ----------------------------------
   /coldstart:
@@ -7484,6 +7506,22 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Agents: governed tool surface ----
+    AgentTool:
+      type: object
+      required: [name, verb, tier, egress]
+      properties:
+        name:  { type: string, description: The tool name (tools/list identity). }
+        verb:  { type: string, description: The action verb (search_records, send_email, …). }
+        required_scope: { type: string, description: Passport scope required to call it. }
+        tier:  { type: string, enum: [green, yellow, dynamic] }
+        egress: { type: boolean, description: True if the tool reaches outside the workspace. }
+    AgentToolListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AgentTool' } }
 
     # ---- Connectors: IMAP one-shot capture ----
     ImapConnectRequest:

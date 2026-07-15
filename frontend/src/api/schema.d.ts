@@ -1406,6 +1406,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent-tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The governed tool surface (registry metadata) for the operator UI.
+         * @description Read-only inventory of the tools an agent passport can call — name, action verb, the passport scope each requires, its autonomy tier (green/yellow/dynamic) and whether it reaches outside the workspace. This is governance metadata, not tenant data; it mirrors exactly what an MCP client sees from `tools/list`.
+         */
+        get: operations["listAgentTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/coldstart": {
         parameters: {
             query?: never;
@@ -4819,6 +4839,21 @@ export interface components {
         SearchResponse: {
             data: components["schemas"]["SearchResult"][];
             page: components["schemas"]["PageInfo"];
+        };
+        AgentTool: {
+            /** @description The tool name (tools/list identity). */
+            name: string;
+            /** @description The action verb (search_records */
+            verb: string;
+            /** @description Passport scope required to call it. */
+            required_scope?: string;
+            /** @enum {string} */
+            tier: "green" | "yellow" | "dynamic";
+            /** @description True if the tool reaches outside the workspace. */
+            egress: boolean;
+        };
+        AgentToolListResponse: {
+            data: components["schemas"]["AgentTool"][];
         };
         ImapConnectRequest: {
             /** @description IMAP server hostname (e.g. imap.gmail.com). */
@@ -9709,6 +9744,27 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listAgentTools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The governed tool surface, stably ordered by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentToolListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     coldStartReadback: {
