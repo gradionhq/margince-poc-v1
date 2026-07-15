@@ -20,7 +20,11 @@ import { formatDateTime, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate } from "./common";
-import { ApprovalRow, usePendingApprovals } from "./inbox";
+import {
+  ApprovalRow,
+  useApprovalTokenSink,
+  usePendingApprovals,
+} from "./inbox";
 import "./home.css";
 
 // Home / Morning Brief (B-EP09.12b on the E05 spine): the persisted /brief
@@ -315,6 +319,12 @@ function BriefSection() {
 
 export function HomeScreen() {
   const t = useT();
+  // Approving from the morning brief mints an approval_token and can 409
+  // already_decided too; both must survive the row's unmount (pending
+  // invalidation), so Home uses the same shared sink InboxScreen does — the
+  // "shown once" token AND the honest already-decided note show on Home too.
+  const { onApproved, onAlreadyDecided, tokenModal, decidedNote } =
+    useApprovalTokenSink();
   const approvalsQuery = usePendingApprovals();
   const dealsQuery = useQuery({
     queryKey: ["deals"],
@@ -339,6 +349,9 @@ export function HomeScreen() {
   return (
     <div className="wrap narrow">
       <SectionHeader title={t("home.brief")} sub={t("home.sub")} />
+      {/* Screen-level so it survives the approved/decided row (and its whole
+          section) unmounting on the pending invalidation. */}
+      {decidedNote}
       <QueryGate query={approvalsQuery} empty={() => false}>
         {(approvals) =>
           approvals.data.length > 0 ? (
@@ -348,7 +361,12 @@ export function HomeScreen() {
                 sub={t("brief.nothingSent")}
               />
               {approvals.data.map((approval) => (
-                <ApprovalRow key={approval.id} approval={approval} />
+                <ApprovalRow
+                  key={approval.id}
+                  approval={approval}
+                  onApproved={onApproved}
+                  onAlreadyDecided={onAlreadyDecided}
+                />
               ))}
             </section>
           ) : null
@@ -383,6 +401,7 @@ export function HomeScreen() {
           </div>
         </section>
       )}
+      {tokenModal}
     </div>
   );
 }

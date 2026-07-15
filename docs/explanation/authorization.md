@@ -67,7 +67,9 @@ the SQL is, at the store/service entry: **`auth.Require`** (object level — doe
 verb on this object type?), plus **`auth.EnsureVisible`** / the list-scope clauses (`ScopeClause`) /
 `auth.EnsureLinkTarget` (row level — may they see this row?). These often must run **inside the same
 transaction** as the read or write they guard — checking in a handler would be checking a different
-snapshot.
+snapshot. What the roles actually grant, how row scope (own/team/all) and teams decide "which rows,"
+and how a per-record share widens visibility on top, is its own page:
+[rbac-roles-and-teams.md](rbac-roles-and-teams.md).
 
 ## Autonomy tiers — how agent actions are governed (🟢 / 🟡)
 

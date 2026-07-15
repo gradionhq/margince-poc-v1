@@ -19,6 +19,7 @@ export function ConfirmModal({
   title,
   tier,
   confirmLabel,
+  confirmVariant = "primary",
   onConfirm,
   pending,
   error,
@@ -29,6 +30,10 @@ export function ConfirmModal({
   title: string;
   tier?: "confirm";
   confirmLabel: string;
+  // The confirm button's tone. Defaults to "primary" (backward-compatible);
+  // a destructive confirm (e.g. reject-with-reason) passes "danger" so it
+  // doesn't read green like an approve.
+  confirmVariant?: "primary" | "danger";
   onConfirm: () => void;
   pending?: boolean;
   error?: string | null;
@@ -56,7 +61,7 @@ export function ConfirmModal({
         <Button onClick={onClose} disabled={pending}>
           {t("create.cancel")}
         </Button>
-        <Button variant="primary" onClick={onConfirm} disabled={pending}>
+        <Button variant={confirmVariant} onClick={onConfirm} disabled={pending}>
           {confirmLabel}
         </Button>
       </div>

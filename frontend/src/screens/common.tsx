@@ -1,4 +1,4 @@
-import { type UseQueryResult, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api, workspaceSlug } from "../api/client";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
@@ -32,6 +32,34 @@ export function useMe() {
   });
 }
 
+// AS-1: sign out. Clears ALL cached tenant data on success, then forces the
+// ["me"] probe to re-run → 401 → AuthGate renders the login screen.
+//
+// Order matters here: queryClient.clear() destroys every Query object in the
+// cache, INCLUDING ["me"]'s. If ["me"] were reset only after a full clear(),
+// resetQueries would find nothing matching that key to reset (it was already
+// removed) — the mounted AuthGate observer would keep rendering its last
+// (stale, authenticated) snapshot, since clear() alone never triggers a
+// refetch. So instead: drop every OTHER cache entry first (leaving ["me"]
+// intact), then resetQueries the shared ["me"] entry specifically — that
+// query still exists, has an active (mounted) observer, and resetQueries
+// forces it to refetch immediately, landing the AuthGate on 401 → login.
+export function useLogout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST("/auth/logout");
+      if (error) throw new Error(problemMessage(error));
+    },
+    onSuccess: async () => {
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "me",
+      });
+      await queryClient.resetQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
 // Automation (and pipeline) config is admin/ops-owned in the seeded role
 // policies — manager and rep hold read-only grants. This
 // mirror gates AFFORDANCES only (UX honesty: no buttons that can only 403);
@@ -51,6 +79,18 @@ export function canManageCustomFields(
   roles: readonly string[] | undefined,
 ): boolean {
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
+}
+
+// The minimal read surface QueryGate/QueryStates need. A real react-query
+// `UseQueryResult<Data>` is structurally assignable to it, and a hook that
+// MERGES several queries (e.g. the decided-approvals fan-out) can return a
+// plain object of this shape — no `as unknown as UseQueryResult` lie required.
+export interface QueryLike<Data> {
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  data: Data | undefined;
+  refetch: () => unknown;
 }
 
 // The pending/error halves of the screen-state matrix (§3a) — one skeleton
@@ -132,17 +172,22 @@ export function QueryGate<Data>({
   empty,
   children,
 }: Readonly<{
-  query: UseQueryResult<Data>;
+  query: QueryLike<Data>;
   empty?: (data: Data) => boolean;
   children: (data: Data) => ReactNode;
 }>) {
   const t = useT();
+  // A QueryLike isn't a discriminated union, so TS can't narrow it: past
+  // QueryStates' pending/error guards `data` is present, so key SUCCESS
+  // rendering off its presence rather than a react-query `isSuccess` flag
+  // the merged fan-out hooks don't expose.
+  const data = query.data;
   let success: ReactNode = null;
-  if (query.isSuccess) {
-    success = empty?.(query.data) ? (
+  if (data !== undefined) {
+    success = empty?.(data) ? (
       <EmptyState>{t("common.empty")}</EmptyState>
     ) : (
-      children(query.data)
+      children(data)
     );
   }
   return <QueryStates query={query}>{success}</QueryStates>;
@@ -216,6 +261,17 @@ export function isVersionSkew(problem: unknown): boolean {
   if (!problem || typeof problem !== "object") return false;
   const record = problem as Record<string, unknown>;
   return record.code === "version_skew";
+}
+
+// A 409 whose code names the "already decided" race — another caller (or
+// the same one, replayed) already approved/rejected this staged item before
+// this request landed. Distinguished from version_skew: the row itself
+// didn't change, the DECISION already happened, so the honest response is
+// to drop the stale pending row rather than offer a re-stage retry.
+export function isAlreadyDecided(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  const record = problem as Record<string, unknown>;
+  return record.code === "already_decided";
 }
 
 // The cold-start / enrichment field vocabulary (compose/enrichextract.go)

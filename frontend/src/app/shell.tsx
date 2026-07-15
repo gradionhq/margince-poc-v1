@@ -1,7 +1,8 @@
-import { Moon, Search, Sun, UserRound } from "lucide-react";
+import { LogOut, Moon, Search, Sun, UserRound } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { useLogout } from "../screens/common";
 import { NAV, RAIL_LESS_SCREENS } from "./nav";
 import { type Route, routeHash, useRoute } from "./router";
 import "./shell.css";
@@ -54,6 +55,7 @@ export function WorkspaceRail({
   counts?: ShellCounts;
 }>) {
   const t = useT();
+  const logout = useLogout();
   return (
     <nav className="rail" aria-label={t("shell.railAria")}>
       <a className="ws" href="#/home" aria-label={t("shell.logoAria")}>
@@ -78,6 +80,16 @@ export function WorkspaceRail({
         );
       })}
       <div className="grow" />
+      <button
+        type="button"
+        className="signout"
+        aria-label={t("shell.signOutAria")}
+        title={t("shell.signOutAria")}
+        disabled={logout.isPending}
+        onClick={() => logout.mutate()}
+      >
+        <LogOut size={16} aria-hidden />
+      </button>
       <a className="user" href="#/settings" aria-label={t("nav.settings")}>
         <UserRound size={16} aria-hidden />
       </a>

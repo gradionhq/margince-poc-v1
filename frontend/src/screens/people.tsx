@@ -36,6 +36,7 @@ import {
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
 import { RelationshipsTab } from "./relationships";
+import { ShareAction } from "./share";
 import { StrengthCard } from "./strength";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
@@ -600,6 +601,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                       recordKey="person"
                       onArchived={() => navigate({ screen: "contacts" })}
                     />
+                    <ShareAction recordType="person" recordId={person.id} />
                   </>
                 )}
               </>

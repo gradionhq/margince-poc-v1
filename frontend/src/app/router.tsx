@@ -7,6 +7,7 @@ import { useSyncExternalStore } from "react";
 export type Route = {
   screen: string;
   id?: string;
+  id2?: string;
 };
 
 export function parseHash(hash: string): Route {
@@ -14,11 +15,15 @@ export function parseHash(hash: string): Route {
   if (parts.length === 0) {
     return { screen: "home" };
   }
-  return { screen: parts[0], id: parts[1] };
+  return { screen: parts[0], id: parts[1], id2: parts[2] };
 }
 
 export function routeHash(route: Route): string {
-  return route.id ? `#/${route.screen}/${route.id}` : `#/${route.screen}`;
+  const base = `#/${route.screen}`;
+  if (!route.id) {
+    return base;
+  }
+  return route.id2 ? `${base}/${route.id}/${route.id2}` : `${base}/${route.id}`;
 }
 
 export function navigate(route: Route): void {

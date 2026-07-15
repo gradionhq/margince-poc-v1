@@ -172,6 +172,13 @@ function searchByEntity(
       return searchPersonCandidates(query);
     case "deal":
       return searchDealCandidates(query);
+    default:
+      // Relationship edges only ever anchor person/organization/deal (see
+      // edgeOptions below) — `lead`/`user`/`team` are EntityRefKind additions
+      // for record refs elsewhere (EntityRef), not creatable relationship
+      // endpoints, so this branch is unreachable for any real EdgeOption but
+      // still needs to satisfy the now-widened union's exhaustiveness check.
+      return Promise.resolve([]);
   }
 }
 

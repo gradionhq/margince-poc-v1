@@ -29,6 +29,7 @@ import { ContactsScreen, PersonScreen } from "./screens/people";
 import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
 import { SettingsScreen } from "./screens/settings";
+import { ShareScreen } from "./screens/share";
 import { TasksScreen } from "./screens/tasks";
 
 // Route → screen. Surfaces land here ticket by ticket; anything not yet
@@ -43,7 +44,11 @@ function PendingScreen() {
   );
 }
 
-function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
+function ScreenView({
+  screen,
+  id,
+  id2,
+}: Readonly<{ screen: string; id?: string; id2?: string }>) {
   switch (screen) {
     case "design":
       return <DesignScreen />;
@@ -92,6 +97,15 @@ function ScreenView({ screen, id }: Readonly<{ screen: string; id?: string }>) {
     case "book":
       // #/book/<host_slug> is the anonymous public variant
       return <BookingScreen hostSlug={id} />;
+    case "share":
+      // #/share/<record_type>/<record_id> (AS-3/4/5) — both segments are
+      // required; a bare #/share renders the honest pending state instead
+      // of a screen with nothing to share.
+      return id && id2 ? (
+        <ShareScreen recordType={id} recordId={id2} />
+      ) : (
+        <PendingScreen />
+      );
     default:
       return <PendingScreen />;
   }
@@ -106,7 +120,7 @@ export function App() {
   if (PUBLIC_SCREENS.has(route.screen)) {
     return (
       <Shell onOpenSearch={() => undefined}>
-        <ScreenView screen={route.screen} id={route.id} />
+        <ScreenView screen={route.screen} id={route.id} id2={route.id2} />
       </Shell>
     );
   }
@@ -144,7 +158,7 @@ function AuthedApp({
   return (
     <>
       <Shell onOpenSearch={() => setPaletteOpen(true)}>
-        <ScreenView screen={route.screen} id={route.id} />
+        <ScreenView screen={route.screen} id={route.id} id2={route.id2} />
       </Shell>
       <CommandPalette
         open={paletteOpen}

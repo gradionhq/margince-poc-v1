@@ -201,6 +201,35 @@
   color: var(--textPrimary);
   box-shadow: var(--shadow-card);
 }
+/* Keyboard focus reads an accent-token ring (matches .input/.textarea) rather
+ * than the browser's off-palette native outline. */
+.segmented button:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+/* A lighter, secondary text affordance for in-row actions that must not
+ * compete with the primary Accept / Reject buttons. */
+.link-button {
+  font-family: var(--f-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.link-button:hover {
+  text-decoration: underline;
+}
+.link-button:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
 
 .kbd {
   font-family: var(--f-mono);

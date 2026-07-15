@@ -69,6 +69,7 @@ export const en = {
   "shell.railAria": "Primary navigation",
   "shell.logoAria": "Margince",
   "shell.search": "Search",
+  "shell.signOutAria": "Sign out",
   "locale.toEnglish": "Switch to English",
   "locale.toGerman": "Switch to German",
 
@@ -116,6 +117,53 @@ export const en = {
   "record.disqualifyConfirm":
     "Are you sure? This disqualifies and archives the lead — there is no undo control.",
   "record.archived": "Archived",
+  "record.share": "Share",
+
+  "share.title": "Share this record",
+  "share.ceiling.pre": "A grant changes who can see ",
+  "share.ceiling.recordEmphasis": "exactly this one record",
+  "share.ceiling.mid":
+    " — nothing else about a person's scope moves. A share is capped at your own access, ",
+  "share.ceiling.noWider": "no wider",
+  "share.ceiling.post": ".",
+  "share.unknownRecord": "This isn't a record that can be shared.",
+  "share.grantAccess": "Grant access",
+  "share.subject": "Person or team",
+  "share.alreadyGranted": "already has a grant",
+  "share.kindPerson": "Person",
+  "share.kindTeam": "Team",
+  "share.access": "Access level",
+  "share.access.read": "Read",
+  "share.access.write": "Write",
+  "share.access.readNote":
+    "Can open and read this record — cannot edit or send.",
+  "share.access.writeNote":
+    "Can open, edit, and add to this record — not change ownership or sharing.",
+  "share.expiry": "Expiry",
+  "share.expiry.none": "No expiry (until revoked)",
+  "share.expiry.day": "Expires in 24 hours",
+  "share.expiry.week": "Expires in 7 days",
+  "share.expiry.month": "Expires in 30 days",
+  "share.reason": "Reason",
+  "share.grant": "Grant access",
+  "share.whoHasAccess": "Who has access",
+  "share.grantedBy": "granted by",
+  "share.revoke": "Revoke",
+  "share.revokeConfirm":
+    "Revoke this grant? The subject loses this record's access at the next request — there is no undo control.",
+  "share.approvalRequired":
+    "This share needs approval before it takes effect — it's been queued to the approval inbox, not applied yet.",
+  "share.empty": "No manual grants on this record yet.",
+  "share.teamMembers.one": "Team · {count} member",
+  "share.teamMembers.other": "Team · {count} members",
+  "share.rosterLoading": "Loading people and teams…",
+  "share.rosterErrorUsers":
+    "Couldn't load the people list — teams are shown below.",
+  "share.rosterErrorTeams":
+    "Couldn't load the teams list — people are shown below.",
+  "share.rosterErrorBoth": "Couldn't load people or teams.",
+  "share.rosterEmpty": "No shareable people or teams found.",
+
   "edit.versionSkew":
     "This record changed since you opened it — reload and try again.",
 
@@ -364,6 +412,26 @@ export const en = {
   "inbox.expires": "expires {at}",
   "inbox.approveEdited": "Approve edited",
   "inbox.reject": "Reject",
+  "inbox.tab.pending": "Pending",
+  "inbox.tab.decided": "Decided",
+  "inbox.rejectReason": "Reason",
+  "inbox.rejectReasonHint": "Shared with the person this was staged for.",
+  "inbox.tokenTitle": "Approval token",
+  "inbox.tokenOnce": "Copy it now — you'll only see this token once.",
+  "inbox.copy": "Copy",
+  "inbox.copied": "Copied",
+  "inbox.tokenDone": "Done",
+  "inbox.dismiss": "Dismiss",
+  "inbox.versionSkew":
+    "This record changed since it was staged — re-stage it before deciding.",
+  "inbox.reRead": "Re-read",
+  "inbox.alreadyDecided": "Already decided — nothing left to do here.",
+  "inbox.expired": "Expired",
+  "inbox.expiresIn": "expires in {countdown}",
+  "inbox.detail": "Approval detail",
+  "inbox.status.approved": "Approved",
+  "inbox.status.rejected": "Rejected",
+  "inbox.status.expired": "Expired",
 
   "home.brief": "Morning brief",
   "home.sub": "ranked from live signals — staged actions first",
@@ -543,6 +611,9 @@ export const en = {
   "settings.created": "created {date}",
   "settings.expires": "expires {date}",
   "settings.revoked": "revoked",
+  "settings.revoke": "Revoke",
+  "settings.revokeConfirm":
+    "This passport's credential is invalidated immediately — the agent loses access on its next call.",
   "settings.automations": "Automations",
   "settings.automationsSub":
     "the bounded starter catalog — enable, parameterize, pause",
@@ -817,6 +888,7 @@ export const en = {
   "auth.bulletEvidence": "Every field carries its source — never a guess.",
   "auth.bulletConfirm": "Nothing sends without your approval.",
   "auth.bulletOwn": "Your data stays in your workspace.",
+  "auth.signOut": "Sign out",
 
   "client.back": "Back to Margince",
   "client.title": "Margince alongside your inbox",
@@ -1012,6 +1084,9 @@ export const en = {
   "template.localeEN": "English (US)",
   "template.sortName": "Name",
   "template.empty": "No offer templates yet.",
+
+  "countdown.minutesSeconds": "{minutes}m {seconds}s",
+  "countdown.expired": "Expired",
 } as const;
 
 export type MessageKey = keyof typeof en;

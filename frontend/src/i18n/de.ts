@@ -72,6 +72,7 @@ export const de = {
   "shell.railAria": "Hauptnavigation",
   "shell.logoAria": "Margince",
   "shell.search": "Suche",
+  "shell.signOutAria": "Abmelden",
   "locale.toEnglish": "Auf Englisch umschalten",
   "locale.toGerman": "Auf Deutsch umschalten",
 
@@ -119,6 +120,53 @@ export const de = {
   "record.disqualifyConfirm":
     "Bist du sicher? Das disqualifiziert und archiviert den Lead — es gibt keine Rückgängig-Funktion.",
   "record.archived": "Archiviert",
+  "record.share": "Teilen",
+
+  "share.title": "Diesen Datensatz teilen",
+  "share.ceiling.pre": "Eine Freigabe ändert, wer ",
+  "share.ceiling.recordEmphasis": "genau diesen einen Datensatz",
+  "share.ceiling.mid":
+    " sehen kann — sonst nichts am Zugriffsbereich einer Person. Eine Freigabe ist auf deinen eigenen Zugriff begrenzt, ",
+  "share.ceiling.noWider": "nicht weiter",
+  "share.ceiling.post": ".",
+  "share.unknownRecord": "Dieser Datensatztyp kann nicht geteilt werden.",
+  "share.grantAccess": "Zugriff gewähren",
+  "share.subject": "Person oder Team",
+  "share.alreadyGranted": "hat bereits eine Freigabe",
+  "share.kindPerson": "Person",
+  "share.kindTeam": "Team",
+  "share.access": "Zugriffsstufe",
+  "share.access.read": "Lesen",
+  "share.access.write": "Schreiben",
+  "share.access.readNote":
+    "Kann diesen Datensatz öffnen und lesen — nicht bearbeiten oder senden.",
+  "share.access.writeNote":
+    "Kann diesen Datensatz öffnen, bearbeiten und ergänzen — nicht Eigentümerschaft oder Freigaben ändern.",
+  "share.expiry": "Ablauf",
+  "share.expiry.none": "Kein Ablauf (bis zum Widerruf)",
+  "share.expiry.day": "Läuft in 24 Stunden ab",
+  "share.expiry.week": "Läuft in 7 Tagen ab",
+  "share.expiry.month": "Läuft in 30 Tagen ab",
+  "share.reason": "Grund",
+  "share.grant": "Zugriff gewähren",
+  "share.whoHasAccess": "Wer hat Zugriff",
+  "share.grantedBy": "gewährt von",
+  "share.revoke": "Widerrufen",
+  "share.revokeConfirm":
+    "Diese Freigabe widerrufen? Der Zugriff auf diesen Datensatz entfällt beim nächsten Request — es gibt keine Rückgängig-Funktion.",
+  "share.approvalRequired":
+    "Diese Freigabe braucht erst eine Genehmigung — sie wurde in den Genehmigungs-Posteingang eingereiht, aber noch nicht angewendet.",
+  "share.empty": "Noch keine manuellen Freigaben für diesen Datensatz.",
+  "share.teamMembers.one": "Team · {count} Mitglied",
+  "share.teamMembers.other": "Team · {count} Mitglieder",
+  "share.rosterLoading": "Personen und Teams werden geladen…",
+  "share.rosterErrorUsers":
+    "Personenliste konnte nicht geladen werden — Teams werden unten angezeigt.",
+  "share.rosterErrorTeams":
+    "Teamliste konnte nicht geladen werden — Personen werden unten angezeigt.",
+  "share.rosterErrorBoth": "Personen und Teams konnten nicht geladen werden.",
+  "share.rosterEmpty": "Keine freigebbaren Personen oder Teams gefunden.",
+
   "edit.versionSkew":
     "Dieser Datensatz hat sich geändert, seit du ihn geöffnet hast — neu laden und erneut versuchen.",
 
@@ -372,6 +420,28 @@ export const de = {
   "inbox.expires": "läuft ab {at}",
   "inbox.approveEdited": "Bearbeitet übernehmen",
   "inbox.reject": "Ablehnen",
+  "inbox.tab.pending": "Ausstehend",
+  "inbox.tab.decided": "Entschieden",
+  "inbox.rejectReason": "Begründung",
+  "inbox.rejectReasonHint":
+    "Wird mit der Person geteilt, für die dies vorgemerkt wurde.",
+  "inbox.tokenTitle": "Freigabe-Token",
+  "inbox.tokenOnce": "Jetzt kopieren — dieses Token wird nur einmal angezeigt.",
+  "inbox.copy": "Kopieren",
+  "inbox.copied": "Kopiert",
+  "inbox.tokenDone": "Fertig",
+  "inbox.dismiss": "Schließen",
+  "inbox.versionSkew":
+    "Dieser Datensatz hat sich seit dem Vormerken geändert — bitte neu vormerken.",
+  "inbox.reRead": "Neu einlesen",
+  "inbox.alreadyDecided":
+    "Bereits entschieden — hier gibt es nichts mehr zu tun.",
+  "inbox.expired": "Abgelaufen",
+  "inbox.expiresIn": "läuft ab in {countdown}",
+  "inbox.detail": "Freigabe-Detail",
+  "inbox.status.approved": "Genehmigt",
+  "inbox.status.rejected": "Abgelehnt",
+  "inbox.status.expired": "Abgelaufen",
 
   "home.brief": "Morgenbriefing",
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
@@ -552,6 +622,9 @@ export const de = {
   "settings.created": "erstellt {date}",
   "settings.expires": "läuft ab {date}",
   "settings.revoked": "widerrufen",
+  "settings.revoke": "Widerrufen",
+  "settings.revokeConfirm":
+    "Das Credential dieses Passports wird sofort ungültig — der Agent verliert beim nächsten Aufruf den Zugriff.",
   "settings.automations": "Automatisierungen",
   "settings.automationsSub":
     "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
@@ -834,6 +907,7 @@ export const de = {
   "auth.bulletEvidence": "Jedes Feld trägt seine Quelle — nie eine Vermutung.",
   "auth.bulletConfirm": "Nichts wird ohne deine Freigabe gesendet.",
   "auth.bulletOwn": "Deine Daten bleiben in deinem Workspace.",
+  "auth.signOut": "Abmelden",
 
   "client.back": "Zurück zu Margince",
   "client.title": "Margince neben deinem Postfach",
@@ -1035,4 +1109,7 @@ export const de = {
   "template.localeEN": "Englisch (US)",
   "template.sortName": "Name",
   "template.empty": "Noch keine Angebotsvorlagen.",
+
+  "countdown.minutesSeconds": "{minutes}m {seconds}s",
+  "countdown.expired": "Abgelaufen",
 } as const satisfies Record<MessageKey, string>;
