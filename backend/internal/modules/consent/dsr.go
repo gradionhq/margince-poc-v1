@@ -77,7 +77,10 @@ func requireDSRAdmin(ctx context.Context, action principal.Action) error {
 	return nil
 }
 
-func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string) ([]dsrRow, storekit.Page, error) {
+// ListDSRs walks the case queue newest-id-last. status narrows to one
+// queue state ("" = no filter); the contract publishes the filter, so the
+// store implements it rather than returning everything.
+func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string, status string) ([]dsrRow, storekit.Page, error) {
 	if err := requireDSRAdmin(ctx, principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -94,6 +97,9 @@ func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string) ([]dsrR
 				return &ValidationError{Field: "cursor", Reason: "malformed"}
 			}
 			sql += storekit.SQLf(" AND id > $%d", arg(after))
+		}
+		if status != "" {
+			sql += storekit.SQLf(" AND status = $%d", arg(status))
 		}
 		sql += storekit.SQLf(" ORDER BY id LIMIT $%d", arg(bounded+1))
 		rows, err := tx.Query(ctx, sql, args...)

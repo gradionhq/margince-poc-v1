@@ -18,7 +18,15 @@ func (h Handlers) ListDataSubjectRequests(w http.ResponseWriter, r *http.Request
 	if params.Cursor != nil {
 		cursor = *params.Cursor
 	}
-	requests, page, err := h.store.ListDSRs(r.Context(), params.Limit, cursor)
+	status := ""
+	if params.Status != nil {
+		if !params.Status.Valid() {
+			writeConsentErr(w, r, &ValidationError{Field: "status", Reason: "not a queue state"})
+			return
+		}
+		status = string(*params.Status)
+	}
+	requests, page, err := h.store.ListDSRs(r.Context(), params.Limit, cursor, status)
 	if err != nil {
 		writeConsentErr(w, r, err)
 		return
