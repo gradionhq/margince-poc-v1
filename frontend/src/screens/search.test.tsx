@@ -3,7 +3,12 @@
 
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render as rtlRender,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -21,7 +26,9 @@ function jsonResponse(body: unknown) {
   });
 }
 const render = (ui: ReactNode) => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{ui}</LocaleProvider>
@@ -66,7 +73,12 @@ describe("SearchScreen", () => {
   it("shows an honest empty state", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ data: [], page: { next_cursor: null, has_more: false } })),
+      vi.fn(async () =>
+        jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
     );
     render(<SearchScreen q="zzz" />);
     await waitFor(() => expect(screen.getByText(/No matches/)).toBeTruthy());
