@@ -20,6 +20,7 @@ export function ConfirmModal({
   tier,
   confirmLabel,
   confirmVariant = "primary",
+  confirmDisabled = false,
   onConfirm,
   pending,
   error,
@@ -34,6 +35,10 @@ export function ConfirmModal({
   // a destructive confirm (e.g. reject-with-reason) passes "danger" so it
   // doesn't read green like an approve.
   confirmVariant?: "primary" | "danger";
+  // Lets the caller gate its own precondition (e.g. a typed-confirmation
+  // input in children) without teaching this atom what the action means.
+  // Defaults false: an ungated confirm is disabled only while pending.
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   pending?: boolean;
   error?: string | null;
@@ -61,7 +66,11 @@ export function ConfirmModal({
         <Button onClick={onClose} disabled={pending}>
           {t("create.cancel")}
         </Button>
-        <Button variant={confirmVariant} onClick={onConfirm} disabled={pending}>
+        <Button
+          variant={confirmVariant}
+          onClick={onConfirm}
+          disabled={pending || confirmDisabled}
+        >
           {confirmLabel}
         </Button>
       </div>
