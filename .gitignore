@@ -15,6 +15,10 @@ coverage.out
 # Session working notes — local only, not part of the published repo
 /review_*.md
 
+# Superpowers skill artifacts (design/plan/spec docs) — local working notes,
+# kept on disk to guide the work but never committed to the repo.
+/docs/superpowers/
+
 # Local secrets — never commit
 .env.local
 
