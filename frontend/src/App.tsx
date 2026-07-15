@@ -28,6 +28,7 @@ import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen, PersonScreen } from "./screens/people";
 import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
+import { SearchScreen } from "./screens/search";
 import { SettingsScreen } from "./screens/settings";
 import { ShareScreen } from "./screens/share";
 import { TasksScreen } from "./screens/tasks";
@@ -41,6 +42,29 @@ function PendingScreen() {
     <div className="wrap narrow">
       <EmptyState>{t("screen.pending")}</EmptyState>
     </div>
+  );
+}
+
+// Split out of ScreenView's switch purely to keep that function's cognitive
+// complexity under the lint ceiling — the deals list/detail split has its
+// own "new" vs existing-id branch that would otherwise count twice.
+function DealsRoute({ id }: Readonly<{ id?: string }>) {
+  return id && id !== "new" ? (
+    <DealScreen id={id} />
+  ) : (
+    <DealsScreen startCreating={id === "new"} />
+  );
+}
+
+// #/share/<record_type>/<record_id> (AS-3/4/5) — both segments are required;
+// a bare #/share renders the honest pending state instead of a screen with
+// nothing to share. Split out for the same complexity-budget reason as
+// DealsRoute above.
+function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
+  return id && id2 ? (
+    <ShareScreen recordType={id} recordId={id2} />
+  ) : (
+    <PendingScreen />
   );
 }
 
@@ -61,11 +85,7 @@ function ScreenView({
     case "leads":
       return id ? <LeadScreen id={id} /> : <LeadsScreen />;
     case "deals":
-      return id && id !== "new" ? (
-        <DealScreen id={id} />
-      ) : (
-        <DealsScreen startCreating={id === "new"} />
-      );
+      return <DealsRoute id={id} />;
     case "home":
       return <HomeScreen />;
     case "inbox":
@@ -98,14 +118,9 @@ function ScreenView({
       // #/book/<host_slug> is the anonymous public variant
       return <BookingScreen hostSlug={id} />;
     case "share":
-      // #/share/<record_type>/<record_id> (AS-3/4/5) — both segments are
-      // required; a bare #/share renders the honest pending state instead
-      // of a screen with nothing to share.
-      return id && id2 ? (
-        <ShareScreen recordType={id} recordId={id2} />
-      ) : (
-        <PendingScreen />
-      );
+      return <ShareRoute id={id} id2={id2} />;
+    case "search":
+      return <SearchScreen q={id ? decodeURIComponent(id) : ""} />;
     default:
       return <PendingScreen />;
   }

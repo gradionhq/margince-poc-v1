@@ -76,6 +76,19 @@ export const en = {
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
 
+  "search.title": "Search",
+  "search.placeholder": "Search people, companies, deals, activities, leads…",
+  "search.empty": "No matches for “{q}”.",
+  "search.group.person": "People",
+  "search.group.organization": "Organizations",
+  "search.group.deal": "Deals",
+  "search.group.activity": "Activities",
+  "search.group.lead": "Leads",
+  "search.why": "Why this result",
+  "search.relevance": "relevance {pct}%",
+  "search.tier.authoritative": "verified",
+  "search.seeAll": "See all results for “{q}”",
+
   "palette.aria": "Command palette",
   "palette.placeholder": "Jump to, or ask anything…",
   "palette.empty": "No matches.",

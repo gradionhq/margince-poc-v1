@@ -79,6 +79,19 @@ export const de = {
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 
+  "search.title": "Suche",
+  "search.placeholder": "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
+  "search.empty": "Keine Treffer für „{q}“.",
+  "search.group.person": "Personen",
+  "search.group.organization": "Organisationen",
+  "search.group.deal": "Deals",
+  "search.group.activity": "Aktivitäten",
+  "search.group.lead": "Leads",
+  "search.why": "Warum dieses Ergebnis",
+  "search.relevance": "Relevanz {pct}%",
+  "search.tier.authoritative": "verifiziert",
+  "search.seeAll": "Alle Ergebnisse für „{q}“ anzeigen",
+
   "palette.aria": "Befehlspalette",
   "palette.placeholder": "Wohin? Oder frag einfach etwas…",
   "palette.empty": "Keine Treffer.",
