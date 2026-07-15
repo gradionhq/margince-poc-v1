@@ -1460,6 +1460,123 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the calling user's capture connections + sync state.
+         * @description The per-user mail/calendar connections this user has established (RC-8), each with its
+         *     status and sync watermark. Never returns the credential — it lives encrypted in the vault
+         *     (`credential_ref`); this row carries only status + cursor (capture.md CAP-DDL-2).
+         */
+        get: operations["listConnectors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/{provider}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Connect (or re-authorize) the calling user's mail/calendar for capture.
+         * @description Per-user, consent-driven connect (RC-8). For an OAuth provider (`gmail`/`gcal`/`graph`)
+         *     returns the provider `authorize_url` to redirect the user to; the flow completes at
+         *     `GET /connectors/{provider}/callback`. The refresh token is written to the vault on
+         *     callback, NEVER to the row or a response. Human-only: an agent connecting a human's mailbox
+         *     would self-grant read of personal mail. (`imap` uses the dedicated one-shot
+         *     `/connectors/imap/connect`.)
+         */
+        post: operations["connectConnector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * OAuth redirect callback — completes a mail/calendar connect.
+         * @description The redirect URI the OAuth provider returns to after user consent. The `state` parameter is
+         *     the signed, single-use binding to the initiating user + provider (CSRF defence; the session
+         *     cookie is not sent on this cross-site redirect). On success the authorization `code` is
+         *     exchanged for tokens server-side, the tokens are stored in the vault, and the user's
+         *     connection flips to `connected` with its initial sync cursor.
+         */
+        get: operations["connectorOAuthCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/{provider}/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disconnect the calling user's mail/calendar capture.
+         * @description Revokes the stored provider token, stops the background sync, and flips the user's
+         *     connection to `disconnected` (RC-8). Idempotent. Already-captured activities are retained —
+         *     they are real history; capture simply stops. Human-only.
+         */
+        post: operations["disconnectConnector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/approvals": {
         parameters: {
             query?: never;
@@ -2895,6 +3012,62 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
+         *     credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
+         *     server-side by `credential_ref`.
+         */
+        CaptureConnection: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The mail/calendar provider (A51 email+calendar parity).
+             * @enum {string}
+             */
+            provider: "gmail" | "gcal" | "graph" | "imap";
+            /**
+             * @description Connection state; `reauth_required` when the stored token expired/was revoked upstream.
+             * @enum {string}
+             */
+            status: "connected" | "disconnected" | "error" | "reauth_required";
+            /** @description Opaque provider watermark (Gmail historyId / IMAP UID / Graph delta) for incremental capture — read-only. */
+            sync_cursor?: string | null;
+            /**
+             * Format: date-time
+             * @description Push/delta subscription renewal deadline (Gmail Pub/Sub / Graph change-notification), or null.
+             */
+            watch_expires_at?: string | null;
+            /** @description The granted provider scopes. */
+            scopes: string[];
+            /** Format: date-time */
+            readonly created_at?: string;
+            /** Format: date-time */
+            readonly updated_at?: string;
+        };
+        CaptureConnectionListResponse: {
+            data: components["schemas"]["CaptureConnection"][];
+        };
+        /**
+         * @description Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
+         *     (the app page to return to after consent). The secret is written to the vault, never echoed.
+         */
+        ConnectConnectorRequest: {
+            /**
+             * Format: uri
+             * @description App page to return to after OAuth consent (OAuth providers).
+             */
+            redirect_uri?: string;
+        };
+        /** @description An OAuth redirect target (OAuth providers). */
+        ConnectConnectorResponse: {
+            /**
+             * Format: uri
+             * @description Provider consent URL to redirect the user to (OAuth providers).
+             */
+            authorize_url?: string | null;
+            /** @description The established/updated connection (appears after the callback completes for OAuth). */
+            connection?: components["schemas"]["CaptureConnection"];
+        };
         /** @description RFC 7807 problem+json with a stable machine `code` and structured `details`. */
         Problem: {
             /**
@@ -6287,6 +6460,13 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+         *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+         *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+         *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+         */
+        CaptureProvider: "gmail" | "gcal" | "graph" | "imap";
         /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
         Id: string;
         /**
@@ -9781,6 +9961,123 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    listConnectors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calling user's capture connections. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureConnectionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    connectConnector: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectConnectorRequest"];
+            };
+        };
+        responses: {
+            /** @description OAuth redirect target (OAuth providers). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectConnectorResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    connectorOAuthCallback: {
+        parameters: {
+            query: {
+                /** @description Provider authorization code (absent when the user denied consent). */
+                code?: string;
+                /** @description Signed single-use binding to the initiating user + provider. */
+                state: string;
+                /** @description Set instead of `code` when the user denied consent. */
+                error?: string;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect back into the app — connection established */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    disconnectConnector: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected (or already disconnected). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     listApprovals: {
