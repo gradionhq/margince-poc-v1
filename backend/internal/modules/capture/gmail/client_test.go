@@ -72,8 +72,10 @@ func googleStub(t *testing.T) *httptest.Server {
 	return srv
 }
 
+//craft:ignore naked-any v is an arbitrary canned JSON response body for the stub
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	//craft:ignore swallowed-errors test stub write; an encode failure surfaces as the client-side decode error the assertion checks
 	_ = json.NewEncoder(w).Encode(v)
 }
 

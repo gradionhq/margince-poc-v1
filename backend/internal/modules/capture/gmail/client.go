@@ -161,6 +161,7 @@ func (o *httpOAuth) token(ctx context.Context, form url.Values) (tokenResponse, 
 	if err != nil {
 		return tokenResponse{}, fmt.Errorf("gmail: token endpoint: %w", ErrUnreachable)
 	}
+	//craft:ignore swallowed-errors best-effort close of the token response body — the exchange result is already read below
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
@@ -292,6 +293,8 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 // HTTP status (so History can special-case 404) and maps a 401/403 to
 // ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable.
 // Google's raw body is never surfaced to the caller.
+//
+//craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any) (int, error) {
 	u := a.base + path
 	if len(q) > 0 {
@@ -306,6 +309,7 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 	if err != nil {
 		return 0, fmt.Errorf("gmail: %s: %w", path, ErrUnreachable)
 	}
+	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
