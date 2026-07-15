@@ -72,6 +72,33 @@ describe("RecordContextPanel", () => {
     expect(screen.getByText(/renewal/)).toBeTruthy();
   });
 
+  it("renders a non-linkable item's summary exactly once", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          anchor: { type: "person", id: "p1" },
+          sections: [
+            {
+              name: "Recent touches",
+              items: [
+                {
+                  ref: { type: "activity", id: "a1" },
+                  summary: "Called about renewal",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    render(<RecordContextPanel entityType="person" id="p1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Recent touches")).toBeTruthy(),
+    );
+    expect(screen.getAllByText("Called about renewal")).toHaveLength(1);
+  });
+
   it("shows the honest empty state when there is nothing related", async () => {
     vi.stubGlobal(
       "fetch",

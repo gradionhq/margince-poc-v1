@@ -72,15 +72,19 @@ export function RecordContextPanel({
                           className="context-item"
                         >
                           {LINKABLE.has(item.ref.type as EntityKind) ? (
-                            <EntityRef
-                              kind={item.ref.type as EntityKind}
-                              id={item.ref.id}
-                            />
+                            <>
+                              <EntityRef
+                                kind={item.ref.type as EntityKind}
+                                id={item.ref.id}
+                              />
+                              {item.summary && (
+                                <span className="t-caption">
+                                  {item.summary}
+                                </span>
+                              )}
+                            </>
                           ) : (
                             <span>{item.summary ?? item.ref.id}</span>
-                          )}
-                          {item.summary && (
-                            <span className="t-caption">{item.summary}</span>
                           )}
                           {evidenceList.map((evidence) => (
                             <EvidenceChip

@@ -492,11 +492,13 @@ function AgentToolsCard() {
           style={{ marginBottom: 10 }}
         >
           <option value="">{t("tools.scopeAll")}</option>
-          {passports.data.data.map((p) => (
-            <option key={p.id} value={p.id}>
-              {t("tools.scopedTo", { label: p.label })}
-            </option>
-          ))}
+          {passports.data.data
+            .filter((p) => p.revoked_at == null)
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {t("tools.scopedTo", { label: p.label })}
+              </option>
+            ))}
         </select>
       )}
       <QueryGate query={tools} empty={(data) => data.data.length === 0}>
@@ -513,8 +515,8 @@ function AgentToolsCard() {
             {data.data.map((tool) => {
               const reachable =
                 !passportId ||
-                (tool.required_scope != null &&
-                  grantedScopes.has(tool.required_scope));
+                tool.required_scope == null ||
+                grantedScopes.has(tool.required_scope);
               return (
                 <li
                   key={tool.name}

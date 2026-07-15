@@ -212,6 +212,106 @@ describe("AgentToolsCard (IT-1)", () => {
   });
 });
 
+// Both /passports and /agent-tools served together so the passport
+// selector's filtering and the reachability computation can be exercised
+// against the same fixture: one live passport, one revoked, and one
+// scope-free tool alongside a scoped one the live passport doesn't cover.
+function agentToolsWithPassportsBackend() {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { email: "ada@acme.test" },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (url.includes("/passports")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "pp-1",
+            label: "Scout",
+            scopes: ["read"],
+            created_at: "2026-07-01T08:00:00Z",
+            expires_at: null,
+            revoked_at: null,
+          },
+          {
+            id: "pp-2",
+            label: "Retired",
+            scopes: ["read"],
+            created_at: "2026-06-01T08:00:00Z",
+            expires_at: null,
+            revoked_at: "2026-07-02T08:00:00Z",
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      });
+    }
+    if (url.includes("/agent-tools")) {
+      return jsonResponse({
+        data: [
+          {
+            name: "list_pipelines",
+            required_scope: null,
+            tier: "green",
+            egress: false,
+          },
+          {
+            name: "send_email",
+            required_scope: "send",
+            tier: "yellow",
+            egress: true,
+          },
+        ],
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("AgentToolsCard passport scoping", () => {
+  it("excludes a revoked passport from the selector", async () => {
+    vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
+    render(<SettingsScreen tab="ai" />);
+    await screen.findByText("list_pipelines");
+
+    const select = screen.getByLabelText("All passports");
+    const optionLabels = Array.from(select.querySelectorAll("option")).map(
+      (o) => o.textContent,
+    );
+    expect(optionLabels).toContain("Reachable by Scout");
+    expect(optionLabels).not.toContain("Reachable by Retired");
+  });
+
+  it("keeps a scope-free tool reachable once a passport is selected", async () => {
+    vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
+    render(<SettingsScreen tab="ai" />);
+    await screen.findByText("list_pipelines");
+
+    const select = screen.getByLabelText("All passports");
+    await userEvent.selectOptions(select, "pp-1");
+
+    const freeRow = document.querySelector('[data-tool="list_pipelines"]');
+    expect(freeRow).toBeTruthy();
+    expect(
+      freeRow &&
+        within(freeRow as HTMLElement).queryByText("scope not granted"),
+    ).toBeNull();
+
+    const scopedRow = document.querySelector('[data-tool="send_email"]');
+    expect(scopedRow).toBeTruthy();
+    expect(
+      scopedRow &&
+        within(scopedRow as HTMLElement).getByText("scope not granted"),
+    ).toBeTruthy();
+  });
+});
+
 describe("PassportCard revoke (AS-2)", () => {
   it("revokes a non-revoked passport: click Revoke, confirm, DELETE fires with its id and the list refetches", async () => {
     const deleted: string[] = [];

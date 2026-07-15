@@ -68,6 +68,11 @@ describe("SearchScreen", () => {
     await waitFor(() => expect(screen.getByText("People")).toBeTruthy());
     expect(screen.getByText("Deals")).toBeTruthy();
     expect(screen.getByText(/Dana at Acme/)).toBeTruthy();
+    // The hit title renders straight from the search result (no per-hit
+    // record fetch) as a link to the record's 360.
+    const hitLink = screen.getByText("Dana Buyer");
+    expect(hitLink.tagName).toBe("BUTTON");
+    expect(hitLink.className).toContain("entity-link");
   });
 
   it("shows an honest empty state", async () => {

@@ -36,6 +36,18 @@ import { TasksScreen } from "./screens/tasks";
 // Route → screen. Surfaces land here ticket by ticket; anything not yet
 // built renders the honest pending state, never a blank page.
 
+// safeDecode tolerates malformed percent-encoding (e.g. a stray "%2" from a
+// hand-edited hash route): decodeURIComponent throws a URIError on bad
+// escapes, and a route param is untrusted input, so a decode failure falls
+// back to the raw string rather than crashing the render.
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function PendingScreen() {
   const t = useT();
   return (
@@ -120,7 +132,7 @@ function ScreenView({
     case "share":
       return <ShareRoute id={id} id2={id2} />;
     case "search":
-      return <SearchScreen q={id ? decodeURIComponent(id) : ""} />;
+      return <SearchScreen q={id ? safeDecode(id) : ""} />;
     default:
       return <PendingScreen />;
   }

@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { ENTITY, ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -16,7 +16,6 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate, type QueryLike } from "./common";
-import { EntityRef } from "./entityref";
 import "./search.css";
 
 type SearchResult = components["schemas"]["SearchResult"];
@@ -123,7 +122,19 @@ function SearchHit({ hit }: Readonly<{ hit: SearchResult }>) {
     <li className="search-hit">
       <div className="search-hit-title">
         {isLinkable ? (
-          <EntityRef kind={hit.type as EntityKind} id={hit.id} />
+          // The search API already returns the hit's display name as
+          // `title` — routing through EntityRef here would re-fetch the
+          // same record per hit (an N+1 GET per result) just to re-derive
+          // a name we already have.
+          <button
+            type="button"
+            className="entity-link"
+            onClick={() =>
+              navigate(ENTITY[hit.type as EntityKind].route(hit.id))
+            }
+          >
+            {hit.title ?? hit.id}
+          </button>
         ) : (
           <span>{hit.title ?? hit.id}</span>
         )}

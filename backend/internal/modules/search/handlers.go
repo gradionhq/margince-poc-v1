@@ -67,7 +67,8 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request, params crmcontr
 		if hit.Snippet != "" {
 			result.Snippet = ptr(hit.Snippet)
 		}
-		result.TrustTier = ptr(trustTierOf(hit))
+		// native records are authoritative
+		result.TrustTier = ptr(crmcontracts.SearchResultTrustTierAuthoritative)
 		data = append(data, result)
 	}
 	pageInfo := crmcontracts.PageInfo{HasMore: page.HasMore}

@@ -45,25 +45,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// Aliases give the embedded handler sets distinct field names; each
-// alias carries its module's full method set.
-type (
-	authHandlers         = identity.Handlers
-	peopleHandlers       = people.Handlers
-	dealsHandlers        = deals.Handlers
-	activitiesHandlers   = activities.Handlers
-	approvalsHandlers    = approvals.Handlers
-	searchHandlers       = search.Handlers
-	consentHandlers      = consent.Handlers
-	collectionsHandlers  = collections.Handlers
-	signalsHandlers      = signals.Handlers
-	privacyHandlers      = privacy.Handlers
-	agentsHandlers       = agents.Handlers
-	voiceHandlers        = ai.Handlers
-	customfieldsHandlers = customfields.Handlers
-	quotasHandlers       = quotas.Handlers
-)
-
 // Server satisfies crmcontracts.ServerInterface by embedding: every
 // module transport handler set together covers the full contract
 // surface.

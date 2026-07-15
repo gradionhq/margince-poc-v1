@@ -101,7 +101,12 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		}
 	}
 	if branch == nil {
-		return nil, fmt.Errorf("search: %s is not a graph anchor", anchorType)
+		// The handler pre-validates anchorType against isContextAnchor, so
+		// this is unreachable in practice — but an unmapped raw error would
+		// still surface as an opaque 500 if some caller ever slipped past
+		// that gate, so the store layer answers with the same sentinel
+		// every other invalid-record-reference case in this module uses.
+		return nil, fmt.Errorf("search: %s is not a graph anchor: %w", anchorType, apperrors.ErrNotFound)
 	}
 	// A lead carries no activity_link neighborhood — the link shape admits
 	// only person/organization/deal (0008_activity.up.sql) — so a lead
