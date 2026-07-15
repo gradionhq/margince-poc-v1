@@ -80,7 +80,8 @@ export const de = {
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 
   "search.title": "Suche",
-  "search.placeholder": "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
+  "search.placeholder":
+    "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
   "search.empty": "Keine Treffer für „{q}“.",
   "search.group.person": "Personen",
   "search.group.organization": "Organisationen",
