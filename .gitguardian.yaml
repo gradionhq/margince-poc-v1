@@ -10,6 +10,14 @@ secret:
     - "scripts/dev.sh"
     - "scripts/db-init.sql"
     - ".env.template"
+    # Tests and Storybook stories hold fabricated fixtures — fake passport /
+    # approval-token stand-ins and demo ids — that trip the generic
+    # high-entropy detector but are never real credentials. Scoped to the
+    # fixture file types only, so product source is still fully scanned.
+    - "**/*.test.ts"
+    - "**/*.test.tsx"
+    - "**/*.stories.tsx"
+    - "**/*_test.go"
   ignored-matches:
     - name: throwaway localhost dev DB password (margince_app_dev)
       match: margince_app_dev
