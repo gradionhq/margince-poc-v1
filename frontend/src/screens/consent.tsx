@@ -12,6 +12,7 @@ import {
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { humanizeToken } from "./audit";
 import { problemMessage, QueryStates, throwProblem } from "./common";
 import "./consent.css";
@@ -59,6 +60,20 @@ function useConsentPurposes() {
   });
 }
 
+// The label for each actor kind the wire can name, keyed on the closed
+// actor_type enum (audit.tsx's ACTOR_ICON is the same table shape). Keying on
+// the union makes a kind added upstream a compile error here rather than a
+// silent mislabel — a proof log must never assert an actor the wire did not.
+const ACTOR_LABEL: Record<
+  NonNullable<ConsentEvent["actor_type"]>,
+  MessageKey
+> = {
+  human: "consent.actorHuman",
+  agent: "consent.actorAgent",
+  system: "consent.actorSystem",
+  connector: "consent.actorConnector",
+};
+
 // The actor line on the Art. 7 proof log: names WHO the server says captured
 // this decision, verbatim. This is deliberately NOT ProvenanceTag — that
 // component exists for a compose/staging context ("did *you* type this, or
@@ -70,23 +85,12 @@ function useConsentPurposes() {
 // straight from the wire, never resolved against the current session.
 function ConsentEventActor({ event }: Readonly<{ event: ConsentEvent }>) {
   const t = useT();
+  // An event the wire never attributed is unrecorded, never a positive claim
+  // about who is looking at it.
   if (!event.actor_type) {
     return <span className="t-caption">{t("consent.actorUnknown")}</span>;
   }
-  // Only the four actor kinds the wire actually names get a positive label;
-  // anything else (a kind added to the enum after this code was written) is
-  // reported as unrecorded rather than silently mislabelled — a proof log must
-  // never assert an actor the wire did not.
-  const label =
-    event.actor_type === "human"
-      ? t("consent.actorHuman")
-      : event.actor_type === "agent"
-        ? t("consent.actorAgent")
-        : event.actor_type === "system"
-          ? t("consent.actorSystem")
-          : event.actor_type === "connector"
-            ? t("consent.actorConnector")
-            : t("consent.actorUnknown");
+  const label = t(ACTOR_LABEL[event.actor_type]);
   return (
     <span className="t-caption">
       {label}
@@ -142,15 +146,18 @@ function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
   );
 }
 
-// The ternary state badge: unknown gets no tone (it isn't a withdrawal — the
-// noRecord subtitle carries that distinction instead).
-function stateTone(
-  state: PersonConsentState["state"],
-): "success" | "warn" | undefined {
-  if (state === "granted") return "success";
-  if (state === "withdrawn") return "warn";
-  return undefined;
-}
+// The state badge tone, keyed on the closed consent-state enum: unknown gets no
+// tone (it isn't a withdrawal — the noRecord subtitle carries that distinction).
+// Keying on the union keeps a state added upstream a compile error here rather
+// than a silently untoned badge.
+const STATE_TONE: Record<
+  PersonConsentState["state"],
+  "success" | "warn" | undefined
+> = {
+  granted: "success",
+  withdrawn: "warn",
+  unknown: undefined,
+};
 
 // A mutation's own error, rendered verbatim rather than a generic failure —
 // a DOI-required purpose 422s here, and the human needs to see exactly why
@@ -246,7 +253,7 @@ function ConsentRow({
         <strong>
           {purpose?.label ?? entry.purpose_key ?? entry.purpose_id}
         </strong>
-        <Badge tone={stateTone(entry.state)}>
+        <Badge tone={STATE_TONE[entry.state]}>
           {humanizeToken(entry.state)}
         </Badge>
         {entry.state === "unknown" && (

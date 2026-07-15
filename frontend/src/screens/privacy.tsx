@@ -427,14 +427,18 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   );
 }
 
-function statusTone(
-  status: DsrStatus,
-): "success" | "warn" | "danger" | undefined {
-  if (status === "fulfilled") return "success";
-  if (status === "rejected") return "danger";
-  if (status === "in_progress") return "warn";
-  return undefined;
-}
+// The status badge tone, keyed on the closed DSR status machine — open carries
+// no tone. Keying on the union keeps a status added upstream a compile error
+// here rather than a silently untoned badge.
+const STATUS_TONE: Record<
+  DsrStatus,
+  "success" | "warn" | "danger" | undefined
+> = {
+  open: undefined,
+  in_progress: "warn",
+  fulfilled: "success",
+  rejected: "danger",
+};
 
 // nextStatuses(open|in_progress) only ever yields these three targets (the
 // TRANSITIONS DAG in privacy.logic.ts never routes to "open"); the fallback
@@ -567,7 +571,9 @@ function DsrRow({
       >
         <Badge tone={dsrKindTone(dsr.kind)}>{humanizeToken(dsr.kind)}</Badge>
         <span className="t-mono">{dsr.subject_ref}</span>
-        <Badge tone={statusTone(dsr.status)}>{humanizeToken(dsr.status)}</Badge>
+        <Badge tone={STATUS_TONE[dsr.status]}>
+          {humanizeToken(dsr.status)}
+        </Badge>
         <span className="t-small">
           {t("settings.due", { date: formatDate(dsr.due_at, locale, tz) })}
         </span>
