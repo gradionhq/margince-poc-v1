@@ -203,9 +203,11 @@ describe("AgentToolsCard (IT-1)", () => {
     expect(sendRow).toBeTruthy();
     // The egress "reaches out" badge shows only on the tool that reaches
     // outside the workspace (send_email), never on the pure-read tool.
-    expect(sendRow && within(sendRow).getByText("reaches out")).toBeTruthy();
     expect(
-      searchRow && within(searchRow).queryByText("reaches out"),
+      sendRow && within(sendRow as HTMLElement).getByText("reaches out"),
+    ).toBeTruthy();
+    expect(
+      searchRow && within(searchRow as HTMLElement).queryByText("reaches out"),
     ).toBeNull();
   });
 });

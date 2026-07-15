@@ -164,7 +164,6 @@ describe("InboxScreen (B-EP09.12a)", () => {
       inboxBackend(calls, [
         {
           name: "send_email",
-          verb: "send_email",
           required_scope: "write",
           tier: "green",
           egress: true,
@@ -187,7 +186,6 @@ describe("InboxScreen (B-EP09.12a)", () => {
       inboxBackend(calls, [
         {
           name: "send_email",
-          verb: "send_email",
           required_scope: "write",
           tier: "yellow",
           egress: true,

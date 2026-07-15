@@ -367,7 +367,6 @@ describe("DealsScreen", () => {
         agentTools: [
           {
             name: "progress_deal",
-            verb: "progress_deal",
             required_scope: "write",
             tier: "green",
             egress: false,
