@@ -69,9 +69,12 @@ func scanUser(r pgx.Row) (userRow, error) {
 // ListUsers returns one keyset page of the caller's workspace's active
 // members (row-scoped by RLS), optionally filtered by in.Q.
 func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, storekit.Page, error) {
-	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit,
-		listUsersQuery, listUsersFilteredQuery, scanUser,
-		func(u userRow) (time.Time, ids.UUID) { return u.CreatedAt, u.ID })
+	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[userRow]{
+		plain:     listUsersQuery,
+		filtered:  listUsersFilteredQuery,
+		scan:      scanUser,
+		cursorKey: func(u userRow) (time.Time, ids.UUID) { return u.CreatedAt, u.ID },
+	})
 }
 
 // ListTeamsInput narrows and pages the team list; Q is a case-insensitive
@@ -126,9 +129,12 @@ func scanTeam(r pgx.Row) (teamRow, error) {
 // teams (row-scoped by RLS) with each team's active-membership count,
 // optionally filtered by in.Q.
 func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, storekit.Page, error) {
-	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit,
-		listTeamsQuery, listTeamsFilteredQuery, scanTeam,
-		func(tm teamRow) (time.Time, ids.UUID) { return tm.CreatedAt, tm.ID })
+	return listRosterPage(ctx, s.pool, in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
+		plain:     listTeamsQuery,
+		filtered:  listTeamsFilteredQuery,
+		scan:      scanTeam,
+		cursorKey: func(tm teamRow) (time.Time, ids.UUID) { return tm.CreatedAt, tm.ID },
+	})
 }
 
 // rosterCursor is the decoded keyset position both roster lists page from:
@@ -151,6 +157,17 @@ func decodeRosterCursor(token *string) (rosterCursor, error) {
 	return rosterCursor{createdAt: &createdAt, id: &id}, nil
 }
 
+// rosterQuery bundles the per-row-type plumbing listRosterPage needs so the
+// shared pager takes one spec instead of four positional callbacks: the two
+// fixed query strings (unfiltered + q-filtered), the row scanner, and the
+// keyset-cursor extractor.
+type rosterQuery[T userRow | teamRow] struct {
+	plain     string
+	filtered  string
+	scan      func(pgx.Row) (T, error)
+	cursorKey func(T) (time.Time, ids.UUID)
+}
+
 // listRosterPage is the one shared shape both roster lists (users, teams)
 // run: decode the cursor, run the q-filtered or unfiltered fixed query
 // (never a concatenated WHERE), and truncate the (limit+1)-row window into
@@ -159,9 +176,7 @@ func decodeRosterCursor(token *string) (rosterCursor, error) {
 func listRosterPage[T userRow | teamRow](
 	ctx context.Context, pool *pgxpool.Pool,
 	q, cursor *string, limitIn *int,
-	plainQuery, filteredQuery string,
-	scan func(pgx.Row) (T, error),
-	cursorKey func(T) (time.Time, ids.UUID),
+	spec rosterQuery[T],
 ) ([]T, storekit.Page, error) {
 	limit := storekit.ClampLimit(limitIn)
 	after, err := decodeRosterCursor(cursor)
@@ -174,16 +189,16 @@ func listRosterPage[T userRow | teamRow](
 		var rows pgx.Rows
 		var err error
 		if q != nil && *q != "" {
-			rows, err = tx.Query(ctx, filteredQuery, "%"+*q+"%", after.createdAt, after.id, limit+1)
+			rows, err = tx.Query(ctx, spec.filtered, "%"+*q+"%", after.createdAt, after.id, limit+1)
 		} else {
-			rows, err = tx.Query(ctx, plainQuery, after.createdAt, after.id, limit+1)
+			rows, err = tx.Query(ctx, spec.plain, after.createdAt, after.id, limit+1)
 		}
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			row, err := scan(rows)
+			row, err := spec.scan(rows)
 			if err != nil {
 				return err
 			}
@@ -198,6 +213,6 @@ func listRosterPage[T userRow | teamRow](
 		return pageRows, storekit.Page{}, nil
 	}
 	pageRows = pageRows[:limit]
-	createdAt, id := cursorKey(pageRows[len(pageRows)-1])
+	createdAt, id := spec.cursorKey(pageRows[len(pageRows)-1])
 	return pageRows, storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(createdAt, id)}, nil
 }
