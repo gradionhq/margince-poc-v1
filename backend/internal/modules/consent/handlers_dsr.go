@@ -9,7 +9,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -71,26 +70,17 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 		status := string(*req.Status)
 		in.Status = &status
 	}
-	// Fulfilling an erasure request EXECUTES the erasure before UpdateDSR
-	// ever runs, so every precondition UpdateDSR would enforce must already
-	// hold here — the status flip and the actual deletion must not drift
-	// apart, and nothing may be erased on a request that UpdateDSR is going
-	// to refuse to close. Symmetrically, a fulfil that names no person must
-	// be refused, never certified: ErasePerson (privacy/erasure.go)
-	// anonymizes the person row IN PLACE and never deletes it, so its
-	// ErrNotFound can only mean "subject_ref resolves to no person in this
-	// workspace" (or a row-scope miss) — never "already erased, nothing left
-	// to do". Erasing an already-erased person instead returns nil and
-	// re-runs harmlessly, which is what makes a repeat fulfil of the same
-	// request idempotent without this handler needing to special-case it.
+	// Fulfilling an erasure request EXECUTES the irreversible scrub, so it
+	// cannot ride the plain UpdateDSR path: the erase and the status flip must
+	// be serialized against every other officer touching this row, or a
+	// concurrent reject/fulfil could interleave and leave a subject erased on a
+	// request the queue still shows open. FulfilErasure owns that serialization
+	// — it locks the request FOR UPDATE and holds the lock across the erase,
+	// refuses a subject_ref that names no person, and only then finalizes.
 	if in.Status != nil && *in.Status == "fulfilled" {
 		current, err := h.store.GetDSR(r.Context(), ids.UUID(id))
 		if err != nil {
 			writeConsentErr(w, r, err)
-			return
-		}
-		if verr := validateDSRUpdate(current, in); verr != nil {
-			writeConsentErr(w, r, verr)
 			return
 		}
 		if current.Kind == "erasure" {
@@ -101,25 +91,13 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 				writeConsentErr(w, r, errors.New("consent: erasure fulfillment has no erase path wired"))
 				return
 			}
-			unresolvedSubject := &ValidationError{
-				Field:  fieldSubjectRef,
-				Reason: "an erasure request must name a person id before it can be fulfilled",
-			}
-			personID, parseErr := ids.Parse(current.SubjectRef)
-			if parseErr != nil {
-				// ids.Parse proves syntax only, but a subject_ref that fails
-				// even that check names no person at all.
-				writeConsentErr(w, r, unresolvedSubject)
-				return
-			}
-			if err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String()); err != nil {
-				if errors.Is(err, apperrors.ErrNotFound) {
-					writeConsentErr(w, r, unresolvedSubject)
-					return
-				}
+			updated, err := h.store.FulfilErasure(r.Context(), ids.UUID(id), in, h.eraser.ErasePerson)
+			if err != nil {
 				writeConsentErr(w, r, err)
 				return
 			}
+			httperr.WriteJSON(w, http.StatusOK, wireDSR(updated))
+			return
 		}
 	}
 	updated, err := h.store.UpdateDSR(r.Context(), ids.UUID(id), in)

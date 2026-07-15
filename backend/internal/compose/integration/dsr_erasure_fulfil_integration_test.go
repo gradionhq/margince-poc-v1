@@ -15,13 +15,16 @@ package integration
 // return what a test tells it to, so it cannot stand in for either.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -129,5 +132,116 @@ func TestFulfillErasureHTTPIsIdempotentAcrossTwoFulfilments(t *testing.T) {
 	if second.Code != http.StatusOK {
 		t.Fatalf("re-fulfilling an already-erased person must still succeed (idempotent), got %d: %s",
 			second.Code, second.Body)
+	}
+}
+
+// gatedEraser wraps the real eraser so the test can act WHILE a scrub is in
+// flight: it signals entry, blocks until released, then delegates. ErasePerson
+// runs only after FulfilErasure has already taken the request's FOR UPDATE
+// lock, so "inside the gate" is exactly the window the lock must span.
+type gatedEraser struct {
+	inner   consent.Eraser
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedEraser) ErasePerson(ctx context.Context, personID ids.UUID, reason string) error {
+	close(g.entered)
+	<-g.release
+	return g.inner.ErasePerson(ctx, personID, reason)
+}
+
+// dsrRowLockHeld probes whether the request row is currently locked by another
+// transaction, WITHOUT blocking: FOR UPDATE NOWAIT turns a contended lock into
+// an immediate 55P03 rather than a wait, so the assertion is deterministic (no
+// sleep, no racing timeout). The probe binds the workspace GUC because the row
+// is FORCE-RLS — the app role sees zero rows otherwise.
+func dsrRowLockHeld(t *testing.T, e *Env, id ids.UUID) bool {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := e.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquiring probe connection: %v", err)
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning probe tx: %v", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			t.Errorf("rolling back probe tx: %v", err)
+		}
+	}()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, e.WS.String()); err != nil {
+		t.Fatalf("binding workspace GUC on the probe: %v", err)
+	}
+	var got ids.UUID
+	err = tx.QueryRow(ctx,
+		`SELECT id FROM data_subject_request WHERE id = $1 FOR UPDATE NOWAIT`, id).Scan(&got)
+	if err == nil {
+		return false // the lock was free — nobody is holding it
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+		return true // lock_not_available — held by the in-flight fulfilment
+	}
+	t.Fatalf("probing the request lock: %v", err)
+	return false
+}
+
+// TestFulfillErasureHoldsTheRequestLockedAcrossTheErase pins the concurrency
+// guarantee the whole FulfilErasure shape exists for: the request's FOR UPDATE
+// lock is held for the ENTIRE erase, not dropped between "this fulfil is legal"
+// and the scrub. Without it, a second officer could reject or re-fulfil the
+// same request in that window — leaving a subject erased on a request the queue
+// still shows open or rejected. The gate freezes execution mid-scrub so the
+// probe observes the lock while it must be held; a bare fulfil would complete
+// too fast to catch the window at all.
+func TestFulfillErasureHoldsTheRequestLockedAcrossTheErase(t *testing.T) {
+	e := Setup(t)
+	personID := e.SeedPerson(t, "Locked Subject", nil)
+
+	store := consent.NewStore(e.Pool)
+	created, err := store.CreateDSR(e.Admin(), consent.CreateDSRInput{
+		Kind: "erasure", SubjectRef: personID.String(), DueAt: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("creating erasure DSR: %v", err)
+	}
+	gate := &gatedEraser{
+		inner:   privacy.NewEraser(e.Pool),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	h := consent.NewHandlers(e.Pool).WithEraser(gate)
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- fulfilErasureDSR(t, e, h, created.ID, `{"status":"fulfilled","resolution":"verified"}`)
+	}()
+
+	<-gate.entered // the scrub is running ⇒ the request lock must be held now
+	if !dsrRowLockHeld(t, e, created.ID) {
+		t.Fatal("the request row must stay locked for the whole erase; a concurrent lock succeeded mid-scrub")
+	}
+	close(gate.release) // let the scrub commit and the fulfil finalize
+
+	w := <-done
+	if w.Code != http.StatusOK {
+		t.Fatalf("the fulfilment must succeed once the erase completes, got %d: %s", w.Code, w.Body)
+	}
+	// Once the lock releases the probe finds it free again, and the request has
+	// actually reached fulfilled — the lock was held across the scrub, not left
+	// dangling.
+	if dsrRowLockHeld(t, e, created.ID) {
+		t.Fatal("the request lock must release once the fulfilment commits")
+	}
+	after, err := store.GetDSR(e.Admin(), created.ID)
+	if err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if after.Status != "fulfilled" {
+		t.Fatalf("the request must end fulfilled, got %q", after.Status)
 	}
 }

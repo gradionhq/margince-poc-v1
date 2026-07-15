@@ -73,6 +73,10 @@ function ConsentEventActor({ event }: Readonly<{ event: ConsentEvent }>) {
   if (!event.actor_type) {
     return <span className="t-caption">{t("consent.actorUnknown")}</span>;
   }
+  // Only the four actor kinds the wire actually names get a positive label;
+  // anything else (a kind added to the enum after this code was written) is
+  // reported as unrecorded rather than silently mislabelled — a proof log must
+  // never assert an actor the wire did not.
   const label =
     event.actor_type === "human"
       ? t("consent.actorHuman")
@@ -80,7 +84,9 @@ function ConsentEventActor({ event }: Readonly<{ event: ConsentEvent }>) {
         ? t("consent.actorAgent")
         : event.actor_type === "system"
           ? t("consent.actorSystem")
-          : t("consent.actorConnector");
+          : event.actor_type === "connector"
+            ? t("consent.actorConnector")
+            : t("consent.actorUnknown");
   return (
     <span className="t-caption">
       {label}
