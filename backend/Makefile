@@ -75,14 +75,34 @@ test-integration-serial: ## Escape hatch: the old sequential lane, all packages 
 bench-perf: ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
 	MARGINCE_BENCH_TIER=mid_market $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -v -timeout 30m ./internal/compose/integration
 
+# golangci-lint is the one gate tool this Makefile installs rather than
+# runs via pinned `go run` (arch-lint/vuln/oasdiff do): `go run` would
+# rebuild a ~60MB binary on every gate run. Resolving it is therefore
+# this Makefile's job, not the engineer's shell config — `make tools`
+# drops it in GOPATH/bin, which is on nobody's PATH by default, so a bare
+# `golangci-lint` made `make check` fail after a clean `make install`
+# with a confusing "No such file or directory".
+#
+# The pinned install wins over PATH deliberately: a golangci-lint from
+# Homebrew (or any other version parked earlier in PATH) would otherwise
+# silently lint at a version CI does not run, which is exactly what the
+# GOLANGCI_LINT_VERSION pin exists to prevent. PATH is the fallback, so a
+# deployment that resolves the pinned binary some other way still works.
+GOLANGCI_LINT_BIN := $(shell $(GO) env GOPATH)/bin/golangci-lint
+GOLANGCI_LINT ?= $(shell test -x $(GOLANGCI_LINT_BIN) && echo $(GOLANGCI_LINT_BIN) || command -v golangci-lint 2>/dev/null)
+
 # Two passes, two scopes: .golangci.yml is the repo-wide
 # baseline (the depguard DAG lives there and must never be diff-scoped);
 # .golangci.strict.yml is the expanded strict set, gated to new
 # code via new-from-merge-base so the pre-existing backlog is not a burn-down.
 lint: ## golangci-lint: repo-wide baseline + new-code strict set
-	golangci-lint run ./...
+	@test -n "$(GOLANGCI_LINT)" || { \
+		echo "lint: golangci-lint not found — run 'make tools' (installs $(GOLANGCI_LINT_VERSION) to $$($(GO) env GOPATH)/bin)"; \
+		exit 1; \
+	}
+	$(GOLANGCI_LINT) run ./...
 	@if git rev-parse --verify -q origin/main >/dev/null; then \
-		golangci-lint run --config .golangci.strict.yml ./...; \
+		$(GOLANGCI_LINT) run --config .golangci.strict.yml ./...; \
 	else \
 		echo "SKIP strict lint: origin/main not found — fetch it to arm the new-code gate"; \
 	fi
@@ -113,7 +133,9 @@ vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 # Fresh-machine bootstrap. golangci-lint is the one gate binary `make check`
-# expects on PATH; this version must stay identical to the pin in
+# runs from an install rather than a pinned `go run`; the lint target
+# resolves it out of GOPATH/bin itself (see GOLANGCI_LINT above), so no
+# PATH entry is required. This version must stay identical to the pin in
 # .tool-versions and the golangci-lint-action version in ci.yml — bump all
 # three together. arch-lint and vuln already run their tools via pinned
 # `go run`, so those installs just pre-warm the module cache (and give the
@@ -129,7 +151,7 @@ tools: ## Install every gate binary at its pinned version (fresh-machine bootstr
 	$(GO) install github.com/fe3dback/go-arch-lint@$(GO_ARCH_LINT_VERSION)
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	$(GO) install github.com/oasdiff/oasdiff@$(OASDIFF_VERSION)
-	@echo "gate binaries ready in $$($(GO) env GOPATH)/bin — ensure it is on PATH"
+	@echo "gate binaries ready in $$($(GO) env GOPATH)/bin — 'make check' finds them there; add it to PATH only for direct use"
 
 # `git rev-parse --git-path hooks` honors core.hooksPath, so this works
 # both on a plain clone (.git/hooks) and after the root `make hooks`
