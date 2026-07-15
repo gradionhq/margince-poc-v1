@@ -238,10 +238,10 @@ function transitionLabelKey(status: DsrStatus): MessageKey {
 // One DSR row: collapsed summary + (on click) the case-work panel — subject,
 // assignee, resolution, and only the transitions the server's closed status
 // machine (consent/dsr.go:58-61) would actually accept. Which row is open is
-// the CARD's state, not this row's own (PrivacyInboxCard hides its facet bar
-// while a row is open — see the comment there for why), so `expanded` and
-// its toggle arrive as props; useRoster only fetches the workspace roster
-// while THIS row is the open one, not for every row on the page.
+// the CARD's state, not this row's own — a queue keeps every sibling row and
+// the facet bar visible while one case is worked, so `expanded` and its
+// toggle arrive as props; useRoster only fetches the workspace roster while
+// THIS row is the open one, not for every row on the page.
 function DsrRow({
   dsr,
   expanded,
@@ -442,14 +442,10 @@ export function PrivacyInboxCard({
   // (share.tsx:290's precedent for the same problem on grant expiry).
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [facet, setFacet] = useState<DsrStatusFacet>("all");
-  // One case open at a time: expandedId lives here (not per-row) so the
-  // facet bar below can hide itself while a row is open — a status wire
-  // value ("in_progress", "fulfilled", "rejected") and this task's own
-  // transition-button copy ("In progress", "Fulfil", "Reject") necessarily
-  // share the same stem, so both controls visible together would offer two
-  // same-named buttons on the page at once. Working one case at a time
-  // (an accordion, not a multi-open list) resolves the ambiguity honestly
-  // instead of papering over it with a disambiguating label no one asked for.
+  // One case open at a time: expandedId lives here (not per-row) so opening
+  // a second row's panel closes the first — the queue itself (sibling rows,
+  // the facet bar) stays on screen throughout; an officer working a case
+  // never loses sight of what else is waiting.
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // The facet is server-side (part of the queryKey and the query param), not
@@ -512,18 +508,10 @@ export function PrivacyInboxCard({
   } else if (rows.length === 0) {
     body = <EmptyState>{t("common.empty")}</EmptyState>;
   } else {
-    // A row's own collapsed summary carries its kind/status as plain text
-    // (e.g. a "fulfilled" status badge), which would read as a match for
-    // this task's "Fulfil" transition button on a DIFFERENT, expanded row —
-    // same reasoning as hiding the facet bar above. Working one case at a
-    // time keeps every button on the page unambiguously named; collapsing
-    // clears expandedId and the full list returns.
-    const visibleRows =
-      expandedId === null ? rows : rows.filter((dsr) => dsr.id === expandedId);
     body = (
       <>
         <ul className="dsr-list">
-          {visibleRows.map((dsr) => (
+          {rows.map((dsr) => (
             <DsrRow
               key={dsr.id}
               dsr={dsr}
@@ -549,14 +537,12 @@ export function PrivacyInboxCard({
         title={t("settings.privacy")}
         sub={t("settings.privacySub")}
       />
-      {expandedId === null && (
-        <SegmentedControl
-          options={DSR_STATUS_FACETS}
-          value={facet}
-          onChange={setFacet}
-          labels={facetLabels}
-        />
-      )}
+      <SegmentedControl
+        options={DSR_STATUS_FACETS}
+        value={facet}
+        onChange={setFacet}
+        labels={facetLabels}
+      />
       {body}
     </section>
   );

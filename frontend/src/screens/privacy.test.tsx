@@ -7,6 +7,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -228,6 +229,26 @@ const DSRS = {
   page: { next_cursor: null, has_more: false },
 };
 
+// The facet bar stays visible for the whole queue (it is never hidden while
+// a row is open), and its option labels are the very same status words a
+// row's own transition buttons use ("in progress", "fulfilled" ⊇ "fulfil",
+// "rejected" ⊇ "reject") — a bare getByRole/queryByRole for one of those
+// words matches both the facet button and the row's own button. Scope to
+// the row under test instead, same idiom as consent.test.tsx's
+// findConsentRow.
+async function findDsrRow(subjectRef: string) {
+  // An expanded row repeats its own subject_ref (the collapsed toggle's
+  // summary, then again inside the expanded detail panel) — both hits share
+  // the same ancestor row, so take the first rather than assume there's
+  // only one match.
+  const [match] = await screen.findAllByText(subjectRef);
+  const row = match.closest(".dsr-row");
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`dsr row for "${subjectRef}" not found`);
+  }
+  return row;
+}
+
 describe("PrivacyInboxCard", () => {
   it("binds the status filter server-side, never a client re-slice", async () => {
     const sent = stubRoutes({
@@ -246,6 +267,21 @@ describe("PrivacyInboxCard", () => {
     ).toBeGreaterThan(1);
   });
 
+  // The approved design is a queue: one row expands in place while its
+  // siblings and the facet bar stay on screen, so an officer working a case
+  // never loses sight of what else is waiting. Pins the invariant directly —
+  // without it, filtering the row list down to just the expanded one (or
+  // hiding the facet bar) would pass every other test in this file silently.
+  it("keeps sibling rows and the facet bar visible while one row is expanded", async () => {
+    stubRoutes();
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    expect(screen.getByText(/anna@acme.test/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^open$/i })).toBeInTheDocument();
+  });
+
   // FIX-1: due_at is a statutory deadline. Rendered in a hardcoded
   // Europe/Berlin it shows the wrong calendar day to anyone outside CET —
   // this due_at is 2026-08-01T00:00:00Z, which is 1 Aug in Berlin (+02:00)
@@ -260,16 +296,12 @@ describe("PrivacyInboxCard", () => {
     stubRoutes({ "GET /data-subject-requests": () => jsonResponse(DSRS) });
     render(<PrivacyInboxCard />);
     await screen.findByText(/8f3a-person-uuid/);
-    // A hardcoded Europe/Berlin renders 1 Aug; New York renders 31 Jul. The
-    // brief's regex assumed a month-name or MM/DD rendering; this codebase's
-    // locked locale convention (format.ts's INTL_LOCALE, "A100: unconfigured
-    // English is en-GB, not en-US") renders numeric dates DD/MM/YYYY with
-    // slashes, so "31/07" is the real, correct substring for 31 Jul here —
-    // added alongside the brief's original alternatives rather than in
-    // place of them.
-    expect(
-      screen.getByText(/Jul 31|31 Jul|07\/31|31\.07|31\/07/),
-    ).toBeInTheDocument();
+    // This codebase's locked locale convention (format.ts's INTL_LOCALE,
+    // "A100: unconfigured English is en-GB, not en-US") renders numeric
+    // dates DD/MM/YYYY: New York renders 31/07/2026; a hardcoded
+    // Europe/Berlin would instead render 01/08/2026 — pin the one this
+    // code actually emits, not every format it never does.
+    expect(screen.getByText(/31\/07\/2026/)).toBeInTheDocument();
   });
 
   it("offers only the transitions the server would accept", async () => {
@@ -278,10 +310,13 @@ describe("PrivacyInboxCard", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
     );
+    const row = await findDsrRow("8f3a-person-uuid");
     expect(
-      screen.getByRole("button", { name: /in progress/i }),
+      within(row).getByRole("button", { name: /in progress/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /fulfil/i })).toBeInTheDocument();
+    expect(
+      within(row).getByRole("button", { name: /fulfil/i }),
+    ).toBeInTheDocument();
   });
 
   it("offers no transition on a closed request — a closed request never reopens", async () => {
@@ -290,10 +325,11 @@ describe("PrivacyInboxCard", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /anna@acme.test/i }),
     );
+    const row = await findDsrRow("anna@acme.test");
     expect(
-      screen.queryByRole("button", { name: /in progress/i }),
+      within(row).queryByRole("button", { name: /in progress/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/closed/i)).toBeInTheDocument();
+    expect(within(row).getByText(/closed/i)).toBeInTheDocument();
   });
 
   it("holds a close until a resolution is written — the server 422s without one", async () => {
@@ -302,12 +338,13 @@ describe("PrivacyInboxCard", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
     );
-    expect(screen.getByRole("button", { name: /reject/i })).toBeDisabled();
+    const row = await findDsrRow("8f3a-person-uuid");
+    expect(within(row).getByRole("button", { name: /reject/i })).toBeDisabled();
     await userEvent.type(
       screen.getByLabelText(/resolution/i),
       "not a data subject",
     );
-    expect(screen.getByRole("button", { name: /reject/i })).toBeEnabled();
+    expect(within(row).getByRole("button", { name: /reject/i })).toBeEnabled();
   });
 
   it("flags an overdue request against the injected clock", async () => {
@@ -336,8 +373,9 @@ describe("PrivacyInboxCard", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
     );
+    const row = await findDsrRow("8f3a-person-uuid");
     await userEvent.type(screen.getByLabelText(/resolution/i), "done");
-    await userEvent.click(screen.getByRole("button", { name: /reject/i }));
+    await userEvent.click(within(row).getByRole("button", { name: /reject/i }));
     expect(await screen.findByText(/moved on/i)).toBeInTheDocument();
   });
 
