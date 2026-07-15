@@ -66,6 +66,7 @@ func (c GmailConfig) canConnect() bool {
 	return c.canSync() && c.StateKey != "" && c.PublicBaseURL != ""
 }
 
+//nolint:ireturn // returns the gmail.OAuth seam by design (a fakeable interface)
 func newGmailOAuth(c GmailConfig) gmail.OAuth {
 	return gmail.NewOAuth(gmail.OAuthConfig{
 		ClientID:     c.ClientID,

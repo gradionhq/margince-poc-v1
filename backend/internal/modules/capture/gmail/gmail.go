@@ -91,6 +91,8 @@ func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
 	return connector.AuthRequest{Payload: payload}, nil
 }
 
+// Descriptor is the connector's static metadata: name "gmail", read-only
+// (TierGreen), producing activities. Read at registration.
 func (c *Connector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
 		Name:     connectorName,
@@ -125,6 +127,7 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 		return nil, err
 	}
 	state := authState{RefreshToken: refresh, Owner: owner, Scopes: scopeStrings(c.Descriptor().Scopes)}
+	//nolint:gosec // G117: sealing the connector's own refresh token into the opaque Auth bundle IS the intended path — the registry stores it encrypted in the vault, never logged or returned
 	auth, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("gmail: encoding auth state: %w", err)
@@ -216,7 +219,7 @@ func (c *Connector) captureOne(ctx context.Context, raw []byte, sink connector.S
 	msg, err := mailmap.Parse(raw, c.owner)
 	if err != nil {
 		c.stats.Skipped++
-		return nil
+		return nil //nolint:nilerr // a single unparseable message is a counted skip, not a fatal pull error (mirrors the IMAP connector)
 	}
 	if _, drop := msg.SkipReason(); drop {
 		c.stats.Skipped++

@@ -21,8 +21,11 @@ func googleStub(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		// Google's token endpoint answers non-2xx on bad input; the client maps
+		// any 4xx to ErrAuthRejected regardless of body, so a bare status is
+		// all the stub needs (WriteHeader, not httperr — this fakes Google).
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		switch r.Form.Get("grant_type") {
@@ -30,12 +33,12 @@ func googleStub(t *testing.T) *httptest.Server {
 			writeJSON(w, map[string]any{"access_token": "access-1", "refresh_token": "refresh-1", "expires_in": 3599})
 		case "refresh_token":
 			if r.Form.Get("refresh_token") != "refresh-1" {
-				http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			writeJSON(w, map[string]any{"access_token": "access-2", "expires_in": 3599})
 		default:
-			http.Error(w, "unsupported grant", http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest)
 		}
 	})
 
@@ -54,8 +57,8 @@ func googleStub(t *testing.T) *httptest.Server {
 
 	mux.HandleFunc("/history", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("startHistoryId") == "0" {
-			// Google answers a too-old cursor with 404.
-			http.Error(w, `{"error":{"code":404,"message":"historyId too old"}}`, http.StatusNotFound)
+			// Google answers a too-old cursor with 404 (mapped to ErrHistoryGone).
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		writeJSON(w, map[string]any{

@@ -7,6 +7,7 @@
 // interfaces (OAuth, API) so the connector's Sync/Authenticate are unit
 // tested against a stub, and non-2xx responses map to sentinels the
 // transport turns into clean 422/502 without echoing Google's raw text.
+
 package gmail
 
 import (
@@ -25,8 +26,10 @@ import (
 // Default Google endpoints; overridable via OAuthConfig / NewAPI for tests.
 const (
 	googleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
-	googleTokenURL = "https://oauth2.googleapis.com/token"
+	googleTokenURL = "https://oauth2.googleapis.com/token" //nolint:gosec // G101 false positive: Google's public OAuth token *endpoint URL*, not a credential
 	gmailAPIBase   = "https://gmail.googleapis.com/gmail/v1/users/me"
+
+	paramClientID = "client_id"
 )
 
 // ErrAuthRejected marks an OAuth failure Google reported (bad/expired code,
@@ -57,8 +60,8 @@ type API interface {
 	// Profile returns the mailbox owner's address and the mailbox's current
 	// historyId — the anchor a first sync stores as its cursor.
 	Profile(ctx context.Context, accessToken string) (email, historyID string, err error)
-	// ListRecent returns the ids of the most recent messages, bounded by max.
-	ListRecent(ctx context.Context, accessToken string, max int) (ids []string, err error)
+	// ListRecent returns the ids of the most recent messages, bounded by maxResults.
+	ListRecent(ctx context.Context, accessToken string, maxResults int) (ids []string, err error)
 	// History returns the message ids added since startHistoryID and the
 	// advanced historyId; ErrHistoryGone if the cursor is too old.
 	History(ctx context.Context, accessToken, startHistoryID string) (addedIDs []string, historyID string, err error)
@@ -83,6 +86,8 @@ type httpOAuth struct {
 
 // NewOAuth builds the OAuth client, applying Google's default endpoints when
 // the config leaves them empty.
+//
+//nolint:ireturn // returns the OAuth seam by design — the connector holds it as an interface so tests substitute a stub
 func NewOAuth(cfg OAuthConfig) OAuth {
 	if cfg.AuthURL == "" {
 		cfg.AuthURL = googleAuthURL
@@ -95,7 +100,7 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 
 func (o *httpOAuth) AuthCodeURL(state, redirectURI string) string {
 	q := url.Values{
-		"client_id":              {o.cfg.ClientID},
+		paramClientID:            {o.cfg.ClientID},
 		"redirect_uri":           {redirectURI},
 		"response_type":          {"code"},
 		"scope":                  {strings.Join(o.cfg.Scopes, " ")},
@@ -118,7 +123,7 @@ func (o *httpOAuth) Exchange(ctx context.Context, code, redirectURI string) (str
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"redirect_uri":  {redirectURI},
-		"client_id":     {o.cfg.ClientID},
+		paramClientID:   {o.cfg.ClientID},
 		"client_secret": {o.cfg.ClientSecret},
 	})
 	if err != nil {
@@ -136,7 +141,7 @@ func (o *httpOAuth) AccessToken(ctx context.Context, refreshToken string) (strin
 	tok, err := o.token(ctx, url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
-		"client_id":     {o.cfg.ClientID},
+		paramClientID:   {o.cfg.ClientID},
 		"client_secret": {o.cfg.ClientSecret},
 	})
 	if err != nil {
@@ -184,6 +189,8 @@ type httpAPI struct {
 
 // NewAPI builds the Gmail REST client over the given HTTP client and base
 // URL (default Google when base is empty; tests pass an httptest base).
+//
+//nolint:ireturn // returns the API seam by design — the connector holds it as an interface so tests substitute a stub
 func NewAPI(client *http.Client, base string) API {
 	if client == nil {
 		client = http.DefaultClient
@@ -196,8 +203,8 @@ func NewAPI(client *http.Client, base string) API {
 
 func (a *httpAPI) Profile(ctx context.Context, accessToken string) (string, string, error) {
 	var out struct {
-		EmailAddress string `json:"emailAddress"`
-		HistoryID    string `json:"historyId"`
+		EmailAddress string `json:"emailAddress"` //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
+		HistoryID    string `json:"historyId"`    //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 	}
 	if _, err := a.get(ctx, accessToken, "/profile", nil, &out); err != nil {
 		return "", "", err
@@ -205,13 +212,13 @@ func (a *httpAPI) Profile(ctx context.Context, accessToken string) (string, stri
 	return out.EmailAddress, out.HistoryID, nil
 }
 
-func (a *httpAPI) ListRecent(ctx context.Context, accessToken string, max int) ([]string, error) {
+func (a *httpAPI) ListRecent(ctx context.Context, accessToken string, maxResults int) ([]string, error) {
 	var out struct {
 		Messages []struct {
 			ID string `json:"id"`
 		} `json:"messages"`
 	}
-	q := url.Values{"maxResults": {strconv.Itoa(max)}}
+	q := url.Values{"maxResults": {strconv.Itoa(maxResults)}}
 	if _, err := a.get(ctx, accessToken, "/messages", q, &out); err != nil {
 		return nil, err
 	}
@@ -229,10 +236,10 @@ type historyPage struct {
 			Message struct {
 				ID string `json:"id"`
 			} `json:"message"`
-		} `json:"messagesAdded"`
+		} `json:"messagesAdded"` //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 	} `json:"history"`
-	HistoryID     string `json:"historyId"`
-	NextPageToken string `json:"nextPageToken"`
+	HistoryID     string `json:"historyId"`     //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
+	NextPageToken string `json:"nextPageToken"` //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 }
 
 func (a *httpAPI) History(ctx context.Context, accessToken, startHistoryID string) ([]string, string, error) {

@@ -37,6 +37,10 @@ import (
 // click through Google, short enough that a leaked state is quickly useless.
 const connectStateTTL = 10 * time.Minute
 
+// providerGmail is the only capture provider this transport implements today
+// (gcal/graph are contract-declared, not yet wired).
+const providerGmail = "gmail"
+
 type connectorHandlers struct {
 	registry *capture.Registry
 	oauth    gmail.OAuth
@@ -92,7 +96,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		httperr.NotImplemented(w, r, "ConnectConnector")
 		return
 	}
-	if string(provider) != "gmail" {
+	if string(provider) != providerGmail {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
 			Code:   "connector_unsupported",
@@ -111,7 +115,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	state := h.signer.sign(
-		connectState{Workspace: ws, User: actor.UserID, Provider: "gmail"},
+		connectState{Workspace: ws, User: actor.UserID, Provider: providerGmail},
 		time.Now().Add(connectStateTTL),
 	)
 	authURL := h.oauth.AuthCodeURL(state, h.callbackURL())
@@ -133,7 +137,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// on the cross-site redirect). A bad/expired/mismatched state or a missing
 	// code cannot proceed — redirect with an honest error, details logged only.
 	st, err := h.signer.verify(params.State, time.Now())
-	if err != nil || string(provider) != "gmail" || st.Provider != "gmail" || params.Code == nil || *params.Code == "" {
+	if err != nil || string(provider) != providerGmail || st.Provider != providerGmail || params.Code == nil || *params.Code == "" {
 		slog.WarnContext(ctx, "gmail connector callback rejected", "err", err, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return
@@ -165,7 +169,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		UserID: st.User,
 		Scopes: principal.NewScopeSet(principal.ScopeRead),
 	})
-	if _, err := h.registry.Connect(runCtx, "gmail", auth); err != nil {
+	if _, err := h.registry.Connect(runCtx, providerGmail, auth); err != nil {
 		slog.ErrorContext(ctx, "gmail connector callback: persisting connection", "err", err)
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return

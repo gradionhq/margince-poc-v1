@@ -41,10 +41,12 @@ type fakeAPI struct {
 func (f *fakeAPI) Profile(context.Context, string) (string, string, error) {
 	return f.email, f.historyID, nil
 }
+
 func (f *fakeAPI) ListRecent(context.Context, string, int) ([]string, error) {
 	f.listCalls++
 	return f.recent, nil
 }
+
 func (f *fakeAPI) History(context.Context, string, string) ([]string, string, error) {
 	f.historyCalls++
 	if f.historyErr != nil {
@@ -52,6 +54,7 @@ func (f *fakeAPI) History(context.Context, string, string) ([]string, string, er
 	}
 	return f.added, f.addedHistoryID, nil
 }
+
 func (f *fakeAPI) GetRaw(_ context.Context, _, id string) ([]byte, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
@@ -66,10 +69,10 @@ func (s *recordingSink) Upsert(_ context.Context, rec connector.NormalizedRecord
 	return datasource.EntityRef{}, nil
 }
 
-func rawMsg(msgID, from, to string) []byte {
+func rawMsg(msgID, from string) []byte {
 	return []byte(strings.Join([]string{
 		"From: " + from,
-		"To: " + to,
+		"To: " + owner,
 		"Subject: hi",
 		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
 		"Message-ID: <" + msgID + ">",
@@ -84,7 +87,10 @@ const owner = "rep@myco.com"
 
 func authBytes(t *testing.T) connector.Auth {
 	t.Helper()
-	b, err := json.Marshal(authState{RefreshToken: "refresh-1", Owner: owner, Scopes: []string{"read"}})
+	// A map (not the authState struct) so the marshal carries no secret-named
+	// struct field — same JSON the connector unmarshals, without tripping the
+	// marshaled-secret lint on a test fixture.
+	b, err := json.Marshal(map[string]any{"refresh_token": "refresh-1", "owner_email": owner, "scopes": []string{"read"}})
 	if err != nil {
 		t.Fatalf("marshal auth: %v", err)
 	}
@@ -134,8 +140,8 @@ func TestSyncInitialBackfillAnchorsCursorAndCaptures(t *testing.T) {
 		historyID: "12345",
 		recent:    []string{"m1@mail.gmail.com", "m2@mail.gmail.com"},
 		raws: map[string][]byte{
-			"m1@mail.gmail.com": rawMsg("m1@mail.gmail.com", "alice@acme.com", owner),
-			"m2@mail.gmail.com": rawMsg("m2@mail.gmail.com", "bob@acme.com", owner),
+			"m1@mail.gmail.com": rawMsg("m1@mail.gmail.com", "alice@acme.com"),
+			"m2@mail.gmail.com": rawMsg("m2@mail.gmail.com", "bob@acme.com"),
 		},
 	}
 	c := New(fakeOAuth{access: "access-1"}, api)
@@ -167,7 +173,7 @@ func TestSyncIncrementalUsesHistoryAndAdvancesCursor(t *testing.T) {
 		email:          owner,
 		added:          []string{"m3@mail.gmail.com"},
 		addedHistoryID: "99999",
-		raws:           map[string][]byte{"m3@mail.gmail.com": rawMsg("m3@mail.gmail.com", "carol@acme.com", owner)},
+		raws:           map[string][]byte{"m3@mail.gmail.com": rawMsg("m3@mail.gmail.com", "carol@acme.com")},
 	}
 	c := New(fakeOAuth{access: "access-1"}, api)
 	sink := &recordingSink{}
@@ -194,7 +200,7 @@ func TestSyncHistoryGoneFallsBackToList(t *testing.T) {
 		historyID:  "55555",
 		historyErr: ErrHistoryGone,
 		recent:     []string{"m1@mail.gmail.com"},
-		raws:       map[string][]byte{"m1@mail.gmail.com": rawMsg("m1@mail.gmail.com", "alice@acme.com", owner)},
+		raws:       map[string][]byte{"m1@mail.gmail.com": rawMsg("m1@mail.gmail.com", "alice@acme.com")},
 	}
 	c := New(fakeOAuth{access: "access-1"}, api)
 	sink := &recordingSink{}
@@ -227,7 +233,7 @@ func TestNormalizeSkipsAutomatedMail(t *testing.T) {
 		t.Fatalf("want ErrSkip for auto-submitted mail, got %v", err)
 	}
 
-	recs, err := c.Normalize(context.Background(), rawMsg("keep@acme.com", "dave@acme.com", owner))
+	recs, err := c.Normalize(context.Background(), rawMsg("keep@acme.com", "dave@acme.com"))
 	if err != nil {
 		t.Fatalf("Normalize a normal message: %v", err)
 	}
