@@ -114,20 +114,20 @@ describe("ConsentPurposesCard", () => {
 
   // G-3
   it("creates a purpose", async () => {
-    const post = vi.fn(() =>
-      jsonResponse(
-        {
-          id: "p3",
-          workspace_id: "w",
-          key: "events",
-          label: "Events",
-          requires_double_opt_in: false,
-          created_at: "2026-07-15T00:00:00Z",
-        },
-        201,
-      ),
-    );
-    stubRoutes({ "POST /consent-purposes": post });
+    const sent = stubRoutes({
+      "POST /consent-purposes": () =>
+        jsonResponse(
+          {
+            id: "p3",
+            workspace_id: "w",
+            key: "events",
+            label: "Events",
+            requires_double_opt_in: false,
+            created_at: "2026-07-15T00:00:00Z",
+          },
+          201,
+        ),
+    });
     render(<ConsentPurposesCard />);
     await userEvent.click(
       await screen.findByRole("button", { name: /add purpose/i }),
@@ -137,7 +137,20 @@ describe("ConsentPurposesCard", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /create purpose/i }),
     );
-    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "POST /consent-purposes"),
+      ).toHaveLength(1),
+    );
+    // The onSuccess invalidation refetches the purposes GET, appending to the
+    // same `sent` array — filter for the POST specifically rather than
+    // trusting it stayed last.
+    const posts = sent.filter((s) => s.key === "POST /consent-purposes");
+    expect(posts.at(-1)?.body).toEqual({
+      key: "events",
+      label: "Events",
+      requires_double_opt_in: false,
+    });
   });
 
   // A purpose has no PATCH and no DELETE — say so before they commit, not after.
