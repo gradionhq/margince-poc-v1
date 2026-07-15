@@ -1,0 +1,142 @@
+/* The anonymous public preference center (G-6, B-E11.32) — a standalone
+   page reached from an unsubscribe/manage-preferences link, not a
+   de-chromed app screen: its own centered column and background,
+   independent of the app shell's chrome. Tokens only (make ds-purity). */
+
+.pref-page {
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 56px 20px 96px;
+  background: var(--bgCard);
+}
+
+.pref-center {
+  width: 100%;
+  max-width: 720px;
+}
+
+.pref-list {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  padding: 16px 18px;
+}
+
+.pref-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pref-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pref-label {
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+
+.pref-lock-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--textSecondary);
+}
+
+.pref-lock-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--textSecondary);
+  background: var(--bgCard);
+  border-radius: var(--r-full);
+  padding: 2px 8px;
+}
+
+.pref-state {
+  color: var(--textSecondary);
+}
+
+.pref-locked-why {
+  color: var(--textTertiary);
+}
+
+.pref-toggle {
+  flex: none;
+  width: 40px;
+  height: 22px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--borderStrong);
+  background: var(--bgCard);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pref-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pref-toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.pref-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-full);
+  background: var(--bgElevated);
+  transition: transform 0.15s ease;
+}
+
+.pref-toggle.on .pref-toggle-knob {
+  transform: translateX(18px);
+}
+
+.pref-save-bar {
+  position: sticky;
+  bottom: 16px;
+  margin-top: 24px;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+  padding: 16px 18px;
+}
+
+.pref-not-saved {
+  font-weight: 600;
+  color: var(--textPrimary);
+}
+
+.pref-save-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.pref-partial-banner {
+  margin-top: 16px;
+  color: var(--warn);
+}

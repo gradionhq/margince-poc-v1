@@ -969,6 +969,31 @@ export const en = {
   "book.consentWording":
     "I agree that my name and email are stored to arrange and follow up on this meeting.",
 
+  "prefs.title": "Choose what you hear from us",
+  "prefs.sub":
+    "Each purpose is separate — this isn't all-or-nothing. Messages tied to a live deal can't be switched off here, because you need them; everything else is yours to control.",
+  "prefs.invalidLink":
+    "This link is no longer valid. Preference links expire and can be withdrawn — ask for a fresh one from any recent email.",
+  "prefs.rateLimited":
+    "Too many attempts from here just now. Wait a minute and reload.",
+  "prefs.subscribed": "Subscribed",
+  "prefs.notSubscribed": "Not subscribed — you receive nothing for this purpose",
+  "prefs.alwaysOn": "always on",
+  "prefs.lockedWhy":
+    "Transactional — exempt from opt-out while a deal is live.",
+  "prefs.notSaved": "Not saved yet.",
+  "prefs.savePending": "Pending: {changes}.",
+  "prefs.saveProof":
+    "We record the exact wording you saw and a timestamp as proof — then it applies to every future send.",
+  "prefs.save": "Save preferences",
+  "prefs.discard": "Discard",
+  "prefs.partialSave":
+    "Something went wrong part-way. Some of your choices may have been saved — we've reloaded your current settings so you can see exactly where you stand.",
+  "prefs.wordingGeneric": '"Send me {label}."',
+  "prefs.wording.marketing_email":
+    '"Send me product updates & occasional marketing email."',
+  "prefs.wording.events": '"Send me event & webinar invitations."',
+
   "auto.sub": "a closed catalog — pick a type, set its parameters, enable it",
   "auto.readOnly":
     "Read-only view — automation settings are managed by the admin and ops roles.",

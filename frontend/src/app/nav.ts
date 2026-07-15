@@ -39,4 +39,5 @@ export const RAIL_LESS_SCREENS: ReadonlySet<string> = new Set([
   "onboarding",
   "book",
   "client",
+  "preferences",
 ]);

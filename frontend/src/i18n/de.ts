@@ -990,6 +990,31 @@ export const de = {
   "book.consentWording":
     "Ich bin einverstanden, dass mein Name und meine E-Mail gespeichert werden, um diesen Termin zu vereinbaren und nachzufassen.",
 
+  "prefs.title": "Wähle, was du von uns hörst",
+  "prefs.sub":
+    "Jeder Zweck steht für sich — hier ist nicht alles oder nichts. Nachrichten zu einem laufenden Deal lassen sich hier nicht abschalten, weil du sie brauchst; alles andere bestimmst du selbst.",
+  "prefs.invalidLink":
+    "Dieser Link ist nicht mehr gültig. Präferenz-Links laufen ab oder können widerrufen werden — frag in einer aktuellen E-Mail nach einem neuen.",
+  "prefs.rateLimited":
+    "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
+  "prefs.subscribed": "Abonniert",
+  "prefs.notSubscribed": "Nicht abonniert — du bekommst für diesen Zweck nichts",
+  "prefs.alwaysOn": "immer an",
+  "prefs.lockedWhy":
+    "Transaktional — von der Abmeldung ausgenommen, solange ein Deal läuft.",
+  "prefs.notSaved": "Noch nicht gespeichert.",
+  "prefs.savePending": "Ausstehend: {changes}.",
+  "prefs.saveProof":
+    "Wir speichern den genauen Wortlaut, den du gesehen hast, und einen Zeitstempel als Nachweis — danach gilt er für jeden künftigen Versand.",
+  "prefs.save": "Einstellungen speichern",
+  "prefs.discard": "Verwerfen",
+  "prefs.partialSave":
+    "Beim Speichern ist etwas schiefgelaufen. Einige deiner Entscheidungen wurden möglicherweise schon übernommen — wir haben deinen aktuellen Stand neu geladen, damit du genau siehst, wo du stehst.",
+  "prefs.wordingGeneric": "„{label} senden.“",
+  "prefs.wording.marketing_email":
+    "„Schick mir Produkt-Updates und gelegentliche Marketing-E-Mails.“",
+  "prefs.wording.events": "„Schick mir Einladungen zu Events und Webinaren.“",
+
   "auto.sub":
     "ein geschlossener Katalog — Typ wählen, Parameter setzen, aktivieren",
   "auto.readOnly":

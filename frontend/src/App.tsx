@@ -26,6 +26,7 @@ import { OnboardingScreen } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen, PersonScreen } from "./screens/people";
+import { PreferenceCenterScreen } from "./screens/preferences";
 import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
 import { SettingsScreen } from "./screens/settings";
@@ -97,6 +98,10 @@ function ScreenView({
     case "book":
       // #/book/<host_slug> is the anonymous public variant
       return <BookingScreen hostSlug={id} />;
+    case "preferences":
+      // #/preferences/<token> — anonymous; the token in the path is the
+      // whole capability (security: [] in the contract).
+      return <PreferenceCenterScreen token={id} />;
     case "share":
       // #/share/<record_type>/<record_id> (AS-3/4/5) — both segments are
       // required; a bare #/share renders the honest pending state instead
@@ -113,7 +118,7 @@ function ScreenView({
 
 // The anonymous public surfaces render without a session — their slug in the
 // path is the whole address (security: [] in the contract).
-const PUBLIC_SCREENS = new Set(["book"]);
+const PUBLIC_SCREENS = new Set(["book", "preferences"]);
 
 export function App() {
   const route = useRoute();
