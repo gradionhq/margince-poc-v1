@@ -7,11 +7,16 @@ real, typed, physical column (`cf_<slug>`) on the core object's own table; the `
 is the system-of-record describing it.
 
 **The rejected alternative names the design.** The obvious way to ship user-defined fields is an EAV
-value store — a generic `(record_id, key, value)` sidecar. Margince refuses it: EAV forfeits typing,
-constraints, indexes, and honest SQL, and it makes every read a join against a table the planner
-cannot reason about. Paying for that with one governed DDL path is the trade this module exists to
-make. Picklist values live in the catalog's own `options` jsonb column — that is field *metadata*,
-not a value store.
+value store — a generic `(record_id, key, value)` sidecar. Margince refuses it, and the reason is
+narrower than "EAV is slow": a generic value column **cannot carry a per-field type or constraint**
+(one `text` column cannot be both a date and a three-way picklist), so every read pivots rows back
+into columns through joins and casts, and the planner estimates those pivots poorly on exactly the
+reporting queries custom fields exist to serve. An EAV table *can* be indexed — what is lost is
+**type-specific** constraints and indexes, and honest `GROUP BY`, not indexability as such. The spec
+names the same bet from the other side: a custom field is a real column so that reporting stays
+honest SQL with no metadata-engine indirection on the hot path. Paying for that with one governed DDL
+path is the trade this module exists to make. Picklist values live in the catalog's own `options`
+jsonb column — that is field *metadata*, not a value store.
 
 ## What a custom field may be — the closed sets
 
