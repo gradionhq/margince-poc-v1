@@ -3115,6 +3115,38 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /records/{entity_type}/{id}/context:
+    parameters:
+      - name: entity_type
+        in: path
+        required: true
+        schema: { type: string, enum: [person, organization, deal, lead] }
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Search]
+      operationId: getRecordContext
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Assembled context (related evidence) for one record.
+      description: >
+        The fixed-depth context walk (anchor → neighborhood): recent touches, related people,
+        open questions — each item provenance-stamped. Row-scoped; a record outside the caller's
+        scope yields an empty picture, never another workspace's neighborhood.
+      parameters:
+        - name: max_items
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 25 }
+          description: Max items per section (default 5, capped at 25).
+      responses:
+        '200':
+          description: The assembled picture (empty sections when nothing is related).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /field-history:
     get:
       tags: [Compliance]
@@ -7506,6 +7538,38 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    ContextEntityRef:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, enum: [person, organization, deal, lead, activity] }
+        id:   { type: string, format: uuid }
+    ContextEvidence:
+      type: object
+      required: [snippet, source]
+      properties:
+        snippet: { type: string }
+        source:  { type: string, description: Provenance ref, e.g. "activity:018f…". }
+    ContextItem:
+      type: object
+      required: [ref]
+      properties:
+        ref:      { $ref: '#/components/schemas/ContextEntityRef' }
+        summary:  { type: [string, 'null'] }
+        evidence: { type: array, items: { $ref: '#/components/schemas/ContextEvidence' } }
+    ContextSection:
+      type: object
+      required: [name, items]
+      properties:
+        name:  { type: string }
+        items: { type: array, items: { $ref: '#/components/schemas/ContextItem' } }
+    ContextResponse:
+      type: object
+      required: [anchor, sections]
+      properties:
+        anchor:   { $ref: '#/components/schemas/ContextEntityRef' }
+        sections: { type: array, items: { $ref: '#/components/schemas/ContextSection' } }
 
     # ---- Agents: governed tool surface ----
     AgentTool:

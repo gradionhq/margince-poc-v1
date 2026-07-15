@@ -714,6 +714,33 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
+// Defines values for ContextEntityRefType.
+const (
+	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
+	ContextEntityRefTypeDeal         ContextEntityRefType = "deal"
+	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
+	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
+	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+)
+
+// Valid indicates whether the value is a known member of the ContextEntityRefType enum.
+func (e ContextEntityRefType) Valid() bool {
+	switch e {
+	case ContextEntityRefTypeActivity:
+		return true
+	case ContextEntityRefTypeDeal:
+		return true
+	case ContextEntityRefTypeLead:
+		return true
+	case ContextEntityRefTypeOrganization:
+		return true
+	case ContextEntityRefTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateActivityRequestDirection.
 const (
 	CreateActivityRequestDirectionInbound     CreateActivityRequestDirection = "inbound"
@@ -4620,6 +4647,42 @@ type ConsentPurpose struct {
 	// RequiresDoubleOptIn When true, a grant is only effective after a confirmed DOI event (German email norm).
 	RequiresDoubleOptIn *bool              `json:"requires_double_opt_in,omitempty"`
 	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
+}
+
+// ContextEntityRef defines model for ContextEntityRef.
+type ContextEntityRef struct {
+	Id   openapi_types.UUID   `json:"id"`
+	Type ContextEntityRefType `json:"type"`
+}
+
+// ContextEntityRefType defines model for ContextEntityRef.Type.
+type ContextEntityRefType string
+
+// ContextEvidence defines model for ContextEvidence.
+type ContextEvidence struct {
+	Snippet string `json:"snippet"`
+
+	// Source Provenance ref
+	Source string `json:"source"`
+}
+
+// ContextItem defines model for ContextItem.
+type ContextItem struct {
+	Evidence *[]ContextEvidence `json:"evidence,omitempty"`
+	Ref      ContextEntityRef   `json:"ref"`
+	Summary  *string            `json:"summary,omitempty"`
+}
+
+// ContextResponse defines model for ContextResponse.
+type ContextResponse struct {
+	Anchor   ContextEntityRef `json:"anchor"`
+	Sections []ContextSection `json:"sections"`
+}
+
+// ContextSection defines model for ContextSection.
+type ContextSection struct {
+	Items []ContextItem `json:"items"`
+	Name  string        `json:"name"`
 }
 
 // CreateActivityRequest defines model for CreateActivityRequest.
@@ -8695,6 +8758,12 @@ type RevokeRecordGrantParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// GetRecordContextParams defines parameters for GetRecordContext.
+type GetRecordContextParams struct {
+	// MaxItems Max items per section (default 5, capped at 25).
+	MaxItems *int `form:"max_items,omitempty" json:"max_items,omitempty"`
 }
 
 // GetRecordHistoryParams defines parameters for GetRecordHistory.
@@ -14460,6 +14529,9 @@ type ServerInterface interface {
 	// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
 	// (DELETE /record-grants/{id})
 	RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams)
+	// Assembled context (related evidence) for one record.
+	// (GET /records/{entity_type}/{id}/context)
+	GetRecordContext(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordContextParams)
 	// Full audit history for one record, rendered as plain-language lines.
 	// (GET /records/{entity_type}/{id}/history)
 	GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams)
@@ -15417,6 +15489,12 @@ func (_ Unimplemented) CreateRecordGrant(w http.ResponseWriter, r *http.Request,
 // Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
 // (DELETE /record-grants/{id})
 func (_ Unimplemented) RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Assembled context (related evidence) for one record.
+// (GET /records/{entity_type}/{id}/context)
+func (_ Unimplemented) GetRecordContext(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordContextParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -22994,6 +23072,63 @@ func (siw *ServerInterfaceWrapper) RevokeRecordGrant(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// GetRecordContext operation middleware
+func (siw *ServerInterfaceWrapper) GetRecordContext(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_type" -------------
+	var entityType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_type", chi.URLParam(r, "entity_type"), &entityType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRecordContextParams
+
+	// ------------- Optional query parameter "max_items" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "max_items", r.URL.Query(), &params.MaxItems, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "max_items"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "max_items", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecordContext(w, r, entityType, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetRecordHistory operation middleware
 func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *http.Request) {
 
@@ -25404,6 +25539,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/record-grants/{id}", wrapper.RevokeRecordGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/records/{entity_type}/{id}/context", wrapper.GetRecordContext)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/records/{entity_type}/{id}/history", wrapper.GetRecordHistory)

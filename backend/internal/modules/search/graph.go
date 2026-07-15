@@ -5,6 +5,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -15,7 +16,9 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // The §10.7.2 retrieval-ranking tunables:
@@ -75,9 +78,9 @@ const graphExpansionLimit = 50
 
 // anchorLinkColumn names the activity_link column an anchor type walks.
 var anchorLinkColumn = map[string]string{
-	"person":       "person_id",
-	"organization": "organization_id",
-	"deal":         "deal_id",
+	string(datasource.EntityPerson):       "person_id",
+	string(datasource.EntityOrganization): "organization_id",
+	string(datasource.EntityDeal):         "deal_id",
 }
 
 // assembleGraph is the fixed-depth context walk (B-EP05.20a): anchor →
@@ -86,10 +89,25 @@ var anchorLinkColumn = map[string]string{
 // that can wander. Activities ride the activity link-walk scope; hop-2
 // records are visibility-probed individually.
 func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
-	linkCol, walkable := anchorLinkColumn[anchorType]
-	if !walkable {
+	// A graph anchor is any searchable record type except activity itself
+	// (an activity is a link, not a thing links hang off): the non-walk
+	// branches are exactly the contract's {person, organization, deal,
+	// lead} anchor set, so the valid-anchor rule stays derived from the
+	// module's one entity table rather than a parallel list.
+	var branch *searchBranch
+	for i := range searchBranches {
+		if searchBranches[i].entity == anchorType && !searchBranches[i].activityWalk {
+			branch = &searchBranches[i]
+		}
+	}
+	if branch == nil {
 		return nil, fmt.Errorf("search: %s is not a graph anchor", anchorType)
 	}
+	// A lead carries no activity_link neighborhood — the link shape admits
+	// only person/organization/deal (0008_activity.up.sql) — so a lead
+	// anchor's context is its profile alone: an honestly-empty
+	// neighborhood, not a walk silently skipped.
+	linkCol, walkable := anchorLinkColumn[anchorType]
 	now := time.Now().UTC()
 	var sections []graphSection
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -98,22 +116,28 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		if err := auth.EnsureVisible(ctx, tx, anchorType, anchorID); err != nil {
 			return err
 		}
-		var branch *searchBranch
-		for i := range searchBranches {
-			if searchBranches[i].entity == anchorType {
-				branch = &searchBranches[i]
-			}
-		}
 		var title string
 		err := tx.QueryRow(ctx,
 			fmt.Sprintf(`SELECT %s FROM %s t WHERE t.id = $1 AND t.archived_at IS NULL`, branch.title, branch.table),
 			anchorID).Scan(&title)
 		if err != nil {
+			// EnsureVisible answers nil (not merely "visible") when the
+			// caller's scope clause is empty — an unrestricted viewer's
+			// full-access grant, not proof the row exists. This is the
+			// real existence check: an anchor id nobody wrote resolves to
+			// the same not-found every other single-record read gives,
+			// never a raw scan error.
+			if errors.Is(err, pgx.ErrNoRows) {
+				return apperrors.ErrNotFound
+			}
 			return err
 		}
 		sections = append(sections, graphSection{name: "profile", items: []graphItem{{
 			entityType: anchorType, id: anchorID, summary: title,
 		}}})
+		if !walkable {
+			return nil
+		}
 
 		touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now)
 		if err != nil {
@@ -175,8 +199,10 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 		// graphItem.id is the polymorphic result column (activity here,
 		// person/organization/deal on the hop-2 sections), so it carries
 		// the untyped UUID.
-		item := graphItem{entityType: "activity", id: id.UUID, summary: summary,
-			score: rankScore(0, occurredAt, source, now)}
+		item := graphItem{
+			entityType: string(datasource.EntityActivity), id: id.UUID, summary: summary,
+			score: rankScore(0, occurredAt, source, now),
+		}
 		if kind == "task" && !isDone {
 			openTasks = append(openTasks, item)
 			continue
@@ -202,9 +228,9 @@ type graphHop struct {
 // relatedHops is the fixed set of hop-2 neighbor types, in the order the
 // related_* sections are emitted.
 var relatedHops = []graphHop{
-	{entity: "person", column: "person_id", title: "full_name"},
-	{entity: "organization", column: "organization_id", title: "display_name"},
-	{entity: "deal", column: "deal_id", title: "name"},
+	{entity: string(datasource.EntityPerson), column: "person_id", title: "full_name"},
+	{entity: string(datasource.EntityOrganization), column: "organization_id", title: "display_name"},
+	{entity: string(datasource.EntityDeal), column: "deal_id", title: "name"},
 }
 
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.ActivityID, maxItems int) ([]graphSection, error) {
@@ -223,7 +249,7 @@ func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType strin
 		sectionsByType[hop.entity] = items
 	}
 	var out []graphSection
-	for _, entity := range []string{"person", "organization", "deal"} {
+	for _, entity := range []string{string(datasource.EntityPerson), string(datasource.EntityOrganization), string(datasource.EntityDeal)} {
 		items := sectionsByType[entity]
 		if len(items) == 0 {
 			continue

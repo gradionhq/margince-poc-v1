@@ -1660,6 +1660,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/records/{entity_type}/{id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_type: "person" | "organization" | "deal" | "lead";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Assembled context (related evidence) for one record.
+         * @description The fixed-depth context walk (anchor → neighborhood): recent touches, related people, open questions — each item provenance-stamped. Row-scoped; a record outside the caller's scope yields an empty picture, never another workspace's neighborhood.
+         */
+        get: operations["getRecordContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/field-history": {
         parameters: {
             query?: never;
@@ -4839,6 +4863,30 @@ export interface components {
         SearchResponse: {
             data: components["schemas"]["SearchResult"][];
             page: components["schemas"]["PageInfo"];
+        };
+        ContextEntityRef: {
+            /** @enum {string} */
+            type: "person" | "organization" | "deal" | "lead" | "activity";
+            /** Format: uuid */
+            id: string;
+        };
+        ContextEvidence: {
+            snippet: string;
+            /** @description Provenance ref */
+            source: string;
+        };
+        ContextItem: {
+            ref: components["schemas"]["ContextEntityRef"];
+            summary?: string | null;
+            evidence?: components["schemas"]["ContextEvidence"][];
+        };
+        ContextSection: {
+            name: string;
+            items: components["schemas"]["ContextItem"][];
+        };
+        ContextResponse: {
+            anchor: components["schemas"]["ContextEntityRef"];
+            sections: components["schemas"]["ContextSection"][];
         };
         AgentTool: {
             /** @description The tool name (tools/list identity). */
@@ -10179,6 +10227,36 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getRecordContext: {
+        parameters: {
+            query?: {
+                /** @description Max items per section (default 5, capped at 25). */
+                max_items?: number;
+            };
+            header?: never;
+            path: {
+                entity_type: "person" | "organization" | "deal" | "lead";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The assembled picture (empty sections when nothing is related). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
