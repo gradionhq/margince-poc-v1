@@ -1,0 +1,34 @@
+/* ConsentSection layout only — the row/badge/timeline primitives themselves
+ * come from atoms.css and composed.css's .timeline. Tokens only (ds-purity). */
+
+.consent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.consent-row:last-child {
+  border-bottom: 0;
+}
+.consent-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.consent-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.consent-token-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.consent-token-field label {
+  font-size: 12px;
+  color: var(--textMeta);
+}

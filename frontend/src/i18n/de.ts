@@ -264,9 +264,21 @@ export const de = {
   "person.consent": "Einwilligung pro Zweck",
   "consent.grant": "Erteilen",
   "consent.withdraw": "Widerrufen",
-  "consent.doubleOptIn": "Double-Opt-in",
+  "consent.doubleOptIn": "Double-Opt-in anfordern",
   "consent.doiIssued": "Einmal-Token (nur einmal sichtbar):",
   "consent.doiExpires": "Läuft ab",
+  "consent.noRecord": "kein Eintrag",
+  "consent.noPurposes":
+    "Dieser Workspace erfasst noch keine Einwilligungszwecke.",
+  "consent.defaultDeny":
+    "Ausgehende Kommunikation ist pro Zweck standardmäßig gesperrt: ein Versand wird blockiert, sofern keine aktive, nachgewiesene Einwilligung für diesen Zweck vorliegt. Eine Einwilligung für einen Zweck berechtigt niemals einen anderen.",
+  "consent.proofLog": "Nachweisprotokoll",
+  "consent.proofEmpty":
+    "Für diesen Zweck ist keine Einwilligungsentscheidung erfasst. Ein leeres Protokoll ist ehrlich, keine Lücke.",
+  "consent.sourceUnknown": "Quelle nicht erfasst",
+  "consent.tokenLabel": "Bestätigungs-Token",
+  "consent.tokenHint":
+    "Dieser Zweck benötigt ein Double-Opt-in: Einmal-Token hier einfügen, damit die Einwilligung wirksam wird.",
 
   "org.name": "Firma",
   "org.industry": "Branche",

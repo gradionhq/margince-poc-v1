@@ -259,9 +259,20 @@ export const en = {
   "person.consent": "Consent by purpose",
   "consent.grant": "Grant",
   "consent.withdraw": "Withdraw",
-  "consent.doubleOptIn": "Double opt-in",
+  "consent.doubleOptIn": "Issue double opt-in",
   "consent.doiIssued": "One-time token (shown once):",
   "consent.doiExpires": "Expires",
+  "consent.noRecord": "no record",
+  "consent.noPurposes": "This workspace tracks no consent purposes yet.",
+  "consent.defaultDeny":
+    "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorises another.",
+  "consent.proofLog": "Proof log",
+  "consent.proofEmpty":
+    "No consent decision recorded for this purpose. An empty log is honest, not a gap.",
+  "consent.sourceUnknown": "source not recorded",
+  "consent.tokenLabel": "Confirmation token",
+  "consent.tokenHint":
+    "This purpose needs a double opt-in: paste the one-time token to make the grant effective.",
 
   "org.name": "Company",
   "org.industry": "Industry",
