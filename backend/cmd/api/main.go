@@ -55,16 +55,20 @@ func main() {
 
 // apiConfig is the parsed boot configuration of the api process.
 type apiConfig struct {
-	dsn           string
-	schemaDSN     string
-	addr          string
-	redisAddr     string
-	inlineRelay   bool
-	routingPath   string
-	fakeBrain     bool
-	logLevel      string
-	logFormat     string
-	publicBaseURL string
+	dsn               string
+	schemaDSN         string
+	addr              string
+	redisAddr         string
+	inlineRelay       bool
+	routingPath       string
+	fakeBrain         bool
+	logLevel          string
+	logFormat         string
+	publicBaseURL     string
+	apiBaseURL        string
+	gmailClientID     string
+	gmailClientSecret string
+	connectorStateKey string
 }
 
 // parseAPIFlags parses and validates the boot flags; the DSN is the one
@@ -82,7 +86,11 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "drive the AI surfaces with the offline fake model (dev/test only)")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
-	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail")
+	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail OAuth callback")
+	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
+	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
+	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
+	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail connect flow")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
@@ -202,6 +210,25 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, 
 		return nil, nil, err
 	}
 	opts = append(opts, kvOpts...)
+
+	// The Gmail connect/callback transport rides the same vault WithKeyvault
+	// wired, so it must follow kvOpts. WithGmailCapture self-gates: absent the
+	// client id/secret, state key, or public base URL it is a no-op and the
+	// /connectors/gmail/* surface keeps its declared 501.
+	gmailCfg := compose.GmailConfig{
+		ClientID:      cfg.gmailClientID,
+		ClientSecret:  cfg.gmailClientSecret,
+		StateKey:      cfg.connectorStateKey,
+		PublicBaseURL: cfg.publicBaseURL,
+		APIBaseURL:    cfg.apiBaseURL,
+	}
+	opts = append(opts, compose.WithGmailCapture(gmailCfg))
+	switch {
+	case gmailCfg.Enabled():
+		_, _ = fmt.Fprintln(stdout, "api gmail capture connector enabled (/connectors/gmail/*)")
+	case cfg.gmailClientID != "":
+		_, _ = fmt.Fprintln(stdout, "api gmail capture connector configured but INCOMPLETE — needs client secret, --connector-state-key (>=32B), and --public-base-url; surface stays 501")
+	}
 
 	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
 	if err != nil {

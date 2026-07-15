@@ -70,7 +70,7 @@ func TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep(t *testing.T) {
 	id := e.seedSweepDeal(t, "Commit slipped", e.late, stringp("commit"), intp(-10), 3)
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner, err := NewJobRunner(e.Pool, quiet, time.Hour, time.Hour)
+	runner, err := NewJobRunner(e.Pool, quiet, time.Hour, time.Hour, nil, 0)
 	if err != nil {
 		t.Fatalf("NewJobRunner: %v", err)
 	}

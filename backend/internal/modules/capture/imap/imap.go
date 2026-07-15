@@ -35,6 +35,7 @@ import (
 	imapv2 "github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/netguard"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -56,10 +57,6 @@ const (
 	// deadline on the underlying connection ourselves).
 	dialTimeout  = 15 * time.Second
 	pullDeadline = 90 * time.Second
-
-	// maxBodyLen caps the stored email body — the timeline needs a legible
-	// excerpt, not the full multi-megabyte thread with quoted history.
-	maxBodyLen = 8000
 
 	// maxRawLen bounds how many bytes we read from any one message's streamed
 	// body. The host is tenant-supplied and the server declares each literal's
@@ -321,18 +318,18 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 // counterparty. A dropped message is counted as skipped and returns nil; only
 // a real Sink write fault returns a non-nil error (which stops the pull).
 func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink, contacts map[string]struct{}) error {
-	parsed, err := parseMessage(raw, c.owner)
+	parsed, err := mailmap.Parse(raw, c.owner)
 	if err != nil {
 		// A single unparseable message is dropped, not fatal — one bad MIME
 		// structure must not abort the whole pull.
 		c.stats.Skipped++
 		return nil
 	}
-	if _, drop := parsed.skipReason(); drop {
+	if _, drop := parsed.SkipReason(); drop {
 		c.stats.Skipped++
 		return nil
 	}
-	if _, err := sink.Upsert(ctx, parsed.toRecord(raw)); err != nil {
+	if _, err := sink.Upsert(ctx, parsed.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			// The Sink dropped it (e.g. an erased subject's suppression list) —
 			// a deliberate skip, counted like any other.
@@ -342,8 +339,8 @@ func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink
 		return err
 	}
 	c.stats.Captured++
-	if parsed.counterparty != "" {
-		contacts[strings.ToLower(parsed.counterparty)] = struct{}{}
+	if cp := parsed.Counterparty(); cp != "" {
+		contacts[strings.ToLower(cp)] = struct{}{}
 	}
 	return nil
 }
@@ -352,14 +349,14 @@ func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink
 // (no I/O) so the mapping is the test-guarded surface; it returns an
 // ErrSkip-wrapped error for mail this connector intentionally drops.
 func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]connector.NormalizedRecord, error) {
-	parsed, err := parseMessage(raw, c.owner)
+	parsed, err := mailmap.Parse(raw, c.owner)
 	if err != nil {
 		return nil, err
 	}
-	if reason, drop := parsed.skipReason(); drop {
-		return nil, fmt.Errorf("imap: dropping %s (%s): %w", parsed.messageID, reason, connector.ErrSkip)
+	if reason, drop := parsed.SkipReason(); drop {
+		return nil, fmt.Errorf("imap: dropping %s (%s): %w", parsed.ID(), reason, connector.ErrSkip)
 	}
-	return []connector.NormalizedRecord{parsed.toRecord(raw)}, nil
+	return []connector.NormalizedRecord{parsed.ToRecord(connectorName, raw)}, nil
 }
 
 // HealthCheck confirms the live session still answers. A one-shot pull

@@ -12,8 +12,6 @@ package main
 import (
 	// Embedded tzdata: workspace timezones must resolve on scratch
 	// containers that ship no zoneinfo.
-	_ "time/tzdata"
-
 	"context"
 	"errors"
 	"flag"
@@ -25,12 +23,14 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
@@ -65,6 +65,9 @@ type workerConfig struct {
 	retentionInterval time.Duration
 	closeDateInterval time.Duration
 	reconcileInterval time.Duration
+	gmailClientID     string
+	gmailClientSecret string
+	gmailSyncInterval time.Duration
 	logLevel          string
 	logFormat         string
 }
@@ -83,6 +86,9 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
+	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
+	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
+	fs.DurationVar(&cfg.gmailSyncInterval, "gmail-sync-interval", 2*time.Minute, "Gmail incremental-sync poll interval")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -211,15 +217,34 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
 func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, stdout io.Writer) (func(), error) {
-	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval)
+	// Build the Gmail poll only when the app is configured. Gating the vault
+	// init here matters: an unconfigured deployment must not fail worker boot
+	// on a keyvault problem it doesn't need. GmailPollRegistry then holds the
+	// same vault the connect flow sealed credentials into.
+	var gmailReg *capture.Registry
+	if cfg.gmailClientID != "" && cfg.gmailClientSecret != "" {
+		vault, _, verr := keyvault.FromEnv(pool)
+		if verr != nil {
+			return nil, fmt.Errorf("worker: keyvault: %w", verr)
+		}
+		gmailReg = compose.GmailPollRegistry(pool, vault, compose.GmailConfig{
+			ClientID:     cfg.gmailClientID,
+			ClientSecret: cfg.gmailClientSecret,
+		})
+	}
+	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval, gmailReg, cfg.gmailSyncInterval)
 	if err != nil {
 		return nil, err
 	}
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval)
+	gmailNote := "gmail sync off (unconfigured)"
+	if gmailReg != nil {
+		gmailNote = fmt.Sprintf("gmail sync every %s", cfg.gmailSyncInterval)
+	}
+	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, %s)\n",
+		cfg.closeDateInterval, cfg.reconcileInterval, gmailNote)
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.

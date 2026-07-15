@@ -77,6 +77,8 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/brief/items/{itemId}/snooze":             {Op: "snoozeBriefItem", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/coldstart":                               {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "yellow"},
 	"POST /v1/connectors/imap/connect":                 {Op: "connectImap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/connectors/{provider}/connect":           {Op: "connectConnector", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"POST /v1/connectors/{provider}/disconnect":        {Op: "disconnectConnector", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/consent-purposes":                        {Op: "createConsentPurpose", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/custom-fields":                           {Op: "createCustomField", Access: "tool", Tool: "create_record", RecordType: "custom_field", Tier: "yellow"},
 	"POST /v1/custom-fields/{id}/retire":               {Op: "retireCustomField", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "yellow"},

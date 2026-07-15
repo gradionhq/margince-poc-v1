@@ -66,6 +66,7 @@ type Server struct {
 	coldstartHandlers
 	scrapeHandlers
 	imapConnectHandlers
+	connectorHandlers
 	filteredExportHandlers
 	orgRollupHandlers
 	strengthHandlers

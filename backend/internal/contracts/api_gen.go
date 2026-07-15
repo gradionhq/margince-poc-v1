@@ -549,6 +549,54 @@ func (e AutomationRunTier) Valid() bool {
 	}
 }
 
+// Defines values for CaptureConnectionProvider.
+const (
+	CaptureConnectionProviderGcal  CaptureConnectionProvider = "gcal"
+	CaptureConnectionProviderGmail CaptureConnectionProvider = "gmail"
+	CaptureConnectionProviderGraph CaptureConnectionProvider = "graph"
+	CaptureConnectionProviderImap  CaptureConnectionProvider = "imap"
+)
+
+// Valid indicates whether the value is a known member of the CaptureConnectionProvider enum.
+func (e CaptureConnectionProvider) Valid() bool {
+	switch e {
+	case CaptureConnectionProviderGcal:
+		return true
+	case CaptureConnectionProviderGmail:
+		return true
+	case CaptureConnectionProviderGraph:
+		return true
+	case CaptureConnectionProviderImap:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CaptureConnectionStatus.
+const (
+	Connected      CaptureConnectionStatus = "connected"
+	Disconnected   CaptureConnectionStatus = "disconnected"
+	Error          CaptureConnectionStatus = "error"
+	ReauthRequired CaptureConnectionStatus = "reauth_required"
+)
+
+// Valid indicates whether the value is a known member of the CaptureConnectionStatus enum.
+func (e CaptureConnectionStatus) Valid() bool {
+	switch e {
+	case Connected:
+		return true
+	case Disconnected:
+		return true
+	case Error:
+		return true
+	case ReauthRequired:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	BuyingCenter      ColdStartFieldField = "buying_center"
@@ -3288,6 +3336,30 @@ func (e VoiceProfileStatus) Valid() bool {
 	}
 }
 
+// Defines values for CaptureProvider.
+const (
+	CaptureProviderGcal  CaptureProvider = "gcal"
+	CaptureProviderGmail CaptureProvider = "gmail"
+	CaptureProviderGraph CaptureProvider = "graph"
+	CaptureProviderImap  CaptureProvider = "imap"
+)
+
+// Valid indicates whether the value is a known member of the CaptureProvider enum.
+func (e CaptureProvider) Valid() bool {
+	switch e {
+	case CaptureProviderGcal:
+		return true
+	case CaptureProviderGmail:
+		return true
+	case CaptureProviderGraph:
+		return true
+	case CaptureProviderImap:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListActivitiesParamsKind.
 const (
 	Call     ListActivitiesParamsKind = "call"
@@ -4494,6 +4566,41 @@ type BriefSnoozeRequest struct {
 	SnoozedUntil time.Time `json:"snoozed_until"`
 }
 
+// CaptureConnection A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
+// credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
+// server-side by `credential_ref`.
+type CaptureConnection struct {
+	CreatedAt *time.Time         `json:"created_at,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Provider The mail/calendar provider (A51 email+calendar parity).
+	Provider CaptureConnectionProvider `json:"provider"`
+
+	// Scopes The granted provider scopes.
+	Scopes []string `json:"scopes"`
+
+	// Status Connection state; `reauth_required` when the stored token expired/was revoked upstream.
+	Status CaptureConnectionStatus `json:"status"`
+
+	// SyncCursor Opaque provider watermark (Gmail historyId / IMAP UID / Graph delta) for incremental capture — read-only.
+	SyncCursor *string    `json:"sync_cursor,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+
+	// WatchExpiresAt Push/delta subscription renewal deadline (Gmail Pub/Sub / Graph change-notification), or null.
+	WatchExpiresAt *time.Time `json:"watch_expires_at,omitempty"`
+}
+
+// CaptureConnectionProvider The mail/calendar provider (A51 email+calendar parity).
+type CaptureConnectionProvider string
+
+// CaptureConnectionStatus Connection state; `reauth_required` when the stored token expired/was revoked upstream.
+type CaptureConnectionStatus string
+
+// CaptureConnectionListResponse defines model for CaptureConnectionListResponse.
+type CaptureConnectionListResponse struct {
+	Data []CaptureConnection `json:"data"`
+}
+
 // CaptureConsent The consent passthrough every capture surface (booking, public forms, imports) must carry
 // (EP07 capture contract, `features/07`; feedback/11 + /14). Names the purpose and the exact
 // wording/version shown, so the resulting grant is demonstrable (Art 7(1)).
@@ -4609,6 +4716,22 @@ type ComputedField struct {
 
 // ComputedFieldKind defines model for ComputedField.Kind.
 type ComputedFieldKind string
+
+// ConnectConnectorRequest Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
+// (the app page to return to after consent). The secret is written to the vault, never echoed.
+type ConnectConnectorRequest struct {
+	// RedirectUri App page to return to after OAuth consent (OAuth providers).
+	RedirectUri *string `json:"redirect_uri,omitempty"`
+}
+
+// ConnectConnectorResponse An OAuth redirect target (OAuth providers).
+type ConnectConnectorResponse struct {
+	// AuthorizeUrl Provider consent URL to redirect the user to (OAuth providers).
+	AuthorizeUrl *string `json:"authorize_url,omitempty"`
+
+	// Connection The established/updated connection (appears after the callback completes for OAuth).
+	Connection *CaptureConnection `json:"connection,omitempty"`
+}
 
 // ConsentEvent An append-only proof row (Art. 7 demonstrability). Never updated or deleted.
 type ConsentEvent struct {
@@ -7257,6 +7380,9 @@ type VoiceProfileStatus string
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
 
+// CaptureProvider defines model for CaptureProvider.
+type CaptureProvider string
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
@@ -7622,6 +7748,18 @@ type BookMeetingParams struct {
 
 // BookMeetingJSONBodyLinksEntityType defines parameters for BookMeeting.
 type BookMeetingJSONBodyLinksEntityType string
+
+// ConnectorOAuthCallbackParams defines parameters for ConnectorOAuthCallback.
+type ConnectorOAuthCallbackParams struct {
+	// Code Provider authorization code (absent when the user denied consent).
+	Code *string `form:"code,omitempty" json:"code,omitempty"`
+
+	// State Signed single-use binding to the initiating user + provider.
+	State string `form:"state" json:"state"`
+
+	// Error Set instead of `code` when the user denied consent.
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
+}
 
 // ListConsentPurposesParams defines parameters for ListConsentPurposes.
 type ListConsentPurposesParams struct {
@@ -9096,6 +9234,9 @@ type ColdStartReadbackJSONRequestBody = ColdStartRequest
 
 // ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
 type ConnectImapJSONRequestBody = ImapConnectRequest
+
+// ConnectConnectorJSONRequestBody defines body for ConnectConnector for application/json ContentType.
+type ConnectConnectorJSONRequestBody = ConnectConnectorRequest
 
 // CreateConsentPurposeJSONRequestBody defines body for CreateConsentPurpose for application/json ContentType.
 type CreateConsentPurposeJSONRequestBody = CreateConsentPurposeRequest
@@ -14226,9 +14367,21 @@ type ServerInterface interface {
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
+	// List the calling user's capture connections + sync state.
+	// (GET /connectors)
+	ListConnectors(w http.ResponseWriter, r *http.Request)
 	// One-shot IMAP pull — capture the most recent mailbox messages as email activities.
 	// (POST /connectors/imap/connect)
 	ConnectImap(w http.ResponseWriter, r *http.Request)
+	// OAuth redirect callback — completes a mail/calendar connect.
+	// (GET /connectors/{provider}/callback)
+	ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, provider CaptureProvider, params ConnectorOAuthCallbackParams)
+	// Connect (or re-authorize) the calling user's mail/calendar for capture.
+	// (POST /connectors/{provider}/connect)
+	ConnectConnector(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
+	// Disconnect the calling user's mail/calendar capture.
+	// (POST /connectors/{provider}/disconnect)
+	DisconnectConnector(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
 	// List the workspace's consent purposes (e.g. transactional, marketing_email, profiling).
 	// (GET /consent-purposes)
 	ListConsentPurposes(w http.ResponseWriter, r *http.Request, params ListConsentPurposesParams)
@@ -14889,9 +15042,33 @@ func (_ Unimplemented) ColdStartReadback(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List the calling user's capture connections + sync state.
+// (GET /connectors)
+func (_ Unimplemented) ListConnectors(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // One-shot IMAP pull — capture the most recent mailbox messages as email activities.
 // (POST /connectors/imap/connect)
 func (_ Unimplemented) ConnectImap(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// OAuth redirect callback — completes a mail/calendar connect.
+// (GET /connectors/{provider}/callback)
+func (_ Unimplemented) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, provider CaptureProvider, params ConnectorOAuthCallbackParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Connect (or re-authorize) the calling user's mail/calendar for capture.
+// (POST /connectors/{provider}/connect)
+func (_ Unimplemented) ConnectConnector(w http.ResponseWriter, r *http.Request, provider CaptureProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Disconnect the calling user's mail/calendar capture.
+// (POST /connectors/{provider}/disconnect)
+func (_ Unimplemented) DisconnectConnector(w http.ResponseWriter, r *http.Request, provider CaptureProvider) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17536,6 +17713,26 @@ func (siw *ServerInterfaceWrapper) ColdStartReadback(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// ListConnectors operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectors(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectors(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ConnectImap operation middleware
 func (siw *ServerInterfaceWrapper) ConnectImap(w http.ResponseWriter, r *http.Request) {
 
@@ -17547,6 +17744,138 @@ func (siw *ServerInterfaceWrapper) ConnectImap(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ConnectImap(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectorOAuthCallback operation middleware
+func (siw *ServerInterfaceWrapper) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ConnectorOAuthCallbackParams
+
+	// ------------- Optional query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error", r.URL.Query(), &params.Error, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectorOAuthCallback(w, r, provider, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectConnector operation middleware
+func (siw *ServerInterfaceWrapper) ConnectConnector(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectConnector(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectConnector operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectConnector(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectConnector(w, r, provider)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -25238,7 +25567,19 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/connectors", wrapper.ListConnectors)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/connectors/imap/connect", wrapper.ConnectImap)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/connectors/{provider}/callback", wrapper.ConnectorOAuthCallback)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/connectors/{provider}/connect", wrapper.ConnectConnector)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/connectors/{provider}/disconnect", wrapper.DisconnectConnector)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/consent-purposes", wrapper.ListConsentPurposes)

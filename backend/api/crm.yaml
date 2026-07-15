@@ -2869,6 +2869,105 @@ paths:
                     code: imap_unreachable
                     detail: Couldn't reach that mail server. Check the host and port, then retry.
 
+  # ------------------ /connectors (per-provider OAuth capture) ---------------
+  # Per-user mail/calendar connectors (RC-8): OAuth connect/callback/disconnect
+  # for gmail/gcal/graph plus the standing connection list. Distinct from the
+  # one-shot /connectors/imap/connect above — these persist a connection and
+  # sync incrementally in the background (capture.md CAP-WIRE-1). Connecting a
+  # mailbox is a human-only consent act; an agent never self-connects.
+  /connectors:
+    get:
+      tags: [Connectors]
+      operationId: listConnectors
+      summary: List the calling user's capture connections + sync state.
+      description: |
+        The per-user mail/calendar connections this user has established (RC-8), each with its
+        status and sync watermark. Never returns the credential — it lives encrypted in the vault
+        (`credential_ref`); this row carries only status + cursor (capture.md CAP-DDL-2).
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '200':
+          description: The calling user's capture connections.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureConnectionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /connectors/{provider}/connect:
+    parameters:
+      - $ref: '#/components/parameters/CaptureProvider'
+    post:
+      tags: [Connectors]
+      operationId: connectConnector
+      summary: Connect (or re-authorize) the calling user's mail/calendar for capture.
+      description: |
+        Per-user, consent-driven connect (RC-8). For an OAuth provider (`gmail`/`gcal`/`graph`)
+        returns the provider `authorize_url` to redirect the user to; the flow completes at
+        `GET /connectors/{provider}/callback`. The refresh token is written to the vault on
+        callback, NEVER to the row or a response. Human-only: an agent connecting a human's mailbox
+        would self-grant read of personal mail. (`imap` uses the dedicated one-shot
+        `/connectors/imap/connect`.)
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConnectConnectorRequest' }
+            examples:
+              oauth:
+                summary: OAuth provider — server returns the authorize_url to redirect to
+                value: { redirect_uri: 'https://app.example.com/activation' }
+      responses:
+        '200':
+          description: OAuth redirect target (OAuth providers).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConnectConnectorResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /connectors/{provider}/callback:
+    parameters:
+      - $ref: '#/components/parameters/CaptureProvider'
+    get:
+      tags: [Connectors]
+      operationId: connectorOAuthCallback
+      summary: OAuth redirect callback — completes a mail/calendar connect.
+      description: |
+        The redirect URI the OAuth provider returns to after user consent. The `state` parameter is
+        the signed, single-use binding to the initiating user + provider (CSRF defence; the session
+        cookie is not sent on this cross-site redirect). On success the authorization `code` is
+        exchanged for tokens server-side, the tokens are stored in the vault, and the user's
+        connection flips to `connected` with its initial sync cursor.
+      security: []   # provider→CRM redirect; the signed `state` binds the flow (session cookie is SameSite, not sent cross-site)
+      parameters:
+        - { name: code, in: query, schema: { type: string }, description: Provider authorization code (absent when the user denied consent). }
+        - { name: state, in: query, required: true, schema: { type: string }, description: Signed single-use binding to the initiating user + provider. }
+        - { name: error, in: query, schema: { type: string }, description: Set instead of `code` when the user denied consent. }
+      responses:
+        '302': { description: Redirect back into the app — connection established, or the denial surfaced honestly. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /connectors/{provider}/disconnect:
+    parameters:
+      - $ref: '#/components/parameters/CaptureProvider'
+    post:
+      tags: [Connectors]
+      operationId: disconnectConnector
+      summary: Disconnect the calling user's mail/calendar capture.
+      description: |
+        Revokes the stored provider token, stops the background sync, and flips the user's
+        connection to `disconnected` (RC-8). Idempotent. Already-captured activities are retained —
+        they are real history; capture simply stops. Human-only.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '204': { description: Disconnected (or already disconnected). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ---------------------------- /approvals ----------------------------------
   /approvals:
     get:
@@ -5626,6 +5725,16 @@ components:
 
   # --------------------------- shared parameters ----------------------------
   parameters:
+    CaptureProvider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [gmail, gcal, graph, imap] }
+      description: |
+        The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+        Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+        self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+        WhatsApp/Telegram connect is the messaging-channels surface, not this one.
     Id:
       name: id
       in: path
@@ -5801,6 +5910,42 @@ components:
 
   # ------------------------------- schemas ----------------------------------
   schemas:
+
+    # ---- capture connectors (per-user OAuth mail/calendar; RC-8, CAP-WIRE-1) ----
+    CaptureConnection:
+      type: object
+      description: |
+        A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
+        credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
+        server-side by `credential_ref`.
+      required: [id, provider, status, scopes]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [gmail, gcal, graph, imap], description: The mail/calendar provider (A51 email+calendar parity). }
+        status: { type: string, enum: [connected, disconnected, error, reauth_required], description: 'Connection state; `reauth_required` when the stored token expired/was revoked upstream.' }
+        sync_cursor: { type: [string, 'null'], description: 'Opaque provider watermark (Gmail historyId / IMAP UID / Graph delta) for incremental capture — read-only.' }
+        watch_expires_at: { type: [string, 'null'], format: date-time, description: 'Push/delta subscription renewal deadline (Gmail Pub/Sub / Graph change-notification), or null.' }
+        scopes: { type: array, items: { type: string }, description: The granted provider scopes. }
+        created_at: { type: string, format: date-time, readOnly: true }
+        updated_at: { type: string, format: date-time, readOnly: true }
+    CaptureConnectionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/CaptureConnection' } }
+    ConnectConnectorRequest:
+      type: object
+      description: |
+        Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
+        (the app page to return to after consent). The secret is written to the vault, never echoed.
+      properties:
+        redirect_uri: { type: string, format: uri, description: 'App page to return to after OAuth consent (OAuth providers).' }
+    ConnectConnectorResponse:
+      type: object
+      description: 'An OAuth redirect target (OAuth providers).'
+      properties:
+        authorize_url: { type: [string, 'null'], format: uri, description: 'Provider consent URL to redirect the user to (OAuth providers).' }
+        connection: { allOf: [ { $ref: '#/components/schemas/CaptureConnection' } ], description: 'The established/updated connection (appears after the callback completes for OAuth).' }
 
     # ---- error (RFC 7807) ----
     Problem:
