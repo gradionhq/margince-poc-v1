@@ -7,6 +7,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -116,6 +117,18 @@ function stubRoutes(
   return sent;
 }
 
+// Both fixture purposes render a row with identically-named controls
+// ("Proof log", "Grant"), so tests that need one specific row's control
+// scope the query to that row rather than assuming which one a bare
+// findByRole/getByRole call lands on.
+async function findConsentRow(label: string) {
+  const row = (await screen.findByText(label)).closest(".consent-row");
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`consent row for "${label}" not found`);
+  }
+  return row;
+}
+
 beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
 afterEach(() => {
   cleanup();
@@ -133,10 +146,25 @@ describe("ConsentSection", () => {
   it("shows the append-only proof log for a purpose", async () => {
     stubRoutes();
     render(<ConsentSection personId="person-1" />);
+    const row = await findConsentRow("Deal messages");
     await userEvent.click(
-      await screen.findByRole("button", { name: /proof log/i }),
+      within(row).getByRole("button", { name: /proof log/i }),
     );
     expect(await screen.findByText(/booking form/i)).toBeInTheDocument();
+  });
+
+  // A purpose with no consent record has no events by construction — the
+  // log must still be reachable and say so honestly, not hide the toggle.
+  it("shows the honest empty state for a purpose with no consent record", async () => {
+    stubRoutes();
+    render(<ConsentSection personId="person-1" />);
+    const row = await findConsentRow("Marketing");
+    await userEvent.click(
+      within(row).getByRole("button", { name: /proof log/i }),
+    );
+    expect(
+      await screen.findByText(/no consent decision recorded/i),
+    ).toBeInTheDocument();
   });
 
   // G-5: a DOI purpose needs the one-time token; the row must have a field
@@ -171,7 +199,11 @@ describe("ConsentSection", () => {
         sent.filter((s) => s.key === "POST /people/person-1/consent"),
       ).toHaveLength(1),
     );
-    expect(sent.at(-1)?.body).toEqual({
+    // The onSuccess invalidation refetches the consent GET, appending to the
+    // same `sent` array — filter for the POST specifically rather than
+    // trusting it stayed last.
+    const posts = sent.filter((s) => s.key === "POST /people/person-1/consent");
+    expect(posts.at(-1)?.body).toEqual({
       purpose_id: "p2",
       new_state: "granted",
       double_opt_in_token: "doi-tok-123",
@@ -196,9 +228,10 @@ describe("ConsentSection", () => {
         sent.filter((s) => s.key === "POST /people/person-1/consent"),
       ).toHaveLength(1),
     );
+    const posts = sent.filter((s) => s.key === "POST /people/person-1/consent");
     // An empty-string token must not be sent — the server would reject it as
     // "not a currently issued double opt-in token" rather than treat it as absent.
-    expect(sent.at(-1)?.body).toEqual({
+    expect(posts.at(-1)?.body).toEqual({
       purpose_id: "p1",
       new_state: "withdrawn",
     });
@@ -245,10 +278,67 @@ describe("ConsentSection", () => {
         sent.filter((s) => s.key === "POST /people/person-1/consent"),
       ).toHaveLength(1),
     );
-    expect(sent.at(-1)?.body).toEqual({
+    const posts = sent.filter((s) => s.key === "POST /people/person-1/consent");
+    expect(posts.at(-1)?.body).toEqual({
       purpose_id: "p1",
       new_state: "granted",
     });
+  });
+
+  // Defect-1 regression guard: the write endpoint's response can't carry the
+  // new consent_event, so the proof log can only pick up the transition just
+  // made by re-reading GET /people/{id}/consent. Proves the refetch actually
+  // happens (not just that the badge flips) by having the second GET return
+  // an event the first GET never had, then asserting it renders.
+  it("re-reads the consent GET after a write so the proof log includes the new decision", async () => {
+    let getCalls = 0;
+    const sent = stubRoutes({
+      "GET /people/person-1/consent": () => {
+        getCalls += 1;
+        if (getCalls === 1) return jsonResponse(CONSENT);
+        return jsonResponse({
+          state: [
+            { ...CONSENT.state[0], state: "withdrawn" },
+            CONSENT.state[1],
+          ],
+          events: [
+            ...CONSENT.events,
+            {
+              id: "e2",
+              purpose_id: "p1",
+              new_state: "withdrawn",
+              source: "person 360",
+              actor_type: "human",
+              actor_id: "u1",
+              occurred_at: "2026-06-01T00:00:00Z",
+            },
+          ],
+        });
+      },
+      "POST /people/person-1/consent": () =>
+        jsonResponse({
+          purpose_id: "p1",
+          purpose_key: "transactional",
+          state: "withdrawn",
+        }),
+    });
+    render(<ConsentSection personId="person-1" />);
+    const row = await findConsentRow("Deal messages");
+    await userEvent.click(
+      within(row).getByRole("button", { name: /proof log/i }),
+    );
+    expect(await screen.findByText(/booking form/i)).toBeInTheDocument();
+
+    await userEvent.click(
+      within(row).getByRole("button", { name: /^withdraw$/i }),
+    );
+
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "GET /people/person-1/consent"),
+      ).toHaveLength(2),
+    );
+    expect(await screen.findByText(/person 360/i)).toBeInTheDocument();
   });
 
   it("asks the server not to deliver — this surface owns the token disclosure", async () => {

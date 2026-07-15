@@ -27,10 +27,6 @@ import "./consent.css";
 type ConsentPurpose = components["schemas"]["ConsentPurpose"];
 type PersonConsentState = components["schemas"]["PersonConsentState"];
 type ConsentEvent = components["schemas"]["ConsentEvent"];
-type PersonConsentPayload = {
-  state: PersonConsentState[];
-  events: ConsentEvent[];
-};
 
 function usePersonConsent(personId: string) {
   return useQuery({
@@ -182,23 +178,13 @@ function ConsentRow({
       }
       return data;
     },
-    // Patches the cached row in place from the mutation's own response
-    // rather than invalidating: invalidateQueries would refetch immediately
-    // (react-query refetches active observers by default), a round-trip the
-    // response we already hold makes unnecessary. The proof log itself only
-    // grows on the next real fetch — the write endpoint doesn't echo the new
-    // event row, so this patch honestly updates state without inventing one.
-    onSuccess: (updated) => {
-      queryClient.setQueryData<PersonConsentPayload>(
-        ["person-consent", personId],
-        (previous) =>
-          previous && {
-            ...previous,
-            state: previous.state.map((row) =>
-              row.purpose_id === updated.purpose_id ? updated : row,
-            ),
-          },
-      );
+    // The write endpoint returns only the updated state row, not the new
+    // consent_event — so the proof log can only pick up the transition just
+    // made by refetching, not by patching the cache from this response.
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["person-consent", personId],
+      });
     },
   });
 
@@ -264,14 +250,9 @@ function ConsentRow({
             </Button>
           </>
         )}
-        {/* Unknown means no consent record ever existed for this purpose —
-            proof rows only ever record transitions to granted/withdrawn, so
-            an unknown-state purpose is guaranteed to have zero events. */}
-        {entry.state !== "unknown" && (
-          <Button small onClick={() => setShowLog((value) => !value)}>
-            {t("consent.proofLog")}
-          </Button>
-        )}
+        <Button small onClick={() => setShowLog((value) => !value)}>
+          {t("consent.proofLog")}
+        </Button>
       </div>
       {requiresDoi && <p className="t-caption">{t("consent.tokenHint")}</p>}
       {setState.isError && <MutationError error={setState.error} />}
