@@ -46,7 +46,7 @@ export function useAgentTierMap(): VerbTierMap {
   });
   const map: VerbTierMap = {};
   for (const tool of query.data?.data ?? []) {
-    map[tool.verb] = tool.tier;
+    map[tool.name] = tool.tier;
   }
   return map;
 }

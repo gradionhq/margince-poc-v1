@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import type { EntityKind } from "../app/entity";
+import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -43,12 +43,7 @@ const GROUP_KEY: Record<string, MessageKey> = {
 // Only these hit types have a 360 to route to (the app-wide ENTITY registry).
 // `activity` is a valid SearchResult type but has no record route, so it
 // renders as plain text instead of an EntityRef link.
-const ENTITY_KINDS = new Set<EntityKind>([
-  "person",
-  "organization",
-  "deal",
-  "lead",
-]);
+const LINKABLE_KINDS = new Set<EntityKind>(ENTITY_KINDS);
 
 export function SearchScreen({ q }: Readonly<{ q: string }>) {
   const t = useT();
@@ -123,7 +118,7 @@ function SearchGroups({ results }: Readonly<{ results: SearchResult[] }>) {
 
 function SearchHit({ hit }: Readonly<{ hit: SearchResult }>) {
   const t = useT();
-  const isLinkable = ENTITY_KINDS.has(hit.type as EntityKind);
+  const isLinkable = LINKABLE_KINDS.has(hit.type as EntityKind);
   return (
     <li className="search-hit">
       <div className="search-hit-title">

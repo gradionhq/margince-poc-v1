@@ -91,7 +91,6 @@ export const de = {
   "search.why": "Warum dieses Ergebnis",
   "search.relevance": "Relevanz {pct}%",
   "search.tier.authoritative": "verifiziert",
-  "search.seeAll": "Alle Ergebnisse für „{q}“ anzeigen",
 
   "context.title": "Verwandte Belege",
   "context.empty": "Noch nichts Verwandtes.",

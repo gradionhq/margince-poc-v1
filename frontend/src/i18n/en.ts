@@ -87,7 +87,6 @@ export const en = {
   "search.why": "Why this result",
   "search.relevance": "relevance {pct}%",
   "search.tier.authoritative": "verified",
-  "search.seeAll": "See all results for “{q}”",
 
   "context.title": "Related evidence",
   "context.empty": "Nothing related yet.",

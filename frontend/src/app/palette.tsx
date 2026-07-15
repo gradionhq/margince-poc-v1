@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ENTITY, type EntityKind } from "./entity";
+import { ENTITY, ENTITY_KINDS, type EntityKind } from "./entity";
 import { NAV } from "./nav";
 import { navigate, type Route } from "./router";
 
@@ -66,12 +66,7 @@ export function useBuiltinCommands(): Command[] {
 
 // The record kinds a search hit can route to (activity is a valid
 // SearchResult type but has no 360 to land on — see entity.ts).
-const RECORD_KINDS = new Set<EntityKind>([
-  "person",
-  "organization",
-  "deal",
-  "lead",
-]);
+const RECORD_KINDS = new Set<EntityKind>(ENTITY_KINDS);
 
 // Live record hits for the palette (RS-1): debounced via useDeferredValue
 // rather than a timer (craft: no real-clock waits in the render path), and

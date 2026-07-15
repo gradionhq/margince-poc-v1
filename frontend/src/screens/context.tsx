@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import type { EntityKind } from "../app/entity";
+import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { EmptyState, SectionHeader } from "../design-system/atoms";
 import { EvidenceChip, toEvidence } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -19,12 +19,7 @@ import "./context.css";
 // ContextEntityRef.type but not a 360) renders as plain text, same convention
 // as SearchHit in search.tsx.
 type ContextResponse = components["schemas"]["ContextResponse"];
-const LINKABLE = new Set<EntityKind>([
-  "person",
-  "organization",
-  "deal",
-  "lead",
-]);
+const LINKABLE = new Set<EntityKind>(ENTITY_KINDS);
 
 export function RecordContextPanel({
   entityType,
@@ -64,11 +59,13 @@ export function RecordContextPanel({
                   <h3 className="t-label">{section.name}</h3>
                   <ul className="context-items">
                     {section.items.map((item) => {
-                      const evidence = toEvidence(
-                        item.evidence?.[0] as
-                          | { [k: string]: unknown }
-                          | undefined,
-                      );
+                      const evidenceList = (item.evidence ?? [])
+                        .map((entry) =>
+                          toEvidence(
+                            entry as { [k: string]: unknown } | undefined,
+                          ),
+                        )
+                        .filter((entry) => entry != null);
                       return (
                         <li
                           key={`${item.ref.type}:${item.ref.id}`}
@@ -85,7 +82,12 @@ export function RecordContextPanel({
                           {item.summary && (
                             <span className="t-caption">{item.summary}</span>
                           )}
-                          {evidence && <EvidenceChip evidence={evidence} />}
+                          {evidenceList.map((evidence) => (
+                            <EvidenceChip
+                              key={`${evidence.source}:${evidence.snippet}`}
+                              evidence={evidence}
+                            />
+                          ))}
                         </li>
                       );
                     })}

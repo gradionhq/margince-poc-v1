@@ -48,14 +48,12 @@ const tools = () =>
     data: [
       {
         name: "search_records",
-        verb: "search_records",
         required_scope: "read",
         tier: "green",
         egress: false,
       },
       {
         name: "send_email",
-        verb: "send_email",
         required_scope: "send",
         tier: "yellow",
         egress: true,

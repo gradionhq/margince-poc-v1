@@ -167,14 +167,12 @@ function agentToolsBackend() {
         data: [
           {
             name: "search_records",
-            verb: "search_records",
             required_scope: "read",
             tier: "green",
             egress: false,
           },
           {
             name: "send_email",
-            verb: "send_email",
             required_scope: "send",
             tier: "yellow",
             egress: true,
@@ -194,12 +192,10 @@ describe("AgentToolsCard (IT-1)", () => {
     vi.stubGlobal("fetch", agentToolsBackend());
     render(<SettingsScreen tab="ai" />);
 
-    // Both tool names render — the fixture's verb equals its name, so each
-    // shows twice (verb span + name span) rather than once.
     await waitFor(() =>
-      expect(screen.getAllByText("search_records").length).toBe(2),
+      expect(screen.getAllByText("search_records").length).toBe(1),
     );
-    expect(screen.getAllByText("send_email").length).toBe(2);
+    expect(screen.getAllByText("send_email").length).toBe(1);
 
     const searchRow = document.querySelector('[data-tool="search_records"]');
     const sendRow = document.querySelector('[data-tool="send_email"]');

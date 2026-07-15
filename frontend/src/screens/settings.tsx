@@ -17,6 +17,7 @@ import {
 import { type ReactNode, useId, useState } from "react";
 import { api, setWorkspaceSlug, workspaceSlug } from "../api/client";
 import type { components } from "../api/schema";
+import { dotTier } from "../app/autonomy";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import {
   Badge,
@@ -526,13 +527,10 @@ function AgentToolsCard() {
                     opacity: reachable ? 1 : 0.4,
                   }}
                 >
-                  <AutonomyDot
-                    tier={tool.tier === "green" ? "auto" : "confirm"}
-                  />
+                  <AutonomyDot tier={dotTier(tool.tier)} />
                   <span className="t-mono" style={{ color: "var(--accent)" }}>
-                    {tool.verb}
+                    {tool.name}
                   </span>
-                  <span>{tool.name}</span>
                   {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
                   {tool.egress && (
                     <Badge tone="warn">{t("tools.egress")}</Badge>
