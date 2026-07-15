@@ -12,8 +12,6 @@ package main
 import (
 	// Embedded tzdata: workspace timezones must resolve on scratch
 	// containers that ship no zoneinfo.
-	_ "time/tzdata"
-
 	"context"
 	"errors"
 	"flag"
@@ -25,12 +23,14 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
@@ -217,17 +217,21 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
 func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, stdout io.Writer) (func(), error) {
-	// The Gmail poll needs the same vault the connect flow sealed credentials
-	// into; GmailPollRegistry returns nil (poll skipped) when the app is not
-	// configured, so an unconfigured deployment adds no Gmail job.
-	vault, _, err := keyvault.FromEnv(pool)
-	if err != nil {
-		return nil, fmt.Errorf("worker: keyvault: %w", err)
+	// Build the Gmail poll only when the app is configured. Gating the vault
+	// init here matters: an unconfigured deployment must not fail worker boot
+	// on a keyvault problem it doesn't need. GmailPollRegistry then holds the
+	// same vault the connect flow sealed credentials into.
+	var gmailReg *capture.Registry
+	if cfg.gmailClientID != "" && cfg.gmailClientSecret != "" {
+		vault, _, verr := keyvault.FromEnv(pool)
+		if verr != nil {
+			return nil, fmt.Errorf("worker: keyvault: %w", verr)
+		}
+		gmailReg = compose.GmailPollRegistry(pool, vault, compose.GmailConfig{
+			ClientID:     cfg.gmailClientID,
+			ClientSecret: cfg.gmailClientSecret,
+		})
 	}
-	gmailReg := compose.GmailPollRegistry(pool, vault, compose.GmailConfig{
-		ClientID:     cfg.gmailClientID,
-		ClientSecret: cfg.gmailClientSecret,
-	})
 	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval, gmailReg, cfg.gmailSyncInterval)
 	if err != nil {
 		return nil, err

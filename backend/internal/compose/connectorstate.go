@@ -27,11 +27,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// connectState is the tuple bound into a signed OAuth state parameter.
+// connectState is the tuple bound into a signed OAuth state parameter. Nonce
+// is the CSRF binding: it must equal the SameSite=Lax oauth_csrf cookie the
+// callback receives, proving the initiator and the completer are the same
+// browser (the signed state alone only proves the initiator).
 type connectState struct {
 	Workspace ids.UUID
 	User      ids.UUID
 	Provider  string
+	Nonce     string
 }
 
 // wireState is the JSON form actually signed — ids.UUID as strings, plus the
@@ -40,6 +44,7 @@ type wireState struct {
 	Workspace string `json:"ws"`
 	User      string `json:"u"`
 	Provider  string `json:"p"`
+	Nonce     string `json:"n"`
 	Exp       int64  `json:"exp"` // unix seconds
 }
 
@@ -55,6 +60,7 @@ func (s stateSigner) sign(st connectState, exp time.Time) string {
 		Workspace: st.Workspace.String(),
 		User:      st.User.String(),
 		Provider:  st.Provider,
+		Nonce:     st.Nonce,
 		Exp:       exp.Unix(),
 	})
 	enc := base64.RawURLEncoding.EncodeToString(payload)
@@ -94,7 +100,7 @@ func (s stateSigner) verify(token string, now time.Time) (connectState, error) {
 	if err != nil {
 		return connectState{}, fmt.Errorf("connector state: bad user id: %w", err)
 	}
-	return connectState{Workspace: ws, User: user, Provider: w.Provider}, nil
+	return connectState{Workspace: ws, User: user, Provider: w.Provider, Nonce: w.Nonce}, nil
 }
 
 func (s stateSigner) mac(enc string) []byte {

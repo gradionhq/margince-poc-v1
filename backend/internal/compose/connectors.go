@@ -19,6 +19,8 @@ package compose
 // nil-derefing — capture stays declared-but-absent by omission.
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -40,6 +42,11 @@ const connectStateTTL = 10 * time.Minute
 // providerGmail is the only capture provider this transport implements today
 // (gcal/graph are contract-declared, not yet wired).
 const providerGmail = "gmail"
+
+// oauthCSRFCookie carries the per-flow nonce (SameSite=Lax so it rides the
+// top-level redirect back from Google) that must match the nonce in the
+// signed state — the account-linking-CSRF defence.
+const oauthCSRFCookie = "oauth_csrf"
 
 type connectorHandlers struct {
 	registry *capture.Registry
@@ -114,8 +121,21 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
+	// CSRF: a random nonce goes into both a SameSite=Lax cookie and the signed
+	// state; the callback requires them to match, so a victim can't complete an
+	// attacker-initiated flow (account-linking CSRF).
+	nonce := rand.Text()
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthCSRFCookie,
+		Value:    nonce,
+		Path:     "/v1/connectors",
+		MaxAge:   int(connectStateTTL / time.Second),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	state := h.signer.sign(
-		connectState{Workspace: ws, User: actor.UserID, Provider: providerGmail},
+		connectState{Workspace: ws, User: actor.UserID, Provider: providerGmail, Nonce: nonce},
 		time.Now().Add(connectStateTTL),
 	)
 	authURL := h.oauth.AuthCodeURL(state, h.callbackURL())
@@ -142,6 +162,23 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
 		return
 	}
+	// CSRF: the SameSite=Lax oauth_csrf cookie must match the nonce in the
+	// signed state, proving the browser completing the flow is the one that
+	// started it. Without this, an attacker could trick a victim into
+	// completing the attacker's flow and link the victim's mailbox to the
+	// attacker's account (account-linking CSRF).
+	csrf, cerr := r.Cookie(oauthCSRFCookie)
+	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
+		slog.WarnContext(ctx, "gmail connector callback: CSRF nonce missing/mismatched", "err", cerr)
+		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		return
+	}
+	// One-shot: clear the CSRF cookie now that it's been consumed (same secure
+	// attributes as when it was set, so the delete is honored).
+	http.SetCookie(w, &http.Cookie{
+		Name: oauthCSRFCookie, Path: "/v1/connectors", MaxAge: -1,
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
 
 	authReq, err := gmail.AuthRequestFrom(*params.Code, h.callbackURL())
 	if err != nil {

@@ -37,7 +37,15 @@ var publicPaths = map[string]bool{
 // construction; the connectorOAuthCallback handler authenticates via the
 // signed `state` parameter, never a cookie.
 func isConnectorOAuthCallback(path string) bool {
-	return strings.HasPrefix(path, "/v1/connectors/") && strings.HasSuffix(path, "/callback")
+	// Match EXACTLY /v1/connectors/{provider}/callback — a single provider
+	// segment. A prefix/suffix test alone would also admit deeper paths like
+	// /v1/connectors/gmail/admin/callback, widening the session bypass.
+	rest, ok := strings.CutPrefix(path, "/v1/connectors/")
+	if !ok {
+		return false
+	}
+	provider, ok := strings.CutSuffix(rest, "/callback")
+	return ok && provider != "" && !strings.Contains(provider, "/")
 }
 
 // Middleware chains workspace resolution and session authentication:

@@ -21,7 +21,15 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// httpTimeout bounds every Google call so a stalled OAuth/Gmail request can't
+// pin an API callback or the fleet-wide sync poller (http.DefaultClient has no
+// timeout).
+const httpTimeout = 30 * time.Second
+
+func boundedHTTPClient() *http.Client { return &http.Client{Timeout: httpTimeout} }
 
 // Default Google endpoints; overridable via OAuthConfig / NewAPI for tests.
 const (
@@ -95,7 +103,7 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 	if cfg.TokenURL == "" {
 		cfg.TokenURL = googleTokenURL
 	}
-	return &httpOAuth{client: http.DefaultClient, cfg: cfg}
+	return &httpOAuth{client: boundedHTTPClient(), cfg: cfg}
 }
 
 func (o *httpOAuth) AuthCodeURL(state, redirectURI string) string {
@@ -193,7 +201,7 @@ type httpAPI struct {
 //nolint:ireturn // returns the API seam by design — the connector holds it as an interface so tests substitute a stub
 func NewAPI(client *http.Client, base string) API {
 	if client == nil {
-		client = http.DefaultClient
+		client = boundedHTTPClient()
 	}
 	if base == "" {
 		base = gmailAPIBase

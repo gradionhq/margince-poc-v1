@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -38,21 +37,15 @@ const (
 	backfillWindow = 50
 )
 
-// Connector authorizes and syncs one Gmail mailbox. owner is set from the
-// persisted auth at the top of Sync/Normalize, so the pure mapping can
-// classify direction without a provider handle.
+// Connector authorizes and syncs Gmail mailboxes. It holds NO per-mailbox or
+// per-run state: one instance is registered and shared, and every Sync derives
+// the owner + counters as locals so concurrent syncs of different connections
+// never race. (owner is a field only for the pure Normalize surface, which is
+// test-only — Sync never touches it.)
 type Connector struct {
 	oauth OAuth
 	api   API
-	owner string
-	stats Stats
-}
-
-// Stats is the outcome of one Sync, surfaced to the ops/summary surface.
-type Stats struct {
-	Captured int
-	Skipped  int
-	Contacts int
+	owner string // used ONLY by Normalize (the test-guarded pure mapping); never set by Sync
 }
 
 // New returns a Gmail connector over the given OAuth + API surfaces.
@@ -146,20 +139,25 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return nil, fmt.Errorf("gmail: malformed auth state: %w", err)
 	}
-	c.owner = st.Owner
+	owner := st.Owner // local — never stored on the shared instance
 
 	access, err := c.oauth.AccessToken(ctx, st.RefreshToken)
 	if err != nil {
 		return nil, err
 	}
 
-	start := parseCursor(cursor)
+	start, err := parseCursor(cursor)
+	if err != nil {
+		// A stored cursor we can't read is a bug/corruption, NOT a fresh mailbox:
+		// stop and let the next cycle retry rather than silently backfilling and
+		// overwriting the watermark (which would drop everything in between).
+		return nil, err
+	}
 	ids, nextHistory, err := c.selectMessages(ctx, access, start)
 	if err != nil {
 		return nil, err
 	}
 
-	contacts := map[string]struct{}{}
 	for _, id := range ids {
 		raw, err := c.api.GetRaw(ctx, access, id)
 		if err != nil {
@@ -167,11 +165,10 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 			// cursor so the next cycle retries from the same watermark.
 			return nil, err
 		}
-		if err := c.captureOne(ctx, raw, sink, contacts); err != nil {
+		if err := captureOne(ctx, raw, sink, owner); err != nil {
 			return nil, err
 		}
 	}
-	c.stats.Contacts = len(contacts)
 
 	if nextHistory == "" {
 		nextHistory = start // nothing new; keep the prior watermark
@@ -211,30 +208,23 @@ func (c *Connector) backfill(ctx context.Context, access string) ([]string, stri
 	return ids, historyID, nil
 }
 
-// captureOne parses, drops, or upserts one raw message, tallying the outcome
-// — the same accounting the IMAP connector uses. A parse failure or a
-// deliberate skip is counted, never fatal; only a real Sink write fault
-// returns a non-nil error (which stops the pull).
-func (c *Connector) captureOne(ctx context.Context, raw []byte, sink connector.Sink, contacts map[string]struct{}) error {
-	msg, err := mailmap.Parse(raw, c.owner)
+// captureOne parses, drops, or upserts one raw message — the same discipline
+// the IMAP connector uses. A parse failure or a deliberate skip is a no-op;
+// only a real Sink write fault returns a non-nil error (which stops the pull).
+// It is a package function (no receiver) so a pull holds no shared state.
+func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string) error {
+	msg, err := mailmap.Parse(raw, owner)
 	if err != nil {
-		c.stats.Skipped++
-		return nil //nolint:nilerr // a single unparseable message is a counted skip, not a fatal pull error (mirrors the IMAP connector)
+		return nil //nolint:nilerr // a single unparseable message is a skip, not a fatal pull error (mirrors the IMAP connector)
 	}
 	if _, drop := msg.SkipReason(); drop {
-		c.stats.Skipped++
 		return nil
 	}
 	if _, err := sink.Upsert(ctx, msg.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
-			c.stats.Skipped++
 			return nil
 		}
 		return err
-	}
-	c.stats.Captured++
-	if cp := msg.Counterparty(); cp != "" {
-		contacts[strings.ToLower(cp)] = struct{}{}
 	}
 	return nil
 }
@@ -271,20 +261,19 @@ func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error 
 	return nil
 }
 
-// Stats returns the outcome of the last Sync on this connector.
-func (c *Connector) Stats() Stats { return c.stats }
-
-func parseCursor(cur connector.Cursor) string {
+// parseCursor reads the stored watermark. An empty cursor means a genuinely
+// fresh mailbox (→ initial backfill); a NON-empty but unreadable cursor is an
+// error, not a silent re-anchor — the caller stops rather than backfill and
+// overwrite the watermark (which would drop everything in between).
+func parseCursor(cur connector.Cursor) (string, error) {
 	if len(cur) == 0 {
-		return ""
+		return "", nil
 	}
 	var cs cursorState
 	if err := json.Unmarshal(cur, &cs); err != nil {
-		// An unreadable cursor is treated as absent — the next Sync re-anchors
-		// via a bounded backfill rather than failing.
-		return ""
+		return "", fmt.Errorf("gmail: unreadable sync cursor: %w", err)
 	}
-	return cs.HistoryID
+	return cs.HistoryID, nil
 }
 
 func marshalCursor(historyID string) connector.Cursor {

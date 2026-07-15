@@ -160,7 +160,7 @@ func TestSyncInitialBackfillAnchorsCursorAndCaptures(t *testing.T) {
 	if sink.recs[0].CapturedBy != "connector:gmail" {
 		t.Errorf("CapturedBy = %q, want connector:gmail", sink.recs[0].CapturedBy)
 	}
-	if hid := parseCursor(cur); hid != "12345" {
+	if hid, _ := parseCursor(cur); hid != "12345" {
 		t.Errorf("cursor historyId = %q, want 12345 (anchored at profile)", hid)
 	}
 	if api.historyCalls != 0 {
@@ -189,7 +189,7 @@ func TestSyncIncrementalUsesHistoryAndAdvancesCursor(t *testing.T) {
 	if api.historyCalls != 1 || api.listCalls != 0 {
 		t.Errorf("incremental path should call history once, list never; got history=%d list=%d", api.historyCalls, api.listCalls)
 	}
-	if hid := parseCursor(cur); hid != "99999" {
+	if hid, _ := parseCursor(cur); hid != "99999" {
 		t.Errorf("cursor = %q, want advanced to 99999", hid)
 	}
 }
@@ -216,7 +216,7 @@ func TestSyncHistoryGoneFallsBackToList(t *testing.T) {
 	if api.listCalls != 1 {
 		t.Errorf("fallback should call ListRecent once, got %d", api.listCalls)
 	}
-	if hid := parseCursor(cur); hid != "55555" {
+	if hid, _ := parseCursor(cur); hid != "55555" {
 		t.Errorf("cursor should re-anchor at profile historyId 55555, got %q", hid)
 	}
 }

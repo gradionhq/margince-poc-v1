@@ -158,14 +158,14 @@ up)
   gmail_enabled=0
   if [[ -n "${MARGINCE_GMAIL_CLIENT_ID:-}" && -n "${MARGINCE_GMAIL_CLIENT_SECRET:-}" ]]; then
     gmail_enabled=1
-    # Dev-only vault + state keys so connect can seal/sign locally; override in
-    # .env.local for anything past a throwaway dev box.
+    # Secrets travel via the environment, NEVER CLI flags (argv is visible in
+    # the process table). The client id/secret are already exported from
+    # .env.local; export the dev vault + state keys too. The api/worker flags
+    # default to these env vars, so we pass only the non-secret, dev-computed
+    # URLs on the command line.
     export MARGINCE_KEYVAULT_ROOT_KEY="${MARGINCE_KEYVAULT_ROOT_KEY:-bWFyZ2luY2UtZGV2LW9ubHkta2V5dmF1bHQtcm9vdGs=}"
-    gmail_state_key="${MARGINCE_CONNECTOR_STATE_KEY:-margince-dev-connector-state-key-0001}"
+    export MARGINCE_CONNECTOR_STATE_KEY="${MARGINCE_CONNECTOR_STATE_KEY:-margince-dev-connector-state-key-0001}"
     gmail_api_flags=(
-      --gmail-client-id "$MARGINCE_GMAIL_CLIENT_ID"
-      --gmail-client-secret "$MARGINCE_GMAIL_CLIENT_SECRET"
-      --connector-state-key "$gmail_state_key"
       # public base = the SPA (:fe_port), where the browser lands after consent;
       # api base = the api (:api_port), where the callback redirect_uri resolves.
       --public-base-url "http://localhost:${fe_port}"
@@ -214,9 +214,10 @@ up)
   worker_pid=""
   if [[ "$gmail_enabled" == "1" ]]; then
     ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
+    # Gmail client id/secret come from the exported env (not CLI flags); the
+    # worker's flags default to them.
     MARGINCE_ENV=dev \
       ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
-      --gmail-client-id "$MARGINCE_GMAIL_CLIENT_ID" --gmail-client-secret "$MARGINCE_GMAIL_CLIENT_SECRET" \
       --gmail-sync-interval 30s >>"$log" 2>&1 &
     worker_pid=$!
     echo "  gmail    sync worker running (poll every 30s)"

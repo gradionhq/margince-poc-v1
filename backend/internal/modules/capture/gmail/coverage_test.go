@@ -32,9 +32,6 @@ func TestSyncSinkSkipIsCountedAndErrorPropagates(t *testing.T) {
 	if _, err := skipC.Sync(context.Background(), skipAuth, nil, faultySink{err: connector.ErrSkip}); err != nil {
 		t.Fatalf("a Sink ErrSkip must not fail the pull: %v", err)
 	}
-	if skipC.Stats().Captured != 0 || skipC.Stats().Skipped != 1 {
-		t.Fatalf("ErrSkip accounting: captured=%d skipped=%d, want 0/1", skipC.Stats().Captured, skipC.Stats().Skipped)
-	}
 
 	// A real Sink write fault stops the pull.
 	errC := realConn(t, fullStub(t, nil))
@@ -124,11 +121,8 @@ func TestAuthenticateThenBackfillThroughRealClient(t *testing.T) {
 	if len(sink.recs) != 1 || sink.recs[0].Source != "gmail:m1@x" {
 		t.Fatalf("want one gmail:m1@x record, got %+v", sink.recs)
 	}
-	if parseCursor(cur) != "500" {
-		t.Errorf("cursor = %q, want 500", parseCursor(cur))
-	}
-	if c.Stats().Captured != 1 {
-		t.Errorf("Stats().Captured = %d, want 1", c.Stats().Captured)
+	if hid, _ := parseCursor(cur); hid != "500" {
+		t.Errorf("cursor = %q, want 500", hid)
 	}
 }
 
@@ -179,8 +173,8 @@ func TestSyncSkipsAutomatedMail(t *testing.T) {
 	if _, err := c.Sync(context.Background(), auth, nil, sink); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if len(sink.recs) != 0 || c.Stats().Skipped != 1 {
-		t.Fatalf("automated mail should be skipped: recs=%d skipped=%d", len(sink.recs), c.Stats().Skipped)
+	if len(sink.recs) != 0 {
+		t.Fatalf("automated mail should be skipped, but %d record(s) landed", len(sink.recs))
 	}
 }
 

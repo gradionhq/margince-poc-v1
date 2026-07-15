@@ -60,11 +60,21 @@ type GmailConfig struct {
 // refresh needs the client id/secret).
 func (c GmailConfig) canSync() bool { return c.ClientID != "" && c.ClientSecret != "" }
 
+// minStateKeyLen is the floor for the OAuth state-signing HMAC key; a shorter
+// key would make the signed state cheaply forgeable.
+const minStateKeyLen = 32
+
 // canConnect reports whether the human-facing connect/callback transport can
-// run (additionally needs the state-signing key + the callback base URL).
+// run: it needs the sync creds plus a callback URL and a state key of at least
+// minStateKeyLen bytes (a weak key is refused, not silently accepted).
 func (c GmailConfig) canConnect() bool {
-	return c.canSync() && c.StateKey != "" && c.PublicBaseURL != ""
+	return c.canSync() && len(c.StateKey) >= minStateKeyLen && c.PublicBaseURL != ""
 }
+
+// Enabled reports whether the connect/callback transport is fully configured —
+// the same condition WithGmailCapture gates on, exported so a caller (cmd) can
+// log accurately rather than guessing from the client id alone.
+func (c GmailConfig) Enabled() bool { return c.canConnect() }
 
 //nolint:ireturn // returns the gmail.OAuth seam by design (a fakeable interface)
 func newGmailOAuth(c GmailConfig) gmail.OAuth {
@@ -104,7 +114,10 @@ func GmailPollRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) 
 // connector surface keeps its declared-but-unimplemented 501 by omission.
 func WithGmailCapture(c GmailConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		if !c.canConnect() {
+		// Without a vault the connect flow can't seal the refresh token, so
+		// mounting the endpoints would only fail at the callback — leave the
+		// surface its declared 501 instead. (WithKeyvault must precede this.)
+		if !c.canConnect() || s.vault == nil {
 			return
 		}
 		s.connectorHandlers = connectorHandlers{

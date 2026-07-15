@@ -215,15 +215,19 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, 
 	// wired, so it must follow kvOpts. WithGmailCapture self-gates: absent the
 	// client id/secret, state key, or public base URL it is a no-op and the
 	// /connectors/gmail/* surface keeps its declared 501.
-	opts = append(opts, compose.WithGmailCapture(compose.GmailConfig{
+	gmailCfg := compose.GmailConfig{
 		ClientID:      cfg.gmailClientID,
 		ClientSecret:  cfg.gmailClientSecret,
 		StateKey:      cfg.connectorStateKey,
 		PublicBaseURL: cfg.publicBaseURL,
 		APIBaseURL:    cfg.apiBaseURL,
-	}))
-	if cfg.gmailClientID != "" {
+	}
+	opts = append(opts, compose.WithGmailCapture(gmailCfg))
+	switch {
+	case gmailCfg.Enabled():
 		_, _ = fmt.Fprintln(stdout, "api gmail capture connector enabled (/connectors/gmail/*)")
+	case cfg.gmailClientID != "":
+		_, _ = fmt.Fprintln(stdout, "api gmail capture connector configured but INCOMPLETE — needs client secret, --connector-state-key (>=32B), and --public-base-url; surface stays 501")
 	}
 
 	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
