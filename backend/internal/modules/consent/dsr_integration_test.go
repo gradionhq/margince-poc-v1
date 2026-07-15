@@ -9,13 +9,18 @@ package consent
 // BE-1 — the ?status= filter the contract publishes actually narrows the
 // queue (it was parsed and dropped, so every filter returned everything).
 // BE-2 — fulfilling an erasure whose subject_ref names no person fails
-// loudly instead of certifying a deletion that never ran, whether the
-// subject_ref fails to parse or parses to a UUID that names no person in
-// this workspace — ErasePerson anonymizes a person row IN PLACE and never
-// deletes it, so its ErrNotFound can only mean "nobody found", never
-// "already erased". A repeat fulfil of a request that DID find a person is
-// the opposite case and must keep succeeding: erasing an already-erased
-// person is a harmless no-op re-run, which is what idempotency here means.
+// loudly instead of certifying a deletion that never ran. This file proves
+// the fails-to-parse half with the recordingEraser fake below, which is
+// sufficient because that half never reaches the erase path at all. The
+// syntactically-valid-but-nonexistent half, and the idempotent-repeat-fulfil
+// case sharing its premise (ErasePerson anonymizes a person row IN PLACE and
+// never deletes it, so its ErrNotFound can only mean "nobody found", never
+// "already erased"), both need a genuine ErrNotFound/nil that only the real
+// privacy.Eraser can produce — a module store must never import a sibling
+// module, so those two live in
+// compose/integration/dsr_erasure_fulfil_integration_test.go, driving the
+// same consent.Handlers.WithEraser(privacy.NewEraser(...)) wiring
+// compose/server.go uses in production.
 
 import (
 	"context"
@@ -33,7 +38,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -98,23 +102,6 @@ func setupDSR(t *testing.T) *dsrEnv {
 		},
 	})
 	return e
-}
-
-// seedPerson plants a real, minimal person row in the DSR's own workspace —
-// via the owner connection, bypassing RLS, the same way setupDSR seeds the
-// workspace and app_user rows. The erasure idempotency test needs a person
-// ErasePerson can actually find and anonymize, not a fake that only records
-// that it was called.
-func (e *dsrEnv) seedPerson(t *testing.T) ids.UUID {
-	t.Helper()
-	personID := ids.NewV7()
-	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person (id, workspace_id, full_name, first_name, source, captured_by)
-		 VALUES ($1, $2, 'Erasure Subject', 'Erasure', 'manual', 'human:x')`,
-		personID, e.ws); err != nil {
-		t.Fatalf("seeding person: %v", err)
-	}
-	return personID
 }
 
 func (e *dsrEnv) mustCreate(t *testing.T, kind, subjectRef string) dsrRow {
@@ -264,79 +251,6 @@ func TestFulfillErasureHTTPRefusesAnUnresolvableSubject(t *testing.T) {
 	}
 	if eraser.calls != 0 {
 		t.Fatalf("nothing may be erased for an unresolvable subject, got %d call(s)", eraser.calls)
-	}
-}
-
-// TestFulfillErasureHTTPRefusesASyntacticallyValidButNonexistentSubject is
-// the sibling of the test above, on the OTHER path into the same refusal:
-// ids.Parse proves syntax only, so a well-formed UUID that names no person
-// in this workspace must be refused exactly like a subject_ref that never
-// parsed at all. This drives the real privacy.Eraser (not a fake that
-// always succeeds), so the ErrNotFound it asserts against is the genuine
-// "SELECT ... WHERE id = $1 found no row" case, not a stand-in.
-func TestFulfillErasureHTTPRefusesASyntacticallyValidButNonexistentSubject(t *testing.T) {
-	e := setupDSR(t)
-	req := e.mustCreate(t, "erasure", ids.NewV7().String())
-
-	h := NewHandlers(e.pool).WithEraser(privacy.NewEraser(e.pool))
-	body := `{"status":"fulfilled","resolution":"verified by phone"}`
-	r := httptest.NewRequest(http.MethodPatch, "/v1/data-subject-requests/"+req.ID.String(),
-		strings.NewReader(body)).WithContext(e.ctx)
-	r.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	h.UpdateDataSubjectRequest(w, r, openapi_types.UUID(req.ID))
-
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("a well-formed but nonexistent subject must be refused 422, got %d: %s", w.Code, w.Body)
-	}
-	if field := validationField(t, w.Body.Bytes()); field != "subject_ref" {
-		t.Fatalf("want the subject_ref field to fail, got %q: %s", field, w.Body)
-	}
-	after, err := e.store.GetDSR(e.ctx, req.ID)
-	if err != nil {
-		t.Fatalf("reading back: %v", err)
-	}
-	if after.Status != "open" {
-		t.Fatalf("a refused fulfilment must not move the request: status=%q", after.Status)
-	}
-}
-
-// TestFulfillErasureHTTPIsIdempotentAcrossTwoFulfilments is the load-bearing
-// proof for the premise the earlier ErrNotFound swallow rested on: ErasePerson
-// anonymizes a person row IN PLACE rather than deleting it, so fulfilling the
-// SAME erasure request a second time must keep succeeding — the second call
-// finds the (now-anonymized) row exactly like the first did, re-runs the
-// scrub harmlessly, and returns nil, never ErrNotFound. If this test fails,
-// the anonymize-in-place premise is wrong and B1's fix is refusing a request
-// idempotency actually requires to succeed.
-func TestFulfillErasureHTTPIsIdempotentAcrossTwoFulfilments(t *testing.T) {
-	e := setupDSR(t)
-	personID := e.seedPerson(t)
-	req := e.mustCreate(t, "erasure", personID.String())
-	h := NewHandlers(e.pool).WithEraser(privacy.NewEraser(e.pool))
-
-	patch := func(body string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodPatch, "/v1/data-subject-requests/"+req.ID.String(),
-			strings.NewReader(body)).WithContext(e.ctx)
-		r.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		h.UpdateDataSubjectRequest(w, r, openapi_types.UUID(req.ID))
-		return w
-	}
-
-	first := patch(`{"status":"fulfilled","resolution":"verified in person"}`)
-	if first.Code != http.StatusOK {
-		t.Fatalf("first fulfilment of a real person must succeed, got %d: %s", first.Code, first.Body)
-	}
-
-	// The request is already "fulfilled"; validateDSRUpdate treats a status
-	// equal to the current one as a no-op (not a transition), so this is
-	// legal to submit again — and it re-triggers the erase side effect.
-	second := patch(`{"status":"fulfilled"}`)
-	if second.Code != http.StatusOK {
-		t.Fatalf("re-fulfilling an already-erased person must still succeed (idempotent), got %d: %s",
-			second.Code, second.Body)
 	}
 }
 
