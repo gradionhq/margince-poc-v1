@@ -71,11 +71,8 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 		status := string(*req.Status)
 		in.Status = &status
 	}
-	// Fulfilling an erasure request EXECUTES the erasure first — the
-	// status flip and the actual deletion must not drift apart. A
-	// subject_ref that is not a person id (or a person already gone —
-	// e.g. an earlier erasure) names nothing left to erase and the
-	// request just closes.
+	// Fulfilling an erasure request EXECUTES the erasure first — the status
+	// flip and the actual deletion must not drift apart.
 	if in.Status != nil && *in.Status == "fulfilled" {
 		current, err := h.store.GetDSR(r.Context(), ids.UUID(id))
 		if err != nil {
@@ -90,12 +87,23 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 				writeConsentErr(w, r, errors.New("consent: erasure fulfillment has no erase path wired"))
 				return
 			}
-			if personID, parseErr := ids.Parse(current.SubjectRef); parseErr == nil {
-				err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String())
-				if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-					writeConsentErr(w, r, err)
-					return
-				}
+			personID, parseErr := ids.Parse(current.SubjectRef)
+			if parseErr != nil {
+				// Same fail-closed rule: a subject_ref that names no person
+				// means we never looked, not that there was nothing to
+				// erase. Closing here would certify a deletion that never
+				// ran. (An already-erased person is the ErrNotFound case
+				// below — that one genuinely has nothing left to do.)
+				writeConsentErr(w, r, &ValidationError{
+					Field:  "subject_ref",
+					Reason: "an erasure request must name a person id before it can be fulfilled",
+				})
+				return
+			}
+			err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String())
+			if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+				writeConsentErr(w, r, err)
+				return
 			}
 		}
 	}

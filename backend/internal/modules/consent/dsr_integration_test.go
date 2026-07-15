@@ -13,12 +13,16 @@ package consent
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -137,3 +141,43 @@ func TestListDSRsNarrowsByStatus(t *testing.T) {
 }
 
 func strptr(s string) *string { return &s }
+
+func TestFulfillErasureHTTPRefusesAnUnresolvableSubject(t *testing.T) {
+	e := setupDSR(t)
+	req := e.mustCreate(t, "erasure", "anna.weber@brandt-automotive.de")
+
+	// NewHandlers builds its own store from the pool; WithEraser wires the
+	// erase seam compose injects in production.
+	eraser := &recordingEraser{}
+	h := NewHandlers(e.pool).WithEraser(eraser)
+	body := `{"status":"fulfilled","resolution":"verified by phone"}`
+	r := httptest.NewRequest(http.MethodPatch, "/v1/data-subject-requests/"+req.ID.String(),
+		strings.NewReader(body)).WithContext(e.ctx)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.UpdateDataSubjectRequest(w, r, openapi_types.UUID(req.ID))
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("an erasure whose subject_ref names no person must be refused 422, got %d: %s", w.Code, w.Body)
+	}
+	after, err := e.store.GetDSR(e.ctx, req.ID)
+	if err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if after.Status != "open" {
+		t.Fatalf("a refused fulfilment must not move the request: status=%q", after.Status)
+	}
+	if eraser.calls != 0 {
+		t.Fatalf("nothing may be erased for an unresolvable subject, got %d call(s)", eraser.calls)
+	}
+}
+
+// recordingEraser satisfies consent.Eraser (handlers.go:30) and proves the
+// refusal happens BEFORE any erase is attempted.
+type recordingEraser struct{ calls int }
+
+func (e *recordingEraser) ErasePerson(context.Context, ids.UUID, string) error {
+	e.calls++
+	return nil
+}
