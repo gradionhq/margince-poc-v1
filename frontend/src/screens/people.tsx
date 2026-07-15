@@ -21,6 +21,7 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -646,6 +647,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   </section>
                 )}
                 <CustomFieldsCard object="person" record={person} />
+                <RecordContextPanel entityType="person" id={person.id} />
                 <LogActivity entityType="person" entityId={person.id} />
               </>
             )}

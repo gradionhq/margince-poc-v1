@@ -95,6 +95,14 @@ function installDealStub(offers: unknown[]) {
     "GET /pipelines": () => jsonResponse(emptyPage),
     "GET /approvals": () => jsonResponse(emptyPage),
     "GET /activities": () => jsonResponse(emptyPage),
+    "GET /records/deal/d1/context": () =>
+      jsonResponse({ anchor: { type: "deal", id: "d1" }, sections: [] }),
+    "GET /me": () =>
+      jsonResponse({
+        user: { id: "u-9", display_name: "Me" },
+        roles: ["rep"],
+        teams: [],
+      }),
   });
 }
 

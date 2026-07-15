@@ -30,6 +30,7 @@ import {
   QueryGate,
   throwProblem,
 } from "./common";
+import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -692,6 +693,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                 </section>
                 <CustomFieldsCard object="organization" record={org} />
                 <EnrichCard orgId={org.id} />
+                <RecordContextPanel entityType="organization" id={org.id} />
                 <LogActivity entityType="organization" entityId={org.id} />
               </>
             )}

@@ -130,6 +130,9 @@ function stubDealBackend(
     if (url.includes("/pipelines")) {
       return jsonResponse({ data: [], page: { next_cursor: null } });
     }
+    if (url.includes("/context")) {
+      return jsonResponse({ anchor: { type: "deal", id: "d1" }, sections: [] });
+    }
     if (method === "POST" && url.includes("/offers")) {
       const body = request
         ? await request.json()
@@ -199,12 +202,22 @@ function stubBackend(
     onDelete?: () => void;
     onDealsUrl?: (url: string) => void;
     pipelines?: components["schemas"]["Pipeline"][];
+    agentTools?: components["schemas"]["AgentTool"][];
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (url.includes("/agent-tools")) {
+      return jsonResponse({
+        data: opts.agentTools ?? [],
+        page: { next_cursor: null },
+      });
+    }
+    if (url.includes("/context")) {
+      return jsonResponse({ anchor: { type: "deal", id: "x" }, sections: [] });
+    }
     if (url.includes("/pipelines")) {
       return jsonResponse({
         data: opts.pipelines ?? [
@@ -345,6 +358,43 @@ describe("DealsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(advances).toHaveLength(1));
     expect(advances[0]).toMatchObject({ to_stage_id: "s3", status: "won" });
+  });
+
+  it("the advance-confirm dot reads the live catalog tier, not a hardcode", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        agentTools: [
+          {
+            name: "progress_deal",
+            required_scope: "write",
+            tier: "green",
+            egress: false,
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    const wonColumn = document.querySelector(
+      '[data-stage="s3"]',
+    ) as HTMLElement;
+    const dataTransfer = { getData: () => "d1", setData: () => {} };
+    const dropEvent = new Event("drop", { bubbles: true }) as unknown as {
+      dataTransfer: typeof dataTransfer;
+    };
+    Object.assign(dropEvent, { dataTransfer });
+    wonColumn.dispatchEvent(dropEvent as unknown as Event);
+
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    // progress_deal is catalogued "green" (auto-execute) — a hardcoded
+    // "confirm" dot would render "confirm-first" here instead.
+    await waitFor(() =>
+      expect(screen.getByLabelText("auto-execute")).toBeTruthy(),
+    );
   });
 
   it("an open-stage drop advances without a confirm", async () => {

@@ -3,6 +3,11 @@ import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import {
+  approvalDotTier,
+  KIND_TO_VERB,
+  useAgentTierMap,
+} from "../app/autonomy";
+import {
   Badge,
   Button,
   Modal,
@@ -242,6 +247,19 @@ function RowStatusChip({
   );
 }
 
+// Surfaces the originating tool verb for a staged approval — kind is meta
+// (line above), this caption names the tool that actually produced the
+// stage so a human can tell "send_email" (the tool) from "advance_deal"
+// (the kind) without opening the detail modal. Silent for an unmapped kind.
+function OriginatingToolChip({ kind }: Readonly<{ kind: string }>) {
+  const t = useT();
+  const verb = KIND_TO_VERB[kind];
+  if (!verb) {
+    return null;
+  }
+  return <span className="t-caption">{t("inbox.viaTool", { verb })}</span>;
+}
+
 // The row-local decide outcomes that KEEP the row mounted: a generic error
 // and the version-skew re-stage state. The success token (AC-4) and the
 // already-decided note (AC-6) are deliberately NOT here — both fire a pending
@@ -418,6 +436,7 @@ export function ApprovalRow({
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
+  const tierMap = useAgentTierMap();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [rejecting, setRejecting] = useState(false);
@@ -528,9 +547,12 @@ export function ApprovalRow({
           flexWrap: "wrap",
         }}
       >
-        {!decided && <AutonomyDot tier="confirm" />}
+        {!decided && (
+          <AutonomyDot tier={approvalDotTier(approval.kind, tierMap)} />
+        )}
         {/* kind is meta, not the headline — the human reads the summary first */}
         <span className="t-small">{approval.kind}</span>
+        <OriginatingToolChip kind={approval.kind} />
         <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />
         {level && <ConfidenceMeter level={level} />}
         <RowStatusChip

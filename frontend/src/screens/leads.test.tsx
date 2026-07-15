@@ -123,7 +123,11 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
   it("opening the promote dialog defaults the trigger to human_qualify", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse(lead)),
+      vi.fn(async (request: Request) =>
+        new URL(request.url).pathname.endsWith("/context")
+          ? jsonResponse({ anchor: { type: "lead", id: "l-1" }, sections: [] })
+          : jsonResponse(lead),
+      ),
     );
     render(<LeadScreen id="l-1" />);
     await userEvent.click(
@@ -179,6 +183,12 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
             409,
           );
         }
+        if (new URL(url).pathname.endsWith("/context")) {
+          return jsonResponse({
+            anchor: { type: "lead", id: "l-1" },
+            sections: [],
+          });
+        }
         return jsonResponse(lead);
       },
     );
@@ -194,7 +204,11 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
   it("promote is disabled for an ineligible lead", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ ...lead, status: "promoted" })),
+      vi.fn(async (request: Request) =>
+        new URL(request.url).pathname.endsWith("/context")
+          ? jsonResponse({ anchor: { type: "lead", id: "l-1" }, sections: [] })
+          : jsonResponse({ ...lead, status: "promoted" }),
+      ),
     );
     render(<LeadScreen id="l-1" />);
     await waitFor(() =>
@@ -223,6 +237,12 @@ function stubFetch(
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
+    if (new URL(request.url).pathname.endsWith("/context")) {
+      return jsonResponse({
+        anchor: { type: "lead", id: "l-1" },
+        sections: [],
+      });
+    }
     return responder(request.url, request.method, request);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -480,6 +500,12 @@ function stubFetchWithMe(
           user: { id: meId, display_name: "Me" },
           roles: ["rep"],
           teams: [],
+        });
+      }
+      if (new URL(request.url).pathname.endsWith("/context")) {
+        return jsonResponse({
+          anchor: { type: "lead", id: "l-1" },
+          sections: [],
         });
       }
       const answer = await responder(request.url, request.method, request);

@@ -21,6 +21,7 @@ re-explain what they already own.
 - **[explanation/composition-layer.md](composition-layer.md)** — how `internal/compose` boots and wires the modules.
 - **[explanation/agent-surface.md](agent-surface.md)** — the agent reasoning loop + model runtime.
 - **[explanation/privacy-and-consent.md](privacy-and-consent.md)** — the consent gate + GDPR engines.
+- **[explanation/custom-fields.md](custom-fields.md)** — the one runtime `ALTER TABLE` chokepoint + the `fieldcatalog` seam.
 
 **Reference** — look it up:
 

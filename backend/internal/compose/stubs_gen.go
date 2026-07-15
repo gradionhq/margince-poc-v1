@@ -52,6 +52,10 @@ func (stubs) SendEmail(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 	httperr.NotImplemented(w, r, "SendEmail")
 }
 
+func (stubs) ListAgentTools(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListAgentTools")
+}
+
 func (stubs) ListApprovals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListApprovalsParams) {
 	httperr.NotImplemented(w, r, "ListApprovals")
 }
@@ -586,6 +590,10 @@ func (stubs) CreateRecordGrant(w nethttp.ResponseWriter, r *nethttp.Request, par
 
 func (stubs) RevokeRecordGrant(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.RevokeRecordGrantParams) {
 	httperr.NotImplemented(w, r, "RevokeRecordGrant")
+}
+
+func (stubs) GetRecordContext(w nethttp.ResponseWriter, r *nethttp.Request, entityType string, id crmcontracts.Id, params crmcontracts.GetRecordContextParams) {
+	httperr.NotImplemented(w, r, "GetRecordContext")
 }
 
 func (stubs) GetRecordHistory(w nethttp.ResponseWriter, r *nethttp.Request, entityType string, id crmcontracts.Id, params crmcontracts.GetRecordHistoryParams) {

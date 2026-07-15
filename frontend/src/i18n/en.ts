@@ -76,6 +76,21 @@ export const en = {
   "screen.pending":
     "Not built yet — this surface arrives with its build ticket.",
 
+  "search.title": "Search",
+  "search.placeholder": "Search people, companies, deals, activities, leads…",
+  "search.empty": "No matches for “{q}”.",
+  "search.group.person": "People",
+  "search.group.organization": "Organizations",
+  "search.group.deal": "Deals",
+  "search.group.activity": "Activities",
+  "search.group.lead": "Leads",
+  "search.why": "Why this result",
+  "search.relevance": "relevance {pct}%",
+  "search.tier.authoritative": "verified",
+
+  "context.title": "Related evidence",
+  "context.empty": "Nothing related yet.",
+
   "palette.aria": "Command palette",
   "palette.placeholder": "Jump to, or ask anything…",
   "palette.empty": "No matches.",
@@ -83,6 +98,7 @@ export const en = {
   "palette.typeScreen": "Screen",
   "palette.typeAction": "Action",
   "palette.typeRecord": "Record",
+  "palette.seeAll": "See all results for “{query}”",
   "action.newDeal": "New deal",
   "action.readCompany": "Read a company",
   "action.booking": "Booking page",
@@ -410,6 +426,7 @@ export const en = {
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",
   "inbox.expires": "expires {at}",
+  "inbox.viaTool": "via {verb}",
   "inbox.approveEdited": "Approve edited",
   "inbox.reject": "Reject",
   "inbox.tab.pending": "Pending",
@@ -1084,6 +1101,19 @@ export const en = {
   "template.localeEN": "English (US)",
   "template.sortName": "Name",
   "template.empty": "No offer templates yet.",
+
+  "tools.title": "Agent tools",
+  "tools.sub":
+    "The governed surface a passport can call — same inventory an MCP client sees.",
+  "tools.col.tool": "Tool",
+  "tools.col.verb": "Verb",
+  "tools.col.scope": "Scope",
+  "tools.col.tier": "Tier",
+  "tools.col.egress": "Egress",
+  "tools.egress": "reaches out",
+  "tools.scopeAll": "All passports",
+  "tools.scopedTo": "Reachable by {label}",
+  "tools.unreachable": "scope not granted",
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",

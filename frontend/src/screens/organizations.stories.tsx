@@ -58,6 +58,11 @@ export const CompanyOverview: Story = {
       "GET /organizations/o-1": () => jsonResponse(org),
       "GET /organizations/o-1/strength": () => jsonResponse(dormantStrength),
       "GET /activities": () => jsonResponse({ data: [] }),
+      "GET /records/organization/o-1/context": () =>
+        jsonResponse({
+          anchor: { type: "organization", id: "o-1" },
+          sections: [],
+        }),
     });
     return (
       <StoryProviders>
