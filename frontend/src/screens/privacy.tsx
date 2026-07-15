@@ -39,6 +39,7 @@ import {
   type DsrStatus,
   type DsrStatusFacet,
   dsrKindTone,
+  endOfDayInZone,
   isOverdue,
   isTerminal,
   nextStatuses,
@@ -290,13 +291,19 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   const kindId = useId();
   const subjectId = useId();
   const dueId = useId();
+  // The statutory deadline is minted in the OPERATOR's own zone, the same
+  // zone the row later renders it back in (PrivacyInboxCard's tz below) —
+  // `new Date(dueAt).toISOString()` would instead read the date-only input
+  // as UTC midnight, silently rolling the picked day back a day for anyone
+  // west of UTC.
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const create = useMutation({
     mutationFn: async () => {
       const body: CreateDataSubjectRequest = {
         kind,
         subject_ref: subjectRef.trim(),
-        due_at: new Date(dueAt).toISOString(),
+        due_at: endOfDayInZone(dueAt, tz),
       };
       const { data, error } = await api.POST("/data-subject-requests", {
         body,
@@ -461,7 +468,7 @@ function DsrRow({
   nowMs: number;
   tz: string;
   locale: Locale;
-  onFulfilErasure: (dsr: DataSubjectRequest) => void;
+  onFulfilErasure: (dsr: DataSubjectRequest, resolution: string) => void;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -514,10 +521,15 @@ function DsrRow({
   }
 
   function submitTransition(next: DsrStatus) {
-    // Deferred to Task 9 (the typed-ERASE confirmation + legal-hold 409
-    // handling) — an erasure fulfil never goes through this plain PATCH.
+    // An erasure fulfil is the single most destructive action in the
+    // product, so it never goes through this plain PATCH — it routes to the
+    // typed-ERASE confirmation modal instead (which also handles the
+    // legal-hold 409). The resolution the operator already wrote here must
+    // ride along: the closingWithoutAnswer gate above requires one before
+    // this button is even clickable, and the modal has no field of its own
+    // to collect it again.
     if (dsr.kind === "erasure" && next === "fulfilled") {
-      onFulfilErasure(dsr);
+      onFulfilErasure(dsr, resolution.trim());
       return;
     }
     const body: UpdateDataSubjectRequest = { status: next };
@@ -665,9 +677,11 @@ function isLegalHold(problem: unknown): boolean {
 // same branch-before-generic shape as isIllegalTransition above.
 function FulfilErasureModal({
   dsr,
+  resolution,
   onClose,
 }: Readonly<{
   dsr: DataSubjectRequest | null;
+  resolution: string;
   onClose: () => void;
 }>) {
   const t = useT();
@@ -681,9 +695,17 @@ function FulfilErasureModal({
         // `dsr` — this guard only protects a stale closure, never a real path.
         throw new Error("no request selected");
       }
+      const body: UpdateDataSubjectRequest = { status: "fulfilled" };
+      // Same omit-if-blank rule as the row's own plain PATCH above: a blank
+      // resolution key would still be a value the server writes over
+      // whatever it already had stored, so it only rides along when there is
+      // something to write.
+      if (resolution.trim()) {
+        body.resolution = resolution.trim();
+      }
       const { data, error } = await api.PATCH("/data-subject-requests/{id}", {
         params: { path: { id: dsr.id } },
-        body: { status: "fulfilled" },
+        body,
       });
       if (error) {
         throwProblem(error);
@@ -767,8 +789,12 @@ export function PrivacyInboxCard() {
   const [creating, setCreating] = useState(false);
   // Which request is staged for the destructive fulfil, not per-row — same
   // id-in-state shape as share.tsx's revokingId, so ONE modal lives at the
-  // card root instead of one per row.
-  const [fulfilling, setFulfilling] = useState<DataSubjectRequest | null>(null);
+  // card root instead of one per row. Carries the resolution the row already
+  // had written, since the modal itself has no field to collect it again.
+  const [fulfilling, setFulfilling] = useState<{
+    dsr: DataSubjectRequest;
+    resolution: string;
+  } | null>(null);
 
   // The facet is server-side (part of the queryKey and the query param), not
   // a client re-slice of one big page — a re-slice would hide rows the
@@ -844,7 +870,9 @@ export function PrivacyInboxCard() {
               nowMs={nowMs}
               tz={tz}
               locale={locale}
-              onFulfilErasure={setFulfilling}
+              onFulfilErasure={(dsr, resolution) =>
+                setFulfilling({ dsr, resolution })
+              }
             />
           ))}
         </ul>
@@ -873,7 +901,8 @@ export function PrivacyInboxCard() {
       />
       {body}
       <FulfilErasureModal
-        dsr={fulfilling}
+        dsr={fulfilling?.dsr ?? null}
+        resolution={fulfilling?.resolution ?? ""}
         onClose={() => setFulfilling(null)}
       />
     </section>

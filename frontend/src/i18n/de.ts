@@ -279,6 +279,13 @@ export const de = {
   "consent.tokenLabel": "Bestätigungs-Token",
   "consent.tokenHint":
     "Dieser Zweck benötigt ein Double-Opt-in: Einmal-Token hier einfügen, damit die Einwilligung wirksam wird.",
+  "consent.actorHuman": "Mensch",
+  "consent.actorAgent": "Agent",
+  "consent.actorSystem": "System",
+  "consent.actorConnector": "Connector",
+  "consent.actorUnknown": "Akteur nicht erfasst",
+  "consent.purposesUnavailable":
+    "Der Einwilligungszweck-Katalog konnte nicht geladen werden — welche Zwecke ein Double-Opt-in brauchen, lässt sich gerade nicht anzeigen.",
 
   "org.name": "Firma",
   "org.industry": "Branche",
@@ -992,16 +999,16 @@ export const de = {
 
   "prefs.title": "Wähle, was du von uns hörst",
   "prefs.sub":
-    "Jeder Zweck steht für sich — hier ist nicht alles oder nichts. Nachrichten zu einem laufenden Deal lassen sich hier nicht abschalten, weil du sie brauchst; alles andere bestimmst du selbst.",
+    "Jeder Zweck steht für sich — hier ist nicht alles oder nichts. Transaktionale Nachrichten lassen sich hier nicht abschalten, weil du sie brauchst; alles andere bestimmst du selbst.",
   "prefs.invalidLink":
     "Dieser Link ist nicht mehr gültig. Präferenz-Links laufen ab oder können widerrufen werden — frag in einer aktuellen E-Mail nach einem neuen.",
   "prefs.rateLimited":
     "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
   "prefs.subscribed": "Abonniert",
-  "prefs.notSubscribed": "Nicht abonniert — du bekommst für diesen Zweck nichts",
+  "prefs.notSubscribed":
+    "Nicht abonniert — du bekommst für diesen Zweck nichts",
   "prefs.alwaysOn": "immer an",
-  "prefs.lockedWhy":
-    "Transaktional — von der Abmeldung ausgenommen, solange ein Deal läuft.",
+  "prefs.lockedWhy": "Transaktional — von der Abmeldung ausgenommen.",
   "prefs.notSaved": "Noch nicht gespeichert.",
   "prefs.savePending": "Ausstehend: {changes}.",
   "prefs.saveProof":
@@ -1016,7 +1023,7 @@ export const de = {
   "prefs.wording.events": "„Schick mir Einladungen zu Events und Webinaren.“",
   "prefs.unsubscribeAll": "Von allem Marketing abmelden",
   "prefs.unsubscribeAllHint":
-    "Lieber alle nicht notwendigen Mails auf einmal stoppen? Nachrichten zu deinem laufenden Deal bekommst du weiterhin.",
+    "Lieber alle nicht notwendigen Mails auf einmal stoppen? Transaktionale Nachrichten bekommst du weiterhin.",
   "prefs.oneClickDone":
     "Erledigt — du bekommst keine Marketing-E-Mails mehr von uns. Das gilt sofort für jede Kampagne.",
   "prefs.oneClickAlreadyOff": "Nichts zu tun — das war bereits abgeschaltet.",

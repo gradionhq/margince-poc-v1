@@ -53,6 +53,25 @@ class LinkInvalidError extends Error {}
 // render branch gives an honest retry message instead of a raw failure.
 class RateLimitedError extends Error {}
 
+// Every mutation against this public edge classifies its failure the same
+// way: 404 means the token no longer resolves, 429 means the rate limit
+// tripped, anything else is the server's own explanation verbatim. Shared so
+// the load GET and the one-click unsubscribe POST (both reachable by an
+// unauthenticated caller hammering the same per-token limit) read identically
+// instead of one going silent.
+function explainPublicError(
+  error: unknown,
+  t: ReturnType<typeof useT>,
+): string {
+  if (error instanceof RateLimitedError) {
+    return t("prefs.rateLimited");
+  }
+  if (error instanceof LinkInvalidError) {
+    return t("prefs.invalidLink");
+  }
+  return error instanceof Error ? error.message : t("common.error");
+}
+
 function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -162,11 +181,17 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   // length, never off a count carried over from an earlier call.
   const unsubscribeAll = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST(
+      const { data, error, response } = await api.POST(
         "/public/preferences/{token}/unsubscribe",
         { params: { path: { token } } },
       );
       if (error) {
+        if (response.status === 404) {
+          throw new LinkInvalidError();
+        }
+        if (response.status === 429) {
+          throw new RateLimitedError();
+        }
         throw new Error(problemMessage(error));
       }
       return data;
@@ -229,15 +254,9 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   }
 
   if (center.isError) {
-    const message =
-      center.error instanceof RateLimitedError
-        ? t("prefs.rateLimited")
-        : center.error instanceof LinkInvalidError
-          ? t("prefs.invalidLink")
-          : (center.error as Error).message;
     return (
       <div className="pref-page">
-        <EmptyState>{message}</EmptyState>
+        <EmptyState>{explainPublicError(center.error, t)}</EmptyState>
       </div>
     );
   }
@@ -291,6 +310,11 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
           >
             {t("prefs.unsubscribeAll")}
           </Button>
+          {unsubscribeAll.isError && (
+            <p className="t-caption pref-unsub-error">
+              {explainPublicError(unsubscribeAll.error, t)}
+            </p>
+          )}
         </div>
 
         {lastUnsubscribed !== null && (

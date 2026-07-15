@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -7,9 +7,9 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Skeleton,
   TextInput,
 } from "../design-system/atoms";
-import { type Provenance, ProvenanceTag } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { humanizeToken } from "./audit";
@@ -59,19 +59,39 @@ function useConsentPurposes() {
   });
 }
 
-// An event's actor is a typed enum (human/agent/system/connector), not the
-// captured_by string provenanceOf (common.tsx) parses — so this is its own
-// mapping rather than a reuse of that one.
-function eventProvenance(event: ConsentEvent): Provenance {
-  if (!event.actor_type || event.actor_type === "human") {
-    return { kind: "human" };
+// The actor line on the Art. 7 proof log: names WHO the server says captured
+// this decision, verbatim. This is deliberately NOT ProvenanceTag — that
+// component exists for a compose/staging context ("did *you* type this, or
+// an agent") and its human branch renders "typed by you" unconditionally,
+// which would misattribute every human-captured grant to the viewer instead
+// of the actual actor (frequently a different teammate, or the subject
+// themself via a public form). A proof log's actor is evidence, not a claim
+// about who is looking at it — it always shows actor_type + actor_id
+// straight from the wire, never resolved against the current session.
+function ConsentEventActor({ event }: Readonly<{ event: ConsentEvent }>) {
+  const t = useT();
+  if (!event.actor_type) {
+    return <span className="t-caption">{t("consent.actorUnknown")}</span>;
   }
-  return {
-    kind: "agent",
-    agent: event.actor_id
-      ? `${event.actor_type}:${event.actor_id}`
-      : event.actor_type,
-  };
+  const label =
+    event.actor_type === "human"
+      ? t("consent.actorHuman")
+      : event.actor_type === "agent"
+        ? t("consent.actorAgent")
+        : event.actor_type === "system"
+          ? t("consent.actorSystem")
+          : t("consent.actorConnector");
+  return (
+    <span className="t-caption">
+      {label}
+      {event.actor_id && (
+        <>
+          {" "}
+          <span className="t-mono">{event.actor_id}</span>
+        </>
+      )}
+    </span>
+  );
 }
 
 // The per-purpose Art. 7 proof log: newest first, one row per transition.
@@ -103,7 +123,7 @@ function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
                 {event.source ?? t("consent.sourceUnknown")}
               </span>
               <span className="tl-meta">
-                <ProvenanceTag provenance={eventProvenance(event)} />
+                <ConsentEventActor event={event} />
                 <span>
                   {formatDateTime(event.occurred_at, locale, viewerZone)}
                 </span>
@@ -160,6 +180,8 @@ function ConsentRow({
   events: ConsentEvent[];
 }>) {
   const t = useT();
+  const { locale } = useLocale();
+  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const queryClient = useQueryClient();
   const granted = entry.state === "granted";
   const [token, setToken] = useState("");
@@ -264,7 +286,8 @@ function ConsentRow({
       {issueDoi.data && (
         <p className="t-caption">
           {t("consent.doiIssued")} <code>{issueDoi.data.token}</code> ·{" "}
-          {t("consent.doiExpires")}: {issueDoi.data.expires_at}
+          {t("consent.doiExpires")}:{" "}
+          {formatDateTime(issueDoi.data.expires_at, locale, viewerZone)}
         </p>
       )}
       {showLog && <ConsentProofLog events={events} />}
@@ -283,34 +306,60 @@ export function ConsentSection({ personId }: Readonly<{ personId: string }>) {
   const noPurposes = purposesQuery.isSuccess && purposes.length === 0;
   const consent = consentQuery.data;
 
+  // requires_double_opt_in lives only on ConsentPurpose, so a row's DOI gate
+  // depends on purposesQuery having actually succeeded — a failed fetch that
+  // fell back to `[]` here (rather than erroring loudly) would make every
+  // DOI-required purpose render as freely grantable, silently dropping a
+  // legal control. share.tsx's RosterPicker gates its two roster fetches the
+  // same explicit way, for the same reason: a collapsed-to-empty failure
+  // must never be mistaken for a real empty list.
+  let body: ReactNode = null;
+  if (consent) {
+    if (purposesQuery.isPending) {
+      body = <Skeleton width="60%" />;
+    } else if (purposesQuery.isError) {
+      body = (
+        <EmptyState>
+          <p>{t("consent.purposesUnavailable")}</p>
+          <Button small onClick={() => purposesQuery.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </EmptyState>
+      );
+    } else if (noPurposes) {
+      body = <EmptyState>{t("consent.noPurposes")}</EmptyState>;
+    } else {
+      body = (
+        <div>
+          {consent.state.map((entry) => (
+            <ConsentRow
+              key={entry.purpose_id}
+              personId={personId}
+              entry={entry}
+              purpose={purposes.find(
+                (purpose) => purpose.id === entry.purpose_id,
+              )}
+              events={consent.events.filter(
+                (event) => event.purpose_id === entry.purpose_id,
+              )}
+            />
+          ))}
+        </div>
+      );
+    }
+  }
+
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section
+      className="card"
+      style={{ marginBottom: 16 }}
+      aria-label={t("person.consent")}
+    >
       <SectionHeader
         title={t("person.consent")}
         sub={t("consent.defaultDeny")}
       />
-      <QueryStates query={consentQuery}>
-        {consent &&
-          (noPurposes ? (
-            <EmptyState>{t("consent.noPurposes")}</EmptyState>
-          ) : (
-            <div>
-              {consent.state.map((entry) => (
-                <ConsentRow
-                  key={entry.purpose_id}
-                  personId={personId}
-                  entry={entry}
-                  purpose={purposes.find(
-                    (purpose) => purpose.id === entry.purpose_id,
-                  )}
-                  events={consent.events.filter(
-                    (event) => event.purpose_id === entry.purpose_id,
-                  )}
-                />
-              ))}
-            </div>
-          ))}
-      </QueryStates>
+      <QueryStates query={consentQuery}>{body}</QueryStates>
     </section>
   );
 }

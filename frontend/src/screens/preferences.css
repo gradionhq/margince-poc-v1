@@ -153,6 +153,10 @@
   gap: 10px;
 }
 
+.pref-unsub-error {
+  color: var(--danger);
+}
+
 .pref-unsub-banner {
   margin-top: 16px;
   display: flex;

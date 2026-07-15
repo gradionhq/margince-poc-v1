@@ -273,6 +273,13 @@ export const en = {
   "consent.tokenLabel": "Confirmation token",
   "consent.tokenHint":
     "This purpose needs a double opt-in: paste the one-time token to make the grant effective.",
+  "consent.actorHuman": "Human",
+  "consent.actorAgent": "Agent",
+  "consent.actorSystem": "System",
+  "consent.actorConnector": "Connector",
+  "consent.actorUnknown": "actor not recorded",
+  "consent.purposesUnavailable":
+    "Couldn't load the consent purpose catalogue, so which purposes need a double opt-in can't be shown right now.",
 
   "org.name": "Company",
   "org.industry": "Industry",
@@ -971,16 +978,16 @@ export const en = {
 
   "prefs.title": "Choose what you hear from us",
   "prefs.sub":
-    "Each purpose is separate — this isn't all-or-nothing. Messages tied to a live deal can't be switched off here, because you need them; everything else is yours to control.",
+    "Each purpose is separate — this isn't all-or-nothing. Transactional messages can't be switched off here, because you need them; everything else is yours to control.",
   "prefs.invalidLink":
     "This link is no longer valid. Preference links expire and can be withdrawn — ask for a fresh one from any recent email.",
   "prefs.rateLimited":
     "Too many attempts from here just now. Wait a minute and reload.",
   "prefs.subscribed": "Subscribed",
-  "prefs.notSubscribed": "Not subscribed — you receive nothing for this purpose",
+  "prefs.notSubscribed":
+    "Not subscribed — you receive nothing for this purpose",
   "prefs.alwaysOn": "always on",
-  "prefs.lockedWhy":
-    "Transactional — exempt from opt-out while a deal is live.",
+  "prefs.lockedWhy": "Transactional — exempt from opt-out.",
   "prefs.notSaved": "Not saved yet.",
   "prefs.savePending": "Pending: {changes}.",
   "prefs.saveProof":
@@ -995,7 +1002,7 @@ export const en = {
   "prefs.wording.events": '"Send me event & webinar invitations."',
   "prefs.unsubscribeAll": "Unsubscribe from all marketing",
   "prefs.unsubscribeAllHint":
-    "Prefer to stop all non-essential mail at once? You'll still get messages tied to your live deal.",
+    "Prefer to stop all non-essential mail at once? You'll still get transactional messages.",
   "prefs.oneClickDone":
     "Done — you're off our marketing email. It takes effect immediately across every campaign.",
   "prefs.oneClickAlreadyOff": "Nothing to do — these were already off.",

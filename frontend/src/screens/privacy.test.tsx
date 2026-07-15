@@ -57,8 +57,8 @@ const PURPOSES = {
 };
 
 // Records every request so a test can assert what actually went to the
-// server — the request body IS the contract for a purpose write (Task 6's
-// consent.test.tsx harness shape, copied per-file per house convention).
+// server — the request body IS the contract for a purpose write
+// (consent.test.tsx's harness shape, copied per-file per house convention).
 type Sent = { key: string; url: string; body: unknown };
 
 function stubRoutes(
@@ -553,6 +553,12 @@ describe("opening a DSR (G-2)", () => {
   // construction (RecordPicker, no text input) — this proves the picked
   // person's uuid, not its display name, is what actually reaches the wire.
   it("sends the picked person's uuid as subject_ref for an erasure request", async () => {
+    // Pinned to a negative-offset zone (not the host machine's own, which
+    // this suite never controls): due_at must mint at end-of-day THERE, not
+    // at UTC midnight — the two disagree on which calendar day Aug 1 even is.
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      timeZone: "America/New_York",
+    } as Intl.ResolvedDateTimeFormatOptions);
     const sent = stubRoutes({
       "GET /people": () =>
         jsonResponse({
@@ -571,7 +577,7 @@ describe("opening a DSR (G-2)", () => {
             kind: "erasure",
             subject_ref: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
             status: "open",
-            due_at: "2026-08-01T00:00:00.000Z",
+            due_at: "2026-08-02T03:59:59.999Z",
             created_at: "2026-07-15T00:00:00Z",
           },
           201,
@@ -600,13 +606,13 @@ describe("opening a DSR (G-2)", () => {
     const posts = sent.filter((s) => s.key === "POST /data-subject-requests");
     // toEqual, not objectContaining: proves subject_ref is the picked uuid —
     // never "Anna Weber" — and that no stray field (e.g. an assignee_id) rode
-    // along. due_at: new Date("2026-08-01").toISOString() — an ISO date-only
-    // string parses as UTC midnight, so this is genuinely a date-time, not a
-    // bare date, matching the contract's `format: date-time`.
+    // along. due_at is 1 Aug 23:59:59.999 New York time, expressed as the UTC
+    // instant that actually is (2 Aug UTC) — never the UTC-midnight reading
+    // of the bare date, which would land on an entirely different day there.
     expect(posts[0]?.body).toEqual({
       kind: "erasure",
       subject_ref: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      due_at: "2026-08-01T00:00:00.000Z",
+      due_at: "2026-08-02T03:59:59.999Z",
     });
   });
 
@@ -614,6 +620,9 @@ describe("opening a DSR (G-2)", () => {
   // so this pins that the two kinds genuinely diverge on the wire rather
   // than a stray shared code path silently reusing the person picker's value.
   it("sends the typed free text as subject_ref for an access request", async () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      timeZone: "America/New_York",
+    } as Intl.ResolvedDateTimeFormatOptions);
     const sent = stubRoutes({
       "POST /data-subject-requests": () =>
         jsonResponse(
@@ -622,7 +631,7 @@ describe("opening a DSR (G-2)", () => {
             kind: "access",
             subject_ref: "anna@acme.test",
             status: "open",
-            due_at: "2026-08-01T00:00:00.000Z",
+            due_at: "2026-08-02T03:59:59.999Z",
             created_at: "2026-07-15T00:00:00Z",
           },
           201,
@@ -652,8 +661,62 @@ describe("opening a DSR (G-2)", () => {
     expect(posts[0]?.body).toEqual({
       kind: "access",
       subject_ref: "anna@acme.test",
-      due_at: "2026-08-01T00:00:00.000Z",
+      due_at: "2026-08-02T03:59:59.999Z",
     });
+  });
+
+  // I3: minting and rendering must agree, in a zone where the old
+  // UTC-midnight minting silently rolled the picked day back by one. Picking
+  // 15 Jul mints the UTC instant for 23:59:59.999 New York time (16 Jul UTC);
+  // the row must still read the date back as 15 Jul, not 14.
+  it("mints the due date at end-of-day in the viewer's zone, matching what the row later shows", async () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      timeZone: "America/New_York",
+    } as Intl.ResolvedDateTimeFormatOptions);
+    const created = {
+      id: "d5",
+      kind: "access",
+      subject_ref: "anna@acme.test",
+      status: "open",
+      due_at: "2026-07-16T03:59:59.999Z",
+      created_at: "2026-07-15T00:00:00Z",
+    };
+    const sent = stubRoutes({
+      "POST /data-subject-requests": () => jsonResponse(created, 201),
+      "GET /data-subject-requests": () =>
+        jsonResponse({
+          data: [created],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await userEvent.type(
+      screen.getByLabelText(/subject reference/i),
+      "anna@acme.test",
+    );
+    fireEvent.change(screen.getByLabelText(/due/i), {
+      target: { value: "2026-07-15" },
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /open request/i }),
+    );
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "POST /data-subject-requests"),
+      ).toHaveLength(1),
+    );
+    const posts = sent.filter((s) => s.key === "POST /data-subject-requests");
+    expect(posts[0]?.body).toEqual({
+      kind: "access",
+      subject_ref: "anna@acme.test",
+      due_at: "2026-07-16T03:59:59.999Z",
+    });
+    expect(await screen.findByText(/15\/07\/2026/)).toBeInTheDocument();
+    expect(screen.queryByText(/14\/07\/2026/)).not.toBeInTheDocument();
   });
 });
 
@@ -714,14 +777,22 @@ describe("fulfilling an erasure", () => {
   });
 
   // The confirm modal's own mutation, distinct from the row's plain PATCH
-  // above (submitTransition never reaches it for an erasure fulfil): proves
-  // the wire body is exactly {status: "fulfilled"} — no assignee_id, no
-  // resolution, nothing the typed-ERASE gate implies but the request never
-  // actually carries.
-  it("sends exactly {status: fulfilled} on the erasure fulfil PATCH", async () => {
+  // above (submitTransition never reaches it for an erasure fulfil): the
+  // server now validates a DSR update BEFORE erasing (fulfilling an erasure
+  // without a resolution 422s), so the resolution the operator wrote in the
+  // row must ride along into this PATCH too — the modal has no field of its
+  // own to collect it a second time. The stub mirrors what the server would
+  // actually persist and echo back: a fixture starting at status "open" with
+  // no stored resolution cannot legitimately reply 200 to a fulfil that
+  // carried no resolution, so the response includes the one just sent.
+  it("sends {status: fulfilled, resolution} on the erasure fulfil PATCH", async () => {
     const sent = stubRoutes({
       "PATCH /data-subject-requests/d1": () =>
-        jsonResponse({ ...DSRS.data[0], status: "fulfilled" }),
+        jsonResponse({
+          ...DSRS.data[0],
+          status: "fulfilled",
+          resolution: "verified",
+        }),
     });
     render(<PrivacyInboxCard />);
     await userEvent.click(
@@ -742,6 +813,9 @@ describe("fulfilling an erasure", () => {
     const patches = sent.filter(
       (s) => s.key === "PATCH /data-subject-requests/d1",
     );
-    expect(patches[0]?.body).toEqual({ status: "fulfilled" });
+    expect(patches[0]?.body).toEqual({
+      status: "fulfilled",
+      resolution: "verified",
+    });
   });
 });

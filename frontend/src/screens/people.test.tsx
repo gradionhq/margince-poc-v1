@@ -818,3 +818,33 @@ describe("PersonScreen — History tab", () => {
     );
   });
 });
+
+// consent.test.tsx covers ConsentSection's own behaviour exhaustively; what
+// it can't see is whether the Person 360 actually renders the component at
+// all. It didn't, once — an extraction (consent.tsx, pulled out of this
+// file) can compile clean and pass every existing suite while quietly
+// leaving the caller's JSX without the import it needs.
+describe("PersonScreen — consent section wiring", () => {
+  it("renders the Art. 7 consent card on the overview tab", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/consent-purposes")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/consent")) {
+        return jsonResponse({ state: [], events: [] });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    // The section's own aria-label gives it an implicit region role — an
+    // absent import would leave no such region on the page at all.
+    expect(await screen.findByRole("region", { name: "Consent" })).toBeTruthy();
+  });
+});

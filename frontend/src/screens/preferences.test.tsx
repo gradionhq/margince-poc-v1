@@ -190,6 +190,7 @@ describe("PreferenceCenterScreen", () => {
   it("never submits a purpose the subject did not touch", async () => {
     const sent = stubCenter();
     render(<PreferenceCenterScreen token="tok-123" />);
+    const shown = (await screen.findByTestId("wording-events")).textContent;
     await userEvent.click(
       await screen.findByRole("switch", { name: /^events$/i }),
     );
@@ -201,10 +202,12 @@ describe("PreferenceCenterScreen", () => {
         sent.filter((s) => s.key === "PUT /public/preferences/tok-123"),
       ).toHaveLength(1),
     );
-    // marketing_email and transactional were never touched: exactly one choice.
-    expect((sent.at(-1)?.body as { choices: unknown[] }).choices).toHaveLength(
-      1,
-    );
+    // marketing_email and transactional were never touched: exactly one
+    // choice, and its content — not just its count — is the untouched
+    // "events" purpose going from unknown (off) to granted.
+    expect(sent.at(-1)?.body).toEqual({
+      choices: [{ purpose_key: "events", state: "granted", wording: shown }],
+    });
   });
 
   // PUT loops choices in separate transactions: a mid-list 422 leaves the
@@ -268,13 +271,21 @@ describe("one-click unsubscribe (G-7)", () => {
     const post = vi.fn(() =>
       jsonResponse({ unsubscribed: ["marketing_email", "events"] }),
     );
-    stubCenter({ "POST /public/preferences/tok-123/unsubscribe": post });
+    const sent = stubCenter({
+      "POST /public/preferences/tok-123/unsubscribe": post,
+    });
     render(<PreferenceCenterScreen token="tok-123" />);
     await userEvent.click(
       await screen.findByRole("button", { name: /unsubscribe from all/i }),
     );
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/you're off/i)).toBeInTheDocument();
+    // "no purpose is named" is a claim about the request itself — pin the
+    // URL, not just that some POST happened: no ?purpose= rode along.
+    expect(
+      sent.find((s) => s.key === "POST /public/preferences/tok-123/unsubscribe")
+        ?.url,
+    ).toBe("/v1/public/preferences/tok-123/unsubscribe");
   });
 
   // Replay is idempotent and shrinks to []. Never render "you unsubscribed
@@ -289,6 +300,40 @@ describe("one-click unsubscribe (G-7)", () => {
       await screen.findByRole("button", { name: /unsubscribe from all/i }),
     );
     expect(await screen.findByText(/already off/i)).toBeInTheDocument();
+  });
+
+  // I2: the subject exercised their objection right and the public edge
+  // refused it (a 429 is reachable here — this endpoint rate-limits per
+  // token) — a re-enabled button with no explanation would be
+  // indistinguishable from never having clicked at all.
+  it("renders the failure honestly instead of going silent on a rate-limited unsubscribe", async () => {
+    stubCenter({
+      "POST /public/preferences/tok-123/unsubscribe": () =>
+        jsonResponse({ title: "too many requests", status: 429 }, 429),
+    });
+    render(<PreferenceCenterScreen token="tok-123" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unsubscribe from all/i }),
+    );
+    expect(await screen.findByText(/too many attempts/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/you're off|already off/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the server's own explanation on a non-rate-limit unsubscribe failure", async () => {
+    stubCenter({
+      "POST /public/preferences/tok-123/unsubscribe": () =>
+        jsonResponse(
+          { title: "storage unavailable", detail: "try again shortly" },
+          500,
+        ),
+    });
+    render(<PreferenceCenterScreen token="tok-123" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unsubscribe from all/i }),
+    );
+    expect(await screen.findByText(/try again shortly/i)).toBeInTheDocument();
   });
 
   // Re-subscribing must be an explicit opt-in — never a silent re-grant.

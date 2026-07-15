@@ -133,6 +133,7 @@ beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("ConsentSection", () => {
@@ -151,6 +152,48 @@ describe("ConsentSection", () => {
       within(row).getByRole("button", { name: /proof log/i }),
     );
     expect(await screen.findByText(/booking form/i)).toBeInTheDocument();
+  });
+
+  // C3: the log's actor line must name the ACTUAL actor, never resolve to a
+  // claim about the viewer — this fixture's event was captured by u1, a
+  // human who is not necessarily whoever is looking at this proof.
+  it("names the actual human actor rather than claiming the viewer typed it", async () => {
+    stubRoutes();
+    render(<ConsentSection personId="person-1" />);
+    const row = await findConsentRow("Deal messages");
+    await userEvent.click(
+      within(row).getByRole("button", { name: /proof log/i }),
+    );
+    expect(await screen.findByText("u1")).toBeInTheDocument();
+    expect(screen.queryByText(/typed by you/i)).not.toBeInTheDocument();
+  });
+
+  // The second leg of the same defect: an event that omits actor_type
+  // entirely must not default into the human branch either — an actor the
+  // wire never named is unknown, never a positive claim about the viewer.
+  it("does not default a missing actor_type to a claim about the viewer", async () => {
+    stubRoutes({
+      "GET /people/person-1/consent": () =>
+        jsonResponse({
+          state: CONSENT.state,
+          events: [
+            {
+              id: "e2",
+              purpose_id: "p1",
+              new_state: "granted",
+              source: "import",
+              occurred_at: "2026-05-01T10:00:00Z",
+            },
+          ],
+        }),
+    });
+    render(<ConsentSection personId="person-1" />);
+    const row = await findConsentRow("Deal messages");
+    await userEvent.click(
+      within(row).getByRole("button", { name: /proof log/i }),
+    );
+    expect(await screen.findByText(/actor not recorded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/typed by you/i)).not.toBeInTheDocument();
   });
 
   // A purpose with no consent record has no events by construction — the
@@ -364,9 +407,14 @@ describe("ConsentSection", () => {
   });
 
   // The DOI token is minted but never delivered (doi.go has no queue call),
-  // so this surface must disclose it or the round-trip dead-ends. Also pins
-  // the expiry display people.test.tsx's old DOI test asserted.
+  // so this surface must disclose it or the round-trip dead-ends. The expiry
+  // goes through the same shared formatter (formatDateTime) every other
+  // timestamp on this branch does — a raw ISO string here would be the one
+  // exception, in the viewer's own zone rather than a hardcoded one.
   it("discloses the one-time token and its expiry when issuing a double opt-in", async () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      timeZone: "Europe/Berlin",
+    } as Intl.ResolvedDateTimeFormatOptions);
     stubRoutes({
       "POST /people/person-1/consent/double-opt-in": () =>
         jsonResponse(
@@ -379,7 +427,8 @@ describe("ConsentSection", () => {
       await screen.findByRole("button", { name: /issue double opt-in/i }),
     );
     expect(await screen.findByText("mgd_one_time_abc")).toBeInTheDocument();
-    expect(screen.getByText(/2026-08-01T00:00:00Z/)).toBeInTheDocument();
+    // Berlin is +02:00 in August: 00:00 UTC reads back as 02:00 local.
+    expect(screen.getByText(/01\/08\/2026, 02:00/)).toBeInTheDocument();
   });
 
   it("renders an honest empty state when the workspace tracks no purposes", async () => {
@@ -405,5 +454,26 @@ describe("ConsentSection", () => {
     expect(
       await screen.findByRole("button", { name: /retry/i }),
     ).toBeInTheDocument();
+  });
+
+  // I6: requires_double_opt_in lives only on ConsentPurpose, so a failed
+  // purposes fetch must not fall back to rendering every row as freely
+  // grantable — share.tsx's RosterPicker gates its two roster fetches the
+  // same explicit way, for the same reason (a collapsed-to-[] failure must
+  // never be mistaken for a real empty list).
+  it("shows an error instead of quietly dropping the DOI gate when purposes fail to load", async () => {
+    stubRoutes({
+      "GET /consent-purposes": () => jsonResponse({ title: "boom" }, 500),
+    });
+    render(<ConsentSection personId="person-1" />);
+    expect(
+      await screen.findByText(/couldn't load the consent purpose catalogue/i),
+    ).toBeInTheDocument();
+    // The DOI-required "Marketing" row must not render as freely grantable
+    // with no sign anything failed.
+    expect(screen.queryByText("Marketing")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /issue double opt-in/i }),
+    ).not.toBeInTheDocument();
   });
 });
