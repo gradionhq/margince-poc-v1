@@ -149,6 +149,71 @@ function passportsBackend(opts: { onDelete?: (id: string) => void }) {
   });
 }
 
+// The governed tool console (IT-1): the /agent-tools inventory renders
+// alongside an empty /passports list, so no row is dimmed and the
+// egress badge shows only on the tool that reaches outside the workspace.
+function agentToolsBackend() {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { email: "ada@acme.test" },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (url.includes("/agent-tools")) {
+      return jsonResponse({
+        data: [
+          {
+            name: "search_records",
+            verb: "search_records",
+            required_scope: "read",
+            tier: "green",
+            egress: false,
+          },
+          {
+            name: "send_email",
+            verb: "send_email",
+            required_scope: "send",
+            tier: "yellow",
+            egress: true,
+          },
+        ],
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("AgentToolsCard (IT-1)", () => {
+  it("renders the governed tool inventory with the egress badge on send_email", async () => {
+    vi.stubGlobal("fetch", agentToolsBackend());
+    render(<SettingsScreen tab="ai" />);
+
+    // Both tool names render — the fixture's verb equals its name, so each
+    // shows twice (verb span + name span) rather than once.
+    await waitFor(() =>
+      expect(screen.getAllByText("search_records").length).toBe(2),
+    );
+    expect(screen.getAllByText("send_email").length).toBe(2);
+
+    const searchRow = document.querySelector('[data-tool="search_records"]');
+    const sendRow = document.querySelector('[data-tool="send_email"]');
+    expect(searchRow).toBeTruthy();
+    expect(sendRow).toBeTruthy();
+    // The egress "reaches out" badge shows only on the tool that reaches
+    // outside the workspace (send_email), never on the pure-read tool.
+    expect(sendRow && within(sendRow).getByText("reaches out")).toBeTruthy();
+    expect(
+      searchRow && within(searchRow).queryByText("reaches out"),
+    ).toBeNull();
+  });
+});
+
 describe("PassportCard revoke (AS-2)", () => {
   it("revokes a non-revoked passport: click Revoke, confirm, DELETE fires with its id and the list refetches", async () => {
     const deleted: string[] = [];

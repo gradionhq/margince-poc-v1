@@ -40,6 +40,29 @@ const passports = () =>
     page: { next_cursor: null, has_more: false },
   });
 
+// IT-1 governed tool console: two tools of differing tier/egress, plus a
+// read-only passport so the play() below can show the send_email row dim
+// (its "send" scope isn't in the selected passport's grant).
+const tools = () =>
+  jsonResponse({
+    data: [
+      {
+        name: "search_records",
+        verb: "search_records",
+        required_scope: "read",
+        tier: "green",
+        egress: false,
+      },
+      {
+        name: "send_email",
+        verb: "send_email",
+        required_scope: "send",
+        tier: "yellow",
+        egress: true,
+      },
+    ],
+  });
+
 const auditLog = () =>
   jsonResponse({
     data: [
@@ -102,6 +125,24 @@ export const PassportRevokeConfirm: Story = {
     const canvas = within(canvasElement);
     const revokeButton = await canvas.findByRole("button", { name: "Revoke" });
     await userEvent.click(revokeButton);
+  },
+};
+
+// The governed tool console renders the inventory unfiltered by default,
+// then dims the send_email row once the read-only "Scout" passport (whose
+// only granted scope is "read") is selected — its required "send" scope
+// is absent from that grant.
+export const AiToolConsole: Story = {
+  render: tab("ai", {
+    "GET /me": me,
+    "GET /passports": passports,
+    "GET /agent-tools": tools,
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText("search_records");
+    const select = canvas.getByRole("combobox", { name: "All passports" });
+    await userEvent.selectOptions(select, "Reachable by Scout");
   },
 };
 

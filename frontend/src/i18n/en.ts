@@ -1102,6 +1102,19 @@ export const en = {
   "template.sortName": "Name",
   "template.empty": "No offer templates yet.",
 
+  "tools.title": "Agent tools",
+  "tools.sub":
+    "The governed surface a passport can call — same inventory an MCP client sees.",
+  "tools.col.tool": "Tool",
+  "tools.col.verb": "Verb",
+  "tools.col.scope": "Scope",
+  "tools.col.tier": "Tier",
+  "tools.col.egress": "Egress",
+  "tools.egress": "reaches out",
+  "tools.scopeAll": "All passports",
+  "tools.scopedTo": "Reachable by {label}",
+  "tools.unreachable": "scope not granted",
+
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",
 } as const;

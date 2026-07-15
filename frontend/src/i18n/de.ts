@@ -1128,6 +1128,19 @@ export const de = {
   "template.sortName": "Name",
   "template.empty": "Noch keine Angebotsvorlagen.",
 
+  "tools.title": "Agenten-Werkzeuge",
+  "tools.sub":
+    "Die geregelte Oberfläche, die ein Passport aufrufen kann — dieselbe Liste, die ein MCP-Client sieht.",
+  "tools.col.tool": "Werkzeug",
+  "tools.col.verb": "Aktion",
+  "tools.col.scope": "Bereich",
+  "tools.col.tier": "Stufe",
+  "tools.col.egress": "Ausgang",
+  "tools.egress": "verlässt den Workspace",
+  "tools.scopeAll": "Alle Passports",
+  "tools.scopedTo": "Erreichbar durch {label}",
+  "tools.unreachable": "Bereich nicht gewährt",
+
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",
 } as const satisfies Record<MessageKey, string>;

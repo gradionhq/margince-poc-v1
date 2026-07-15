@@ -90,6 +90,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <AutonomyCard />
           <PassportCard />
+          <AgentToolsCard />
           <AutomationsLinkCard />
         </>
       );
@@ -444,6 +445,107 @@ function PassportCard() {
       >
         <p>{t("settings.revokeConfirm")}</p>
       </ConfirmModal>
+    </section>
+  );
+}
+
+// The read-only tool console (IT-1): the same governed surface an MCP client
+// sees — GET /agent-tools, with an optional passport selector that dims any
+// row the selected passport's granted scopes don't cover. No passport picked
+// means every row reads as reachable (the unfiltered inventory).
+function AgentToolsCard() {
+  const t = useT();
+  const [passportId, setPassportId] = useState<string>("");
+  const tools = useQuery({
+    queryKey: ["agent-tools"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/agent-tools");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const passports = useQuery({
+    queryKey: ["passports"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/passports");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const selected = passports.data?.data.find((p) => p.id === passportId);
+  const grantedScopes = new Set(selected?.scopes ?? []);
+
+  return (
+    <section className="card" style={{ marginBottom: 14 }}>
+      <SectionHeader title={t("tools.title")} sub={t("tools.sub")} />
+      {passports.data && passports.data.data.length > 0 && (
+        <select
+          className="input"
+          aria-label={t("tools.scopeAll")}
+          value={passportId}
+          onChange={(event) => setPassportId(event.target.value)}
+          style={{ marginBottom: 10 }}
+        >
+          <option value="">{t("tools.scopeAll")}</option>
+          {passports.data.data.map((p) => (
+            <option key={p.id} value={p.id}>
+              {t("tools.scopedTo", { label: p.label })}
+            </option>
+          ))}
+        </select>
+      )}
+      <QueryGate query={tools} empty={(data) => data.data.length === 0}>
+        {(data) => (
+          <ul
+            className="tool-rows"
+            style={{
+              listStyle: "none",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            {data.data.map((tool) => {
+              const reachable =
+                !passportId ||
+                (tool.required_scope != null &&
+                  grantedScopes.has(tool.required_scope));
+              return (
+                <li
+                  key={tool.name}
+                  data-tool={tool.name}
+                  className="tool-row"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    opacity: reachable ? 1 : 0.4,
+                  }}
+                >
+                  <AutonomyDot
+                    tier={tool.tier === "green" ? "auto" : "confirm"}
+                  />
+                  <span className="t-mono" style={{ color: "var(--accent)" }}>
+                    {tool.verb}
+                  </span>
+                  <span>{tool.name}</span>
+                  {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
+                  {tool.egress && (
+                    <Badge tone="warn">{t("tools.egress")}</Badge>
+                  )}
+                  {!reachable && (
+                    <span className="t-caption">{t("tools.unreachable")}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </QueryGate>
     </section>
   );
 }
