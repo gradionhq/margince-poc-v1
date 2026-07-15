@@ -1406,6 +1406,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent-tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The governed tool surface (registry metadata) for the operator UI.
+         * @description Read-only inventory of the tools an agent passport can call — name, action verb, the passport scope each requires, its autonomy tier (green/yellow/dynamic) and whether it reaches outside the workspace. This is governance metadata, not tenant data; it mirrors exactly what an MCP client sees from `tools/list`.
+         */
+        get: operations["listAgentTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/coldstart": {
         parameters: {
             query?: never;
@@ -1632,6 +1652,30 @@ export interface paths {
          *     (existence-hiding), like every single-record read.
          */
         get: operations["getRecordHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/records/{entity_type}/{id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_type: "person" | "organization" | "deal" | "lead";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Assembled context (related evidence) for one record.
+         * @description The fixed-depth context walk (anchor → neighborhood): recent touches, related people, open questions — each item provenance-stamped. Row-scoped; a record outside the caller's scope yields an empty picture, never another workspace's neighborhood.
+         */
+        get: operations["getRecordContext"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4810,10 +4854,52 @@ export interface components {
             snippet?: string | null;
             /** @description Relevance score. */
             score?: number | null;
+            /**
+             * @description Provenance tier of the underlying record. In native mode every stored record is `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows (not emitted until overlay adapters land). Never guessed — null when unknown.
+             * @enum {string|null}
+             */
+            trust_tier?: "authoritative" | "external" | "unverified" | null;
         };
         SearchResponse: {
             data: components["schemas"]["SearchResult"][];
             page: components["schemas"]["PageInfo"];
+        };
+        ContextEntityRef: {
+            /** @enum {string} */
+            type: "person" | "organization" | "deal" | "lead" | "activity";
+            /** Format: uuid */
+            id: string;
+        };
+        ContextEvidence: {
+            snippet: string;
+            /** @description Provenance ref */
+            source: string;
+        };
+        ContextItem: {
+            ref: components["schemas"]["ContextEntityRef"];
+            summary?: string | null;
+            evidence?: components["schemas"]["ContextEvidence"][];
+        };
+        ContextSection: {
+            name: string;
+            items: components["schemas"]["ContextItem"][];
+        };
+        ContextResponse: {
+            anchor: components["schemas"]["ContextEntityRef"];
+            sections: components["schemas"]["ContextSection"][];
+        };
+        AgentTool: {
+            /** @description The tool name (tools/list identity). */
+            name: string;
+            /** @description Passport scope required to call it. */
+            required_scope?: string;
+            /** @enum {string} */
+            tier: "green" | "yellow" | "dynamic";
+            /** @description True if the tool reaches outside the workspace. */
+            egress: boolean;
+        };
+        AgentToolListResponse: {
+            data: components["schemas"]["AgentTool"][];
         };
         ImapConnectRequest: {
             /** @description IMAP server hostname (e.g. imap.gmail.com). */
@@ -9706,6 +9792,27 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listAgentTools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The governed tool surface, stably ordered by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentToolListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
     coldStartReadback: {
         parameters: {
             query?: never;
@@ -10118,6 +10225,36 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getRecordContext: {
+        parameters: {
+            query?: {
+                /** @description Max items per section (default 5, capped at 25). */
+                max_items?: number;
+            };
+            header?: never;
+            path: {
+                entity_type: "person" | "organization" | "deal" | "lead";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The assembled picture (empty sections when nothing is related). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };

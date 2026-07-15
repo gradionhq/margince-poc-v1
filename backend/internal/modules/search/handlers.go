@@ -18,11 +18,15 @@ import (
 // Handlers is the module's transport slice; compose embeds it so the
 // generated Search stub is shadowed by real code.
 type Handlers struct {
-	store *Store
+	store     *Store
+	retriever *Retriever
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{store: NewStore(pool)}
+	store := NewStore(pool)
+	// Embedder is nil — AssembleContext walks the graph via the store and
+	// does not embed, matching compose/registry.go's own construction.
+	return Handlers{store: store, retriever: NewRetriever(store, nil)}
 }
 
 func (h Handlers) Search(w http.ResponseWriter, r *http.Request, params crmcontracts.SearchParams) {
@@ -63,6 +67,8 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request, params crmcontr
 		if hit.Snippet != "" {
 			result.Snippet = ptr(hit.Snippet)
 		}
+		// native records are authoritative
+		result.TrustTier = ptr(crmcontracts.SearchResultTrustTierAuthoritative)
 		data = append(data, result)
 	}
 	pageInfo := crmcontracts.PageInfo{HasMore: page.HasMore}

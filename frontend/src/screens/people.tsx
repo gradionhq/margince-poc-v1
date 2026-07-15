@@ -21,6 +21,7 @@ import {
   throwProblem,
 } from "./common";
 import { ConsentSection } from "./consent";
+import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -525,6 +526,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 <StrengthCard kind="person" id={person.id} />
                 <ConsentSection personId={person.id} />
                 <CustomFieldsCard object="person" record={person} />
+                <RecordContextPanel entityType="person" id={person.id} />
                 <LogActivity entityType="person" entityId={person.id} />
               </>
             )}

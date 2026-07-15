@@ -134,6 +134,8 @@ tags:
     description: Current user / principal, plus Agent Seat Passport issuance (the local/A1 path).
   - name: Quotas
     description: Owner or team revenue quota targets for a period, with server-computed attainment (RD-WIRE-2/RD-WIRE-3).
+  - name: Agents
+    description: The governed agent tool surface — registry metadata for the operator UI.
 
 # =============================================================================
 paths:
@@ -2709,6 +2711,26 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /agent-tools:
+    get:
+      tags: [Agents]
+      operationId: listAgentTools
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The governed tool surface (registry metadata) for the operator UI.
+      description: >
+        Read-only inventory of the tools an agent passport can call — name, action verb, the
+        passport scope each requires, its autonomy tier (green/yellow/dynamic) and whether it
+        reaches outside the workspace. This is governance metadata, not tenant data; it mirrors
+        exactly what an MCP client sees from `tools/list`.
+      responses:
+        '200':
+          description: The governed tool surface, stably ordered by name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentToolListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   # ---------------------------- /coldstart ----------------------------------
   /coldstart:
     post:
@@ -3090,6 +3112,38 @@ paths:
               schema: { $ref: '#/components/schemas/AuditHistoryListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /records/{entity_type}/{id}/context:
+    parameters:
+      - name: entity_type
+        in: path
+        required: true
+        schema: { type: string, enum: [person, organization, deal, lead] }
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Search]
+      operationId: getRecordContext
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Assembled context (related evidence) for one record.
+      description: >
+        The fixed-depth context walk (anchor → neighborhood): recent touches, related people,
+        open questions — each item provenance-stamped. Row-scoped; a record outside the caller's
+        scope yields an empty picture, never another workspace's neighborhood.
+      parameters:
+        - name: max_items
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 25 }
+          description: Max items per section (default 5, capped at 25).
+      responses:
+        '200':
+          description: The assembled picture (empty sections when nothing is related).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
@@ -7470,6 +7524,13 @@ components:
         title: { type: [string, 'null'], description: Display label (name/subject). }
         snippet: { type: [string, 'null'] }
         score: { type: [number, 'null'], description: Relevance score. }
+        trust_tier:
+          type: [string, 'null']
+          enum: [authoritative, external, unverified, null]
+          description: >
+            Provenance tier of the underlying record. In native mode every stored record is
+            `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows
+            (not emitted until overlay adapters land). Never guessed — null when unknown.
 
     SearchResponse:
       type: object
@@ -7477,6 +7538,53 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    ContextEntityRef:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, enum: [person, organization, deal, lead, activity] }
+        id:   { type: string, format: uuid }
+    ContextEvidence:
+      type: object
+      required: [snippet, source]
+      properties:
+        snippet: { type: string }
+        source:  { type: string, description: Provenance ref, e.g. "activity:018f…". }
+    ContextItem:
+      type: object
+      required: [ref]
+      properties:
+        ref:      { $ref: '#/components/schemas/ContextEntityRef' }
+        summary:  { type: [string, 'null'] }
+        evidence: { type: array, items: { $ref: '#/components/schemas/ContextEvidence' } }
+    ContextSection:
+      type: object
+      required: [name, items]
+      properties:
+        name:  { type: string }
+        items: { type: array, items: { $ref: '#/components/schemas/ContextItem' } }
+    ContextResponse:
+      type: object
+      required: [anchor, sections]
+      properties:
+        anchor:   { $ref: '#/components/schemas/ContextEntityRef' }
+        sections: { type: array, items: { $ref: '#/components/schemas/ContextSection' } }
+
+    # ---- Agents: governed tool surface ----
+    AgentTool:
+      type: object
+      required: [name, tier, egress]
+      properties:
+        name:  { type: string, description: The tool name (tools/list identity). }
+        required_scope: { type: string, description: Passport scope required to call it. }
+        tier:  { type: string, enum: [green, yellow, dynamic] }
+        egress: { type: boolean, description: True if the tool reaches outside the workspace. }
+    AgentToolListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AgentTool' } }
 
     # ---- Connectors: IMAP one-shot capture ----
     ImapConnectRequest:

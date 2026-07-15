@@ -45,25 +45,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
 
-// Aliases give the embedded handler sets distinct field names; each
-// alias carries its module's full method set.
-type (
-	authHandlers         = identity.Handlers
-	peopleHandlers       = people.Handlers
-	dealsHandlers        = deals.Handlers
-	activitiesHandlers   = activities.Handlers
-	approvalsHandlers    = approvals.Handlers
-	searchHandlers       = search.Handlers
-	consentHandlers      = consent.Handlers
-	collectionsHandlers  = collections.Handlers
-	signalsHandlers      = signals.Handlers
-	privacyHandlers      = privacy.Handlers
-	agentsHandlers       = agents.Handlers
-	voiceHandlers        = ai.Handlers
-	customfieldsHandlers = customfields.Handlers
-	quotasHandlers       = quotas.Handlers
-)
-
 // Server satisfies crmcontracts.ServerInterface by embedding: every
 // module transport handler set together covers the full contract
 // surface.
@@ -130,6 +111,8 @@ type Server struct {
 	// the response is written — a separate instance from dealsHandlers'
 	// own store, the same split offerDrafter itself already uses.
 	dealsStore *deals.Store
+	// toolRegistry backs ListAgentTools — the same *agents.Registry the MCP transport uses.
+	toolRegistry *agents.Registry
 }
 
 var _ crmcontracts.ServerInterface = Server{}
@@ -395,6 +378,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		attachmentExtractionHandlers: attachmentExtractionHandlers{accept: NewExtractionAccept(pool, nil)},
 		log:                          log,
 		dealsStore:                   deals.NewStore(pool),
+		toolRegistry:                 NewRegistry(pool),
 	}
 }
 

@@ -1,0 +1,38 @@
+.search-bar {
+  margin: 12px 0 18px;
+}
+.search-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.search-group {
+  padding: 14px 16px;
+}
+.search-group h2 {
+  margin-bottom: 8px;
+}
+.search-hits {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.search-hit-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.search-hit-snippet {
+  color: var(--textSecondary);
+  font-size: 13px;
+}
+.search-hit-score {
+  color: var(--textTertiary);
+}

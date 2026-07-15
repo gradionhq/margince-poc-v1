@@ -79,6 +79,22 @@ export const de = {
   "screen.pending":
     "Noch nicht gebaut — diese Oberfläche kommt mit ihrem Build-Ticket.",
 
+  "search.title": "Suche",
+  "search.placeholder":
+    "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
+  "search.empty": "Keine Treffer für „{q}“.",
+  "search.group.person": "Personen",
+  "search.group.organization": "Organisationen",
+  "search.group.deal": "Deals",
+  "search.group.activity": "Aktivitäten",
+  "search.group.lead": "Leads",
+  "search.why": "Warum dieses Ergebnis",
+  "search.relevance": "Relevanz {pct}%",
+  "search.tier.authoritative": "verifiziert",
+
+  "context.title": "Verwandte Belege",
+  "context.empty": "Noch nichts Verwandtes.",
+
   "palette.aria": "Befehlspalette",
   "palette.placeholder": "Wohin? Oder frag einfach etwas…",
   "palette.empty": "Keine Treffer.",
@@ -86,6 +102,7 @@ export const de = {
   "palette.typeScreen": "Ansicht",
   "palette.typeAction": "Aktion",
   "palette.typeRecord": "Datensatz",
+  "palette.seeAll": "Alle Ergebnisse für „{query}“ anzeigen",
   "action.newDeal": "Neuer Deal",
   "action.readCompany": "Firma einlesen",
   "action.booking": "Buchungsseite",
@@ -437,6 +454,7 @@ export const de = {
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",
   "inbox.expires": "läuft ab {at}",
+  "inbox.viaTool": "über {verb}",
   "inbox.approveEdited": "Bearbeitet übernehmen",
   "inbox.reject": "Ablehnen",
   "inbox.tab.pending": "Ausstehend",
@@ -1202,6 +1220,19 @@ export const de = {
   "template.localeEN": "Englisch (US)",
   "template.sortName": "Name",
   "template.empty": "Noch keine Angebotsvorlagen.",
+
+  "tools.title": "Agenten-Werkzeuge",
+  "tools.sub":
+    "Die geregelte Oberfläche, die ein Passport aufrufen kann — dieselbe Liste, die ein MCP-Client sieht.",
+  "tools.col.tool": "Werkzeug",
+  "tools.col.verb": "Aktion",
+  "tools.col.scope": "Bereich",
+  "tools.col.tier": "Stufe",
+  "tools.col.egress": "Ausgang",
+  "tools.egress": "verlässt den Workspace",
+  "tools.scopeAll": "Alle Passports",
+  "tools.scopedTo": "Erreichbar durch {label}",
+  "tools.unreachable": "Bereich nicht gewährt",
 
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",

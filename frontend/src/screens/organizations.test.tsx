@@ -104,6 +104,12 @@ function stubApi(enrich: () => Response) {
       if (url.pathname.endsWith("/strength")) {
         return jsonResponse(dormantStrength);
       }
+      if (url.pathname.endsWith("/context")) {
+        return jsonResponse({
+          anchor: { type: "organization", id: "o-1" },
+          sections: [],
+        });
+      }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
       }
@@ -169,8 +175,15 @@ function stubFetch(
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
-    if (new URL(request.url).pathname.endsWith("/strength")) {
+    const pathname = new URL(request.url).pathname;
+    if (pathname.endsWith("/strength")) {
       return jsonResponse(options?.strength ?? dormantStrength);
+    }
+    if (pathname.endsWith("/context")) {
+      return jsonResponse({
+        anchor: { type: "organization", id: "o-1" },
+        sections: [],
+      });
     }
     return responder(request.url, request.method, request);
   });

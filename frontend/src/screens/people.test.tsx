@@ -139,8 +139,15 @@ function stubFetch(
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
-    if (new URL(request.url).pathname.endsWith("/strength")) {
+    const pathname = new URL(request.url).pathname;
+    if (pathname.endsWith("/strength")) {
       return jsonResponse(options?.strength ?? dormantStrength);
+    }
+    if (pathname.endsWith("/context")) {
+      return jsonResponse({
+        anchor: { type: "person", id: "p-1" },
+        sections: [],
+      });
     }
     return responder(request.url, request.method, request);
   });

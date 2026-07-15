@@ -29,6 +29,7 @@ import { ContactsScreen, PersonScreen } from "./screens/people";
 import { PreferenceCenterScreen } from "./screens/preferences";
 import { ProductsScreen } from "./screens/products";
 import { ReportsScreen } from "./screens/reports";
+import { SearchScreen } from "./screens/search";
 import { SettingsScreen } from "./screens/settings";
 import { ShareScreen } from "./screens/share";
 import { TasksScreen } from "./screens/tasks";
@@ -36,12 +37,47 @@ import { TasksScreen } from "./screens/tasks";
 // Route → screen. Surfaces land here ticket by ticket; anything not yet
 // built renders the honest pending state, never a blank page.
 
+// safeDecode tolerates malformed percent-encoding (e.g. a stray "%2" from a
+// hand-edited hash route): decodeURIComponent throws a URIError on bad
+// escapes, and a route param is untrusted input, so a decode failure falls
+// back to the raw string rather than crashing the render.
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function PendingScreen() {
   const t = useT();
   return (
     <div className="wrap narrow">
       <EmptyState>{t("screen.pending")}</EmptyState>
     </div>
+  );
+}
+
+// Split out of ScreenView's switch purely to keep that function's cognitive
+// complexity under the lint ceiling — the deals list/detail split has its
+// own "new" vs existing-id branch that would otherwise count twice.
+function DealsRoute({ id }: Readonly<{ id?: string }>) {
+  return id && id !== "new" ? (
+    <DealScreen id={id} />
+  ) : (
+    <DealsScreen startCreating={id === "new"} />
+  );
+}
+
+// #/share/<record_type>/<record_id> (AS-3/4/5) — both segments are required;
+// a bare #/share renders the honest pending state instead of a screen with
+// nothing to share. Split out for the same complexity-budget reason as
+// DealsRoute above.
+function ShareRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
+  return id && id2 ? (
+    <ShareScreen recordType={id} recordId={id2} />
+  ) : (
+    <PendingScreen />
   );
 }
 
@@ -62,11 +98,7 @@ function ScreenView({
     case "leads":
       return id ? <LeadScreen id={id} /> : <LeadsScreen />;
     case "deals":
-      return id && id !== "new" ? (
-        <DealScreen id={id} />
-      ) : (
-        <DealsScreen startCreating={id === "new"} />
-      );
+      return <DealsRoute id={id} />;
     case "home":
       return <HomeScreen />;
     case "inbox":
@@ -103,14 +135,9 @@ function ScreenView({
       // whole capability (security: [] in the contract).
       return <PreferenceCenterScreen token={id} />;
     case "share":
-      // #/share/<record_type>/<record_id> (AS-3/4/5) — both segments are
-      // required; a bare #/share renders the honest pending state instead
-      // of a screen with nothing to share.
-      return id && id2 ? (
-        <ShareScreen recordType={id} recordId={id2} />
-      ) : (
-        <PendingScreen />
-      );
+      return <ShareRoute id={id} id2={id2} />;
+    case "search":
+      return <SearchScreen q={id ? safeDecode(id) : ""} />;
     default:
       return <PendingScreen />;
   }

@@ -189,6 +189,27 @@ func (e AdvanceDealRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for AgentToolTier.
+const (
+	AgentToolTierDynamic AgentToolTier = "dynamic"
+	AgentToolTierGreen   AgentToolTier = "green"
+	AgentToolTierYellow  AgentToolTier = "yellow"
+)
+
+// Valid indicates whether the value is a known member of the AgentToolTier enum.
+func (e AgentToolTier) Valid() bool {
+	switch e {
+	case AgentToolTierDynamic:
+		return true
+	case AgentToolTierGreen:
+		return true
+	case AgentToolTierYellow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApplyTagRequestEntityType.
 const (
 	ApplyTagRequestEntityTypeDeal         ApplyTagRequestEntityType = "deal"
@@ -512,16 +533,16 @@ func (e AutomationRunOutcome) Valid() bool {
 
 // Defines values for AutomationRunTier.
 const (
-	AutomationRunTierGreen  AutomationRunTier = "green"
-	AutomationRunTierYellow AutomationRunTier = "yellow"
+	Green  AutomationRunTier = "green"
+	Yellow AutomationRunTier = "yellow"
 )
 
 // Valid indicates whether the value is a known member of the AutomationRunTier enum.
 func (e AutomationRunTier) Valid() bool {
 	switch e {
-	case AutomationRunTierGreen:
+	case Green:
 		return true
-	case AutomationRunTierYellow:
+	case Yellow:
 		return true
 	default:
 		return false
@@ -687,6 +708,33 @@ func (e ConsentEventNewState) Valid() bool {
 	case ConsentEventNewStateGranted:
 		return true
 	case ConsentEventNewStateWithdrawn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContextEntityRefType.
+const (
+	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
+	ContextEntityRefTypeDeal         ContextEntityRefType = "deal"
+	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
+	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
+	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+)
+
+// Valid indicates whether the value is a known member of the ContextEntityRefType enum.
+func (e ContextEntityRefType) Valid() bool {
+	switch e {
+	case ContextEntityRefTypeActivity:
+		return true
+	case ContextEntityRefTypeDeal:
+		return true
+	case ContextEntityRefTypeLead:
+		return true
+	case ContextEntityRefTypeOrganization:
+		return true
+	case ContextEntityRefTypePerson:
 		return true
 	default:
 		return false
@@ -2424,6 +2472,30 @@ func (e SavedViewSharedScope) Valid() bool {
 	}
 }
 
+// Defines values for SearchResultTrustTier.
+const (
+	SearchResultTrustTierAuthoritative SearchResultTrustTier = "authoritative"
+	SearchResultTrustTierExternal      SearchResultTrustTier = "external"
+	SearchResultTrustTierLessThannil   SearchResultTrustTier = "<nil>"
+	SearchResultTrustTierUnverified    SearchResultTrustTier = "unverified"
+)
+
+// Valid indicates whether the value is a known member of the SearchResultTrustTier enum.
+func (e SearchResultTrustTier) Valid() bool {
+	switch e {
+	case SearchResultTrustTierAuthoritative:
+		return true
+	case SearchResultTrustTierExternal:
+		return true
+	case SearchResultTrustTierLessThannil:
+		return true
+	case SearchResultTrustTierUnverified:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SearchResultType.
 const (
 	SearchResultTypeActivity     SearchResultType = "activity"
@@ -4066,6 +4138,27 @@ type AdvanceDealRequest struct {
 // AdvanceDealRequestStatus Set when advancing into a terminal stage.
 type AdvanceDealRequestStatus string
 
+// AgentTool defines model for AgentTool.
+type AgentTool struct {
+	// Egress True if the tool reaches outside the workspace.
+	Egress bool `json:"egress"`
+
+	// Name The tool name (tools/list identity).
+	Name string `json:"name"`
+
+	// RequiredScope Passport scope required to call it.
+	RequiredScope *string       `json:"required_scope,omitempty"`
+	Tier          AgentToolTier `json:"tier"`
+}
+
+// AgentToolTier defines model for AgentTool.Tier.
+type AgentToolTier string
+
+// AgentToolListResponse defines model for AgentToolListResponse.
+type AgentToolListResponse struct {
+	Data []AgentTool `json:"data"`
+}
+
 // ApplyTagRequest defines model for ApplyTagRequest.
 type ApplyTagRequest struct {
 	EntityId   openapi_types.UUID        `json:"entity_id"`
@@ -4551,6 +4644,42 @@ type ConsentPurpose struct {
 	// RequiresDoubleOptIn When true, a grant is only effective after a confirmed DOI event (German email norm).
 	RequiresDoubleOptIn *bool              `json:"requires_double_opt_in,omitempty"`
 	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
+}
+
+// ContextEntityRef defines model for ContextEntityRef.
+type ContextEntityRef struct {
+	Id   openapi_types.UUID   `json:"id"`
+	Type ContextEntityRefType `json:"type"`
+}
+
+// ContextEntityRefType defines model for ContextEntityRef.Type.
+type ContextEntityRefType string
+
+// ContextEvidence defines model for ContextEvidence.
+type ContextEvidence struct {
+	Snippet string `json:"snippet"`
+
+	// Source Provenance ref
+	Source string `json:"source"`
+}
+
+// ContextItem defines model for ContextItem.
+type ContextItem struct {
+	Evidence *[]ContextEvidence `json:"evidence,omitempty"`
+	Ref      ContextEntityRef   `json:"ref"`
+	Summary  *string            `json:"summary,omitempty"`
+}
+
+// ContextResponse defines model for ContextResponse.
+type ContextResponse struct {
+	Anchor   ContextEntityRef `json:"anchor"`
+	Sections []ContextSection `json:"sections"`
+}
+
+// ContextSection defines model for ContextSection.
+type ContextSection struct {
+	Items []ContextItem `json:"items"`
+	Name  string        `json:"name"`
 }
 
 // CreateActivityRequest defines model for CreateActivityRequest.
@@ -6509,9 +6638,15 @@ type SearchResult struct {
 	Snippet *string  `json:"snippet,omitempty"`
 
 	// Title Display label (name/subject).
-	Title *string          `json:"title,omitempty"`
-	Type  SearchResultType `json:"type"`
+	Title *string `json:"title,omitempty"`
+
+	// TrustTier Provenance tier of the underlying record. In native mode every stored record is `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows (not emitted until overlay adapters land). Never guessed — null when unknown.
+	TrustTier *SearchResultTrustTier `json:"trust_tier,omitempty"`
+	Type      SearchResultType       `json:"type"`
 }
+
+// SearchResultTrustTier Provenance tier of the underlying record. In native mode every stored record is `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows (not emitted until overlay adapters land). Never guessed — null when unknown.
+type SearchResultTrustTier string
 
 // SearchResultType defines model for SearchResult.Type.
 type SearchResultType string
@@ -8620,6 +8755,12 @@ type RevokeRecordGrantParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// GetRecordContextParams defines parameters for GetRecordContext.
+type GetRecordContextParams struct {
+	// MaxItems Max items per section (default 5, capped at 25).
+	MaxItems *int `form:"max_items,omitempty" json:"max_items,omitempty"`
 }
 
 // GetRecordHistoryParams defines parameters for GetRecordHistory.
@@ -13992,6 +14133,9 @@ type ServerInterface interface {
 	// Send a (possibly edited) email draft — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-email)
 	SendEmail(w http.ResponseWriter, r *http.Request, id Id, params SendEmailParams)
+	// The governed tool surface (registry metadata) for the operator UI.
+	// (GET /agent-tools)
+	ListAgentTools(w http.ResponseWriter, r *http.Request)
 	// The approval inbox — list staged 🟡 actions awaiting human decision.
 	// (GET /approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams)
@@ -14382,6 +14526,9 @@ type ServerInterface interface {
 	// Revoke a manual record grant. 🟡 — agent calls are queued behind the approval gate.
 	// (DELETE /record-grants/{id})
 	RevokeRecordGrant(w http.ResponseWriter, r *http.Request, id Id, params RevokeRecordGrantParams)
+	// Assembled context (related evidence) for one record.
+	// (GET /records/{entity_type}/{id}/context)
+	GetRecordContext(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordContextParams)
 	// Full audit history for one record, rendered as plain-language lines.
 	// (GET /records/{entity_type}/{id}/history)
 	GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams)
@@ -14553,6 +14700,12 @@ func (_ Unimplemented) RelinkActivity(w http.ResponseWriter, r *http.Request, id
 // Send a (possibly edited) email draft — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-email)
 func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, params SendEmailParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The governed tool surface (registry metadata) for the operator UI.
+// (GET /agent-tools)
+func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -15336,6 +15489,12 @@ func (_ Unimplemented) RevokeRecordGrant(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Assembled context (related evidence) for one record.
+// (GET /records/{entity_type}/{id}/context)
+func (_ Unimplemented) GetRecordContext(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordContextParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Full audit history for one record, rendered as plain-language lines.
 // (GET /records/{entity_type}/{id}/history)
 func (_ Unimplemented) GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams) {
@@ -16084,6 +16243,26 @@ func (siw *ServerInterfaceWrapper) SendEmail(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendEmail(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAgentTools operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAgentTools(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -22890,6 +23069,63 @@ func (siw *ServerInterfaceWrapper) RevokeRecordGrant(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// GetRecordContext operation middleware
+func (siw *ServerInterfaceWrapper) GetRecordContext(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entity_type" -------------
+	var entityType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entity_type", chi.URLParam(r, "entity_type"), &entityType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRecordContextParams
+
+	// ------------- Optional query parameter "max_items" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "max_items", r.URL.Query(), &params.MaxItems, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "max_items"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "max_items", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRecordContext(w, r, entityType, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetRecordHistory operation middleware
 func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *http.Request) {
 
@@ -24909,6 +25145,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities/{id}/send-email", wrapper.SendEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/approvals", wrapper.ListApprovals)
 	})
 	r.Group(func(r chi.Router) {
@@ -25297,6 +25536,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/record-grants/{id}", wrapper.RevokeRecordGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/records/{entity_type}/{id}/context", wrapper.GetRecordContext)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/records/{entity_type}/{id}/history", wrapper.GetRecordHistory)
