@@ -203,6 +203,14 @@ type UpdateDSRInput struct {
 	Resolution *string
 }
 
+// hasResolution reports whether an update carries (or the row already
+// stores) an actual answer — a nil-only check would accept "" or
+// whitespace-only text as a resolution, which is exactly the "closing needs
+// an answer" rule this guards against.
+func hasResolution(value *string) bool {
+	return value != nil && strings.TrimSpace(*value) != ""
+}
+
 // validateDSRUpdate is the one spelling of every UpdateDSR precondition:
 // the closed transition map and the "closing needs an answer" rule. It is
 // called twice — inside UpdateDSR's own transaction (the authoritative
@@ -217,7 +225,7 @@ func validateDSRUpdate(current dsrRow, in UpdateDSRInput) *ValidationError {
 		return illegalTransition(current.Status, *in.Status)
 	}
 	if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
-		in.Resolution == nil && current.Resolution == nil {
+		!hasResolution(in.Resolution) && !hasResolution(current.Resolution) {
 		return &ValidationError{Field: "resolution", Reason: "closing a request needs its answer"}
 	}
 	return nil

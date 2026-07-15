@@ -75,7 +75,14 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 	// ever runs, so every precondition UpdateDSR would enforce must already
 	// hold here — the status flip and the actual deletion must not drift
 	// apart, and nothing may be erased on a request that UpdateDSR is going
-	// to refuse to close.
+	// to refuse to close. Symmetrically, a fulfil that names no person must
+	// be refused, never certified: ErasePerson (privacy/erasure.go)
+	// anonymizes the person row IN PLACE and never deletes it, so its
+	// ErrNotFound can only mean "subject_ref resolves to no person in this
+	// workspace" (or a row-scope miss) — never "already erased, nothing left
+	// to do". Erasing an already-erased person instead returns nil and
+	// re-runs harmlessly, which is what makes a repeat fulfil of the same
+	// request idempotent without this handler needing to special-case it.
 	if in.Status != nil && *in.Status == "fulfilled" {
 		current, err := h.store.GetDSR(r.Context(), ids.UUID(id))
 		if err != nil {
@@ -94,21 +101,22 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 				writeConsentErr(w, r, errors.New("consent: erasure fulfillment has no erase path wired"))
 				return
 			}
+			unresolvedSubject := &ValidationError{
+				Field:  fieldSubjectRef,
+				Reason: "an erasure request must name a person id before it can be fulfilled",
+			}
 			personID, parseErr := ids.Parse(current.SubjectRef)
 			if parseErr != nil {
-				// Same fail-closed rule: a subject_ref that names no person
-				// means we never looked, not that there was nothing to
-				// erase. Closing here would certify a deletion that never
-				// ran. (An already-erased person is the ErrNotFound case
-				// below — that one genuinely has nothing left to do.)
-				writeConsentErr(w, r, &ValidationError{
-					Field:  fieldSubjectRef,
-					Reason: "an erasure request must name a person id before it can be fulfilled",
-				})
+				// ids.Parse proves syntax only, but a subject_ref that fails
+				// even that check names no person at all.
+				writeConsentErr(w, r, unresolvedSubject)
 				return
 			}
-			err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String())
-			if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			if err := h.eraser.ErasePerson(r.Context(), personID, "dsr:"+current.ID.String()); err != nil {
+				if errors.Is(err, apperrors.ErrNotFound) {
+					writeConsentErr(w, r, unresolvedSubject)
+					return
+				}
 				writeConsentErr(w, r, err)
 				return
 			}
