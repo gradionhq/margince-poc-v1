@@ -25,6 +25,7 @@ import {
   throwProblem,
   useMe,
 } from "./common";
+import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -680,6 +681,7 @@ function LeadOverviewPane({
         </>
       )}
       <CustomFieldsCard object="lead" record={lead} />
+      <RecordContextPanel entityType="lead" id={lead.id} />
     </>
   );
 }

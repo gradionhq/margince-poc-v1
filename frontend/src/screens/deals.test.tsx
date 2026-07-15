@@ -130,6 +130,9 @@ function stubDealBackend(
     if (url.includes("/pipelines")) {
       return jsonResponse({ data: [], page: { next_cursor: null } });
     }
+    if (url.includes("/context")) {
+      return jsonResponse({ anchor: { type: "deal", id: "d1" }, sections: [] });
+    }
     if (method === "POST" && url.includes("/offers")) {
       const body = request
         ? await request.json()
@@ -211,6 +214,9 @@ function stubBackend(
         data: opts.agentTools ?? [],
         page: { next_cursor: null },
       });
+    }
+    if (url.includes("/context")) {
+      return jsonResponse({ anchor: { type: "deal", id: "x" }, sections: [] });
     }
     if (url.includes("/pipelines")) {
       return jsonResponse({

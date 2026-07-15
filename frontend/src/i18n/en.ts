@@ -89,6 +89,9 @@ export const en = {
   "search.tier.authoritative": "verified",
   "search.seeAll": "See all results for “{q}”",
 
+  "context.title": "Related evidence",
+  "context.empty": "Nothing related yet.",
+
   "palette.aria": "Command palette",
   "palette.placeholder": "Jump to, or ask anything…",
   "palette.empty": "No matches.",

@@ -88,6 +88,12 @@ function stubApi(
       if (url.pathname.endsWith("/strength")) {
         return jsonResponse(dormantStrength);
       }
+      if (url.pathname.endsWith("/context")) {
+        return jsonResponse({
+          anchor: { type: "person", id: "p1" },
+          sections: [],
+        });
+      }
       return jsonResponse(emptyPage);
     }),
   );

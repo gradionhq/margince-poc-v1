@@ -34,6 +34,7 @@ import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import { problemMessage, QueryGate, throwProblem, useMe } from "./common";
+import { RecordContextPanel } from "./context";
 import type { CreateField } from "./create";
 import { CreateAction } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
@@ -1274,6 +1275,7 @@ function DealOverviewPane({
         onCreate={onCreateOffer}
       />
       <CustomFieldsCard object="deal" record={deal} />
+      <RecordContextPanel entityType="deal" id={deal.id} />
       <LogActivity entityType="deal" entityId={deal.id} />
     </>
   );

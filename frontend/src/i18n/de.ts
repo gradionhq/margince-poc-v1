@@ -93,6 +93,9 @@ export const de = {
   "search.tier.authoritative": "verifiziert",
   "search.seeAll": "Alle Ergebnisse für „{q}“ anzeigen",
 
+  "context.title": "Verwandte Belege",
+  "context.empty": "Noch nichts Verwandtes.",
+
   "palette.aria": "Befehlspalette",
   "palette.placeholder": "Wohin? Oder frag einfach etwas…",
   "palette.empty": "Keine Treffer.",
