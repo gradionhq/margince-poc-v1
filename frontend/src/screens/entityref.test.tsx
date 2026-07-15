@@ -90,6 +90,23 @@ describe("EntityRef", () => {
     expect(window.location.hash).toBe("#/deals/d-1");
   });
 
+  it("resolves a lead to leads/{id} (P-16: lead joins the ENTITY registry)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/leads/l-1")) {
+          return jsonResponse({ id: "l-1", full_name: "Jordan Lee" });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="lead" id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Jordan Lee" }),
+    );
+    expect(window.location.hash).toBe("#/leads/l-1");
+  });
+
   it("falls back to the id (no link) when the lookup can't resolve a name", async () => {
     vi.stubGlobal(
       "fetch",

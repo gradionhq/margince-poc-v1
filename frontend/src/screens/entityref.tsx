@@ -4,7 +4,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { navigate, type Route } from "../app/router";
+import { ENTITY, type EntityKind } from "../app/entity";
+import { navigate } from "../app/router";
 import { problemMessage } from "./common";
 
 // A cross-record reference rendered as the target's display name plus a
@@ -18,36 +19,26 @@ import { problemMessage } from "./common";
 // `user`/`team` are the one exception to the "resolved name is a link"
 // rule: there is no 360 to send them to, so they resolve off the shared
 // roster list (`/users` / `/teams`) and always render as plain text, never
-// touching `ROUTE_OF` (which has no `user`/`team` entry).
+// touching the ENTITY registry (which has no `user`/`team` entry).
 
-export type EntityRefKind =
-  | "person"
-  | "organization"
-  | "deal"
-  | "lead"
-  | "user"
-  | "team";
-
-type RecordKind = "person" | "organization" | "deal" | "lead";
+// The record kinds share the app-wide ENTITY registry (routes + vocabulary);
+// user/team are EntityRef-only: they have no 360 to route to, so they resolve
+// off the shared roster list and render as plain text.
 export type RosterKind = "user" | "team";
-
-const ROUTE_OF: Record<RecordKind, (id: string) => Route> = {
-  person: (id) => ({ screen: "contacts", id }),
-  organization: (id) => ({ screen: "companies", id }),
-  deal: (id) => ({ screen: "deals", id }),
-  lead: (id) => ({ screen: "leads", id }),
-};
+export type EntityRefKind = EntityKind | RosterKind;
 
 type User = components["schemas"]["User"];
 type Team = components["schemas"]["Team"];
 
 async function fetchEntityName(
-  kind: RecordKind,
+  kind: EntityKind,
   id: string,
 ): Promise<string | null> {
   // Coerce a missing name to null (never undefined): react-query forbids an
   // undefined resolve, and a record read that somehow lacks its name field
-  // should fall back to the id, not crash the query.
+  // should fall back to the id, not crash the query. Each kind reads a
+  // different endpoint and a differently-named field, so this stays a
+  // straight per-kind switch rather than a generic lookup.
   if (kind === "person") {
     const { data, error } = await api.GET("/people/{id}", {
       params: { path: { id } },
@@ -117,7 +108,7 @@ export function EntityRef({
   // `enabled` instead — only the branch matching `kind` actually fetches.
   const recordQuery = useQuery({
     queryKey: [kind, "ref", id],
-    queryFn: () => fetchEntityName(kind as RecordKind, id ?? ""),
+    queryFn: () => fetchEntityName(kind as EntityKind, id ?? ""),
     enabled: Boolean(id) && !isRoster,
     // References change rarely relative to the pages that render them; a short
     // cache keeps a 360 from re-fetching the same name on every hover/refetch.
@@ -161,7 +152,7 @@ export function EntityRef({
     <button
       type="button"
       className="entity-link"
-      onClick={() => navigate(ROUTE_OF[kind as RecordKind](id))}
+      onClick={() => navigate(ENTITY[kind as EntityKind].route(id))}
       title={id}
     >
       {recordQuery.data}

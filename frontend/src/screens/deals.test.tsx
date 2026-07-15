@@ -143,6 +143,21 @@ function stubDealBackend(
     if (url.includes("/offers")) {
       return jsonResponse({ data: offers, page: { next_cursor: null } });
     }
+    if (url.includes("/history")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "h1",
+            actor_type: "human",
+            actor_id: "u1",
+            action: "update",
+            occurred_at: "2026-07-13T10:00:00Z",
+            summary: "Deal amount changed",
+          },
+        ],
+        page: { next_cursor: null },
+      });
+    }
     if (url.includes("/stakeholders")) {
       return jsonResponse({ data: [], page: { next_cursor: null } });
     }
@@ -531,6 +546,22 @@ describe("DealScreen offers panel", () => {
     expect(creates[0]).toMatchObject({ currency: "EUR", source: "manual" });
     await waitFor(() =>
       expect(window.location.hash).toBe("#/offers/new-offer"),
+    );
+  });
+});
+
+describe("DealScreen — History tab", () => {
+  it("shows a History tab that lists record changes", async () => {
+    vi.stubGlobal("fetch", stubDealBackend(deal({}), []));
+    render(<DealScreen id="d1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /history/i })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /history/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Deal amount changed")).toBeTruthy(),
     );
   });
 });

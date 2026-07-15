@@ -25,6 +25,7 @@ import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
+import { RecordHistoryTab } from "./history";
 import {
   ListGate,
   type ListPage,
@@ -478,7 +479,7 @@ function ConsentRow({
   );
 }
 
-const PERSON_TABS = ["overview", "relationships"] as const;
+const PERSON_TABS = ["overview", "relationships", "history"] as const;
 type PersonTab = (typeof PERSON_TABS)[number];
 
 export function PersonScreen({ id }: Readonly<{ id: string }>) {
@@ -619,10 +620,11 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 labels={{
                   overview: t("tab.overview"),
                   relationships: t("tab.relationships"),
+                  history: t("tab.history"),
                 }}
               />
             </div>
-            {tab === "overview" ? (
+            {tab === "overview" && (
               <>
                 <StrengthCard kind="person" id={person.id} />
                 {person.consent && person.consent.length > 0 && (
@@ -646,8 +648,12 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 <CustomFieldsCard object="person" record={person} />
                 <LogActivity entityType="person" entityId={person.id} />
               </>
-            ) : (
+            )}
+            {tab === "relationships" && (
               <RelationshipsTab scope={{ person_id: person.id }} />
+            )}
+            {tab === "history" && (
+              <RecordHistoryTab kind="person" id={person.id} />
             )}
           </RecordView>
         )}

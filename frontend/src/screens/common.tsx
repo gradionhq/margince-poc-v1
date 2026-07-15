@@ -81,7 +81,7 @@ export function canManageCustomFields(
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
-// The minimal read surface QueryGate needs. A real react-query
+// The minimal read surface QueryGate/QueryStates need. A real react-query
 // `UseQueryResult<Data>` is structurally assignable to it, and a hook that
 // MERGES several queries (e.g. the decided-approvals fan-out) can return a
 // plain object of this shape — no `as unknown as UseQueryResult` lie required.
@@ -93,14 +93,24 @@ export interface QueryLike<Data> {
   refetch: () => unknown;
 }
 
-export function QueryGate<Data>({
+// The pending/error halves of the screen-state matrix (§3a) — one skeleton
+// spelling, one error+retry spelling — shared by every query-backed screen
+// regardless of whether it's a plain useQuery or an useInfiniteQuery (both
+// expose this same isPending/isError/error/refetch shape). SUCCESS rendering
+// stays the caller's job: some screens want QueryGate's generic empty-check,
+// others (the History timelines) need custom grouping/pagination that no
+// single success renderer could cover.
+export function QueryStates({
   query,
-  empty,
   children,
 }: Readonly<{
-  query: QueryLike<Data>;
-  empty?: (data: Data) => boolean;
-  children: (data: Data) => ReactNode;
+  query: Readonly<{
+    isPending: boolean;
+    isError: boolean;
+    error: unknown;
+    refetch: () => unknown;
+  }>;
+  children: ReactNode;
 }>) {
   const t = useT();
   if (query.isPending) {
@@ -125,13 +135,62 @@ export function QueryGate<Data>({
       </EmptyState>
     );
   }
-  // Past the pending/error guards data is present; QueryLike isn't a
-  // discriminated union so TS can't narrow it — assert it defensively.
-  const data = query.data;
-  if (data === undefined || empty?.(data)) {
-    return <EmptyState>{t("common.empty")}</EmptyState>;
+  return <>{children}</>;
+}
+
+// The one "Load more" spelling for every keyset-paginated infinite query
+// (record history, field history, the settings audit log): a small button
+// that fetches the next page and disables itself mid-fetch, rendered only
+// while the query still reports another page.
+export function LoadMoreButton({
+  query,
+}: Readonly<{
+  query: Readonly<{
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => unknown;
+  }>;
+}>) {
+  const t = useT();
+  if (!query.hasNextPage) {
+    return null;
   }
-  return <>{children(data)}</>;
+  return (
+    <Button
+      small
+      disabled={query.isFetchingNextPage}
+      onClick={() => query.fetchNextPage()}
+      style={{ marginTop: 10 }}
+    >
+      {t("list.loadMore")}
+    </Button>
+  );
+}
+
+export function QueryGate<Data>({
+  query,
+  empty,
+  children,
+}: Readonly<{
+  query: QueryLike<Data>;
+  empty?: (data: Data) => boolean;
+  children: (data: Data) => ReactNode;
+}>) {
+  const t = useT();
+  // A QueryLike isn't a discriminated union, so TS can't narrow it: past
+  // QueryStates' pending/error guards `data` is present, so key SUCCESS
+  // rendering off its presence rather than a react-query `isSuccess` flag
+  // the merged fan-out hooks don't expose.
+  const data = query.data;
+  let success: ReactNode = null;
+  if (data !== undefined) {
+    success = empty?.(data) ? (
+      <EmptyState>{t("common.empty")}</EmptyState>
+    ) : (
+      children(data)
+    );
+  }
+  return <QueryStates query={query}>{success}</QueryStates>;
 }
 
 // captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".
