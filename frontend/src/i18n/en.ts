@@ -649,6 +649,14 @@ export const en = {
   "settings.privacySub": "data-subject requests with their statutory deadlines",
   "settings.due": "due {date}",
 
+  "privacy.addPurpose": "Add purpose",
+  "privacy.purposeKey": "Key",
+  "privacy.purposeLabel": "Label",
+  "privacy.purposeDoi": "Requires double opt-in",
+  "privacy.purposeCreate": "Create purpose",
+  "privacy.purposeAppendOnly":
+    "A purpose cannot be renamed or removed once created — the catalogue is append-only. Choose the key carefully.",
+
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Configure pipelines and their stages (admin/ops).",
   "pipeline.new": "New pipeline",

@@ -661,6 +661,14 @@ export const de = {
   "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
   "settings.due": "fällig {date}",
 
+  "privacy.addPurpose": "Zweck hinzufügen",
+  "privacy.purposeKey": "Schlüssel",
+  "privacy.purposeLabel": "Bezeichnung",
+  "privacy.purposeDoi": "Erfordert Double-Opt-in",
+  "privacy.purposeCreate": "Zweck anlegen",
+  "privacy.purposeAppendOnly":
+    "Ein Zweck kann nach dem Anlegen nicht umbenannt oder entfernt werden — der Katalog ist append-only. Wähle den Schlüssel sorgfältig.",
+
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub":
     "Pipelines und ihre Phasen konfigurieren (Admin/Ops).",

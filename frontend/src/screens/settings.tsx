@@ -50,6 +50,7 @@ import {
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
+import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import "./settings.css";
 
 // Settings governance surface (B-EP09.13b): renders FROM the live seams —
@@ -888,40 +889,6 @@ function AutonomyCard() {
   );
 }
 
-function ConsentPurposesCard() {
-  const t = useT();
-  const query = useQuery({
-    queryKey: ["consent-purposes"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/consent-purposes");
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
-  return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader title={t("settings.purposes")} />
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {page.data.map((purpose) => (
-              <Badge
-                key={purpose.id}
-                tone={purpose.requires_double_opt_in ? "warn" : undefined}
-              >
-                {purpose.label}
-                {purpose.requires_double_opt_in ? " · DOI" : ""}
-              </Badge>
-            ))}
-          </div>
-        )}
-      </QueryGate>
-    </section>
-  );
-}
-
 type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 
 function isEntityKind(kind: string): kind is EntityKind {
@@ -1236,74 +1203,6 @@ export function AuditLogCard() {
         />
       </div>
       {body}
-    </section>
-  );
-}
-
-// Erasure reads danger, a rectification reads warn, other DSR kinds are neutral.
-function dsrKindTone(kind: string): "danger" | "warn" | undefined {
-  if (kind === "erasure") {
-    return "danger";
-  }
-  if (kind === "rectify") {
-    return "warn";
-  }
-  return undefined;
-}
-
-function PrivacyInboxCard() {
-  const t = useT();
-  const { locale } = useLocale();
-  const query = useQuery({
-    queryKey: ["dsrs"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/data-subject-requests", {
-        params: { query: { limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
-  return (
-    <section className="card">
-      <SectionHeader
-        title={t("settings.privacy")}
-        sub={t("settings.privacySub")}
-      />
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
-          <ul
-            style={{
-              listStyle: "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
-            {page.data.map((dsr) => (
-              <li
-                key={dsr.id}
-                style={{ display: "flex", gap: 8, alignItems: "center" }}
-              >
-                <Badge tone={dsrKindTone(dsr.kind)}>{dsr.kind}</Badge>
-                <span className="t-mono">{dsr.subject_ref}</span>
-                <Badge
-                  tone={dsr.status === "fulfilled" ? "success" : undefined}
-                >
-                  {dsr.status}
-                </Badge>
-                <span className="t-small">
-                  {t("settings.due", {
-                    date: formatDate(dsr.due_at, locale, "Europe/Berlin"),
-                  })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </QueryGate>
     </section>
   );
 }

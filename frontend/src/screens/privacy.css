@@ -1,0 +1,21 @@
+/* ConsentPurposesCard's inline create form + PrivacyInboxCard rows. Layout +
+ * token colours only (ds-purity) — the form/field primitives themselves come
+ * from atoms.css. */
+
+.purpose-form {
+  margin-top: 10px;
+}
+
+.purpose-form-warning {
+  color: var(--textMeta);
+}
+
+.purpose-form-error {
+  color: var(--danger);
+}
+
+.purpose-doi-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
