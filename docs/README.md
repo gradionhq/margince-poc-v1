@@ -39,11 +39,12 @@ maps the codebase and links everything below.
 - [write-backbone.md](explanation/write-backbone.md) — storekit, `audit_log`, the outbox, and who consumes the events.
 - [agent-surface.md](explanation/agent-surface.md) — the Surface-B reasoning loop and the model runtime.
 - [privacy-and-consent.md](explanation/privacy-and-consent.md) — the consent gate and the GDPR engines (erasure / SAR / retention).
+- [custom-fields.md](explanation/custom-fields.md) — the one runtime `ALTER TABLE` chokepoint: the closed type/object sets, the privilege boundary, and the `fieldcatalog` seam.
 
 ## Reading order for a new contributor
 
 1. [tutorials/getting-started.md](tutorials/getting-started.md) — get it running.
 2. [explanation/backend-onboarding.md](explanation/backend-onboarding.md) — the map + reading order hub.
 3. [architecture.md](explanation/architecture.md) → [contract-first.md](explanation/contract-first.md) → [authorization.md](explanation/authorization.md).
-4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [composition-layer.md](explanation/composition-layer.md), [agent-surface.md](explanation/agent-surface.md), [privacy-and-consent.md](explanation/privacy-and-consent.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
+4. Deep dives on demand: [write-backbone.md](explanation/write-backbone.md), [composition-layer.md](explanation/composition-layer.md), [agent-surface.md](explanation/agent-surface.md), [privacy-and-consent.md](explanation/privacy-and-consent.md), [custom-fields.md](explanation/custom-fields.md), [reference/modules.md](reference/modules.md), [reference/platform-toolkit.md](reference/platform-toolkit.md).
 5. [CONTRIBUTING.md](../CONTRIBUTING.md) + [AGENTS.md](../AGENTS.md) — the PR loop and the binding engineering rules.
