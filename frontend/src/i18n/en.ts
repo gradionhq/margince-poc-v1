@@ -96,6 +96,7 @@ export const en = {
   "palette.typeScreen": "Screen",
   "palette.typeAction": "Action",
   "palette.typeRecord": "Record",
+  "palette.seeAll": "See all results for “{query}”",
   "action.newDeal": "New deal",
   "action.readCompany": "Read a company",
   "action.booking": "Booking page",

@@ -1,7 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
 import { CornerDownLeft, Search, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api/client";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { ENTITY, type EntityKind } from "./entity";
 import { NAV } from "./nav";
 import { navigate, type Route } from "./router";
 
@@ -61,6 +64,47 @@ export function useBuiltinCommands(): Command[] {
   }, [t]);
 }
 
+// The record kinds a search hit can route to (activity is a valid
+// SearchResult type but has no 360 to land on — see entity.ts).
+const RECORD_KINDS = new Set<EntityKind>([
+  "person",
+  "organization",
+  "deal",
+  "lead",
+]);
+
+// Live record hits for the palette (RS-1): debounced via useDeferredValue
+// rather than a timer (craft: no real-clock waits in the render path), and
+// gated on a 2-char floor so single keystrokes don't fire a query per key.
+function useSearchCommands(query: string): Command[] {
+  const deferred = useDeferredValue(query.trim());
+  const result = useQuery({
+    queryKey: ["palette-search", deferred],
+    enabled: deferred.length >= 2,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/search", {
+        params: { query: { q: deferred, limit: 5 } },
+      });
+      if (error) {
+        // A palette search failure must degrade to the builtin commands,
+        // never break the palette itself — this is a deliberate fallback,
+        // not a swallowed error (the search screen still surfaces it).
+        return [];
+      }
+      return data.data;
+    },
+  });
+  return (result.data ?? [])
+    .filter((hit) => RECORD_KINDS.has(hit.type as EntityKind))
+    .map((hit) => ({
+      id: `record:${hit.type}:${hit.id}`,
+      label: hit.title ?? hit.id,
+      subtitle: hit.type,
+      type: "record" as const,
+      route: ENTITY[hit.type as EntityKind].route(hit.id),
+    }));
+}
+
 const TYPE_KEY: Record<Command["type"], MessageKey> = {
   screen: "palette.typeScreen",
   action: "palette.typeAction",
@@ -105,6 +149,19 @@ export function CommandPalette({
     );
   }, [commands, query]);
 
+  // RS-1: live record hits from /search, plus a "see all" row that lands
+  // on the full results screen. Row order: builtin matches, then records,
+  // then see-all, then the Ask-AI row last.
+  const records = useSearchCommands(query);
+  const seeAll: Command | null = query.trim()
+    ? {
+        id: "search:all",
+        label: t("palette.seeAll", { query: query.trim() }),
+        type: "action",
+        route: { screen: "search", id: encodeURIComponent(query.trim()) },
+      }
+    : null;
+
   // The run-as-NL row (AC-shell-4): appended last whenever there is a query.
   const askRow: Command | null = query.trim()
     ? {
@@ -114,7 +171,12 @@ export function CommandPalette({
         route: { screen: "ai" },
       }
     : null;
-  const rows = askRow ? [...filtered, askRow] : filtered;
+  const rows = [
+    ...filtered,
+    ...records,
+    ...(seeAll ? [seeAll] : []),
+    ...(askRow ? [askRow] : []),
+  ];
   const clamp = (index: number) =>
     Math.max(0, Math.min(index, rows.length - 1));
 

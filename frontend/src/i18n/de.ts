@@ -99,6 +99,7 @@ export const de = {
   "palette.typeScreen": "Ansicht",
   "palette.typeAction": "Aktion",
   "palette.typeRecord": "Datensatz",
+  "palette.seeAll": "Alle Ergebnisse für „{query}“ anzeigen",
   "action.newDeal": "Neuer Deal",
   "action.readCompany": "Firma einlesen",
   "action.booking": "Buchungsseite",
