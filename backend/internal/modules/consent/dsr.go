@@ -35,6 +35,7 @@ import (
 const (
 	fieldStatus     = "status"
 	fieldSubjectRef = "subject_ref"
+	fieldResolution = "resolution"
 )
 
 // illegalTransition is raised from both guards — the pre-erase check and the
@@ -232,7 +233,7 @@ func validateDSRUpdate(current dsrRow, in UpdateDSRInput) *ValidationError {
 	}
 	if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
 		!hasResolution(in.Resolution) && !hasResolution(current.Resolution) {
-		return &ValidationError{Field: "resolution", Reason: "closing a request needs its answer"}
+		return &ValidationError{Field: fieldResolution, Reason: "closing a request needs its answer"}
 	}
 	return nil
 }
@@ -281,7 +282,7 @@ func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (
 		_, err = storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
 			fieldStatus: current.Status,
 		}, map[string]any{
-			fieldStatus: out.Status, "resolution": in.Resolution != nil,
+			fieldStatus: out.Status, fieldResolution: in.Resolution != nil,
 		})
 		return err
 	})
@@ -364,7 +365,7 @@ func (s *Store) FulfilErasure(ctx context.Context, id ids.UUID, in UpdateDSRInpu
 		_, err = storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
 			fieldStatus: current.Status,
 		}, map[string]any{
-			fieldStatus: out.Status, "resolution": in.Resolution != nil,
+			fieldStatus: out.Status, fieldResolution: in.Resolution != nil,
 		})
 		return err
 	})
