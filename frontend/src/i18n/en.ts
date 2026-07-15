@@ -656,6 +656,20 @@ export const en = {
   "privacy.purposeCreate": "Create purpose",
   "privacy.purposeAppendOnly":
     "A purpose cannot be renamed or removed once created — the catalogue is append-only. Choose the key carefully.",
+  "privacy.facetAll": "All",
+  "privacy.overdue": "Overdue",
+  "privacy.closed":
+    "Closed — a closed request never reopens. A new concern is a new request.",
+  "privacy.assignee": "Assignee",
+  "privacy.assigneeUnassignable":
+    "Once set, an assignee cannot be cleared here.",
+  "privacy.resolution": "Resolution",
+  "privacy.resolutionRequired": "Closing a request needs its answer.",
+  "privacy.movedOn":
+    "This request moved on — someone else decided it first. Re-read below.",
+  "privacy.inProgress": "In progress",
+  "privacy.fulfil": "Fulfil",
+  "privacy.reject": "Reject",
 
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Configure pipelines and their stages (admin/ops).",

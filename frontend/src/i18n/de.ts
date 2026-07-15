@@ -668,6 +668,21 @@ export const de = {
   "privacy.purposeCreate": "Zweck anlegen",
   "privacy.purposeAppendOnly":
     "Ein Zweck kann nach dem Anlegen nicht umbenannt oder entfernt werden — der Katalog ist append-only. Wähle den Schlüssel sorgfältig.",
+  "privacy.facetAll": "Alle",
+  "privacy.overdue": "Überfällig",
+  "privacy.closed":
+    "Abgeschlossen — eine abgeschlossene Anfrage wird nie wieder geöffnet. Ein neues Anliegen ist eine neue Anfrage.",
+  "privacy.assignee": "Zuständig",
+  "privacy.assigneeUnassignable":
+    "Einmal gesetzt, kann die Zuständigkeit hier nicht entfernt werden.",
+  "privacy.resolution": "Ergebnis",
+  "privacy.resolutionRequired":
+    "Zum Abschließen einer Anfrage braucht es ihre Antwort.",
+  "privacy.movedOn":
+    "Diese Anfrage ist weitergezogen — jemand anders hat zuerst entschieden. Bitte unten neu lesen.",
+  "privacy.inProgress": "In Bearbeitung",
+  "privacy.fulfil": "Erfüllen",
+  "privacy.reject": "Ablehnen",
 
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub":

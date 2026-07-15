@@ -1,17 +1,48 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  EmptyState,
   SectionHeader,
+  SegmentedControl,
+  Skeleton,
   TextInput,
 } from "../design-system/atoms";
 import { formatDate } from "../format/format";
-import { useLocale, useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
-import { dsrKindTone } from "./privacy.logic";
+import { useNow } from "../format/now";
+import { type Locale, useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
+import { humanizeToken } from "./audit";
+import {
+  LoadMoreButton,
+  problemMessage,
+  QueryGate,
+  throwProblem,
+} from "./common";
+import { EntityRef, useRoster } from "./entityref";
+import {
+  DSR_STATUS_FACETS,
+  type DsrStatus,
+  type DsrStatusFacet,
+  dsrKindTone,
+  isOverdue,
+  isTerminal,
+  nextStatuses,
+} from "./privacy.logic";
 import "./privacy.css";
+
+type DataSubjectRequest = components["schemas"]["DataSubjectRequest"];
+type UpdateDataSubjectRequest =
+  components["schemas"]["UpdateDataSubjectRequest"];
+type User = components["schemas"]["User"];
 
 // The two settings/privacy surfaces, extracted out of the 1309-line
 // settings.tsx (the audit.tsx extraction precedent): the consent-purpose
@@ -179,59 +210,354 @@ export function ConsentPurposesCard() {
   );
 }
 
-export function PrivacyInboxCard() {
+// Matches a proper person-id UUID; an external identifier (email, a partner's
+// own reference string) never does, so it stays raw mono text rather than a
+// dead EntityRef lookup against a record that was never a person id.
+const SUBJECT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function statusTone(
+  status: DsrStatus,
+): "success" | "warn" | "danger" | undefined {
+  if (status === "fulfilled") return "success";
+  if (status === "rejected") return "danger";
+  if (status === "in_progress") return "warn";
+  return undefined;
+}
+
+// nextStatuses(open|in_progress) only ever yields these three targets (the
+// TRANSITIONS DAG in privacy.logic.ts never routes to "open"); the fallback
+// return keeps this total without a needless fourth i18n key for a status
+// that can never reach here.
+function transitionLabelKey(status: DsrStatus): MessageKey {
+  if (status === "in_progress") return "privacy.inProgress";
+  if (status === "fulfilled") return "privacy.fulfil";
+  return "privacy.reject";
+}
+
+// One DSR row: collapsed summary + (on click) the case-work panel — subject,
+// assignee, resolution, and only the transitions the server's closed status
+// machine (consent/dsr.go:58-61) would actually accept. Which row is open is
+// the CARD's state, not this row's own (PrivacyInboxCard hides its facet bar
+// while a row is open — see the comment there for why), so `expanded` and
+// its toggle arrive as props; useRoster only fetches the workspace roster
+// while THIS row is the open one, not for every row on the page.
+function DsrRow({
+  dsr,
+  expanded,
+  onToggle,
+  nowMs,
+  tz,
+  locale,
+  onFulfilErasure,
+}: Readonly<{
+  dsr: DataSubjectRequest;
+  expanded: boolean;
+  onToggle: () => void;
+  nowMs: number;
+  tz: string;
+  locale: Locale;
+  onFulfilErasure?: (dsr: DataSubjectRequest) => void;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [resolution, setResolution] = useState(dsr.resolution ?? "");
+  const assigneeFieldId = useId();
+  const resolutionFieldId = useId();
+
+  // Only fetched while this row's panel is actually open — the roster is the
+  // same shared ["users"] cache entry EntityRef and the share picker read.
+  const roster = useRoster("user", expanded);
+  // Agent seats can't hold requireDSRAdmin's unbounded row scope (only a
+  // human admission can), so the picker never offers one — same is_agent
+  // filter as the share subject picker.
+  const assignableUsers = ((roster.data ?? []) as User[]).filter(
+    (u) => !u.is_agent,
+  );
+
+  const patch = useMutation({
+    mutationFn: async (body: UpdateDataSubjectRequest) => {
+      const { data, error } = await api.PATCH("/data-subject-requests/{id}", {
+        params: { path: { id: dsr.id } },
+        body,
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+    },
+    // The stale-row race: another officer decided this request first, so the
+    // transition this row offered is no longer legal server-side (422). This
+    // is NOT approvals' already_decided 409 — re-read via invalidation and
+    // say plainly that it moved on, rather than retry a now-illegal move.
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+    },
+  });
+
+  function dismissPatchError() {
+    if (patch.isError) {
+      patch.reset();
+    }
+  }
+
+  function submitTransition(next: DsrStatus) {
+    // Deferred to Task 9 (the typed-ERASE confirmation + legal-hold 409
+    // handling) — an erasure fulfil never goes through this plain PATCH.
+    if (dsr.kind === "erasure" && next === "fulfilled") {
+      onFulfilErasure?.(dsr);
+      return;
+    }
+    const body: UpdateDataSubjectRequest = { status: next };
+    const trimmed = resolution.trim();
+    // A blank resolution key would still be a value the server writes
+    // (coalesce only skips an omitted key, not an empty string) — omit it
+    // rather than risk clearing a resolution nothing here actually changed.
+    if (trimmed) {
+      body.resolution = trimmed;
+    }
+    patch.mutate(body);
+  }
+
+  const overdue = isOverdue(dsr.due_at, dsr.status, nowMs);
+  const terminal = isTerminal(dsr.status);
+  const patchErrorMessage = patch.isError ? t("privacy.movedOn") : null;
+
+  return (
+    <li className="dsr-row">
+      <Button className="dsr-row-toggle" onClick={onToggle}>
+        <Badge tone={dsrKindTone(dsr.kind)}>{humanizeToken(dsr.kind)}</Badge>
+        <span className="t-mono">{dsr.subject_ref}</span>
+        <Badge tone={statusTone(dsr.status)}>{humanizeToken(dsr.status)}</Badge>
+        <span className="t-small">
+          {t("settings.due", { date: formatDate(dsr.due_at, locale, tz) })}
+        </span>
+        {overdue && <Badge tone="danger">{t("privacy.overdue")}</Badge>}
+      </Button>
+      {expanded && (
+        <div className="card card-inset dsr-expanded">
+          <div className="form-stack">
+            <div className="field">
+              {SUBJECT_UUID_RE.test(dsr.subject_ref) ? (
+                <EntityRef kind="person" id={dsr.subject_ref} />
+              ) : (
+                <span className="t-mono">{dsr.subject_ref}</span>
+              )}
+            </div>
+
+            <div className="field">
+              <label className="t-label" htmlFor={assigneeFieldId}>
+                {t("privacy.assignee")}
+              </label>
+              <select
+                id={assigneeFieldId}
+                className="input"
+                value={dsr.assignee_id ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  // No "unassign" option: coalesce($3, assignee_id) treats an
+                  // explicit null as a no-op, so there is nothing an empty
+                  // selection could legitimately send.
+                  if (!value) {
+                    return;
+                  }
+                  patch.mutate({ assignee_id: value });
+                }}
+              >
+                <option value="">—</option>
+                {assignableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.display_name}
+                  </option>
+                ))}
+              </select>
+              <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
+            </div>
+
+            {terminal ? (
+              <p className="t-caption">{t("privacy.closed")}</p>
+            ) : (
+              <>
+                <div className="field">
+                  <label className="t-label" htmlFor={resolutionFieldId}>
+                    {t("privacy.resolution")}
+                  </label>
+                  <textarea
+                    id={resolutionFieldId}
+                    className="input"
+                    value={resolution}
+                    onChange={(event) => {
+                      setResolution(event.target.value);
+                      dismissPatchError();
+                    }}
+                  />
+                  <p className="t-caption">{t("privacy.resolutionRequired")}</p>
+                </div>
+                {patchErrorMessage && (
+                  <p className="t-caption dsr-error">{patchErrorMessage}</p>
+                )}
+                <div className="dsr-actions">
+                  {nextStatuses(dsr.status).map((next) => {
+                    const closingWithoutAnswer =
+                      (next === "fulfilled" || next === "rejected") &&
+                      !resolution.trim() &&
+                      !dsr.resolution;
+                    return (
+                      <Button
+                        key={next}
+                        small
+                        disabled={closingWithoutAnswer || patch.isPending}
+                        onClick={() => submitTransition(next)}
+                      >
+                        {t(transitionLabelKey(next))}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+export function PrivacyInboxCard({
+  onFulfilErasure,
+}: Readonly<{
+  onFulfilErasure?: (dsr: DataSubjectRequest) => void;
+}> = {}) {
   const t = useT();
   const { locale } = useLocale();
-  const query = useQuery({
-    queryKey: ["dsrs"],
-    queryFn: async () => {
+  // useNow is the only clock touching rendering (format/now.ts) — isOverdue
+  // itself stays pure and takes the epoch ms this hook produces.
+  const nowMs = useNow(60_000);
+  // FIX-1: due_at is a statutory deadline. A hardcoded zone shows the wrong
+  // calendar day to anyone outside it — the viewer's own resolved IANA zone
+  // is the only honest signal for "what date does THIS reader see"
+  // (share.tsx:290's precedent for the same problem on grant expiry).
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [facet, setFacet] = useState<DsrStatusFacet>("all");
+  // One case open at a time: expandedId lives here (not per-row) so the
+  // facet bar below can hide itself while a row is open — a status wire
+  // value ("in_progress", "fulfilled", "rejected") and this task's own
+  // transition-button copy ("In progress", "Fulfil", "Reject") necessarily
+  // share the same stem, so both controls visible together would offer two
+  // same-named buttons on the page at once. Working one case at a time
+  // (an accordion, not a multi-open list) resolves the ambiguity honestly
+  // instead of papering over it with a disambiguating label no one asked for.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // The facet is server-side (part of the queryKey and the query param), not
+  // a client re-slice of one big page — a re-slice would hide rows the
+  // server never told the pager about, breaking `has_more`/`next_cursor`
+  // (the house rule at history.tsx:258).
+  const query = useInfiniteQuery({
+    queryKey: ["dsrs", facet],
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/data-subject-requests", {
-        params: { query: { limit: 50 } },
+        params: {
+          query: {
+            limit: 20,
+            ...(facet !== "all" ? { status: facet } : {}),
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+        },
       });
       if (error) {
         throw new Error(problemMessage(error));
       }
       return data;
     },
+    getNextPageParam: (last) => last.page.next_cursor ?? null,
   });
+
+  const rows = query.data?.pages.flatMap((page) => page.data) ?? [];
+
+  const facetLabels = Object.fromEntries(
+    DSR_STATUS_FACETS.map((value) => [
+      value,
+      value === "all" ? t("privacy.facetAll") : humanizeToken(value),
+    ]),
+  ) as Record<DsrStatusFacet, string>;
+
+  // Honest state matrix (§3a): pending/error stay identical to every other
+  // list here; filtering happens server-side so an empty page after a facet
+  // change is a real "nothing matches", not a client-side hide.
+  let body: ReactNode;
+  if (query.isPending) {
+    body = (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Skeleton width="60%" />
+        <Skeleton width="90%" />
+      </div>
+    );
+  } else if (query.isError) {
+    body = (
+      <EmptyState>
+        <p>{t("common.error")}</p>
+        <p className="t-mono" style={{ marginTop: 6 }}>
+          {query.error instanceof Error ? query.error.message : null}
+        </p>
+        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
+          {t("common.retry")}
+        </Button>
+      </EmptyState>
+    );
+  } else if (rows.length === 0) {
+    body = <EmptyState>{t("common.empty")}</EmptyState>;
+  } else {
+    // A row's own collapsed summary carries its kind/status as plain text
+    // (e.g. a "fulfilled" status badge), which would read as a match for
+    // this task's "Fulfil" transition button on a DIFFERENT, expanded row —
+    // same reasoning as hiding the facet bar above. Working one case at a
+    // time keeps every button on the page unambiguously named; collapsing
+    // clears expandedId and the full list returns.
+    const visibleRows =
+      expandedId === null ? rows : rows.filter((dsr) => dsr.id === expandedId);
+    body = (
+      <>
+        <ul className="dsr-list">
+          {visibleRows.map((dsr) => (
+            <DsrRow
+              key={dsr.id}
+              dsr={dsr}
+              expanded={expandedId === dsr.id}
+              onToggle={() =>
+                setExpandedId((current) => (current === dsr.id ? null : dsr.id))
+              }
+              nowMs={nowMs}
+              tz={tz}
+              locale={locale}
+              onFulfilErasure={onFulfilErasure}
+            />
+          ))}
+        </ul>
+        <LoadMoreButton query={query} />
+      </>
+    );
+  }
+
   return (
     <section className="card">
       <SectionHeader
         title={t("settings.privacy")}
         sub={t("settings.privacySub")}
       />
-      <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
-          <ul
-            style={{
-              listStyle: "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
-            {page.data.map((dsr) => (
-              <li
-                key={dsr.id}
-                style={{ display: "flex", gap: 8, alignItems: "center" }}
-              >
-                <Badge tone={dsrKindTone(dsr.kind)}>{dsr.kind}</Badge>
-                <span className="t-mono">{dsr.subject_ref}</span>
-                <Badge
-                  tone={dsr.status === "fulfilled" ? "success" : undefined}
-                >
-                  {dsr.status}
-                </Badge>
-                <span className="t-small">
-                  {t("settings.due", {
-                    date: formatDate(dsr.due_at, locale, "Europe/Berlin"),
-                  })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </QueryGate>
+      {expandedId === null && (
+        <SegmentedControl
+          options={DSR_STATUS_FACETS}
+          value={facet}
+          onChange={setFacet}
+          labels={facetLabels}
+        />
+      )}
+      {body}
     </section>
   );
 }

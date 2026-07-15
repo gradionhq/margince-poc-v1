@@ -19,3 +19,39 @@
   align-items: center;
   gap: 6px;
 }
+
+.dsr-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.dsr-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.dsr-row-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.dsr-expanded {
+  margin-top: 6px;
+}
+
+.dsr-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dsr-error {
+  color: var(--danger);
+}
