@@ -32,7 +32,8 @@ func wiredHandlers() connectorHandlers {
 		oauth:         gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}}),
 		gmailAPI:      gmail.NewAPI(nil, ""),
 		signer:        newStateSigner([]byte(testStateKey)),
-		publicBaseURL: "https://app.test",
+		publicBaseURL: "https://api.test",
+		appBaseURL:    "https://app.test",
 	}
 }
 
@@ -68,8 +69,8 @@ func TestConnectConnectorReturnsSignedAuthorizeURL(t *testing.T) {
 		t.Fatalf("authorize_url not a URL: %v", err)
 	}
 	// The redirect_uri points back at our callback, and the state must verify.
-	if got := u.Query().Get("redirect_uri"); got != "https://app.test/v1/connectors/gmail/callback" {
-		t.Errorf("redirect_uri = %q, want our callback", got)
+	if got := u.Query().Get("redirect_uri"); got != "https://api.test/v1/connectors/gmail/callback" {
+		t.Errorf("redirect_uri = %q, want the api callback", got)
 	}
 	st, err := h.signer.verify(u.Query().Get("state"), time.Now())
 	if err != nil {

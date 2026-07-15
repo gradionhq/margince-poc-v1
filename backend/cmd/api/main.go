@@ -65,6 +65,7 @@ type apiConfig struct {
 	logLevel          string
 	logFormat         string
 	publicBaseURL     string
+	appBaseURL        string
 	gmailClientID     string
 	gmailClientSecret string
 	connectorStateKey string
@@ -88,6 +89,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail OAuth callback")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
+	fs.StringVar(&cfg.appBaseURL, "app-base-url", os.Getenv("MARGINCE_APP_BASE_URL"), "SPA external base URL the OAuth callback redirects the browser to after consent; defaults to --public-base-url (same-origin deployments)")
 	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail connect flow")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
@@ -218,6 +220,7 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, 
 		ClientSecret:  cfg.gmailClientSecret,
 		StateKey:      cfg.connectorStateKey,
 		PublicBaseURL: cfg.publicBaseURL,
+		AppBaseURL:    cfg.appBaseURL,
 	}))
 	if cfg.gmailClientID != "" {
 		_, _ = fmt.Fprintln(stdout, "api gmail capture connector enabled (/connectors/gmail/*)")

@@ -47,6 +47,10 @@ type GmailConfig struct {
 	ClientSecret  string
 	StateKey      string
 	PublicBaseURL string
+	// AppBaseURL is the SPA origin the browser lands on after consent. Empty
+	// for a same-origin deployment (the landing then reuses PublicBaseURL); a
+	// split dev stack sets it to the frontend URL.
+	AppBaseURL string
 }
 
 // canSync reports whether the connector can be registered + polled (token
@@ -105,6 +109,7 @@ func WithGmailCapture(c GmailConfig) Option {
 			gmailAPI:      gmail.NewAPI(nil, ""),
 			signer:        newStateSigner([]byte(c.StateKey)),
 			publicBaseURL: c.PublicBaseURL,
+			appBaseURL:    c.AppBaseURL,
 		}
 	}
 }

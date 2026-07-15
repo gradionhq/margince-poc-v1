@@ -38,11 +38,17 @@ import (
 const connectStateTTL = 10 * time.Minute
 
 type connectorHandlers struct {
-	registry      *capture.Registry
-	oauth         gmail.OAuth
-	gmailAPI      gmail.API
-	signer        stateSigner
+	registry *capture.Registry
+	oauth    gmail.OAuth
+	gmailAPI gmail.API
+	signer   stateSigner
+	// publicBaseURL is the api's own external base — the origin the provider
+	// redirects back to (the callback redirect_uri must resolve here).
 	publicBaseURL string
+	// appBaseURL is the SPA's external base — where the browser lands after the
+	// callback. Same-origin deployments leave it empty (falls back to
+	// publicBaseURL); a split dev stack (api :8080, SPA :5173) sets it.
+	appBaseURL string
 }
 
 // wired reports whether the Gmail OAuth app is composed for this role.
@@ -53,7 +59,11 @@ func (h connectorHandlers) callbackURL() string {
 }
 
 func (h connectorHandlers) landingURL(outcome string) string {
-	return strings.TrimRight(h.publicBaseURL, "/") + "/activation?connect=" + outcome
+	base := h.appBaseURL
+	if base == "" {
+		base = h.publicBaseURL
+	}
+	return strings.TrimRight(base, "/") + "/activation?connect=" + outcome
 }
 
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {

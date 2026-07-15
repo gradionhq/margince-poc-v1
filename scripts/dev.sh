@@ -159,7 +159,10 @@ up)
       --gmail-client-id "$MARGINCE_GMAIL_CLIENT_ID"
       --gmail-client-secret "$MARGINCE_GMAIL_CLIENT_SECRET"
       --connector-state-key "$gmail_state_key"
+      # The callback redirect_uri resolves at the api (:api_port); the browser
+      # lands on the SPA (:fe_port) afterwards.
       --public-base-url "http://localhost:${api_port}"
+      --app-base-url "http://localhost:${fe_port}"
     )
     echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
   fi
