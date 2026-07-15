@@ -330,6 +330,15 @@ describe("PrivacyInboxCard", () => {
     expect(
       within(row).queryByRole("button", { name: /in progress/i }),
     ).not.toBeInTheDocument();
+    // "in progress" alone would still pass if this row offered Fulfil or
+    // Reject — nextStatuses(open|in_progress) is the DAG under test here,
+    // so pin all three targets it could have offered, not just one of them.
+    expect(
+      within(row).queryByRole("button", { name: /^fulfil$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByRole("button", { name: /^reject$/i }),
+    ).not.toBeInTheDocument();
     expect(within(row).getByText(/closed/i)).toBeInTheDocument();
   });
 
@@ -349,10 +358,18 @@ describe("PrivacyInboxCard", () => {
   });
 
   it("flags an overdue request against the injected clock", async () => {
+    // Both fixture rows are before "now"; d2 (anna@acme.test) is fulfilled
+    // and isTerminal short-circuits isOverdue regardless of its due date, so
+    // a bare page-wide query could pass even if this pinned it to the wrong
+    // row (or to none, if it matched the facet bar instead). Scope to the
+    // one row this clock genuinely makes overdue: d1, still open.
     vi.setSystemTime(new Date("2026-08-02T00:00:00Z"));
     stubRoutes();
     render(<PrivacyInboxCard />);
-    expect(await screen.findByText(/overdue/i)).toBeInTheDocument();
+    const row = await findDsrRow("8f3a-person-uuid");
+    expect(within(row).getByText(/overdue/i)).toBeInTheDocument();
+    const closedRow = await findDsrRow("anna@acme.test");
+    expect(within(closedRow).queryByText(/overdue/i)).not.toBeInTheDocument();
   });
 
   // The stale-row race: another admin moved it first, so our offered
@@ -476,6 +493,51 @@ describe("PrivacyInboxCard", () => {
       (s) => s.key === "PATCH /data-subject-requests/d1",
     );
     expect(patches[0]?.body).toEqual({ assignee_id: "u1" });
+  });
+
+  // The assignee select and the row's own status-transition buttons share
+  // one `patch` mutation, so a failed assignment must be exactly as visible
+  // as a failed transition — this pins that it is, using the assignee path
+  // specifically (not the transition path other tests already cover).
+  it("renders an honest error when an assignee PATCH fails", async () => {
+    stubRoutes({
+      "GET /users": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "u1",
+              workspace_id: "w",
+              email: "dpo@acme.test",
+              display_name: "Dana DPO",
+              status: "active",
+              is_agent: false,
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "PATCH /data-subject-requests/d1": () =>
+        jsonResponse(
+          {
+            title: "Forbidden",
+            detail: "assigning this request is outside your role",
+            status: 403,
+            code: "permission_denied",
+          },
+          403,
+        ),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    const picker = await screen.findByLabelText(/assignee/i);
+    await userEvent.selectOptions(picker, "u1");
+    const row = await findDsrRow("8f3a-person-uuid");
+    expect(
+      await within(row).findByText(
+        /assigning this request is outside your role/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("renders a scoped rep's 403 honestly", async () => {
@@ -774,6 +836,56 @@ describe("fulfilling an erasure", () => {
     );
     expect(await screen.findByText(/legal hold/i)).toBeInTheDocument();
     expect(screen.getByText(/no override/i)).toBeInTheDocument();
+  });
+
+  // Unlike the legal hold above, a stale-transition 422 is not a lawful
+  // refusal of THIS confirm — it means someone else already decided the
+  // request, so retrying the same confirm could only 422 again. The modal
+  // must disarm itself and the row list behind it must re-read, exactly
+  // like DsrRow's own plain PATCH already does for this same race.
+  it("disarms the confirm and re-reads when the fulfil moved on underneath us", async () => {
+    const sent = stubRoutes({
+      "PATCH /data-subject-requests/d1": () =>
+        jsonResponse(
+          {
+            title: "Unprocessable Entity",
+            detail: "open → fulfilled is not a legal transition",
+            status: 422,
+            code: "validation_error",
+            details: {
+              errors: [
+                {
+                  field: "status",
+                  code: "invalid",
+                  message: "open → fulfilled is not a legal transition",
+                },
+              ],
+            },
+          },
+          422,
+        ),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    await userEvent.type(screen.getByLabelText(/resolution/i), "verified");
+    const row = await findDsrRow("8f3a-person-uuid");
+    await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
+    await userEvent.type(screen.getByLabelText(/type erase/i), "ERASE");
+    const confirm = screen.getByRole("button", { name: /erase \+ suppress/i });
+    await userEvent.click(confirm);
+
+    expect(await screen.findByText(/moved on/i)).toBeInTheDocument();
+    expect(confirm).toBeDisabled();
+    // The refusal must trigger the same re-read as the row's own plain
+    // PATCH race — a second GET beyond the initial page load — so the row
+    // behind this modal reflects what actually happened server-side.
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "GET /data-subject-requests").length,
+      ).toBeGreaterThan(1),
+    );
   });
 
   // The confirm modal's own mutation, distinct from the row's plain PATCH

@@ -267,6 +267,7 @@ export const de = {
   "common.error": "Konnten diese Ansicht nicht laden.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
+  "common.saving": "Wird gespeichert…",
 
   "list.search": "Suchen",
   "list.sort": "Sortieren",

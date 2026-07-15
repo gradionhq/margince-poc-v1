@@ -261,6 +261,7 @@ export const en = {
   "common.error": "Couldn't load this view.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
+  "common.saving": "Saving…",
 
   "list.search": "Search",
   "list.sort": "Sort",

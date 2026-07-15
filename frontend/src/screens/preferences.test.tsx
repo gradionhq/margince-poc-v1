@@ -65,7 +65,10 @@ type Sent = { key: string; url: string; body: unknown };
 // consent.test.tsx's stubRoutes, with this surface's defaults: an anonymous
 // GET/PUT against tok-123 rather than a session-authed person id.
 function stubCenter(
-  overrides: Record<string, () => Response> = {},
+  // A response factory may itself be a pending promise — the
+  // save-in-flight test below needs to control exactly when the PUT
+  // resolves, to observe the "pending" state before it settles.
+  overrides: Record<string, () => Response | Promise<Response>> = {},
   sent: Sent[] = [],
 ) {
   vi.stubGlobal(
@@ -263,6 +266,43 @@ describe("PreferenceCenterScreen", () => {
   it("early-returns honestly with no token", () => {
     render(<PreferenceCenterScreen />);
     expect(screen.getByText(/link is no longer valid/i)).toBeInTheDocument();
+  });
+
+  // The PUT is non-atomic (handlers_public.go loops choices in separate
+  // transactions), so a second write firing while the first is still in
+  // flight could interleave with it, or land against a draft the response is
+  // about to reseed out from under. Freezing every control is what rules
+  // that out — pin it against a PUT this test controls the resolution of,
+  // not a same-tick fake that would make "while pending" unobservable.
+  it("freezes every control while a save is in flight", async () => {
+    let resolvePut: (value: Response) => void = () => {};
+    const putPromise = new Promise<Response>((resolve) => {
+      resolvePut = resolve;
+    });
+    stubCenter({ "PUT /public/preferences/tok-123": () => putPromise });
+    render(<PreferenceCenterScreen token="tok-123" />);
+    await userEvent.click(
+      await screen.findByRole("switch", { name: /product updates/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /save preferences/i }),
+    );
+
+    expect(
+      screen.getByRole("switch", { name: /product updates/i }),
+    ).toBeDisabled();
+    expect(screen.getByRole("switch", { name: /^events$/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /save preferences/i }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /discard/i })).toBeDisabled();
+
+    resolvePut(jsonResponse(CENTER));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: /product updates/i }),
+      ).toBeEnabled(),
+    );
   });
 });
 

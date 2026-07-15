@@ -272,6 +272,16 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   }
 
   const dirty = dirtyKeys(purposes, draft);
+  // Every write against this token is serialized through one flag: the PUT
+  // is non-atomic (handlers_public.go loops choices in separate
+  // transactions), so a second write firing while the first is still in
+  // flight — or while the post-save refetch this file's onError triggers is
+  // still reconciling the cache — could interleave with it or land against
+  // a draft the first response is about to reseed out from under. Freezing
+  // every control here is cheaper and more honest than trying to merge two
+  // in-flight edits.
+  const writePending =
+    save.isPending || unsubscribeAll.isPending || center.isFetching;
 
   return (
     <div className="pref-page">
@@ -293,6 +303,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
               on={draft[purpose.key] ?? displayOn(purpose.state)}
               wording={wordingByKey[purpose.key]}
               t={t}
+              disabled={writePending}
               onToggle={() =>
                 setDraft((prev) =>
                   prev ? { ...prev, [purpose.key]: !prev[purpose.key] } : prev,
@@ -305,7 +316,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
         <div className="card card-inset pref-unsub">
           <p className="t-caption">{t("prefs.unsubscribeAllHint")}</p>
           <Button
-            disabled={unsubscribeAll.isPending}
+            disabled={writePending}
             onClick={() => unsubscribeAll.mutate()}
           >
             {t("prefs.unsubscribeAll")}
@@ -328,7 +339,9 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
               (undoStaged ? (
                 <p className="t-caption">{t("prefs.undoExplicit")}</p>
               ) : (
-                <Button onClick={undoUnsubscribe}>{t("prefs.undo")}</Button>
+                <Button disabled={writePending} onClick={undoUnsubscribe}>
+                  {t("prefs.undo")}
+                </Button>
               ))}
           </div>
         )}
@@ -356,6 +369,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
             <p className="t-caption">{t("prefs.saveProof")}</p>
             <div className="pref-save-actions">
               <Button
+                disabled={writePending}
                 onClick={() => {
                   setDraft(initialDraft(purposes));
                   setPartialSave(false);
@@ -365,7 +379,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
               </Button>
               <Button
                 variant="primary"
-                disabled={save.isPending}
+                disabled={writePending}
                 onClick={() => save.mutate()}
               >
                 {t("prefs.save")}
@@ -384,12 +398,17 @@ function PreferenceRow({
   wording,
   t,
   onToggle,
+  disabled,
 }: Readonly<{
   purpose: PurposeView;
   on: boolean;
   wording: string;
   t: ReturnType<typeof useT>;
   onToggle: () => void;
+  // True while a write this row's toggle could race with is in flight — a
+  // locked purpose is already disabled for its own reason, so the two
+  // conditions just combine below rather than this prop overriding that one.
+  disabled: boolean;
 }>) {
   return (
     <li className="pref-row">
@@ -416,7 +435,7 @@ function PreferenceRow({
         role="switch"
         aria-checked={on}
         aria-label={purpose.label}
-        disabled={purpose.locked}
+        disabled={purpose.locked || disabled}
         className={`pref-toggle${on ? " on" : ""}`}
         onClick={onToggle}
       >

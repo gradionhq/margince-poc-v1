@@ -475,6 +475,7 @@ function DsrRow({
   const [resolution, setResolution] = useState(dsr.resolution ?? "");
   const assigneeFieldId = useId();
   const resolutionFieldId = useId();
+  const panelId = useId();
 
   // Only fetched while this row's panel is actually open — the roster is the
   // same shared ["users"] cache entry EntityRef and the share picker read.
@@ -558,7 +559,12 @@ function DsrRow({
 
   return (
     <li className="dsr-row">
-      <Button className="dsr-row-toggle" onClick={onToggle}>
+      <Button
+        className="dsr-row-toggle"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={panelId}
+      >
         <Badge tone={dsrKindTone(dsr.kind)}>{humanizeToken(dsr.kind)}</Badge>
         <span className="t-mono">{dsr.subject_ref}</span>
         <Badge tone={statusTone(dsr.status)}>{humanizeToken(dsr.status)}</Badge>
@@ -568,7 +574,7 @@ function DsrRow({
         {overdue && <Badge tone="danger">{t("privacy.overdue")}</Badge>}
       </Button>
       {expanded && (
-        <div className="card card-inset dsr-expanded">
+        <div id={panelId} className="card card-inset dsr-expanded">
           <div className="form-stack">
             <div className="field">
               {SUBJECT_UUID_RE.test(dsr.subject_ref) ? (
@@ -586,6 +592,7 @@ function DsrRow({
                 id={assigneeFieldId}
                 className="input"
                 value={dsr.assignee_id ?? ""}
+                disabled={patch.isPending}
                 onChange={(event) => {
                   const value = event.target.value;
                   // No "unassign" option: coalesce($3, assignee_id) treats an
@@ -605,7 +612,20 @@ function DsrRow({
                 ))}
               </select>
               <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
+              {patch.isPending && (
+                <p className="t-caption">{t("common.saving")}</p>
+              )}
             </div>
+
+            {/* The assignee select above and the transition buttons below
+                share this one `patch` mutation, and either can fail — a
+                closed request still offers reassignment, so this must render
+                regardless of `terminal`, not only inside the open-case
+                branch below (an assignment failure on a closed request would
+                otherwise be invisible). */}
+            {patchErrorMessage && (
+              <p className="t-caption dsr-error">{patchErrorMessage}</p>
+            )}
 
             {terminal ? (
               <p className="t-caption">{t("privacy.closed")}</p>
@@ -626,9 +646,6 @@ function DsrRow({
                   />
                   <p className="t-caption">{t("privacy.resolutionRequired")}</p>
                 </div>
-                {patchErrorMessage && (
-                  <p className="t-caption dsr-error">{patchErrorMessage}</p>
-                )}
                 <div className="dsr-actions">
                   {nextStatuses(dsr.status).map((next) => {
                     const closingWithoutAnswer =
@@ -717,6 +734,18 @@ function FulfilErasureModal({
       setTyped("");
       onClose();
     },
+    // The same stale-row race DsrRow's own plain PATCH already handles: some
+    // other officer (or this same operator, from another tab) decided this
+    // request first, so the fulfil this modal was staged against is no
+    // longer legal server-side. Re-read the queue so the row behind this
+    // modal reflects what actually happened — retrying the confirm here
+    // could only 422 again the same way.
+    onError: (error) => {
+      const errProblem = error instanceof ProblemError ? error.problem : null;
+      if (errProblem && isIllegalTransition(errProblem)) {
+        queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+      }
+    },
   });
 
   function close() {
@@ -728,11 +757,13 @@ function FulfilErasureModal({
   const problem =
     patch.error instanceof ProblemError ? patch.error.problem : null;
   const held = problem !== null && isLegalHold(problem);
-  // A legal hold gets its own bordered panel below, never ConfirmModal's
-  // generic inline-error slot — that slot is what a validation mistake looks
-  // like, and this is neither a mistake nor something a retry can fix.
+  const movedOn = problem !== null && isIllegalTransition(problem);
+  // A legal hold and a stale transition each get their own explanation
+  // ahead of the generic fallback — neither is a mistake a retry could fix,
+  // so ConfirmModal's generic inline-error slot (built for a validation
+  // mistake) is reserved for everything else.
   const errorMessage =
-    patch.isError && !held ? honestMessage(patch.error) : null;
+    patch.isError && !held && !movedOn ? honestMessage(patch.error) : null;
 
   return (
     <ConfirmModal
@@ -741,10 +772,13 @@ function FulfilErasureModal({
       title={t("privacy.fulfilErasureTitle")}
       confirmLabel={t("privacy.erasureConfirm")}
       confirmVariant="danger"
-      // Once the server has reported the hold, retrying can only fail the
-      // same way again — the hold can't be lifted from this screen, so the
-      // confirm stays disabled until the operator closes the modal.
-      confirmDisabled={typed.trim().toUpperCase() !== "ERASE" || held}
+      // Once the server has reported the hold OR that the request moved on,
+      // retrying can only fail the same way again — neither can be resolved
+      // from this modal, so the confirm stays disabled until the operator
+      // closes it and re-opens against the request's current state.
+      confirmDisabled={
+        typed.trim().toUpperCase() !== "ERASE" || held || movedOn
+      }
       onConfirm={() => dsr && patch.mutate()}
       pending={patch.isPending}
       error={errorMessage}
@@ -763,6 +797,11 @@ function FulfilErasureModal({
       {held && (
         <div className="dsr-legal-hold" role="alert">
           <p>{t("privacy.legalHold")}</p>
+        </div>
+      )}
+      {movedOn && (
+        <div className="dsr-legal-hold" role="alert">
+          <p>{t("privacy.movedOn")}</p>
         </div>
       )}
     </ConfirmModal>
