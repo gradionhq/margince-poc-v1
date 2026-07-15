@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
+  fireEvent,
   render as rtlRender,
   screen,
   waitFor,
@@ -545,6 +546,115 @@ describe("opening a DSR (G-2)", () => {
       screen.getByRole("button", { name: /open request/i }),
     ).toBeDisabled();
   });
+
+  // The load-bearing property (BE-2): the erasure fulfiller resolves
+  // subject_ref to a person id, so an erasure request must be incapable of
+  // naming a subject the server cannot erase. The form only enforces this by
+  // construction (RecordPicker, no text input) — this proves the picked
+  // person's uuid, not its display name, is what actually reaches the wire.
+  it("sends the picked person's uuid as subject_ref for an erasure request", async () => {
+    const sent = stubRoutes({
+      "GET /people": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              full_name: "Anna Weber",
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "POST /data-subject-requests": () =>
+        jsonResponse(
+          {
+            id: "d3",
+            kind: "erasure",
+            subject_ref: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            status: "open",
+            due_at: "2026-08-01T00:00:00.000Z",
+            created_at: "2026-07-15T00:00:00Z",
+          },
+          201,
+        ),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "erasure");
+    await userEvent.type(screen.getByLabelText(/person/i), "anna");
+    await userEvent.click(await screen.findByText("Anna Weber"));
+    // type="date" only accepts a programmatic value change in jsdom (same
+    // limitation tasks.test.tsx works around for its own due-date field).
+    fireEvent.change(screen.getByLabelText(/due/i), {
+      target: { value: "2026-08-01" },
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /open request/i }),
+    );
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "POST /data-subject-requests"),
+      ).toHaveLength(1),
+    );
+    const posts = sent.filter((s) => s.key === "POST /data-subject-requests");
+    // toEqual, not objectContaining: proves subject_ref is the picked uuid —
+    // never "Anna Weber" — and that no stray field (e.g. an assignee_id) rode
+    // along. due_at: new Date("2026-08-01").toISOString() — an ISO date-only
+    // string parses as UTC midnight, so this is genuinely a date-time, not a
+    // bare date, matching the contract's `format: date-time`.
+    expect(posts[0]?.body).toEqual({
+      kind: "erasure",
+      subject_ref: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      due_at: "2026-08-01T00:00:00.000Z",
+    });
+  });
+
+  // The sibling of the test above: access/rectify keep the free-text field,
+  // so this pins that the two kinds genuinely diverge on the wire rather
+  // than a stray shared code path silently reusing the person picker's value.
+  it("sends the typed free text as subject_ref for an access request", async () => {
+    const sent = stubRoutes({
+      "POST /data-subject-requests": () =>
+        jsonResponse(
+          {
+            id: "d4",
+            kind: "access",
+            subject_ref: "anna@acme.test",
+            status: "open",
+            due_at: "2026-08-01T00:00:00.000Z",
+            created_at: "2026-07-15T00:00:00Z",
+          },
+          201,
+        ),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /new request/i }),
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/kind/i), "access");
+    await userEvent.type(
+      screen.getByLabelText(/subject reference/i),
+      "anna@acme.test",
+    );
+    fireEvent.change(screen.getByLabelText(/due/i), {
+      target: { value: "2026-08-01" },
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /open request/i }),
+    );
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "POST /data-subject-requests"),
+      ).toHaveLength(1),
+    );
+    const posts = sent.filter((s) => s.key === "POST /data-subject-requests");
+    expect(posts[0]?.body).toEqual({
+      kind: "access",
+      subject_ref: "anna@acme.test",
+      due_at: "2026-08-01T00:00:00.000Z",
+    });
+  });
 });
 
 describe("fulfilling an erasure", () => {
@@ -601,5 +711,37 @@ describe("fulfilling an erasure", () => {
     );
     expect(await screen.findByText(/legal hold/i)).toBeInTheDocument();
     expect(screen.getByText(/no override/i)).toBeInTheDocument();
+  });
+
+  // The confirm modal's own mutation, distinct from the row's plain PATCH
+  // above (submitTransition never reaches it for an erasure fulfil): proves
+  // the wire body is exactly {status: "fulfilled"} — no assignee_id, no
+  // resolution, nothing the typed-ERASE gate implies but the request never
+  // actually carries.
+  it("sends exactly {status: fulfilled} on the erasure fulfil PATCH", async () => {
+    const sent = stubRoutes({
+      "PATCH /data-subject-requests/d1": () =>
+        jsonResponse({ ...DSRS.data[0], status: "fulfilled" }),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    await userEvent.type(screen.getByLabelText(/resolution/i), "verified");
+    const row = await findDsrRow("8f3a-person-uuid");
+    await userEvent.click(within(row).getByRole("button", { name: /fulfil/i }));
+    await userEvent.type(screen.getByLabelText(/type erase/i), "ERASE");
+    await userEvent.click(
+      screen.getByRole("button", { name: /erase \+ suppress/i }),
+    );
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "PATCH /data-subject-requests/d1"),
+      ).toHaveLength(1),
+    );
+    const patches = sent.filter(
+      (s) => s.key === "PATCH /data-subject-requests/d1",
+    );
+    expect(patches[0]?.body).toEqual({ status: "fulfilled" });
   });
 });
