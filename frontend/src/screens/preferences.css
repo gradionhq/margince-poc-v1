@@ -16,6 +16,10 @@
   max-width: 720px;
 }
 
+.pref-header p {
+  margin-top: 10px;
+}
+
 .pref-list {
   list-style: none;
   margin: 20px 0 0;

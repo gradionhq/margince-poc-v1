@@ -256,7 +256,7 @@ export const en = {
   "people.name": "Name",
   "people.email": "Email",
   "people.capturedBy": "Captured by",
-  "person.consent": "Consent by purpose",
+  "person.consent": "Consent",
   "consent.grant": "Grant",
   "consent.withdraw": "Withdraw",
   "consent.doubleOptIn": "Issue double opt-in",

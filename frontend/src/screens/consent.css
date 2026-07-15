@@ -23,12 +23,19 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+/* The token field gets its own line below the actions row (the .field label-
+ * above-input idiom create.tsx/privacy.tsx use) rather than sitting inline
+ * among the buttons, where its label pushed the row off the buttons' shared
+ * baseline. Capped width — a one-time token has no reason to stretch full row. */
 .consent-token-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  margin-top: 8px;
+  max-width: 320px;
 }
-.consent-token-field label {
-  font-size: 12px;
-  color: var(--textMeta);
+
+/* Indent + the card-inset elevation dsr-expanded uses elsewhere: without it
+ * the expanded proof log reads as a sibling of the NEXT purpose row rather
+ * than belonging to the one whose button opened it. */
+.consent-proof-log {
+  margin-top: 8px;
+  margin-left: 4px;
 }

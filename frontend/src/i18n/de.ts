@@ -261,7 +261,7 @@ export const de = {
   "people.name": "Name",
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",
-  "person.consent": "Einwilligung pro Zweck",
+  "person.consent": "Einwilligung",
   "consent.grant": "Erteilen",
   "consent.withdraw": "Widerrufen",
   "consent.doubleOptIn": "Double-Opt-in anfordern",

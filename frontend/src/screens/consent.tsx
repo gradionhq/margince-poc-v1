@@ -89,26 +89,30 @@ function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
     b.occurred_at.localeCompare(a.occurred_at),
   );
   return (
-    <ul className="timeline">
-      {ordered.map((event) => (
-        <li key={event.id}>
-          <span className="tl-body">
-            <span className="tl-title">
-              <Badge tone={event.new_state === "granted" ? "success" : "warn"}>
-                {humanizeToken(event.new_state)}
-              </Badge>{" "}
-              {event.source ?? t("consent.sourceUnknown")}
-            </span>
-            <span className="tl-meta">
-              <ProvenanceTag provenance={eventProvenance(event)} />
-              <span>
-                {formatDateTime(event.occurred_at, locale, viewerZone)}
+    <div className="card card-inset consent-proof-log">
+      <ul className="timeline">
+        {ordered.map((event) => (
+          <li key={event.id}>
+            <span className="tl-body">
+              <span className="tl-title">
+                <Badge
+                  tone={event.new_state === "granted" ? "success" : "warn"}
+                >
+                  {humanizeToken(event.new_state)}
+                </Badge>{" "}
+                {event.source ?? t("consent.sourceUnknown")}
+              </span>
+              <span className="tl-meta">
+                <ProvenanceTag provenance={eventProvenance(event)} />
+                <span>
+                  {formatDateTime(event.occurred_at, locale, viewerZone)}
+                </span>
               </span>
             </span>
-          </span>
-        </li>
-      ))}
-    </ul>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -230,31 +234,31 @@ function ConsentRow({
           {granted ? t("consent.withdraw") : t("consent.grant")}
         </Button>
         {requiresDoi && (
-          <>
-            <div className="consent-token-field">
-              <label htmlFor={`doi-token-${entry.purpose_id}`}>
-                {t("consent.tokenLabel")}
-              </label>
-              <TextInput
-                id={`doi-token-${entry.purpose_id}`}
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-              />
-            </div>
-            <Button
-              small
-              disabled={issueDoi.isPending}
-              onClick={() => issueDoi.mutate()}
-            >
-              {t("consent.doubleOptIn")}
-            </Button>
-          </>
+          <Button
+            small
+            disabled={issueDoi.isPending}
+            onClick={() => issueDoi.mutate()}
+          >
+            {t("consent.doubleOptIn")}
+          </Button>
         )}
         <Button small onClick={() => setShowLog((value) => !value)}>
           {t("consent.proofLog")}
         </Button>
       </div>
-      {requiresDoi && <p className="t-caption">{t("consent.tokenHint")}</p>}
+      {requiresDoi && (
+        <div className="field consent-token-field">
+          <label className="t-label" htmlFor={`doi-token-${entry.purpose_id}`}>
+            {t("consent.tokenLabel")}
+          </label>
+          <TextInput
+            id={`doi-token-${entry.purpose_id}`}
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+          />
+          <p className="t-caption">{t("consent.tokenHint")}</p>
+        </div>
+      )}
       {setState.isError && <MutationError error={setState.error} />}
       {issueDoi.isError && <MutationError error={issueDoi.error} />}
       {issueDoi.data && (

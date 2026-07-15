@@ -59,3 +59,24 @@
 .dsr-form {
   margin-top: 10px;
 }
+
+/* The typed-ERASE field, one gap-step below the modal's lead paragraph —
+ * every other labelled field in the app opens with this much breathing room. */
+.dsr-erase-field {
+  margin-top: 12px;
+}
+
+/* A legal hold is a documented, lawful refusal (Art. 17(3)(b)), not a mistake
+ * the operator made — its own bordered/tinted panel, distinct from
+ * ConfirmModal's plain inline-error text (the .cf-refuse idiom in
+ * customfields.css is the same "this isn't a form error" treatment). */
+.dsr-legal-hold {
+  margin-top: 12px;
+  background: var(--dangerBg);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 13px 15px;
+  font-size: 12.5px;
+  color: var(--textContent);
+  line-height: 1.5;
+}

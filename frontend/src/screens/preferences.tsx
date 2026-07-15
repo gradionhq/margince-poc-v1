@@ -2,12 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import {
-  Button,
-  EmptyState,
-  SectionHeader,
-  Skeleton,
-} from "../design-system/atoms";
+import { Button, EmptyState, Skeleton } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
@@ -262,7 +257,15 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   return (
     <div className="pref-page">
       <div className="pref-center">
-        <SectionHeader title={t("prefs.title")} sub={t("prefs.sub")} />
+        {/* A standalone public page, not app chrome — SectionHeader's fixed
+            narrow title column is built for a card header sharing a row with
+            a button, and wraps this page's longer headline badly. The
+            headline is this page's primary voice, so it stacks full-width
+            above the subtitle instead, at its own (larger) size. */}
+        <div className="pref-header">
+          <h1 className="t-display">{t("prefs.title")}</h1>
+          <p className="t-sub">{t("prefs.sub")}</p>
+        </div>
         <ul className="pref-list">
           {purposes.map((purpose) => (
             <PreferenceRow

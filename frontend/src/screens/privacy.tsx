@@ -706,11 +706,11 @@ function FulfilErasureModal({
   const problem =
     patch.error instanceof ProblemError ? patch.error.problem : null;
   const held = problem !== null && isLegalHold(problem);
-  const errorMessage = !patch.isError
-    ? null
-    : held
-      ? t("privacy.legalHold")
-      : honestMessage(patch.error);
+  // A legal hold gets its own bordered panel below, never ConfirmModal's
+  // generic inline-error slot — that slot is what a validation mistake looks
+  // like, and this is neither a mistake nor something a retry can fix.
+  const errorMessage =
+    patch.isError && !held ? honestMessage(patch.error) : null;
 
   return (
     <ConfirmModal
@@ -719,13 +719,16 @@ function FulfilErasureModal({
       title={t("privacy.fulfilErasureTitle")}
       confirmLabel={t("privacy.erasureConfirm")}
       confirmVariant="danger"
-      confirmDisabled={typed.trim().toUpperCase() !== "ERASE"}
+      // Once the server has reported the hold, retrying can only fail the
+      // same way again — the hold can't be lifted from this screen, so the
+      // confirm stays disabled until the operator closes the modal.
+      confirmDisabled={typed.trim().toUpperCase() !== "ERASE" || held}
       onConfirm={() => dsr && patch.mutate()}
       pending={patch.isPending}
       error={errorMessage}
     >
       <p>{t("privacy.erasureIrreversible")}</p>
-      <div className="field">
+      <div className="field dsr-erase-field">
         <label className="t-label" htmlFor="dsr-type-erase">
           {t("privacy.typeErase")}
         </label>
@@ -735,6 +738,11 @@ function FulfilErasureModal({
           onChange={(event) => setTyped(event.target.value)}
         />
       </div>
+      {held && (
+        <div className="dsr-legal-hold" role="alert">
+          <p>{t("privacy.legalHold")}</p>
+        </div>
+      )}
     </ConfirmModal>
   );
 }
