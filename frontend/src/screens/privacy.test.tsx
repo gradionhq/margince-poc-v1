@@ -569,16 +569,21 @@ describe("fulfilling an erasure", () => {
   });
 
   // gobd.html: retention wins for the statutory window (Art. 17(3)(b)). The
-  // 409 is not a generic error — it is a documented, explicit outcome.
+  // 409 is not a generic error — it is a documented, explicit outcome. The
+  // stub mirrors the real wire shape (erasure.go's fmt.Errorf-wrapped
+  // ErrConflict, mapped by httperr.go's fixed sentinel table): no
+  // retain_until — the legal-hold check is a bare boolean column, never a
+  // retention-window timestamp — so the fixture must not invent one.
   it("renders a legal hold as a blocked state, not a red toast", async () => {
     stubRoutes({
       "PATCH /data-subject-requests/d1": () =>
         jsonResponse(
           {
-            title: "person is under legal hold",
+            type: "https://errors.gradion.com/conflict",
+            title: "Conflict",
             status: 409,
             code: "conflict",
-            retain_until: "2036-12-31",
+            detail: "erasing a person under legal hold: conflict",
           },
           409,
         ),

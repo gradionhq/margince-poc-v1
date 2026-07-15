@@ -687,7 +687,6 @@ export const en = {
   "privacy.erasureConfirm": "Erase + suppress",
   "privacy.legalHold":
     "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
-  "privacy.retainUntil": "Retained until {date}",
 
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Configure pipelines and their stages (admin/ops).",

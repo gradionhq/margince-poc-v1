@@ -656,30 +656,6 @@ function isLegalHold(problem: unknown): boolean {
   return (problem as Record<string, unknown>).code === "conflict";
 }
 
-// retain_until is not yet on the real conflict body (the erasure engine's
-// legal-hold check is a bare boolean column today, not a retention-window
-// timestamp) — this reads it defensively so the blocked state still renders
-// honestly once the server starts sending one, instead of assuming a field
-// that may be absent.
-function retainUntilOf(problem: unknown): string | null {
-  if (!problem || typeof problem !== "object") return null;
-  const value = (problem as Record<string, unknown>).retain_until;
-  return typeof value === "string" ? value : null;
-}
-
-function legalHoldMessage(
-  problem: unknown,
-  t: ReturnType<typeof useT>,
-  locale: Locale,
-  tz: string,
-): string {
-  const retainUntil = retainUntilOf(problem);
-  const base = t("privacy.legalHold");
-  return retainUntil
-    ? `${base} ${t("privacy.retainUntil", { date: formatDate(retainUntil, locale, tz) })}`
-    : base;
-}
-
 // The single most destructive action in the product: fulfilling an erasure
 // permanently wipes a person across the whole system. Follows share.tsx's
 // revoke-confirm id-in-state pattern — ONE modal at the card root (never one
@@ -690,13 +666,9 @@ function legalHoldMessage(
 function FulfilErasureModal({
   dsr,
   onClose,
-  locale,
-  tz,
 }: Readonly<{
   dsr: DataSubjectRequest | null;
   onClose: () => void;
-  locale: Locale;
-  tz: string;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -737,7 +709,7 @@ function FulfilErasureModal({
   const errorMessage = !patch.isError
     ? null
     : held
-      ? legalHoldMessage(problem, t, locale, tz)
+      ? t("privacy.legalHold")
       : honestMessage(patch.error);
 
   return (
@@ -895,8 +867,6 @@ export function PrivacyInboxCard() {
       <FulfilErasureModal
         dsr={fulfilling}
         onClose={() => setFulfilling(null)}
-        locale={locale}
-        tz={tz}
       />
     </section>
   );

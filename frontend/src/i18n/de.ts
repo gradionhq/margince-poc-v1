@@ -700,7 +700,6 @@ export const de = {
   "privacy.erasureConfirm": "Löschen + sperren",
   "privacy.legalHold":
     "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
-  "privacy.retainUntil": "Aufbewahrt bis {date}",
 
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub":
