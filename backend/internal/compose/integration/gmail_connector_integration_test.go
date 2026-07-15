@@ -136,4 +136,35 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	if len(cursor) == 0 || string(cursor) == "" {
 		t.Fatalf("cursor did not advance: %q", cursor)
 	}
+
+	// --- the standing-connection surface: list, fleet due-poll, disconnect ---
+	views, err := registry.Connections(grantCtx)
+	if err != nil {
+		t.Fatalf("Connections: %v", err)
+	}
+	if len(views) != 1 || views[0].Connector != "gmail" || views[0].Status != "active" {
+		t.Fatalf("Connections = %+v, want one active gmail", views)
+	}
+
+	due, err := registry.DueConnections(context.Background(), "gmail")
+	if err != nil {
+		t.Fatalf("DueConnections: %v", err)
+	}
+	if len(due) != 1 || due[0].ID != connID {
+		t.Fatalf("DueConnections = %+v, want the one connection %s", due, connID)
+	}
+
+	if err := registry.Disconnect(grantCtx, "gmail"); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	after, err := registry.Connections(grantCtx)
+	if err != nil {
+		t.Fatalf("Connections after disconnect: %v", err)
+	}
+	if len(after) != 1 || after[0].Status != "revoked" {
+		t.Fatalf("after disconnect Connections = %+v, want status revoked", after)
+	}
+	if due2, _ := registry.DueConnections(context.Background(), "gmail"); len(due2) != 0 {
+		t.Fatalf("DueConnections after disconnect = %+v, want empty (poller skips revoked)", due2)
+	}
 }
