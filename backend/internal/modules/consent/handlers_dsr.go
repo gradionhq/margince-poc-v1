@@ -21,7 +21,7 @@ func (h Handlers) ListDataSubjectRequests(w http.ResponseWriter, r *http.Request
 	status := ""
 	if params.Status != nil {
 		if !params.Status.Valid() {
-			writeConsentErr(w, r, &ValidationError{Field: "status", Reason: "not a queue state"})
+			writeConsentErr(w, r, &ValidationError{Field: fieldStatus, Reason: "not a queue state"})
 			return
 		}
 		status = string(*params.Status)
@@ -102,7 +102,7 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 				// ran. (An already-erased person is the ErrNotFound case
 				// below — that one genuinely has nothing left to do.)
 				writeConsentErr(w, r, &ValidationError{
-					Field:  "subject_ref",
+					Field:  fieldSubjectRef,
 					Reason: "an erasure request must name a person id before it can be fulfilled",
 				})
 				return

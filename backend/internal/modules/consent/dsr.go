@@ -28,6 +28,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// The wire field names a DSR ValidationError carries. A client tells a
+// stale-transition refusal apart from a missing-answer one on this exact
+// string (details.errors[].field), so each is spelled once here rather than
+// retyped at every raise site.
+const (
+	fieldStatus     = "status"
+	fieldSubjectRef = "subject_ref"
+)
+
+// illegalTransition is raised from both guards — the pre-erase check and the
+// conditional UPDATE that loses a concurrent race — which must name the same
+// field and reason, or a client stops recognising the race it already handles.
+func illegalTransition(from, to string) *ValidationError {
+	return &ValidationError{
+		Field:  fieldStatus,
+		Reason: from + " → " + to + " is not a legal transition",
+	}
+}
+
 const dsrColumns = `id, kind, status, subject_ref, assignee_id, due_at, resolution, created_at`
 
 // dsrSelectByID is the single-row fetch shared by GetDSR and UpdateDSR — one
@@ -138,7 +157,7 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 		return dsrRow{}, err
 	}
 	if strings.TrimSpace(in.SubjectRef) == "" {
-		return dsrRow{}, &ValidationError{Field: "subject_ref", Reason: "required"}
+		return dsrRow{}, &ValidationError{Field: fieldSubjectRef, Reason: "required"}
 	}
 	var out dsrRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -152,7 +171,7 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "create", "data_subject_request", out.ID, nil, map[string]any{
-			"kind": in.Kind, "subject_ref": in.SubjectRef, "due_at": in.DueAt,
+			"kind": in.Kind, fieldSubjectRef: in.SubjectRef, "due_at": in.DueAt,
 		})
 		return err
 	})
@@ -195,8 +214,7 @@ func validateDSRUpdate(current dsrRow, in UpdateDSRInput) *ValidationError {
 		return nil
 	}
 	if !dsrTransitions[current.Status][*in.Status] {
-		return &ValidationError{Field: "status",
-			Reason: current.Status + " → " + *in.Status + " is not a legal transition"}
+		return illegalTransition(current.Status, *in.Status)
 	}
 	if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
 		in.Resolution == nil && current.Resolution == nil {
@@ -242,15 +260,14 @@ func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (
 		row := tx.QueryRow(ctx, sql, args...)
 		if out, err = scanDSR(row); err != nil {
 			if in.Status != nil && errors.Is(err, pgx.ErrNoRows) {
-				return &ValidationError{Field: "status",
-					Reason: current.Status + " → " + *in.Status + " is not a legal transition"}
+				return illegalTransition(current.Status, *in.Status)
 			}
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
-			"status": current.Status,
+			fieldStatus: current.Status,
 		}, map[string]any{
-			"status": out.Status, "resolution": in.Resolution != nil,
+			fieldStatus: out.Status, "resolution": in.Resolution != nil,
 		})
 		return err
 	})
