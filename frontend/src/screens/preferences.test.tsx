@@ -262,3 +262,50 @@ describe("PreferenceCenterScreen", () => {
     expect(screen.getByText(/link is no longer valid/i)).toBeInTheDocument();
   });
 });
+
+describe("one-click unsubscribe (G-7)", () => {
+  it("stops every non-locked purpose when no purpose is named", async () => {
+    const post = vi.fn(() =>
+      jsonResponse({ unsubscribed: ["marketing_email", "events"] }),
+    );
+    stubCenter({ "POST /public/preferences/tok-123/unsubscribe": post });
+    render(<PreferenceCenterScreen token="tok-123" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unsubscribe from all/i }),
+    );
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/you're off/i)).toBeInTheDocument();
+  });
+
+  // Replay is idempotent and shrinks to []. Never render "you unsubscribed
+  // from 0 purposes" — and never claim a count off a retry.
+  it("stays honest when a replayed unsubscribe returns nothing", async () => {
+    stubCenter({
+      "POST /public/preferences/tok-123/unsubscribe": () =>
+        jsonResponse({ unsubscribed: [] }),
+    });
+    render(<PreferenceCenterScreen token="tok-123" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unsubscribe from all/i }),
+    );
+    expect(await screen.findByText(/already off/i)).toBeInTheDocument();
+  });
+
+  // Re-subscribing must be an explicit opt-in — never a silent re-grant.
+  it("stages an undo rather than immediately re-granting", async () => {
+    const put = vi.fn(() => jsonResponse(CENTER));
+    stubCenter({
+      "POST /public/preferences/tok-123/unsubscribe": () =>
+        jsonResponse({ unsubscribed: ["marketing_email"] }),
+      "PUT /public/preferences/tok-123": put,
+    });
+    render(<PreferenceCenterScreen token="tok-123" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unsubscribe from all/i }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /undo/i }));
+    expect(put).not.toHaveBeenCalled();
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/explicit opt-in/i)).toBeInTheDocument();
+  });
+});

@@ -993,6 +993,15 @@ export const en = {
   "prefs.wording.marketing_email":
     '"Send me product updates & occasional marketing email."',
   "prefs.wording.events": '"Send me event & webinar invitations."',
+  "prefs.unsubscribeAll": "Unsubscribe from all marketing",
+  "prefs.unsubscribeAllHint":
+    "Prefer to stop all non-essential mail at once? You'll still get messages tied to your live deal.",
+  "prefs.oneClickDone":
+    "Done — you're off our marketing email. It takes effect immediately across every campaign.",
+  "prefs.oneClickAlreadyOff": "Nothing to do — these were already off.",
+  "prefs.undo": "Undo — keep receiving marketing",
+  "prefs.undoExplicit":
+    "Re-subscribing is an explicit opt-in — we won't silently turn it back on. Save below to record your consent, or discard.",
 
   "auto.sub": "a closed catalog — pick a type, set its parameters, enable it",
   "auto.readOnly":

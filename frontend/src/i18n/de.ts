@@ -1014,6 +1014,15 @@ export const de = {
   "prefs.wording.marketing_email":
     "„Schick mir Produkt-Updates und gelegentliche Marketing-E-Mails.“",
   "prefs.wording.events": "„Schick mir Einladungen zu Events und Webinaren.“",
+  "prefs.unsubscribeAll": "Von allem Marketing abmelden",
+  "prefs.unsubscribeAllHint":
+    "Lieber alle nicht notwendigen Mails auf einmal stoppen? Nachrichten zu deinem laufenden Deal bekommst du weiterhin.",
+  "prefs.oneClickDone":
+    "Erledigt — du bekommst keine Marketing-E-Mails mehr von uns. Das gilt sofort für jede Kampagne.",
+  "prefs.oneClickAlreadyOff": "Nichts zu tun — das war bereits abgeschaltet.",
+  "prefs.undo": "Rückgängig — Marketing weiter erhalten",
+  "prefs.undoExplicit":
+    "Ein erneutes Abonnieren ist eine ausdrückliche Zustimmung — wir schalten es nicht stillschweigend wieder ein. Speichere unten, um deine Zustimmung festzuhalten, oder verwirf.",
 
   "auto.sub":
     "ein geschlossener Katalog — Typ wählen, Parameter setzen, aktivieren",

@@ -103,6 +103,16 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [partialSave, setPartialSave] = useState(false);
+  // The one-click unsubscribe's own reply (G-7): the exact keys it just
+  // withdrew, authoritative straight from the server — never re-derived by
+  // guessing which purposes must have been granted before the call.
+  const [lastUnsubscribed, setLastUnsubscribed] = useState<string[] | null>(
+    null,
+  );
+  // Undo only stages a re-grant into the draft; it never writes on its own,
+  // so this just switches the banner's copy from "here's undo" to "you're
+  // about to re-subscribe — save to confirm".
+  const [undoStaged, setUndoStaged] = useState(false);
 
   // Seeds (and re-seeds) the draft from the server's latest body — on first
   // load, after a successful save, and after the refetch a partial-save
@@ -136,6 +146,10 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
       // prompted the save.
       queryClient.setQueryData(queryKey, data);
       setPartialSave(false);
+      // A granular save supersedes any pending one-click notice — the
+      // subject just recorded their own explicit choice.
+      setLastUnsubscribed(null);
+      setUndoStaged(false);
     },
     onError: () => {
       // UpdatePreferences loops choices in separate transactions
@@ -146,6 +160,66 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
       queryClient.invalidateQueries({ queryKey });
     },
   });
+
+  // RFC 8058: POST-only, no login, no `purpose` — every non-locked, granted
+  // purpose is withdrawn in one call. Idempotent on the server, so a replay
+  // shrinks `unsubscribed` toward `[]`; the banner is keyed off that array's
+  // length, never off a count carried over from an earlier call.
+  const unsubscribeAll = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST(
+        "/public/preferences/{token}/unsubscribe",
+        { params: { path: { token } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      setLastUnsubscribed(data.unsubscribed);
+      setUndoStaged(false);
+      if (data.unsubscribed.length === 0) {
+        return;
+      }
+      // The withdrawal already committed server-side — this echoes that
+      // fact straight from the response into the cache (never a fresh GET
+      // racing an unrelated stale read), so the draft re-seeds to "off"
+      // without a round trip, and dirty-checking sees the true baseline.
+      const withdrawnKeys = new Set(data.unsubscribed);
+      queryClient.setQueryData<{ purposes: PurposeView[] }>(
+        queryKey,
+        (old) =>
+          old && {
+            ...old,
+            purposes: old.purposes.map((purpose) =>
+              withdrawnKeys.has(purpose.key)
+                ? { ...purpose, state: "withdrawn" as const }
+                : purpose,
+            ),
+          },
+      );
+    },
+  });
+
+  // Re-subscribing is an explicit opt-in, never a silent re-grant: this only
+  // stages `draft` back to subscribed for the keys just withdrawn — the
+  // existing save bar performs the actual write when the subject presses
+  // Save.
+  function undoUnsubscribe() {
+    if (!lastUnsubscribed) {
+      return;
+    }
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...Object.fromEntries(lastUnsubscribed.map((key) => [key, true])),
+          }
+        : prev,
+    );
+    setUndoStaged(true);
+  }
 
   if (center.isPending) {
     return (
@@ -205,6 +279,32 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
             />
           ))}
         </ul>
+
+        <div className="card card-inset pref-unsub">
+          <p className="t-caption">{t("prefs.unsubscribeAllHint")}</p>
+          <Button
+            disabled={unsubscribeAll.isPending}
+            onClick={() => unsubscribeAll.mutate()}
+          >
+            {t("prefs.unsubscribeAll")}
+          </Button>
+        </div>
+
+        {lastUnsubscribed !== null && (
+          <div className="card card-inset pref-unsub-banner">
+            <p>
+              {lastUnsubscribed.length > 0
+                ? t("prefs.oneClickDone")
+                : t("prefs.oneClickAlreadyOff")}
+            </p>
+            {lastUnsubscribed.length > 0 &&
+              (undoStaged ? (
+                <p className="t-caption">{t("prefs.undoExplicit")}</p>
+              ) : (
+                <Button onClick={undoUnsubscribe}>{t("prefs.undo")}</Button>
+              ))}
+          </div>
+        )}
 
         {partialSave && (
           <div className="card card-inset pref-partial-banner">
