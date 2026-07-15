@@ -71,12 +71,19 @@ func (h Handlers) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Reques
 		status := string(*req.Status)
 		in.Status = &status
 	}
-	// Fulfilling an erasure request EXECUTES the erasure first — the status
-	// flip and the actual deletion must not drift apart.
+	// Fulfilling an erasure request EXECUTES the erasure before UpdateDSR
+	// ever runs, so every precondition UpdateDSR would enforce must already
+	// hold here — the status flip and the actual deletion must not drift
+	// apart, and nothing may be erased on a request that UpdateDSR is going
+	// to refuse to close.
 	if in.Status != nil && *in.Status == "fulfilled" {
 		current, err := h.store.GetDSR(r.Context(), ids.UUID(id))
 		if err != nil {
 			writeConsentErr(w, r, err)
+			return
+		}
+		if verr := validateDSRUpdate(current, in); verr != nil {
+			writeConsentErr(w, r, verr)
 			return
 		}
 		if current.Kind == "erasure" {

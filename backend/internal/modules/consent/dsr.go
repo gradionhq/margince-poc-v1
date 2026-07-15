@@ -184,6 +184,27 @@ type UpdateDSRInput struct {
 	Resolution *string
 }
 
+// validateDSRUpdate is the one spelling of every UpdateDSR precondition:
+// the closed transition map and the "closing needs an answer" rule. It is
+// called twice — inside UpdateDSR's own transaction (the authoritative
+// gate, every caller must clear it) and by the handler ahead of fulfilling
+// an erasure (an early refusal, so a request that could never legally
+// close never triggers the irreversible erase).
+func validateDSRUpdate(current dsrRow, in UpdateDSRInput) *ValidationError {
+	if in.Status == nil || *in.Status == current.Status {
+		return nil
+	}
+	if !dsrTransitions[current.Status][*in.Status] {
+		return &ValidationError{Field: "status",
+			Reason: current.Status + " → " + *in.Status + " is not a legal transition"}
+	}
+	if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
+		in.Resolution == nil && current.Resolution == nil {
+		return &ValidationError{Field: "resolution", Reason: "closing a request needs its answer"}
+	}
+	return nil
+}
+
 func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (dsrRow, error) {
 	if err := requireDSRAdmin(ctx, principal.ActionUpdate); err != nil {
 		return dsrRow{}, err
@@ -198,25 +219,32 @@ func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (
 		if err != nil {
 			return err
 		}
-		if in.Status != nil && *in.Status != current.Status {
-			if !dsrTransitions[current.Status][*in.Status] {
-				return &ValidationError{Field: "status",
-					Reason: current.Status + " → " + *in.Status + " is not a legal transition"}
-			}
-			if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
-				in.Resolution == nil && current.Resolution == nil {
-				return &ValidationError{Field: "resolution", Reason: "closing a request needs its answer"}
-			}
+		if verr := validateDSRUpdate(current, in); verr != nil {
+			return verr
 		}
-		row := tx.QueryRow(ctx, `
+		sql := `
 			UPDATE data_subject_request SET
 			  status = coalesce($2, status),
 			  assignee_id = coalesce($3, assignee_id),
 			  resolution = coalesce($4, resolution)
-			WHERE id = $1
-			RETURNING `+dsrColumns,
-			id, in.Status, in.AssigneeID, in.Resolution)
+			WHERE id = $1`
+		args := []any{id, in.Status, in.AssigneeID, in.Resolution}
+		if in.Status != nil {
+			// Nothing holds this row locked between the read above and the
+			// write below, so require it to still be in the state we just
+			// validated the transition against — a status change that lands
+			// in that window (another officer closing or rejecting the same
+			// request) is refused as illegal rather than silently overwritten.
+			args = append(args, current.Status)
+			sql += storekit.SQLf(" AND status = $%d", len(args))
+		}
+		sql += " RETURNING " + dsrColumns
+		row := tx.QueryRow(ctx, sql, args...)
 		if out, err = scanDSR(row); err != nil {
+			if in.Status != nil && errors.Is(err, pgx.ErrNoRows) {
+				return &ValidationError{Field: "status",
+					Reason: current.Status + " → " + *in.Status + " is not a legal transition"}
+			}
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
