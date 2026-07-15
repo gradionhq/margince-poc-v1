@@ -43,14 +43,17 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault) *capture.Regis
 // refresh); StateKey+PublicBaseURL additionally enable the connect/callback
 // transport (the signed state and the redirect target).
 type GmailConfig struct {
-	ClientID      string
-	ClientSecret  string
-	StateKey      string
+	ClientID     string
+	ClientSecret string
+	StateKey     string
+	// PublicBaseURL is the canonical public/front origin (the SPA): the
+	// post-consent landing, and the default callback base for a same-origin
+	// deployment.
 	PublicBaseURL string
-	// AppBaseURL is the SPA origin the browser lands on after consent. Empty
-	// for a same-origin deployment (the landing then reuses PublicBaseURL); a
-	// split dev stack sets it to the frontend URL.
-	AppBaseURL string
+	// APIBaseURL is the api's externally-reachable base, used only for the
+	// callback redirect_uri. Empty for a same-origin deployment (the callback
+	// rides PublicBaseURL); a split dev stack sets it to the api URL.
+	APIBaseURL string
 }
 
 // canSync reports whether the connector can be registered + polled (token
@@ -109,7 +112,7 @@ func WithGmailCapture(c GmailConfig) Option {
 			gmailAPI:      gmail.NewAPI(nil, ""),
 			signer:        newStateSigner([]byte(c.StateKey)),
 			publicBaseURL: c.PublicBaseURL,
-			appBaseURL:    c.AppBaseURL,
+			apiBaseURL:    c.APIBaseURL,
 		}
 	}
 }

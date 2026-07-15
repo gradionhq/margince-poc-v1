@@ -42,28 +42,30 @@ type connectorHandlers struct {
 	oauth    gmail.OAuth
 	gmailAPI gmail.API
 	signer   stateSigner
-	// publicBaseURL is the api's own external base — the origin the provider
-	// redirects back to (the callback redirect_uri must resolve here).
+	// publicBaseURL is the canonical public/front origin (the SPA): where the
+	// browser lands after consent, and — for a same-origin deployment — the
+	// default base for the callback redirect_uri too.
 	publicBaseURL string
-	// appBaseURL is the SPA's external base — where the browser lands after the
-	// callback. Same-origin deployments leave it empty (falls back to
-	// publicBaseURL); a split dev stack (api :8080, SPA :5173) sets it.
-	appBaseURL string
+	// apiBaseURL is the api's externally-reachable base, used ONLY for the
+	// callback redirect_uri (which must resolve to where the api serves it).
+	// Empty for a same-origin deployment (the callback then rides
+	// publicBaseURL/v1); a split dev stack (SPA :5173, api :8080) sets it.
+	apiBaseURL string
 }
 
 // wired reports whether the Gmail OAuth app is composed for this role.
 func (h connectorHandlers) wired() bool { return h.registry != nil && h.oauth != nil }
 
 func (h connectorHandlers) callbackURL() string {
-	return strings.TrimRight(h.publicBaseURL, "/") + "/v1/connectors/gmail/callback"
-}
-
-func (h connectorHandlers) landingURL(outcome string) string {
-	base := h.appBaseURL
+	base := h.apiBaseURL
 	if base == "" {
 		base = h.publicBaseURL
 	}
-	return strings.TrimRight(base, "/") + "/activation?connect=" + outcome
+	return strings.TrimRight(base, "/") + "/v1/connectors/gmail/callback"
+}
+
+func (h connectorHandlers) landingURL(outcome string) string {
+	return strings.TrimRight(h.publicBaseURL, "/") + "/activation?connect=" + outcome
 }
 
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {

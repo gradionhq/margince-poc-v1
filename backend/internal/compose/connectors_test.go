@@ -32,8 +32,8 @@ func wiredHandlers() connectorHandlers {
 		oauth:         gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}}),
 		gmailAPI:      gmail.NewAPI(nil, ""),
 		signer:        newStateSigner([]byte(testStateKey)),
-		publicBaseURL: "https://api.test",
-		appBaseURL:    "https://app.test",
+		publicBaseURL: "https://app.test", // the SPA/front origin — landing
+		apiBaseURL:    "https://api.test", // the api origin — callback redirect_uri
 	}
 }
 
