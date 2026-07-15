@@ -267,6 +267,14 @@ var publicPaths = map[string]bool{
 	"/oauth/token":    true,
 }
 
+// isConnectorOAuthCallback matches the capture-connector OAuth redirect
+// targets (/v1/connectors/{provider}/callback). They are session-less by
+// construction; the connectorOAuthCallback handler authenticates via the
+// signed `state` parameter, never a cookie.
+func isConnectorOAuthCallback(path string) bool {
+	return strings.HasPrefix(path, "/v1/connectors/") && strings.HasSuffix(path, "/callback")
+}
+
 // Middleware chains workspace resolution and session authentication:
 // slug → workspace GUC context; cookie → Principal. Public paths still
 // get the workspace bound (login needs it), just no session requirement.
@@ -294,6 +302,15 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// the request (workspace binding, principal, rate limits) is the
 		// public-booking middleware's job, composed downstream.
 		if strings.HasPrefix(r.URL.Path, "/v1/public/") {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		// A capture-connector OAuth callback (provider → CRM redirect) arrives
+		// with neither a session cookie (SameSite blocks it on the cross-site
+		// redirect) nor a workspace slug. Its signed `state` is the auth: the
+		// handler verifies it and rebuilds the workspace + granting human from
+		// it before persisting. So it passes the session/workspace gate here.
+		if isConnectorOAuthCallback(r.URL.Path) {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}

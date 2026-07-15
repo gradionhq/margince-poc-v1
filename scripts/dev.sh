@@ -144,6 +144,26 @@ up)
     echo "dev: no ANTHROPIC_API_KEY in .env.local — cold-start runs on the offline fake"
   fi
 
+  # Gmail capture connector: when .env.local supplies a Google OAuth app, pass
+  # its flags to the api and run the sync worker. Absent it, `make dev` is
+  # unchanged and the /connectors/gmail/* surface stays its declared 501.
+  gmail_api_flags=()
+  gmail_enabled=0
+  if [[ -n "${MARGINCE_GMAIL_CLIENT_ID:-}" && -n "${MARGINCE_GMAIL_CLIENT_SECRET:-}" ]]; then
+    gmail_enabled=1
+    # Dev-only vault + state keys so connect can seal/sign locally; override in
+    # .env.local for anything past a throwaway dev box.
+    export MARGINCE_KEYVAULT_ROOT_KEY="${MARGINCE_KEYVAULT_ROOT_KEY:-bWFyZ2luY2UtZGV2LW9ubHkta2V5dmF1bHQtcm9vdGs=}"
+    gmail_state_key="${MARGINCE_CONNECTOR_STATE_KEY:-margince-dev-connector-state-key-0001}"
+    gmail_api_flags=(
+      --gmail-client-id "$MARGINCE_GMAIL_CLIENT_ID"
+      --gmail-client-secret "$MARGINCE_GMAIL_CLIENT_SECRET"
+      --connector-state-key "$gmail_state_key"
+      --public-base-url "http://localhost:${api_port}"
+    )
+    echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
+  fi
+
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
   # kill. Redis is the ONE shared instance.
@@ -153,7 +173,7 @@ up)
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" \
-    --redis "localhost:${REDIS_PORT}" "${ai_flag[@]}" >>"$log" 2>&1 &
+    --redis "localhost:${REDIS_PORT}" "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
   be_pid=$!
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
@@ -178,14 +198,28 @@ up)
     exit 1
   fi
 
+  # The Gmail sync poller (cmd/worker) — the background loop that turns a
+  # connected mailbox into activities. It shares the app DSN + Redis and the
+  # exported dev vault key; a short poll makes the demo responsive.
+  worker_pid=""
+  if [[ "$gmail_enabled" == "1" ]]; then
+    ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
+    MARGINCE_ENV=dev \
+      ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
+      --gmail-client-id "$MARGINCE_GMAIL_CLIENT_ID" --gmail-client-secret "$MARGINCE_GMAIL_CLIENT_SECRET" \
+      --gmail-sync-interval 30s >>"$log" 2>&1 &
+    worker_pid=$!
+    echo "  gmail    sync worker running (poll every 30s)"
+  fi
+
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
   # `pnpm --dir frontend` keeps the cwd at the repo root, so $! is vite itself
   # (a `(cd … & )` subshell would capture the subshell, not the server).
   BACKEND_PORT="${api_port}" pnpm --dir frontend exec vite --port "${fe_port}" --strictPort >>"$log" 2>&1 &
   fe_pid=$!
 
-  printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nLOG=%s\n' \
-    "$slug" "$api_port" "$fe_port" "$db" "$be_pid" "$fe_pid" "$log" >"$state"
+  printf 'SLUG=%s\nAPI_PORT=%s\nFE_PORT=%s\nDB=%s\nBACKEND_PID=%s\nFE_PID=%s\nWORKER_PID=%s\nLOG=%s\n' \
+    "$slug" "$api_port" "$fe_port" "$db" "$be_pid" "$fe_pid" "$worker_pid" "$log" >"$state"
 
   if wait_ready "http://localhost:${fe_port}/" 90; then
     echo "$label ready"
@@ -203,7 +237,7 @@ up)
   else
     echo "FAIL: $label FE did not become ready in time — see ${log}" >&2
     # Don't leave the api (and vite) orphaned when the FE readiness poll fails.
-    kill "$be_pid" "$fe_pid" 2>/dev/null || true
+    kill "$be_pid" "$fe_pid" ${worker_pid:+"$worker_pid"} 2>/dev/null || true
     exit 1
   fi
   ;;
@@ -212,7 +246,7 @@ stop)
   if [[ -f "$state" ]]; then
     # shellcheck disable=SC1090
     . "$state"
-    kill "${BACKEND_PID:-}" "${FE_PID:-}" 2>/dev/null || true
+    kill "${BACKEND_PID:-}" "${FE_PID:-}" "${WORKER_PID:-}" 2>/dev/null || true
     # Backstop: free the recorded ports by listener (reaps vite, pnpm's child).
     for p in "${API_PORT:-}" "${FE_PORT:-}"; do
       [[ -n "$p" ]] || continue

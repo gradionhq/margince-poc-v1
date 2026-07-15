@@ -33,6 +33,7 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		//craft:ignore swallowed-errors test stub; ParseForm on the recorded request can't fail
 		_ = r.ParseForm()
 		body := map[string]any{"access_token": "access-tok", "expires_in": 3599}
 		if r.Form.Get("grant_type") == "authorization_code" {
@@ -61,8 +62,10 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 	return srv
 }
 
+//craft:ignore naked-any v is an arbitrary canned JSON response body for the stub
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	//craft:ignore swallowed-errors test stub write; an encode failure surfaces as the client-side decode error the assertion checks
 	_ = json.NewEncoder(w).Encode(v)
 }
 
