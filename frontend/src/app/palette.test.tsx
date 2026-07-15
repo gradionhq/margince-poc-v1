@@ -1,5 +1,11 @@
 /** @vitest-environment jsdom */
-import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  render as rtlRender,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,16 +13,41 @@ import { LocaleProvider } from "../i18n";
 import { AskFab } from "./fab";
 import { ASK_QUERY_KEY, type Command, CommandPalette } from "./palette";
 
-// B-EP09.5 (AC-shell-3..7) and B-EP09.6 (AC-shell-8) acceptance.
+// B-EP09.5 (AC-shell-3..7), B-EP09.6 (AC-shell-8), and RS-1 (live /search
+// records + see-all) acceptance.
 
 afterEach(() => {
   cleanup();
   window.location.hash = "";
   sessionStorage.clear();
+  vi.unstubAllGlobals();
 });
 
-const render = (ui: ReactNode) =>
-  rtlRender(<LocaleProvider initial="en">{ui}</LocaleProvider>);
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function wrap(ui: ReactNode, client: QueryClient) {
+  return (
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">{ui}</LocaleProvider>
+    </QueryClientProvider>
+  );
+}
+
+const render = (ui: ReactNode) => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const view = rtlRender(wrap(ui, client));
+  return {
+    ...view,
+    rerender: (next: ReactNode) => view.rerender(wrap(next, client)),
+  };
+};
 
 const commands: Command[] = [
   {
@@ -48,13 +79,14 @@ describe("CommandPalette (AC-shell-3/4/5/6)", () => {
     expect(screen.getByText("Record")).toBeTruthy(); // type tag rendered
   });
 
-  it("filters by label+subtitle case-insensitively and appends the Ask-AI row last", async () => {
+  it("filters by label+subtitle case-insensitively and appends the see-all + Ask-AI rows last", async () => {
     render(<CommandPalette open onClose={() => {}} commands={commands} />);
     await userEvent.type(screen.getByRole("textbox"), "COMPANY");
     const rows = screen.getAllByRole("button");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("Brandt Automotive");
-    expect(rows[1].textContent).toContain("Ask AI");
+    expect(rows[1].textContent).toContain("See all results");
+    expect(rows[2].textContent).toContain("Ask AI");
   });
 
   it("Enter runs the selection; arrows move and clamp (AC-shell-5)", async () => {
@@ -71,6 +103,9 @@ describe("CommandPalette (AC-shell-3/4/5/6)", () => {
   it("the Ask-AI row stores the query and lands on the AI surface (AC-shell-4)", async () => {
     render(<CommandPalette open onClose={() => {}} commands={commands} />);
     await userEvent.type(screen.getByRole("textbox"), "zzz nothing matches");
+    // rows are [see-all, ask-ai] here (no builtin/record matches): step past
+    // the see-all row to reach Ask-AI.
+    await userEvent.keyboard("{ArrowDown}");
     await userEvent.keyboard("{Enter}");
     expect(window.location.hash).toBe("#/ai");
     expect(sessionStorage.getItem(ASK_QUERY_KEY)).toBe("zzz nothing matches");
@@ -85,16 +120,33 @@ describe("CommandPalette (AC-shell-3/4/5/6)", () => {
     await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
     view.rerender(
-      <LocaleProvider initial="en">
-        <CommandPalette open={false} onClose={onClose} commands={commands} />
-      </LocaleProvider>,
+      <CommandPalette open={false} onClose={onClose} commands={commands} />,
     );
     view.rerender(
-      <LocaleProvider initial="en">
-        <CommandPalette open onClose={onClose} commands={commands} />
-      </LocaleProvider>,
+      <CommandPalette open onClose={onClose} commands={commands} />,
     );
     expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("");
+  });
+
+  it("surfaces live record hits from /search plus a see-all row (RS-1)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [{ type: "person", id: "p1", title: "Dana Buyer at Acme" }],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    render(<CommandPalette open onClose={() => {}} commands={commands} />);
+    await userEvent.type(screen.getByRole("textbox"), "acme");
+    await waitFor(() =>
+      expect(screen.getByText("Dana Buyer at Acme")).toBeTruthy(),
+    );
+    expect(screen.getByText("See all results for “acme”")).toBeTruthy();
+
+    await userEvent.click(screen.getByText("Dana Buyer at Acme"));
+    expect(window.location.hash).toBe("#/contacts/p1");
   });
 });
 

@@ -133,7 +133,7 @@ test("AC-deal-6: a terminal-stage drop is a 🟡 confirm — nothing runs before
 
 test("AC-inbox: approve and reject act on the staged row", async ({ page }) => {
   await page.goto("/#/inbox");
-  await expect(page.getByText("send_email")).toBeVisible();
+  await expect(page.getByText("send_email", { exact: true })).toBeVisible();
   await expect(page.getByText("Agent: agent:runner")).toBeVisible();
   await page.getByRole("button", { name: "Übernehmen" }).click();
 });
@@ -203,7 +203,7 @@ test("AC-settings: the passport list is metadata-only and strikes revoked rows",
 }) => {
   // Agent passports live on the AI & autonomy tab of the settings layout.
   await page.goto("/#/settings/ai");
-  await expect(page.getByText("Marcus' Claude")).toBeVisible();
+  await expect(page.getByText("Marcus' Claude", { exact: true })).toBeVisible();
   const revoked = page.locator('[data-passport="pp-2"]');
   await expect(revoked.getByText("widerrufen")).toBeVisible();
   await expect(revoked).toHaveCSS("text-decoration-line", "line-through");
@@ -333,7 +333,7 @@ test.describe("§3.8: 390px mobile", () => {
     page,
   }) => {
     await page.goto("/#/inbox");
-    await expect(page.getByText("send_email")).toBeVisible();
+    await expect(page.getByText("send_email", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Übernehmen" }).click();
   });
 });

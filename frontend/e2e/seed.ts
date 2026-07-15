@@ -674,6 +674,31 @@ export async function mockApi(target: Page): Promise<void> {
         computed_at: "2026-07-13T00:00:00Z",
       });
     }
+    // RS-3's context panel and the IT-1 tool console both read fixed-shape
+    // envelopes the list catch-all below doesn't produce (`{sections:[]}`,
+    // `{data:[AgentTool]}` vs `{data:[],page}`) — mock them explicitly so a
+    // 360 open or the tool console doesn't crash on an undefined field.
+    if (path.includes("/context")) {
+      return json({ anchor: { type: "person", id: "x" }, sections: [] });
+    }
+    if (path === "/agent-tools") {
+      return json({
+        data: [
+          {
+            name: "search_records",
+            required_scope: "read",
+            tier: "green",
+            egress: false,
+          },
+          {
+            name: "send_email",
+            required_scope: "send",
+            tier: "yellow",
+            egress: true,
+          },
+        ],
+      });
+    }
     return json(page([]));
   });
 }

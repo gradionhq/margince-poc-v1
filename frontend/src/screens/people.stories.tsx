@@ -58,6 +58,8 @@ export const PersonOverview: Story = {
       "GET /people/p-1": () => jsonResponse(anna),
       "GET /people/p-1/strength": () => jsonResponse(dormantStrength),
       "GET /activities": () => jsonResponse({ data: [] }),
+      "GET /records/person/p-1/context": () =>
+        jsonResponse({ anchor: { type: "person", id: "p-1" }, sections: [] }),
     });
     return (
       <StoryProviders>
