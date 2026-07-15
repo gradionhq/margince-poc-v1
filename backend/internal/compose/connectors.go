@@ -5,41 +5,203 @@ package compose
 
 // The per-provider OAuth capture surface (RC-8; capture.md CAP-WIRE-1):
 // listConnectors / connectConnector / connectorOAuthCallback /
-// disconnectConnector. The contract and the read-only Gmail connector
-// (internal/modules/capture/gmail) are landed; this HTTP transport — the
-// signed-state OAuth handshake, the callback that reconstructs the granting
-// human's authority to persist the connection, and the background SyncOnce
-// poller — is the next slice, tracked in
-// docs/superpowers/plans/2026-07-15-gmail-capture-connector.md.
+// disconnectConnector, for the standing (persisted) mail connectors —
+// distinct from the one-shot /connectors/imap/connect. connect returns the
+// provider consent URL carrying a signed state; the session-less callback
+// verifies that state, exchanges the code, reconstructs the granting human's
+// authority from the (trusted) state, and persists the connection through the
+// capture Registry; the background poller then syncs it. Only gmail is wired
+// today (gcal/graph are contract-declared, not yet implemented).
 //
-// Until then these operations answer with the repo's standard "declared but
-// not implemented" 501 (the same honest posture as customfields'
-// create/setOptions), never a silent 404: the surface exists, the wiring is
-// pending. connectorHandlers has no dependencies, so Server embeds its zero
-// value; the real dependencies (gmail.OAuth/API, the state signer, the
-// connection registry) are injected when this is implemented.
+// connectorHandlers is embedded in Server as a zero value; a role that does
+// not wire the Gmail OAuth app (no --gmail-client-id) leaves oauth/registry
+// nil, and every operation answers the repo's standard 501 rather than
+// nil-derefing — capture stays declared-but-absent by omission.
 
 import (
+	"log/slog"
 	"net/http"
+	"strings"
+	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-type connectorHandlers struct{}
+// connectStateTTL bounds the consent round-trip: generous for a human to
+// click through Google, short enough that a leaked state is quickly useless.
+const connectStateTTL = 10 * time.Minute
 
-func (connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {
-	httperr.NotImplemented(w, r, "ListConnectors")
+type connectorHandlers struct {
+	registry      *capture.Registry
+	oauth         gmail.OAuth
+	gmailAPI      gmail.API
+	signer        stateSigner
+	publicBaseURL string
 }
 
-func (connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Request, _ crmcontracts.CaptureProvider) {
-	httperr.NotImplemented(w, r, "ConnectConnector")
+// wired reports whether the Gmail OAuth app is composed for this role.
+func (h connectorHandlers) wired() bool { return h.registry != nil && h.oauth != nil }
+
+func (h connectorHandlers) callbackURL() string {
+	return strings.TrimRight(h.publicBaseURL, "/") + "/v1/connectors/gmail/callback"
 }
 
-func (connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, _ crmcontracts.CaptureProvider, _ crmcontracts.ConnectorOAuthCallbackParams) {
-	httperr.NotImplemented(w, r, "ConnectorOAuthCallback")
+func (h connectorHandlers) landingURL(outcome string) string {
+	return strings.TrimRight(h.publicBaseURL, "/") + "/activation?connect=" + outcome
 }
 
-func (connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Request, _ crmcontracts.CaptureProvider) {
-	httperr.NotImplemented(w, r, "DisconnectConnector")
+func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {
+	if h.registry == nil {
+		httperr.NotImplemented(w, r, "ListConnectors")
+		return
+	}
+	views, err := h.registry.Connections(r.Context())
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	resp := crmcontracts.CaptureConnectionListResponse{
+		Data: make([]crmcontracts.CaptureConnection, 0, len(views)),
+	}
+	for _, v := range views {
+		resp.Data = append(resp.Data, toContractConnection(v))
+	}
+	httperr.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
+	if !h.wired() {
+		httperr.NotImplemented(w, r, "ConnectConnector")
+		return
+	}
+	if string(provider) != "gmail" {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "connector_unsupported",
+			Detail: "Only the gmail connector is available here; imap uses /connectors/imap/connect, and gcal/graph are not yet implemented.",
+		})
+		return
+	}
+	actor, ok := principal.Actor(r.Context())
+	ws, hasWS := principal.WorkspaceID(r.Context())
+	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnauthorized,
+			Code:   "unauthenticated",
+			Detail: "Connecting a mailbox is a signed-in human action.",
+		})
+		return
+	}
+	state := h.signer.sign(
+		connectState{Workspace: ws, User: actor.UserID, Provider: "gmail"},
+		time.Now().Add(connectStateTTL),
+	)
+	authURL := h.oauth.AuthCodeURL(state, h.callbackURL())
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ConnectConnectorResponse{AuthorizeUrl: &authURL})
+}
+
+func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider, params crmcontracts.ConnectorOAuthCallbackParams) {
+	if !h.wired() {
+		httperr.NotImplemented(w, r, "ConnectorOAuthCallback")
+		return
+	}
+	ctx := r.Context()
+	// The user denied consent at Google — surface it honestly, never as an error.
+	if params.Error != nil && *params.Error != "" {
+		http.Redirect(w, r, h.landingURL("denied"), http.StatusFound)
+		return
+	}
+	// The signed state is the only trustworthy carrier here (no session cookie
+	// on the cross-site redirect). A bad/expired/mismatched state or a missing
+	// code cannot proceed — redirect with an honest error, details logged only.
+	st, err := h.signer.verify(params.State, time.Now())
+	if err != nil || string(provider) != "gmail" || st.Provider != "gmail" || params.Code == nil || *params.Code == "" {
+		slog.WarnContext(ctx, "gmail connector callback rejected", "err", err, "provider", string(provider))
+		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		return
+	}
+
+	authReq, err := gmail.AuthRequestFrom(*params.Code, h.callbackURL())
+	if err != nil {
+		slog.ErrorContext(ctx, "gmail connector callback: building auth request", "err", err)
+		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		return
+	}
+	auth, err := gmail.New(h.oauth, h.gmailAPI).Authenticate(ctx, authReq)
+	if err != nil {
+		slog.ErrorContext(ctx, "gmail connector callback: token exchange", "err", err)
+		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		return
+	}
+
+	// Reconstruct the granting human's authority from the trusted (signed)
+	// state: workspace + user id. A minimal read-scoped human principal is
+	// what Registry.Connect needs — it stamps granted_by and checks the
+	// connector's read scope; the app_user FK rejects a vanished user, and
+	// every later sync re-derives live RBAC (so a since-revoked human's grant
+	// dies at sync, not here).
+	runCtx := principal.WithWorkspaceID(ctx, st.Workspace)
+	runCtx = principal.WithActor(runCtx, principal.Principal{
+		Type:   principal.PrincipalHuman,
+		ID:     "human:" + st.User.String(),
+		UserID: st.User,
+		Scopes: principal.NewScopeSet(principal.ScopeRead),
+	})
+	if _, err := h.registry.Connect(runCtx, "gmail", auth); err != nil {
+		slog.ErrorContext(ctx, "gmail connector callback: persisting connection", "err", err)
+		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, h.landingURL("ok"), http.StatusFound)
+}
+
+func (h connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
+	if h.registry == nil {
+		httperr.NotImplemented(w, r, "DisconnectConnector")
+		return
+	}
+	if err := h.registry.Disconnect(r.Context(), string(provider)); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// toContractConnection maps a registry connection row onto the wire shape,
+// translating the storage status vocabulary (active/revoked/error) into the
+// contract's (connected/disconnected/error). The credential is never present.
+func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnection {
+	c := crmcontracts.CaptureConnection{
+		Id:       openapi_types.UUID(v.ID),
+		Provider: crmcontracts.CaptureConnectionProvider(v.Connector),
+		Status:   connectionStatus(v.Status),
+		Scopes:   v.Scopes,
+	}
+	if c.Scopes == nil {
+		c.Scopes = []string{}
+	}
+	if len(v.Cursor) > 0 {
+		s := string(v.Cursor)
+		c.SyncCursor = &s
+	}
+	return c
+}
+
+func connectionStatus(storage string) crmcontracts.CaptureConnectionStatus {
+	switch storage {
+	case "active":
+		return crmcontracts.Connected
+	case "revoked":
+		return crmcontracts.Disconnected
+	case "error":
+		return crmcontracts.Error
+	default:
+		return crmcontracts.CaptureConnectionStatus(storage)
+	}
 }

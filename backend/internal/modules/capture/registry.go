@@ -405,8 +405,9 @@ func (r *Registry) connector(name string) (connector.Connector, error) {
 type ConnectionView struct {
 	ID        ids.UUID
 	Connector string
-	Status    string // 'active' | 'revoked' | 'error' (connector_connection.status)
-	Cursor    []byte // opaque incremental-sync watermark, or nil
+	Status    string   // 'active' | 'revoked' | 'error' (connector_connection.status)
+	Cursor    []byte   // opaque incremental-sync watermark, or nil
+	Scopes    []string // the scopes frozen at grant time
 }
 
 // Connections lists the CALLING human's own standing connections in the
@@ -420,7 +421,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	var out []ConnectionView
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, connector, status, cursor FROM connector_connection
+			SELECT id, connector, status, cursor, scopes FROM connector_connection
 			WHERE granted_by = $1
 			ORDER BY connector`, actor.UserID)
 		if err != nil {
@@ -429,7 +430,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 		defer rows.Close()
 		for rows.Next() {
 			var v ConnectionView
-			if err := rows.Scan(&v.ID, &v.Connector, &v.Status, &v.Cursor); err != nil {
+			if err := rows.Scan(&v.ID, &v.Connector, &v.Status, &v.Cursor, &v.Scopes); err != nil {
 				return err
 			}
 			out = append(out, v)
