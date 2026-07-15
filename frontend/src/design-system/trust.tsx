@@ -1,3 +1,4 @@
+import { ArrowRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useT } from "../i18n";
 import "./trust.css";
@@ -14,6 +15,26 @@ export type Evidence = {
   snippet: string;
   source: string;
 };
+
+// The contract's `evidence` is an untyped free-form object (agent actors
+// only; no fixed shape yet at the contract level) — narrow it to the trust
+// vocabulary's Evidence before handing it to EvidenceChip. Anything that
+// doesn't carry both fields is treated as "no evidence" rather than guessed.
+// Shared by every screen that renders an audit/history row's evidence
+// (settings' audit log, the record History timelines) so there is one
+// narrowing, not a copy per call site.
+export function toEvidence(
+  raw: { [key: string]: unknown } | null | undefined,
+): Evidence | null {
+  if (
+    raw &&
+    typeof raw.snippet === "string" &&
+    typeof raw.source === "string"
+  ) {
+    return { snippet: raw.snippet, source: raw.source };
+  }
+  return null;
+}
 
 export function AutonomyDot({ tier }: Readonly<{ tier: "auto" | "confirm" }>) {
   const t = useT();
@@ -225,5 +246,39 @@ export function StagedProposal({
         />
       )}
     </StagingCard>
+  );
+}
+
+// The inline old→new field diff: struck-through prior value, arrow, highlighted
+// new value. A null side is an honest marker, never a blank or a guessed value.
+export function FieldDiff({
+  oldValue,
+  newValue,
+}: Readonly<{ oldValue: string | null; newValue: string | null }>) {
+  const t = useT();
+  return (
+    <span className="field-diff">
+      {oldValue === null ? (
+        <span className="field-diff-empty">{t("history.created")}</span>
+      ) : (
+        <span className="field-diff-from">{oldValue}</span>
+      )}
+      <ArrowRight className="field-diff-arrow" aria-hidden size={14} />
+      {newValue === null ? (
+        <span className="field-diff-empty">{t("history.cleared")}</span>
+      ) : (
+        <span className="field-diff-to">{newValue}</span>
+      )}
+    </span>
+  );
+}
+
+// A governed agent's passport id, shown mono so it reads as an identifier.
+export function PassportChip({ id }: Readonly<{ id: string }>) {
+  const t = useT();
+  return (
+    <span className="passport-chip" title={t("history.passport")}>
+      {id}
+    </span>
   );
 }

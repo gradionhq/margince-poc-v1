@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { PipelinesCard, SettingsScreen } from "./settings";
+import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 import {
   installFetchStub,
   jsonResponse,
@@ -175,3 +175,49 @@ function pipelinesCard(roles: string[]) {
 export const PipelinesAdmin: Story = { render: pipelinesCard(["admin"]) };
 
 export const PipelinesReadOnly: Story = { render: pipelinesCard(["rep"]) };
+
+// AuditLogCard (AO-3/AO-4): one entry carrying a full before/after diff plus
+// the agent attribution trail (passport, on-behalf-of human, authorization
+// rule, grounding evidence), collapsed by default — the expand toggle is
+// what a reviewer exercises to confirm the panel renders honestly.
+const auditLogPage = {
+  data: [
+    {
+      id: "al-1",
+      workspace_id: "w",
+      actor_type: "agent",
+      actor_id: "agent:sdr",
+      passport_id: "pp-9",
+      on_behalf_of: "u-1",
+      action: "update",
+      entity_type: "person",
+      entity_id: "p-1",
+      before: { stage: "new" },
+      after: { stage: "qualified" },
+      authorization_rule: "role:admin",
+      evidence: { snippet: "Reply confirmed budget", source: "email:msg-1" },
+      occurred_at: "2026-07-10T09:00:00Z",
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
+};
+
+const auditLogMe = (roles: string[]) =>
+  jsonResponse({ user: { id: "u-1", display_name: "Me" }, roles, teams: [] });
+
+export const AuditLog: Story = {
+  render: () => {
+    globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+    installFetchStub({
+      "GET /me": () => auditLogMe(["admin"]),
+      "GET /audit-log": () => jsonResponse(auditLogPage),
+      "GET /people/p-1": () =>
+        jsonResponse({ id: "p-1", full_name: "Priya Shah" }),
+    });
+    return (
+      <StoryProviders>
+        <AuditLogCard />
+      </StoryProviders>
+    );
+  },
+};

@@ -3,7 +3,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { navigate, type Route } from "../app/router";
+import { ENTITY, type EntityKind } from "../app/entity";
+import { navigate } from "../app/router";
 
 // A cross-record reference rendered as the target's display name plus a
 // backlink to its 360, resolved by id. Records point at each other by id
@@ -13,21 +14,15 @@ import { navigate, type Route } from "../app/router";
 // while the name loads and whenever the lookup can't resolve one — so a
 // reference never renders blank or a dead link.
 
-export type EntityRefKind = "person" | "organization" | "deal";
-
-const ROUTE_OF: Record<EntityRefKind, (id: string) => Route> = {
-  person: (id) => ({ screen: "contacts", id }),
-  organization: (id) => ({ screen: "companies", id }),
-  deal: (id) => ({ screen: "deals", id }),
-};
-
 async function fetchEntityName(
-  kind: EntityRefKind,
+  kind: EntityKind,
   id: string,
 ): Promise<string | null> {
   // Coerce a missing name to null (never undefined): react-query forbids an
   // undefined resolve, and a record read that somehow lacks its name field
-  // should fall back to the id, not crash the query.
+  // should fall back to the id, not crash the query. Each kind reads a
+  // different endpoint and a differently-named field, so this stays a
+  // straight per-kind switch rather than a generic lookup.
   if (kind === "person") {
     const { data, error } = await api.GET("/people/{id}", {
       params: { path: { id } },
@@ -40,6 +35,12 @@ async function fetchEntityName(
     });
     return error ? null : (data.display_name ?? null);
   }
+  if (kind === "lead") {
+    const { data, error } = await api.GET("/leads/{id}", {
+      params: { path: { id } },
+    });
+    return error ? null : (data.full_name ?? null);
+  }
   const { data, error } = await api.GET("/deals/{id}", {
     params: { path: { id } },
   });
@@ -49,7 +50,7 @@ async function fetchEntityName(
 export function EntityRef({
   kind,
   id,
-}: Readonly<{ kind: EntityRefKind; id: string | null | undefined }>) {
+}: Readonly<{ kind: EntityKind; id: string | null | undefined }>) {
   const query = useQuery({
     queryKey: [kind, "ref", id],
     queryFn: () => fetchEntityName(kind, id ?? ""),
@@ -74,7 +75,7 @@ export function EntityRef({
     <button
       type="button"
       className="entity-link"
-      onClick={() => navigate(ROUTE_OF[kind](id))}
+      onClick={() => navigate(ENTITY[kind].route(id))}
       title={id}
     >
       {query.data}
