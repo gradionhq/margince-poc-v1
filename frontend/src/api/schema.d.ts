@@ -4810,6 +4810,11 @@ export interface components {
             snippet?: string | null;
             /** @description Relevance score. */
             score?: number | null;
+            /**
+             * @description Provenance tier of the underlying record. In native mode every stored record is `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows (not emitted until overlay adapters land). Never guessed — null when unknown.
+             * @enum {string|null}
+             */
+            trust_tier?: "authoritative" | "external" | "unverified" | null;
         };
         SearchResponse: {
             data: components["schemas"]["SearchResult"][];

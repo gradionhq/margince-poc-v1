@@ -7470,6 +7470,13 @@ components:
         title: { type: [string, 'null'], description: Display label (name/subject). }
         snippet: { type: [string, 'null'] }
         score: { type: [number, 'null'], description: Relevance score. }
+        trust_tier:
+          type: [string, 'null']
+          enum: [authoritative, external, unverified, null]
+          description: >
+            Provenance tier of the underlying record. In native mode every stored record is
+            `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows
+            (not emitted until overlay adapters land). Never guessed — null when unknown.
 
     SearchResponse:
       type: object

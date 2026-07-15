@@ -2424,6 +2424,30 @@ func (e SavedViewSharedScope) Valid() bool {
 	}
 }
 
+// Defines values for SearchResultTrustTier.
+const (
+	SearchResultTrustTierAuthoritative SearchResultTrustTier = "authoritative"
+	SearchResultTrustTierExternal      SearchResultTrustTier = "external"
+	SearchResultTrustTierLessThannil   SearchResultTrustTier = "<nil>"
+	SearchResultTrustTierUnverified    SearchResultTrustTier = "unverified"
+)
+
+// Valid indicates whether the value is a known member of the SearchResultTrustTier enum.
+func (e SearchResultTrustTier) Valid() bool {
+	switch e {
+	case SearchResultTrustTierAuthoritative:
+		return true
+	case SearchResultTrustTierExternal:
+		return true
+	case SearchResultTrustTierLessThannil:
+		return true
+	case SearchResultTrustTierUnverified:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SearchResultType.
 const (
 	SearchResultTypeActivity     SearchResultType = "activity"
@@ -6509,9 +6533,15 @@ type SearchResult struct {
 	Snippet *string  `json:"snippet,omitempty"`
 
 	// Title Display label (name/subject).
-	Title *string          `json:"title,omitempty"`
-	Type  SearchResultType `json:"type"`
+	Title *string `json:"title,omitempty"`
+
+	// TrustTier Provenance tier of the underlying record. In native mode every stored record is `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows (not emitted until overlay adapters land). Never guessed — null when unknown.
+	TrustTier *SearchResultTrustTier `json:"trust_tier,omitempty"`
+	Type      SearchResultType       `json:"type"`
 }
+
+// SearchResultTrustTier Provenance tier of the underlying record. In native mode every stored record is `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows (not emitted until overlay adapters land). Never guessed — null when unknown.
+type SearchResultTrustTier string
 
 // SearchResultType defines model for SearchResult.Type.
 type SearchResultType string
