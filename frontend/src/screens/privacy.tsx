@@ -23,6 +23,7 @@ import type { MessageKey } from "../i18n/en";
 import { humanizeToken } from "./audit";
 import {
   LoadMoreButton,
+  ProblemError,
   problemMessage,
   QueryGate,
   throwProblem,
@@ -50,6 +51,39 @@ type User = components["schemas"]["User"];
 // nothing in this app called it) and the DSR inbox. GET + POST only — there
 // is no PATCH or DELETE on /consent-purposes, so a purpose is append-only by
 // contract, not by convention; the create form says so up front.
+
+// share.tsx:417's honestMessage idiom, shared by every mutation error render
+// in this file: surface the server's own explanation rather than a canned
+// one. A ProblemError's message is already problemMessage(problem), so this
+// covers both the plain-Error and ProblemError mutation failures below.
+function honestMessage(error: unknown): string | null {
+  return error instanceof Error ? error.message : null;
+}
+
+// The DSR closed status machine (consent/dsr.go's dsrTransitions) rejects an
+// illegal "<from> → <to>" move with a 422 validation_error whose ONE failing
+// field is "status" (writeConsentErr → httperr.Validation("status", "invalid",
+// reason)). That is the only field-level validation error this endpoint's
+// status changes can produce — the sibling "closing a request needs its
+// answer" case fails on "resolution", not "status" — so field "status" on a
+// validation_error is an unambiguous signal the request moved on underneath
+// us. Every other failure (permission_denied, an infra 500, a network error)
+// is a different kind of problem and must never wear that copy.
+function isIllegalTransition(problem: unknown): boolean {
+  if (!problem || typeof problem !== "object") return false;
+  const record = problem as Record<string, unknown>;
+  if (record.code !== "validation_error") return false;
+  const details = record.details;
+  if (!details || typeof details !== "object") return false;
+  const errors = (details as Record<string, unknown>).errors;
+  if (!Array.isArray(errors)) return false;
+  return errors.some(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      (item as Record<string, unknown>).field === "status",
+  );
+}
 
 // G-3: the inline purpose-create form, toggled by "Add purpose" — the
 // share.tsx precedent (create is an inline card, never a modal; only the
@@ -87,13 +121,6 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
       onDone();
     },
   });
-
-  // share.tsx:417's honestMessage idiom — this form has only one error
-  // source (the create mutation), so it renders the message directly rather
-  // than distinguishing an approval-required case the way share.tsx does.
-  function honestMessage(error: unknown): string | null {
-    return error instanceof Error ? error.message : null;
-  }
 
   function dismissCreateError() {
     if (create.isError) {
@@ -291,10 +318,15 @@ function DsrRow({
     },
     // The stale-row race: another officer decided this request first, so the
     // transition this row offered is no longer legal server-side (422). This
-    // is NOT approvals' already_decided 409 — re-read via invalidation and
-    // say plainly that it moved on, rather than retry a now-illegal move.
-    onError: () => {
-      queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+    // is NOT approvals' already_decided 409 — re-read via invalidation ONLY
+    // for that specific case; an assignee 403 or an infra 500 is not a race,
+    // and invalidating for those would just hide the real failure behind a
+    // refetch instead of explaining it.
+    onError: (error) => {
+      const problem = error instanceof ProblemError ? error.problem : null;
+      if (problem && isIllegalTransition(problem)) {
+        queryClient.invalidateQueries({ queryKey: ["dsrs"] });
+      }
     },
   });
 
@@ -324,7 +356,16 @@ function DsrRow({
 
   const overdue = isOverdue(dsr.due_at, dsr.status, nowMs);
   const terminal = isTerminal(dsr.status);
-  const patchErrorMessage = patch.isError ? t("privacy.movedOn") : null;
+  const patchProblem =
+    patch.error instanceof ProblemError ? patch.error.problem : null;
+  // Only the illegal-transition race gets the "moved on" copy; any other
+  // failure gets the server's own honest explanation instead of a specific
+  // claim about a race that never happened.
+  const patchErrorMessage = !patch.isError
+    ? null
+    : patchProblem && isIllegalTransition(patchProblem)
+      ? t("privacy.movedOn")
+      : honestMessage(patch.error);
 
   return (
     <li className="dsr-row">

@@ -356,15 +356,30 @@ describe("PrivacyInboxCard", () => {
 
   // The stale-row race: another admin moved it first, so our offered
   // transition is now illegal and the PATCH 422s. Note this is NOT the
-  // approvals' 409 already_decided — isAlreadyDecided does not apply.
+  // approvals' 409 already_decided — isAlreadyDecided does not apply. The
+  // stub mirrors the real wire shape (consent/dsr.go's UpdateDSR via
+  // writeConsentErr → httperr.Validation("status", "invalid", reason)):
+  // top-level code is always "validation_error", and the field that failed
+  // rides in details.errors[0].field — NOT in the top-level code, which the
+  // create-purpose test above shows is reused for every validation failure.
   it("re-reads and explains when the request moved on underneath us", async () => {
     stubRoutes({
       "PATCH /data-subject-requests/d1": () =>
         jsonResponse(
           {
-            title: "open → fulfilled is not a legal transition",
+            title: "Unprocessable Entity",
+            detail: "open → fulfilled is not a legal transition",
             status: 422,
-            code: "invalid",
+            code: "validation_error",
+            details: {
+              errors: [
+                {
+                  field: "status",
+                  code: "invalid",
+                  message: "open → fulfilled is not a legal transition",
+                },
+              ],
+            },
           },
           422,
         ),
@@ -379,11 +394,38 @@ describe("PrivacyInboxCard", () => {
     expect(await screen.findByText(/moved on/i)).toBeInTheDocument();
   });
 
-  it("assigns from the roster", async () => {
-    const patch = vi.fn(() =>
-      jsonResponse({ ...DSRS.data[0], assignee_id: "u1" }),
-    );
+  // Finding 1: a patch failure that is NOT the illegal-transition 422 must
+  // never wear the "moved on" copy — that would tell the officer a colleague
+  // made a decision that never happened. A 403 (no `details.errors`, code
+  // "permission_denied") gets the server's own honest detail instead.
+  it("tells the truth about a non-transition patch failure instead of claiming it moved on", async () => {
     stubRoutes({
+      "PATCH /data-subject-requests/d1": () =>
+        jsonResponse(
+          {
+            title: "Forbidden",
+            detail: "assigning this request is outside your role",
+            status: 403,
+            code: "permission_denied",
+          },
+          403,
+        ),
+    });
+    render(<PrivacyInboxCard />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /8f3a-person-uuid/i }),
+    );
+    const row = await findDsrRow("8f3a-person-uuid");
+    await userEvent.type(screen.getByLabelText(/resolution/i), "done");
+    await userEvent.click(within(row).getByRole("button", { name: /reject/i }));
+    expect(
+      await screen.findByText(/assigning this request is outside your role/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/moved on/i)).not.toBeInTheDocument();
+  });
+
+  it("assigns from the roster", async () => {
+    const sent = stubRoutes({
       "GET /users": () =>
         jsonResponse({
           data: [
@@ -406,7 +448,8 @@ describe("PrivacyInboxCard", () => {
           ],
           page: { next_cursor: null, has_more: false },
         }),
-      "PATCH /data-subject-requests/d1": patch,
+      "PATCH /data-subject-requests/d1": () =>
+        jsonResponse({ ...DSRS.data[0], assignee_id: "u1" }),
     });
     render(<PrivacyInboxCard />);
     await userEvent.click(
@@ -417,7 +460,21 @@ describe("PrivacyInboxCard", () => {
       screen.queryByRole("option", { name: "Bot" }),
     ).not.toBeInTheDocument();
     await userEvent.selectOptions(picker, "u1");
-    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        sent.filter((s) => s.key === "PATCH /data-subject-requests/d1"),
+      ).toHaveLength(1),
+    );
+    // The load-bearing invariant: assignee_id: "u1" actually went on the
+    // wire, and NOTHING ELSE did — not even an explicit null for status or
+    // resolution. The server's UPDATE sets `coalesce($n, col)` for every
+    // field, so a stray `status: null` or `resolution: null` in this body
+    // would silently no-op those columns rather than leave them untouched;
+    // toEqual (not objectContaining) proves no such key rode along.
+    const patches = sent.filter(
+      (s) => s.key === "PATCH /data-subject-requests/d1",
+    );
+    expect(patches[0]?.body).toEqual({ assignee_id: "u1" });
   });
 
   it("renders a scoped rep's 403 honestly", async () => {
