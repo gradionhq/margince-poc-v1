@@ -191,6 +191,13 @@ up)
     echo "$label ready"
     echo "  api      http://localhost:${api_port}"
     echo "  frontend http://localhost:${fe_port}"
+    # Demo logins — printed straight from scripts/seed-dev.sql's manifest block so
+    # the credentials live in exactly one place (that file seeds them). rep =
+    # team-scoped, rep2 = own-scoped — see docs/explanation/rbac-roles-and-teams.md.
+    echo "  login"
+    sed -n '/DEMO-ACCOUNTS-BEGIN/,/DEMO-ACCOUNTS-END/p' scripts/seed-dev.sql \
+      | sed '1d;$d' \
+      | sed 's/^-- /           /'
     echo "  logs     ${log}"
     echo "  stop     make dev-stop${slug:+ DEV_SLUG=$slug}"
   else
