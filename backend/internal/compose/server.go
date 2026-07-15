@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
+	"github.com/gradionhq/margince/backend/internal/modules/reporting"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -62,6 +63,7 @@ type (
 	voiceHandlers        = ai.Handlers
 	customfieldsHandlers = customfields.Handlers
 	quotasHandlers       = quotas.Handlers
+	reportHandlers       = reporting.Handlers
 )
 
 // Server satisfies crmcontracts.ServerInterface by embedding: every
@@ -364,7 +366,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		privacyHandlers: privacy.NewHandlers(pool),
 		agentsHandlers:  agents.NewHandlers(pool),
 		voiceHandlers:   ai.NewHandlers(pool),
-		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
+		reportHandlers:  reporting.NewHandlers(reporting.New(pool, schemaFields)),
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),

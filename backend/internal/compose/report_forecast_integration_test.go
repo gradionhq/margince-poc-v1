@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/reporting"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -36,7 +37,7 @@ import (
 type forecastEnv struct {
 	owner    *pgx.Conn
 	Pool     *pgxpool.Pool
-	handlers reportHandlers
+	handlers reporting.Handlers
 	WS       ids.UUID
 	Rep1     ids.UUID // team1
 	Rep3     ids.UUID // team2
@@ -116,7 +117,7 @@ func setupForecast(t *testing.T) *forecastEnv {
 	}
 	t.Cleanup(pool.Close)
 	e.Pool = pool
-	e.handlers = reportHandlers{engine: newReportEngine(pool)}
+	e.handlers = reporting.NewHandlers(reporting.New(pool, schemaFields))
 	return e
 }
 

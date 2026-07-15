@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/modules/reporting"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -31,7 +32,7 @@ type Provider struct {
 	people     *people.Provider
 	deals      *deals.Provider
 	activities *activities.Provider
-	reports    *reportEngine
+	reports    *reporting.Engine
 }
 
 func NewProvider(pool *pgxpool.Pool) *Provider {
@@ -41,7 +42,7 @@ func NewProvider(pool *pgxpool.Pool) *Provider {
 		people:     people.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		deals:      deals.NewProvider(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		activities: activities.NewProvider(pool),
-		reports:    newReportEngine(pool),
+		reports:    reporting.New(pool, schemaFields),
 	}
 }
 
@@ -202,5 +203,5 @@ func (p *Provider) ListFields(_ context.Context, entity datasource.EntityType) (
 // vocabulary — the same engine the HTTP surface and the run_report
 // tool ride.
 func (p *Provider) RunReport(ctx context.Context, plan datasource.ReportPlan) (datasource.ReportResult, error) {
-	return p.reports.runAdHocPlan(ctx, plan)
+	return p.reports.RunAdHocPlan(ctx, plan)
 }

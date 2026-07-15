@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/reporting"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -36,7 +37,7 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 	provider := NewProvider(pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
-	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
+	agents.RegisterReportTool(registry, reportToolRunner(reporting.New(pool, schemaFields)))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
 	agents.RegisterIntentTools(registry, search.NewRetriever(search.NewStore(pool), nil))
@@ -52,9 +53,9 @@ func newRegistry(pool *pgxpool.Pool, gate *auth.Gate) *agents.Registry {
 
 // reportToolRunner adapts the engine to the tool seam: decode the
 // plan arguments, run, re-encode the contract-shaped result.
-func reportToolRunner(engine *reportEngine) agents.ReportRunner {
+func reportToolRunner(engine *reporting.Engine) agents.ReportRunner {
 	return func(ctx context.Context, report string, planArgs json.RawMessage) (json.RawMessage, error) {
-		var req reportRequest
+		var req reporting.Request
 		if len(planArgs) > 0 {
 			if err := json.Unmarshal(planArgs, &req); err != nil {
 				return nil, err

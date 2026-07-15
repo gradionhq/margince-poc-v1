@@ -31,6 +31,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/reporting"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -124,7 +125,7 @@ func (e *closeDateEnv) pendingCorrections(t *testing.T, dealID ids.UUID) int {
 
 func (e *closeDateEnv) runForecastReport(t *testing.T, ctx context.Context, body string) reportResultWire {
 	t.Helper()
-	handlers := reportHandlers{engine: newReportEngine(e.Pool)}
+	handlers := reporting.NewHandlers(reporting.New(e.Pool, schemaFields))
 	req := httptest.NewRequest(http.MethodPost, "/v1/reports/forecast", strings.NewReader(body)).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	handlers.RunReport(rec, req, "forecast")

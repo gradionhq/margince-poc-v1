@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package compose
+package reporting
 
 import (
 	"encoding/json"
@@ -13,13 +13,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// reportHandlers shadows the generated RunReport stub over the engine.
-type reportHandlers struct {
-	engine *reportEngine
+// Handlers shadows the generated RunReport stub over the engine.
+type Handlers struct {
+	engine *Engine
 }
 
-func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report string) {
-	var req reportRequest
+// NewHandlers binds the report HTTP handlers to an engine.
+func NewHandlers(e *Engine) Handlers { return Handlers{engine: e} }
+
+func (h Handlers) RunReport(w http.ResponseWriter, r *http.Request, report string) {
+	var req Request
 	// The body is optional (a prebuilt report runs on its defaults);
 	// anything present must decode strictly.
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
@@ -59,7 +62,7 @@ func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report
 // The reserved `by`/`agg` keys and the free-form vocabulary predicates
 // both live in the raw query string, so the parse owns the whole of it;
 // the generated params struct is redundant here.
-func (h reportHandlers) ExplainReport(w http.ResponseWriter, r *http.Request, report string, _ crmcontracts.ExplainReportParams) {
+func (h Handlers) ExplainReport(w http.ResponseWriter, r *http.Request, report string, _ crmcontracts.ExplainReportParams) {
 	q, err := parseDerivationQuery(r.URL.Query())
 	if err != nil {
 		writeReportError(w, r, err)

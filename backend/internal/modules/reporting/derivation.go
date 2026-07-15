@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package compose
+package reporting
 
 // "Explain This Number" (B-E09.9, features/03 §1.3): every aggregate a
 // report returns carries a derivation handle; resolving it yields the
@@ -39,7 +39,7 @@ type derivationQuery struct {
 	// (the "no owner" group has no other wire spelling in a URL).
 	Predicates map[string]string
 	GroupBy    []string
-	Aggregates []reportAggregate
+	Aggregates []Aggregate
 }
 
 // derivationOutcome is a resolved handle: definition, drill-through
@@ -59,7 +59,7 @@ type derivationOutcome struct {
 // row, for the whole filtered result). parseDerivationQuery is its exact
 // inverse; the round trip is unit-tested so a handle we mint always
 // resolves.
-func derivationURL(report string, filters map[string]any, groupBy []string, aggregates []reportAggregate, row map[string]any) string {
+func derivationURL(report string, filters map[string]any, groupBy []string, aggregates []Aggregate, row map[string]any) string {
 	values := url.Values{}
 	for _, agg := range aggregates {
 		values.Add("agg", agg.Fn+":"+agg.Field+":"+agg.As)
@@ -111,7 +111,7 @@ func parseDerivationQuery(values url.Values) (derivationQuery, error) {
 				if len(parts) != 3 || parts[0] == "" {
 					return derivationQuery{}, &FieldNotAllowedError{Field: "agg=" + v}
 				}
-				q.Aggregates = append(q.Aggregates, reportAggregate{Fn: parts[0], Field: parts[1], As: parts[2]})
+				q.Aggregates = append(q.Aggregates, Aggregate{Fn: parts[0], Field: parts[1], As: parts[2]})
 			}
 		default:
 			if len(vals) != 1 {
@@ -138,7 +138,7 @@ type boundExpr struct {
 type derivationPlan struct {
 	preds      []boundExpr
 	definition string
-	aggregates []reportAggregate
+	aggregates []Aggregate
 	columns    []string // drill-through output names, aligned with selects
 	selects    []string
 	aggColumns []string
@@ -146,7 +146,7 @@ type derivationPlan struct {
 }
 
 // Derive resolves one handle against a prebuilt report's vocabulary.
-func (e *reportEngine) Derive(ctx context.Context, report string, q derivationQuery) (derivationOutcome, error) {
+func (e *Engine) Derive(ctx context.Context, report string, q derivationQuery) (derivationOutcome, error) {
 	if uuidShape.MatchString(report) {
 		// Saved reports are a later slice; an unknown id is absent, not
 		// half-supported (same rule as Run).
@@ -254,7 +254,7 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 // fetchDerivation executes a compiled plan: the drill-through rows and
 // the aggregate recompute run over the identical WHERE side (validated
 // predicates + the caller's row-scope clause) in one transaction.
-func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec reportSpec, plan derivationPlan, out *derivationOutcome) error {
+func (e *Engine) fetchDerivation(ctx context.Context, report string, spec reportSpec, plan derivationPlan, out *derivationOutcome) error {
 	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
@@ -366,7 +366,7 @@ type boundPredicate struct {
 // renderDefinition writes the exact filter+group+aggregate as one plain
 // English sentence — the (a) half of AC-R6. Pure; unit-tested against
 // golden strings.
-func renderDefinition(spec reportSpec, filters, groups []boundPredicate, aggregates []reportAggregate) (string, error) {
+func renderDefinition(spec reportSpec, filters, groups []boundPredicate, aggregates []Aggregate) (string, error) {
 	var b strings.Builder
 	b.WriteString("Over ")
 	if spec.basePlain != "" {
@@ -406,7 +406,7 @@ func renderPredicates(preds []boundPredicate) string {
 	return strings.Join(parts, " and ")
 }
 
-func aggregatePhrase(agg reportAggregate) (string, error) {
+func aggregatePhrase(agg Aggregate) (string, error) {
 	verbs := map[string]string{
 		"count": "the number of matching records",
 		"sum":   "the sum of",

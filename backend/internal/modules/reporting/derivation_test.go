@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package compose
+package reporting
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ func TestRenderDefinitionReadsAsPlainLanguage(t *testing.T) {
 	got, err := renderDefinition(spec,
 		[]boundPredicate{{Field: "pipeline_id", Value: "018f-pipe"}},
 		[]boundPredicate{{Field: "owner_id", Value: "018f-owner"}},
-		[]reportAggregate{
+		[]Aggregate{
 			{Fn: "count", As: "deals"},
 			{Fn: "sum", Field: "amount_minor", As: "unweighted_minor"},
 			{Fn: "sum", Field: "weighted_amount_minor", As: "weighted_minor"},
@@ -40,7 +40,7 @@ func TestRenderDefinitionReadsAsPlainLanguage(t *testing.T) {
 func TestRenderDefinitionSpellsOutTheNullGroup(t *testing.T) {
 	got, err := renderDefinition(prebuiltReports["forecast"], nil,
 		[]boundPredicate{{Field: "owner_id", Value: ""}},
-		[]reportAggregate{{Fn: "count"}})
+		[]Aggregate{{Fn: "count"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRenderDefinitionSpellsOutTheNullGroup(t *testing.T) {
 
 func TestRenderDefinitionRejectsUnknownAggregate(t *testing.T) {
 	_, err := renderDefinition(prebuiltReports["forecast"], nil, nil,
-		[]reportAggregate{{Fn: "median", Field: "amount_minor"}})
+		[]Aggregate{{Fn: "median", Field: "amount_minor"}})
 	var notAllowed *FieldNotAllowedError
 	if !errors.As(err, &notAllowed) {
 		t.Fatalf("unknown fn → %v, want FieldNotAllowedError", err)
@@ -64,7 +64,7 @@ func TestRenderDefinitionRejectsUnknownAggregate(t *testing.T) {
 // A handle we mint must resolve: parseDerivationQuery is derivationURL's
 // exact inverse, including the empty-string spelling of a NULL group key.
 func TestDerivationURLRoundTrip(t *testing.T) {
-	aggs := []reportAggregate{
+	aggs := []Aggregate{
 		{Fn: "count", As: "deals"},
 		{Fn: "sum", Field: "amount_minor", As: "unweighted_minor"},
 	}
@@ -144,7 +144,7 @@ func TestReportVocabularyAvoidsReservedDerivationNames(t *testing.T) {
 func TestAggregateAliasCannotSquatOnDerivationURL(t *testing.T) {
 	_, _, err := buildSelectList(prebuiltReports["forecast"],
 		[]string{"owner_id"},
-		[]reportAggregate{{Fn: "count", As: reservedDerivationColumn}})
+		[]Aggregate{{Fn: "count", As: reservedDerivationColumn}})
 	var notAllowed *FieldNotAllowedError
 	if !errors.As(err, &notAllowed) || notAllowed.Field != reservedDerivationColumn {
 		t.Fatalf("alias %q → %v, want FieldNotAllowedError on that field", reservedDerivationColumn, err)
