@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
+import { approvalDotTier, useAgentTierMap } from "../app/autonomy";
 import {
   Badge,
   Button,
@@ -418,6 +419,7 @@ export function ApprovalRow({
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
+  const tierMap = useAgentTierMap();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [rejecting, setRejecting] = useState(false);
@@ -528,7 +530,9 @@ export function ApprovalRow({
           flexWrap: "wrap",
         }}
       >
-        {!decided && <AutonomyDot tier="confirm" />}
+        {!decided && (
+          <AutonomyDot tier={approvalDotTier(approval.kind, tierMap)} />
+        )}
         {/* kind is meta, not the headline — the human reads the summary first */}
         <span className="t-small">{approval.kind}</span>
         <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />

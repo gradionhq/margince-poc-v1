@@ -10,6 +10,7 @@ import {
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { approvalDotTier, useAgentTierMap, verbTier } from "../app/autonomy";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -413,6 +414,7 @@ export function DealsScreen({
   const queryClient = useQueryClient();
   const pipelinesQuery = usePipelines();
   const meQuery = useMe();
+  const tierMap = useAgentTierMap();
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
     q: "",
@@ -724,7 +726,7 @@ export function DealsScreen({
         {pending && (
           <>
             <p className="t-sub" id="advance-title">
-              <AutonomyDot tier="confirm" />{" "}
+              <AutonomyDot tier={verbTier("progress_deal", tierMap)} />{" "}
               {t("deals.confirmAdvance", { stage: pending.toStage.name })}
             </p>
             <p className="t-caption" style={{ marginTop: 6 }}>
@@ -1092,6 +1094,7 @@ function DealApprovals({
   }) => void;
 }>) {
   const t = useT();
+  const tierMap = useAgentTierMap();
   if (approvals.length === 0) {
     return null;
   }
@@ -1105,7 +1108,7 @@ function DealApprovals({
           style={{ marginBottom: 8 }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <AutonomyDot tier="confirm" />
+            <AutonomyDot tier={approvalDotTier(approval.kind, tierMap)} />
             <span className="t-label">{approval.kind}</span>
             <span className="t-small">{approval.proposed_by}</span>
           </div>

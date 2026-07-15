@@ -88,11 +88,17 @@ function isDetailUrl(url: string): boolean {
   );
 }
 
-function inboxBackend(calls: { url: string; body: unknown }[]) {
+function inboxBackend(
+  calls: { url: string; body: unknown }[],
+  agentTools: components["schemas"]["AgentTool"][] = [],
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (url.includes("/agent-tools")) {
+      return jsonResponse({ data: agentTools, page: { next_cursor: null } });
+    }
     if (method === "POST" && /approvals\/ap-1\/(approve|reject)/.test(url)) {
       let body: unknown = null;
       try {
@@ -149,6 +155,29 @@ describe("InboxScreen (B-EP09.12a)", () => {
     expect(posts()[0].body).toMatchObject({
       edited_payload: { subject: "Follow-up (edited)" },
     });
+  });
+
+  it("the row dot reads the live catalog tier, not a hardcode", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      inboxBackend(calls, [
+        {
+          name: "send_email",
+          verb: "send_email",
+          required_scope: "write",
+          tier: "green",
+          egress: true,
+        },
+      ]),
+    );
+    render(<InboxScreen />);
+    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    // send_email is catalogued "green" (auto-execute) — a hardcoded
+    // "confirm" dot would render "confirm-first" here instead.
+    await waitFor(() =>
+      expect(screen.getByLabelText("auto-execute")).toBeTruthy(),
+    );
   });
 });
 
