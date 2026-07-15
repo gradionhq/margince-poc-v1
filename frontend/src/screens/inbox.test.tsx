@@ -179,6 +179,27 @@ describe("InboxScreen (B-EP09.12a)", () => {
       expect(screen.getByLabelText("auto-execute")).toBeTruthy(),
     );
   });
+
+  it("shows the originating tool verb next to the kind", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      inboxBackend(calls, [
+        {
+          name: "send_email",
+          verb: "send_email",
+          required_scope: "write",
+          tier: "yellow",
+          egress: true,
+        },
+      ]),
+    );
+    render(<InboxScreen />);
+    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("via send_email")).toBeTruthy(),
+    );
+  });
 });
 
 // ── AC-3: reject-with-reason ────────────────────────────────────────────

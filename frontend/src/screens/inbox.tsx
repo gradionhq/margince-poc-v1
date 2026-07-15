@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
-import { approvalDotTier, useAgentTierMap } from "../app/autonomy";
+import {
+  approvalDotTier,
+  KIND_TO_VERB,
+  useAgentTierMap,
+} from "../app/autonomy";
 import {
   Badge,
   Button,
@@ -241,6 +245,19 @@ function RowStatusChip({
       {t("inbox.expiresIn", { countdown: formatCountdown(remaining, t) })}
     </Badge>
   );
+}
+
+// Surfaces the originating tool verb for a staged approval — kind is meta
+// (line above), this caption names the tool that actually produced the
+// stage so a human can tell "send_email" (the tool) from "advance_deal"
+// (the kind) without opening the detail modal. Silent for an unmapped kind.
+function OriginatingToolChip({ kind }: Readonly<{ kind: string }>) {
+  const t = useT();
+  const verb = KIND_TO_VERB[kind];
+  if (!verb) {
+    return null;
+  }
+  return <span className="t-caption">{t("inbox.viaTool", { verb })}</span>;
 }
 
 // The row-local decide outcomes that KEEP the row mounted: a generic error
@@ -535,6 +552,7 @@ export function ApprovalRow({
         )}
         {/* kind is meta, not the headline — the human reads the summary first */}
         <span className="t-small">{approval.kind}</span>
+        <OriginatingToolChip kind={approval.kind} />
         <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />
         {level && <ConfidenceMeter level={level} />}
         <RowStatusChip

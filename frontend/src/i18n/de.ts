@@ -436,6 +436,7 @@ export const de = {
   "inbox.sub":
     "alles Vorgemerkte wartet auf deine Entscheidung — ohne sie läuft nichts",
   "inbox.expires": "läuft ab {at}",
+  "inbox.viaTool": "über {verb}",
   "inbox.approveEdited": "Bearbeitet übernehmen",
   "inbox.reject": "Ablehnen",
   "inbox.tab.pending": "Ausstehend",

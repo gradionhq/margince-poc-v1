@@ -427,6 +427,7 @@ export const en = {
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",
   "inbox.expires": "expires {at}",
+  "inbox.viaTool": "via {verb}",
   "inbox.approveEdited": "Approve edited",
   "inbox.reject": "Reject",
   "inbox.tab.pending": "Pending",
