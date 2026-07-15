@@ -74,6 +74,24 @@
   font-family: var(--f-mono);
 }
 
+/* Person/team affordance: the kind glyph sits inline before the name, in both
+   the picker rows and the who-has-access list, so a name is never shown without
+   a cue to whether it's a human or a team. */
+.share-subject-name,
+.share-acl-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.share-kind-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--textTertiary);
+  flex: none;
+}
+
 .share-access-pill {
   display: inline-flex;
   align-items: center;

@@ -133,6 +133,8 @@ export const de = {
   "share.grantAccess": "Zugriff gewähren",
   "share.subject": "Person oder Team",
   "share.alreadyGranted": "hat bereits eine Freigabe",
+  "share.kindPerson": "Person",
+  "share.kindTeam": "Team",
   "share.access": "Zugriffsstufe",
   "share.access.read": "Lesen",
   "share.access.write": "Schreiben",

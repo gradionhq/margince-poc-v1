@@ -130,6 +130,8 @@ export const en = {
   "share.grantAccess": "Grant access",
   "share.subject": "Person or team",
   "share.alreadyGranted": "already has a grant",
+  "share.kindPerson": "Person",
+  "share.kindTeam": "Team",
   "share.access": "Access level",
   "share.access.read": "Read",
   "share.access.write": "Write",

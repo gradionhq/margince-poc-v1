@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, ShieldCheck } from "lucide-react";
+import {
+  Link2,
+  ShieldCheck,
+  User as UserIcon,
+  Users as UsersIcon,
+} from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -139,6 +144,22 @@ export function ShareScreen({
   return <ShareScreenBody recordType={recordType} recordId={recordId} />;
 }
 
+// A person-vs-team affordance for every subject this screen names. The picker
+// rows and the who-has-access list otherwise show a bare name with no cue to
+// its kind, so a Lucide glyph carries it — a single silhouette for a person, a
+// group for a team — labelled for assistive tech (the glyphs alone aren't).
+function SubjectKindIcon({
+  kind,
+  t,
+}: Readonly<{ kind: "user" | "team"; t: ReturnType<typeof useT> }>) {
+  const label = t(kind === "team" ? "share.kindTeam" : "share.kindPerson");
+  return kind === "team" ? (
+    <UsersIcon className="share-kind-icon" aria-label={label} />
+  ) : (
+    <UserIcon className="share-kind-icon" aria-label={label} />
+  );
+}
+
 // The subject-picker rows, shared between the normal render path and the
 // partial-roster-failure path (one roster query succeeded, the other
 // didn't) — kept as one function so a future field change on a row only
@@ -163,7 +184,10 @@ function renderSubjectList(
               aria-pressed={selected?.id === candidate.id}
               onClick={() => onPick(candidate)}
             >
-              <span>{candidate.name}</span>
+              <span className="share-subject-name">
+                <SubjectKindIcon kind={candidate.kind} t={t} />
+                <span>{candidate.name}</span>
+              </span>
               <span className="share-subject-note">
                 {already ? t("share.alreadyGranted") : candidate.note}
               </span>
@@ -442,108 +466,110 @@ function ShareScreenBody({
           (held-for-approval) made. */}
       <div className="card">
         <SectionHeader title={t("share.grantAccess")} />
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-subject`}>
-            {t("share.subject")}
-          </label>
-          <SearchField
-            id={`${headingId}-subject`}
-            placeholder={t("share.subject")}
-            value={term}
-            onChange={(event) => {
-              setTerm(event.target.value);
-              setSubject(null);
-              dismissGrantError();
-            }}
-          />
-          <RosterPicker
-            usersQuery={usersQuery}
-            teamsQuery={teamsQuery}
-            filteredRoster={filteredRoster}
-            grantedSubjectIds={grantedSubjectIds}
-            subject={subject}
-            t={t}
-            onPick={(candidate) => {
-              setSubject(candidate);
-              setTerm(candidate.name);
-              dismissGrantError();
-            }}
-          />
-        </div>
-
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-access`}>
-            {t("share.access")}
-          </label>
-          <div id={`${headingId}-access`}>
-            <SegmentedControl
-              options={["read", "write"] as const}
-              value={access}
-              onChange={(next) => {
-                setAccess(next);
+        <div className="form-stack">
+          <div className="field">
+            <label className="t-label" htmlFor={`${headingId}-subject`}>
+              {t("share.subject")}
+            </label>
+            <SearchField
+              id={`${headingId}-subject`}
+              placeholder={t("share.subject")}
+              value={term}
+              onChange={(event) => {
+                setTerm(event.target.value);
+                setSubject(null);
                 dismissGrantError();
               }}
-              labels={{
-                read: t("share.access.read"),
-                write: t("share.access.write"),
+            />
+            <RosterPicker
+              usersQuery={usersQuery}
+              teamsQuery={teamsQuery}
+              filteredRoster={filteredRoster}
+              grantedSubjectIds={grantedSubjectIds}
+              subject={subject}
+              t={t}
+              onPick={(candidate) => {
+                setSubject(candidate);
+                setTerm(candidate.name);
+                dismissGrantError();
               }}
             />
           </div>
-          <p className="t-caption">
-            {access === "read"
-              ? t("share.access.readNote")
-              : t("share.access.writeNote")}
-          </p>
-        </div>
 
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-expiry`}>
-            {t("share.expiry")}
-          </label>
-          <select
-            id={`${headingId}-expiry`}
-            className="input"
-            value={expiryDays}
-            onChange={(event) => {
-              setExpiryDays(Number(event.target.value));
-              dismissGrantError();
-            }}
+          <div className="field">
+            <label className="t-label" htmlFor={`${headingId}-access`}>
+              {t("share.access")}
+            </label>
+            <div id={`${headingId}-access`}>
+              <SegmentedControl
+                options={["read", "write"] as const}
+                value={access}
+                onChange={(next) => {
+                  setAccess(next);
+                  dismissGrantError();
+                }}
+                labels={{
+                  read: t("share.access.read"),
+                  write: t("share.access.write"),
+                }}
+              />
+            </div>
+            <p className="t-caption">
+              {access === "read"
+                ? t("share.access.readNote")
+                : t("share.access.writeNote")}
+            </p>
+          </div>
+
+          <div className="field">
+            <label className="t-label" htmlFor={`${headingId}-expiry`}>
+              {t("share.expiry")}
+            </label>
+            <select
+              id={`${headingId}-expiry`}
+              className="input"
+              value={expiryDays}
+              onChange={(event) => {
+                setExpiryDays(Number(event.target.value));
+                dismissGrantError();
+              }}
+            >
+              {EXPIRY_OPTIONS.map((option) => (
+                <option key={option.days} value={option.days}>
+                  {t(option.key)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label className="t-label" htmlFor={`${headingId}-reason`}>
+              {t("share.reason")}
+            </label>
+            <textarea
+              id={`${headingId}-reason`}
+              className="input share-reason"
+              value={reason}
+              onChange={(event) => {
+                setReason(event.target.value);
+                dismissGrantError();
+              }}
+            />
+          </div>
+
+          {grantErrorMessage && (
+            <p className="t-caption share-error">{grantErrorMessage}</p>
+          )}
+
+          <Button
+            variant="primary"
+            disabled={!subject || grant.isPending}
+            onClick={() => grant.mutate()}
+            data-testid="share-grant-submit"
           >
-            {EXPIRY_OPTIONS.map((option) => (
-              <option key={option.days} value={option.days}>
-                {t(option.key)}
-              </option>
-            ))}
-          </select>
+            {t("share.grant")}
+          </Button>
         </div>
-
-        <div className="field">
-          <label className="t-label" htmlFor={`${headingId}-reason`}>
-            {t("share.reason")}
-          </label>
-          <textarea
-            id={`${headingId}-reason`}
-            className="input share-reason"
-            value={reason}
-            onChange={(event) => {
-              setReason(event.target.value);
-              dismissGrantError();
-            }}
-          />
-        </div>
-
-        {grantErrorMessage && (
-          <p className="t-caption share-error">{grantErrorMessage}</p>
-        )}
-
-        <Button
-          variant="primary"
-          disabled={!subject || grant.isPending}
-          onClick={() => grant.mutate()}
-          data-testid="share-grant-submit"
-        >
-          {t("share.grant")}
-        </Button>
       </div>
 
       <div className="card">
@@ -554,7 +580,10 @@ function ShareScreenBody({
               {rows.map((g) => (
                 <li key={g.id} className="share-acl-row">
                   <div className="share-acl-who">
-                    <EntityRef kind={g.subject_type} id={g.subject_id} />
+                    <span className="share-acl-name">
+                      <SubjectKindIcon kind={g.subject_type} t={t} />
+                      <EntityRef kind={g.subject_type} id={g.subject_id} />
+                    </span>
                     <div className="share-acl-meta">
                       <span
                         className={`share-access-pill share-access-${g.access}`}
