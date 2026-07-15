@@ -7574,10 +7574,9 @@ components:
     # ---- Agents: governed tool surface ----
     AgentTool:
       type: object
-      required: [name, verb, tier, egress]
+      required: [name, tier, egress]
       properties:
         name:  { type: string, description: The tool name (tools/list identity). }
-        verb:  { type: string, description: The action verb (search_records, send_email, …). }
         required_scope: { type: string, description: Passport scope required to call it. }
         tier:  { type: string, enum: [green, yellow, dynamic] }
         egress: { type: boolean, description: True if the tool reaches outside the workspace. }

@@ -96,6 +96,21 @@ func TestGetRecordContextReturnsAnchorAndIsRowScoped(t *testing.T) {
 		assertFieldHistoryValidation422(t, status, problem, "entity_type", "invalid_entity_type")
 	})
 
+	// The contract bounds max_items to [1, 25]; a value outside that range
+	// must reject as a clean 422, never reach the graph walk's slice trim
+	// where a negative bound would panic on a negative index.
+	t.Run("422 max_items below the contract minimum", func(t *testing.T) {
+		var problem fieldHistoryProblem
+		status := e.call(t, "GET", "/v1/records/person/"+pid+"/context?max_items=-1", nil, nil, &problem)
+		assertFieldHistoryValidation422(t, status, problem, "max_items", "out_of_range")
+	})
+
+	t.Run("422 max_items above the contract maximum", func(t *testing.T) {
+		var problem fieldHistoryProblem
+		status := e.call(t, "GET", "/v1/records/person/"+pid+"/context?max_items=999", nil, nil, &problem)
+		assertFieldHistoryValidation422(t, status, problem, "max_items", "out_of_range")
+	})
+
 	// A lead is a valid anchor (it is in the path enum) but carries no
 	// activity_link neighborhood — the link shape admits only
 	// person/organization/deal — so its context is the profile alone: a

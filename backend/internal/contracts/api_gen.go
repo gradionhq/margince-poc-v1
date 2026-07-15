@@ -4149,9 +4149,6 @@ type AgentTool struct {
 	// RequiredScope Passport scope required to call it.
 	RequiredScope *string       `json:"required_scope,omitempty"`
 	Tier          AgentToolTier `json:"tier"`
-
-	// Verb The action verb (search_records
-	Verb string `json:"verb"`
 }
 
 // AgentToolTier defines model for AgentTool.Tier.

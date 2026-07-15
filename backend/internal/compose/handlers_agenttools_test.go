@@ -29,7 +29,7 @@ func TestAgentToolsMapPreservesRegistryOrderAndFields(t *testing.T) {
 		{Name: "a_tool", OpenAPIOp: "search_records", RequiredScope: "read", Tier: mcp.TierGreen},
 	}
 	got := agentToolsFromSpecs(specs)
-	if len(got) != 2 || got[0].Name != "b_tool" || got[0].Verb != "b_tool" || !got[0].Egress {
+	if len(got) != 2 || got[0].Name != "b_tool" || !got[0].Egress {
 		t.Fatalf("mapping dropped fields or reordered: %+v", got)
 	}
 }

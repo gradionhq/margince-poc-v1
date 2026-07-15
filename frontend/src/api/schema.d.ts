@@ -4891,8 +4891,6 @@ export interface components {
         AgentTool: {
             /** @description The tool name (tools/list identity). */
             name: string;
-            /** @description The action verb (search_records */
-            verb: string;
             /** @description Passport scope required to call it. */
             required_scope?: string;
             /** @enum {string} */

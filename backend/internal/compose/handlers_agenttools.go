@@ -24,12 +24,10 @@ func agentToolsFromSpecs(specs []mcp.ToolSpec) []crmcontracts.AgentTool {
 	for _, spec := range specs {
 		out = append(out, crmcontracts.AgentTool{
 			// Name doubles as the action verb in this registry (e.g.
-			// "search_records", "send_email") — there is no separate
-			// human verb field on mcp.ToolSpec, so both wire fields
-			// carry the same identity. OpenAPIOp is the underlying
-			// REST operationId/family the tool maps to, not the verb.
+			// "search_records", "send_email"); OpenAPIOp is the
+			// underlying REST operationId/family the tool maps to, not
+			// the verb.
 			Name:          spec.Name,
-			Verb:          spec.Name,
 			RequiredScope: ptrString(string(spec.RequiredScope)),
 			Tier:          tierWire(spec.Tier),
 			Egress:        spec.Egress,
@@ -38,8 +36,12 @@ func agentToolsFromSpecs(specs []mcp.ToolSpec) []crmcontracts.AgentTool {
 	return out
 }
 
-// tierWire is exhaustive over the RiskTier space (TestTierWireIsExhaustive
-// guards it); a new tier must be handled here, never fall through to a default.
+// tierWire maps the closed Green/Yellow/Dynamic RiskTier set (the only
+// tiers RiskTier's definition currently admits) onto the wire enum. The
+// fallthrough below is a conservative Yellow floor for the unreachable
+// case, not a fitness guarantee: TestTierWireIsExhaustive only checks
+// today's three known tiers and would not catch a new 4th RiskTier value
+// going unhandled here — adding one requires updating this switch by hand.
 func tierWire(t mcp.RiskTier) crmcontracts.AgentToolTier {
 	switch t {
 	case mcp.TierGreen:

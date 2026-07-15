@@ -15,6 +15,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
+// contextMaxItemsMin/Max/Default mirror the crm.yaml `max_items` query
+// parameter on GET /records/{entity_type}/{id}/context (minimum: 1,
+// maximum: 25, default 5) — an out-of-range value is a client error
+// (422), not a value to silently clamp or default away.
+const (
+	contextMaxItemsMin     = 1
+	contextMaxItemsMax     = 25
+	contextMaxItemsDefault = 5
+)
+
 // isContextAnchor reports whether entityType names a record the graph
 // walk can anchor on — derived from the module's one entity table
 // (every searchable type except activity, which is a link rather than a
@@ -45,7 +55,12 @@ func (h Handlers) GetRecordContext(w http.ResponseWriter, r *http.Request,
 			"entity_type must be one of person, organization, deal, lead"))
 		return
 	}
-	maxItems := 5
+	if params.MaxItems != nil && (*params.MaxItems < contextMaxItemsMin || *params.MaxItems > contextMaxItemsMax) {
+		httperr.Write(w, r, httperr.Validation("max_items", "out_of_range",
+			"max_items must be between 1 and 25"))
+		return
+	}
+	maxItems := contextMaxItemsDefault
 	if params.MaxItems != nil {
 		maxItems = *params.MaxItems
 	}

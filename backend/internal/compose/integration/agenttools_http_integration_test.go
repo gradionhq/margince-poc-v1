@@ -12,7 +12,6 @@ import (
 
 type agentToolWire struct {
 	Name          string `json:"name"`
-	Verb          string `json:"verb"`
 	RequiredScope string `json:"required_scope"`
 	Tier          string `json:"tier"`
 	Egress        bool   `json:"egress"`
@@ -36,7 +35,7 @@ func TestListAgentToolsMirrorsTheGovernedSurface(t *testing.T) {
 	// search_records is a 🟢 read tool that must be present and non-egress.
 	var found bool
 	for _, tool := range page.Data {
-		if tool.Verb == "search_records" {
+		if tool.Name == "search_records" {
 			found = true
 			if tool.Tier != "green" || tool.Egress {
 				t.Fatalf("search_records = %+v, want green/non-egress", tool)
