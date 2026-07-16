@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
@@ -154,7 +155,16 @@ func TestAddToListFiringAddsARealListMember(t *testing.T) {
 	dealID := e.SeedDeal(t, "Add To List Probe Deal", pipeline, open, nil)
 
 	listsStore := collections.NewStore(e.Pool)
-	list, err := listsStore.CreateList(e.Admin(), collections.CreateListInput{Name: "Task 11a Probe List", EntityType: "deal"})
+	// The harness AdminPerms grants the core record objects but not `list`,
+	// so seed the probe list as a seeded user carrying an explicit list
+	// grant — the automation firing below is what the test exercises, not
+	// this setup write.
+	listAuthor := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"admin"},
+		Objects:  map[string]principal.ObjectGrant{"list": {Create: true, Read: true, Update: true}},
+		RowScope: principal.RowScopeAll,
+	})
+	list, err := listsStore.CreateList(listAuthor, collections.CreateListInput{Name: "Task 11a Probe List", EntityType: "deal"})
 	if err != nil {
 		t.Fatalf("seeding the probe list: %v", err)
 	}

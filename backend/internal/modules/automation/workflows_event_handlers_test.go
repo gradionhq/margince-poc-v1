@@ -163,10 +163,13 @@ func TestStageChangeNotifyPlanEmitsOneNotifyToTheDealOwner(t *testing.T) {
 	}
 }
 
-// TestStageChangeNotifyPlanRefusesToFabricateARecipient proves Plan
-// fails honestly — rather than emitting a notify with a nil/zero
-// recipient — when the moved deal has no assigned owner.
-func TestStageChangeNotifyPlanRefusesToFabricateARecipient(t *testing.T) {
+// TestStageChangeNotifyPlanDeclinesWhenTheDealHasNoOwner proves Plan
+// declines to fire — rather than emitting a notify with a nil/zero
+// recipient — when the moved deal has no assigned owner, and that the
+// decline is a SKIP (declinedFiring), not a failure: an ownerless deal is
+// a legitimate state runOne records as 'skipped', never a 'failed' run that
+// would re-deliver forever and poison the event's sibling handlers.
+func TestStageChangeNotifyPlanDeclinesWhenTheDealHasNoOwner(t *testing.T) {
 	dealID := ids.NewV7()
 	fields, err := json.Marshal(dealOwnerFields{OwnerID: nil})
 	if err != nil {
@@ -179,6 +182,10 @@ func TestStageChangeNotifyPlanRefusesToFabricateARecipient(t *testing.T) {
 	_, err = w.Plan(context.Background(), ev)
 	if !errors.Is(err, errDealHasNoOwner) {
 		t.Fatalf("Plan err = %v, want errDealHasNoOwner", err)
+	}
+	var declined declinedFiring
+	if !errors.As(err, &declined) {
+		t.Fatalf("Plan err = %v, want a declinedFiring skip (not a hard failure)", err)
 	}
 }
 

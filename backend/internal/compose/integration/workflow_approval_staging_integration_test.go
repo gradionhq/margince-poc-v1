@@ -157,9 +157,12 @@ func TestYellowActionStagesARealApprovalAndRejectionBlocksTheRun(t *testing.T) {
 	// workspace's real relay/worker consumes. Read back the envelope it
 	// actually wrote and feed it through the engine, exactly as the
 	// worker's cg:workflows subscription would — never a hand-built
-	// stand-in for what emit() produces.
+	// stand-in for what emit() produces. The decider must be a SEEDED
+	// user: approval.decided_by carries the composite (workspace_id,
+	// decided_by) FK, so a throwaway e.Admin() id would fail it.
 	rejectReason := "not the right stage for this deal"
-	if _, err := svc.Decide(e.Admin(), approvalID, false, &rejectReason); err != nil {
+	decider := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
+	if _, err := svc.Decide(decider, approvalID, false, &rejectReason); err != nil {
 		t.Fatalf("rejecting the staged approval: %v", err)
 	}
 	var envelopeJSON []byte

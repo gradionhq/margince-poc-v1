@@ -11,7 +11,6 @@ package automation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -27,11 +26,14 @@ type dealOwnerFields struct {
 	OwnerID *ids.UUID `json:"owner_id"`
 }
 
-// errDealHasNoOwner is stage_change_notify's Plan failure when the moved
+// errDealHasNoOwner is stage_change_notify's Plan decline when the moved
 // deal carries no owner: notify has no honest recipient to name, and a
-// nil/zero recipient would be a fabricated one, not a resolved one — the
-// run lands 'failed' with this reason rather than a silently empty notify.
-var errDealHasNoOwner = errors.New("automation: stage_change_notify: deal has no assigned owner to notify")
+// nil/zero recipient would be a fabricated one, not a resolved one. This is a
+// skip, not a failure — the deal legitimately has no owner and a redelivery
+// would meet the same record — so the run lands 'skipped' with this reason
+// (visible history, no phantom recipient) rather than a 'failed' that would
+// leave the event re-delivering forever and poison its sibling handlers.
+var errDealHasNoOwner = declineFiring("the moved deal has no assigned owner to notify")
 
 // stageChangeNotifyName is the catalog key Task 6 seeds this starter
 // under — CatalogEntry.Key must equal the backing handler's Spec().Name
