@@ -10,11 +10,15 @@ package integration
 // linked by the correlation/causation ids the write shape stamps
 // (storekit.Audit/Emit, events.md §2) — must let a reader RECONSTRUCT
 // the firing: which trigger fired it, what it planned, what it applied,
-// and its outcome. This suite fires ONE lead through the real path
-// (people.Store.CreateLead → outbox → platform/events.Relay → Redis → a
-// cg:workflows Subscriber → the automation engine, the same wiring
-// TestWorkflowTriggerToDispatchP95HoldsOnTheSeededDataset already proves
-// honest — reused here rather than re-derived) and then reads back
+// and its outcome. This suite fires ONE lead through the real domain
+// write path (people.Store.CreateLead, which stages "lead.created" in
+// event_outbox), reads that staged envelope back, and dispatches it via
+// engine.HandleEvent — the exact call the cg:workflows redis subscriber
+// makes once it decodes an envelope off the bus (cmd/worker's
+// runSubscriber); no relay, no subscriber needed, since compose cannot
+// import the redis client by architectural design (.go-arch-lint.yml's
+// compose canUse list has no redis) and that transport hop is proven separately
+// by platform/events' own bus integration test. The test then reads back
 // NOTHING but the three persisted rows to rebuild the story, asserting
 // it matches what the test itself orchestrated. A trace with a missing
 // causation_id, a wrong audit_log_id, or a planned/applied encoding that
@@ -24,8 +28,6 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -81,18 +83,27 @@ func TestWorkflowRunReplaysFromItsPersistedTrace(t *testing.T) {
 	}
 	leadID := ids.UUID(lead.Id)
 
-	// Ground truth, read BEFORE dispatch runs: the real event id
-	// people.Store.CreateLead staged for this lead — independent of
-	// anything the engine or this test later derives from it.
-	triggerEventID := stagedTriggerEventID(t, e, leadCreatedEventType, leadID)
+	// Ground truth, read BEFORE dispatch runs: the real envelope
+	// people.Store.CreateLead staged in event_outbox for this lead —
+	// independent of anything the engine or this test later derives
+	// from it. Dispatching THIS envelope (rather than a hand-built one)
+	// is what makes the reconstruction below prove something: the run's
+	// trigger_event must resolve back to this exact row.
+	trigger := stagedTriggerEnvelope(t, e, leadCreatedEventType, leadID)
 
-	fireOverTheRealBus(t, e, leadID)
+	// Dispatch: engine.HandleEvent is the synchronous cg:workflows
+	// consumer call — see the file doc comment for why no bus rides
+	// under this test.
+	engine := compose.NewWorkflowEngine(e.Pool)
+	if err := engine.HandleEvent(context.Background(), trigger); err != nil {
+		t.Fatalf("dispatching the trigger lead's lead.created: %v", err)
+	}
 
 	// --- Everything from here on reads ONLY the persisted trace. ---
 
 	run := readWorkflowRun(t, e, routeLeadHandler)
-	if run.triggerEvent != triggerEventID {
-		t.Fatalf("workflow_run.trigger_event = %s, want the lead's own staged trigger %s", run.triggerEvent, triggerEventID)
+	if run.triggerEvent != trigger.EventID {
+		t.Fatalf("workflow_run.trigger_event = %s, want the lead's own staged trigger %s", run.triggerEvent, trigger.EventID)
 	}
 	if run.status != "applied" || len(run.detail) != 0 {
 		t.Fatalf("run outcome = status %q detail %q, want a clean applied run with no parked reason", run.status, run.detail)
@@ -100,7 +111,7 @@ func TestWorkflowRunReplaysFromItsPersistedTrace(t *testing.T) {
 
 	// Which trigger fired it: reconstructed from the run row's OWN
 	// trigger_event field, resolved back through event_outbox — not from
-	// triggerEventID above (that was this test's independent oracle).
+	// trigger above (that was this test's independent oracle).
 	firedBy := envelopeByEventID(t, e, run.triggerEvent)
 	if firedBy.Type != leadCreatedEventType || firedBy.Entity.ID != leadID {
 		t.Fatalf("reconstructed trigger = %s on entity %s, want %s on lead %s", firedBy.Type, firedBy.Entity.ID, leadCreatedEventType, leadID)
@@ -134,46 +145,16 @@ func TestWorkflowRunReplaysFromItsPersistedTrace(t *testing.T) {
 	}
 }
 
-// fireOverTheRealBus dispatches leadID's already-staged lead.created
-// trigger through the real outbox→relay→Redis→cg:workflows chain — the
-// same pipeline AC-W2's own perf suite drives (startDispatchPipeline,
-// testRedisClient, cgWorkflowsGroup), reused here rather than a second,
-// hand-rolled stand-in for what the worker actually consumes. Blocks
-// until the one dispatch completes.
-func fireOverTheRealBus(t *testing.T, e *Env, leadID ids.UUID) {
-	t.Helper()
-	rdb := testRedisClient(t)
-	group := cgWorkflowsGroup(t)
-	engine := compose.NewWorkflowEngine(e.Pool)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	completions := make(chan dispatchSignal, 1)
-	handler := func(ctx context.Context, env kevents.Envelope) error {
-		err := engine.HandleEvent(ctx, env)
-		if err == nil && env.Type == leadCreatedEventType {
-			completions <- dispatchSignal{entity: env.Entity.ID}
-		}
-		return err
-	}
-
-	dispatchCtx, cancelDispatch := context.WithCancel(context.Background())
-	stop := startDispatchPipeline(t, dispatchCtx, e.Pool, rdb, group, handler, logger)
-	awaitCtx, cancelAwait := context.WithTimeout(context.Background(), dispatchAwaitDeadline)
-	awaitDispatches(awaitCtx, t, completions, idSet([]ids.UUID{leadID}))
-	cancelAwait()
-	cancelDispatch()
-	stop()
-}
-
-// stagedTriggerEventID resolves the real event id a domain write staged
+// stagedTriggerEnvelope resolves the real envelope a domain write staged
 // for entityID — read before any dispatch runs, so it is independent
-// ground truth rather than something this test invented in memory.
-func stagedTriggerEventID(t *testing.T, e *Env, eventType string, entityID ids.UUID) ids.UUID {
+// ground truth rather than something this test invented in memory, and
+// it is the exact payload engine.HandleEvent is asked to process (the
+// same bytes a cg:workflows subscriber would have decoded off the bus).
+func stagedTriggerEnvelope(t *testing.T, e *Env, eventType string, entityID ids.UUID) kevents.Envelope {
 	t.Helper()
-	env := queryOneEnvelope(t, e,
+	return queryOneEnvelope(t, e,
 		`SELECT envelope FROM event_outbox WHERE envelope->>'type' = $1 AND envelope->'entity'->>'id' = $2::text`,
 		eventType, entityID.String())
-	return env.EventID
 }
 
 // envelopeByEventID resolves an event id back to the outbox row it
