@@ -92,8 +92,9 @@ var tableOwners = map[string]string{
 	"retention_policy":     "internal/modules/consent",
 	"preference_token":     "internal/modules/consent",
 	// capture
-	"raw_capture":          "internal/modules/capture",
-	"connector_connection": "internal/modules/capture",
+	"raw_capture":            "internal/modules/capture",
+	"connector_connection":   "internal/modules/capture",
+	"capture_exclusion_rule": "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
 	// ai (voice DNA: the derived profile artifact + corpus manifest)

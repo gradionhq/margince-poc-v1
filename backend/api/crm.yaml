@@ -2968,6 +2968,76 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ------------------ /capture/exclusions (RC-2 personal-mail) ---------------
+  # The per-user personal-mail exclusion rule set (RC-2): a bounded, typed
+  # (kind, value) list — sender domain, recipient domain, or mail label,
+  # deliberately NOT a filtering DSL. Evaluated in the ONE Sink BEFORE
+  # ingestion writes anything, so a matching message produces zero CRM rows
+  # plus one `capture.skipped{personal_exclusion}` event (capture.md
+  # CAP-DDL-3 / CAP-WIRE-2, EVT-SEM-10). Human-only — an agent must not widen
+  # or narrow a human's personal-mail boundary (ADR-0013).
+  /capture/exclusions:
+    get:
+      tags: [Connectors]
+      operationId: listCaptureExclusions
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: List the calling user's personal-mail exclusion rules (RC-2).
+      description: |
+        The bounded per-user rule set that gates whether ingestion writes anything at all (RC-2):
+        exclude by sender domain, recipient domain, or mail label — deliberately NOT a filtering
+        DSL. A matching message produces zero CRM rows plus a `capture.skipped{personal_exclusion}`
+        event (capture.md CAP-DDL-3, EVT-SEM-10). Personal by nature — a rep manages their own.
+      responses:
+        '200':
+          description: The calling user's exclusion rules.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureExclusionRuleListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Connectors]
+      operationId: createCaptureExclusion
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Add a personal-mail exclusion rule (RC-2).
+      description: |
+        Adds one bounded rule — `kind` ∈ `sender_domain` | `recipient_domain` | `label`, `value`
+        the domain or label. Idempotent on (user, kind, value): re-adding an existing rule is a
+        no-op returning the existing row. Human-only — an agent must not widen or narrow a human's
+        personal-mail boundary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCaptureExclusionRequest' }
+            examples:
+              senderDomain: { value: { kind: sender_domain, value: 'personal-family.example' } }
+              label:        { value: { kind: label, value: 'Personal' } }
+      responses:
+        '201':
+          description: Rule created (or the existing rule, on an idempotent re-add).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureExclusionRule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /capture/exclusions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Connectors]
+      operationId: deleteCaptureExclusion
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Remove a personal-mail exclusion rule (RC-2).
+      description: Removes one of the caller's own rules. Idempotent. Human-only.
+      responses:
+        '204': { description: Rule removed (or already absent). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ---------------------------- /approvals ----------------------------------
   /approvals:
     get:
@@ -5946,6 +6016,29 @@ components:
       properties:
         authorize_url: { type: [string, 'null'], format: uri, description: 'Provider consent URL to redirect the user to (OAuth providers).' }
         connection: { allOf: [ { $ref: '#/components/schemas/CaptureConnection' } ], description: 'The established/updated connection (appears after the callback completes for OAuth).' }
+    CaptureExclusionRule:
+      type: object
+      description: |
+        One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
+        produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
+        filtering DSL — a small typed (kind, value) pair, per connected user.
+      required: [id, kind, value]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [sender_domain, recipient_domain, label], description: 'Match a sender domain, a recipient domain, or a mail label.' }
+        value: { type: string, description: 'The normalized domain (e.g. `personal-family.example`) or the provider mail-label name.' }
+        created_at: { type: string, format: date-time, readOnly: true }
+    CreateCaptureExclusionRequest:
+      type: object
+      required: [kind, value]
+      properties:
+        kind: { type: string, enum: [sender_domain, recipient_domain, label] }
+        value: { type: string }
+    CaptureExclusionRuleListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/CaptureExclusionRule' } }
 
     # ---- error (RFC 7807) ----
     Problem:
@@ -7402,6 +7495,7 @@ components:
           # Every mutation is attributable (P12). connector captures audit as actor_type=connector.
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
+          # capture skip is NOT here either — it is a system_log 'capture_skip' event.
           enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
