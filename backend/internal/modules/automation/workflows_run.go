@@ -3,12 +3,11 @@
 
 package automation
 
-// The per-firing run lifecycle WorkflowEngine.HandleEvent drives every
-// dispatched handler through (workflows.go): claim the (handler,
-// idempotency-key) row first, then Plan → Apply, recording every
+// This file owns the per-firing run lifecycle WorkflowEngine.HandleEvent
+// drives every dispatched handler through (workflows.go): claim the
+// (handler, idempotency-key) row first, then Plan → Apply, recording every
 // terminal outcome — applied, skipped, failed, staged — durably on the
-// run row (B-E15.3a). Split out of workflows.go once the file neared the
-// 500-line cap; no behavior changed by the move itself.
+// run row (B-E15.3a).
 
 import (
 	"context"
@@ -61,7 +60,7 @@ func isClockTrigger(h workflow.Handler) bool {
 func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev workflow.Event) error {
 	matched, err := h.Match(ctx, ev)
 	if err != nil {
-		return e.recordFailedBeforeApply(ctx, h, ev, "matching the trigger: "+err.Error(), err)
+		return e.recordFailedBeforeApply(ctx, h, ev, "matching the trigger: "+sanitizedReason(err), err)
 	}
 	if !matched {
 		if isClockTrigger(h) {
@@ -78,11 +77,11 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 	}
 	effect, err := h.Plan(ctx, ev)
 	if err != nil {
-		return e.recordFailedBeforeApply(ctx, h, ev, "planning the effect: "+err.Error(), err)
+		return e.recordFailedBeforeApply(ctx, h, ev, "planning the effect: "+sanitizedReason(err), err)
 	}
 	plannedJSON, err := json.Marshal(effect.Actions)
 	if err != nil {
-		return e.recordFailedBeforeApply(ctx, h, ev, "encoding the planned actions: "+err.Error(), err)
+		return e.recordFailedBeforeApply(ctx, h, ev, "encoding the planned actions: "+sanitizedReason(err), err)
 	}
 
 	// The match-time owner-permission gate (gate.go, AUTO-T06): a human-
@@ -160,7 +159,7 @@ func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Hand
 				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev), detail)
 			return err
 		case applyErr != nil:
-			detail, err := reasonDetail(applyErr.Error())
+			detail, err := reasonDetail(sanitizedReason(applyErr))
 			if err != nil {
 				return err
 			}
@@ -252,4 +251,36 @@ func (e *WorkflowEngine) recordSkip(ctx context.Context, h workflow.Handler, ev 
 	}
 	_, err = e.claimRun(ctx, h, ev, emptyPlan, "skipped", detail)
 	return err
+}
+
+// sanitizedReason renders a client-safe failure reason for
+// workflow_run.detail — never the error's own message. A Match/Plan
+// failure or an Apply error a provider raises (provider.Create/Update/Read
+// → a module store → often a raw or wrapped pgx error) can carry a
+// SQLSTATE, table, or column name; that column is read verbatim by any
+// workspace user holding automation:read (GET /automations/{id}/runs,
+// handlers_automations.go's wireAutomationRun), so it must never repeat a
+// backend internal to a client (T2). A known apperrors sentinel still
+// renders a stable, specific phrase a human can act on; anything else
+// collapses to one generic phrase — the raw error is not discarded, it
+// is still this call's own return value, so it still reaches the bus
+// subscriber's failure log (platform/events/subscriber.go's "bus: handler
+// failed" warning) for a human debugging the failure server-side.
+func sanitizedReason(err error) string {
+	switch {
+	case errors.Is(err, apperrors.ErrNotFound):
+		return "the target record could not be found"
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		return "the action is no longer permitted"
+	case errors.Is(err, apperrors.ErrConflict):
+		return "the action conflicted with the record's current state"
+	case errors.Is(err, apperrors.ErrVersionSkew):
+		return "the record changed before this action could be applied"
+	case errors.Is(err, apperrors.ErrConsentNotGranted):
+		return "consent has not been granted for this action"
+	case errors.Is(err, apperrors.ErrBudgetExceeded):
+		return "the workspace's budget for this action has been exhausted"
+	default:
+		return "the action could not be completed"
+	}
 }

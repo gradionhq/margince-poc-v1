@@ -1,4 +1,4 @@
--- 0075 down: reverse the re-key. Reversibility here is the standard
+-- 0077 down: reverse the re-key. Reversibility here is the standard
 -- immediate-rollback guarantee (up then down restores the pre-migration
 -- state) — NOT a live rollback safe at an arbitrary later point: a row
 -- created under 'assign_lead_owner' by a human author AFTER the up
@@ -7,7 +7,7 @@
 -- this statement too, indistinguishably from a re-keyed row, because
 -- the key alone no longer carries when it was created. Every other
 -- migration in this namespace carries the identical assumption for a
--- data backfill (e.g. 0074's down); this one states it explicitly
+-- data backfill (e.g. 0076's down); this one states it explicitly
 -- because the two keys stay live, authorable catalog entries afterward,
 -- unlike a column drop.
 UPDATE automation

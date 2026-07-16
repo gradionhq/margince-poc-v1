@@ -70,6 +70,55 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 	assertRejectionBlocksParkedRun(t, fx, engine, stagedApproval)
 }
 
+// TestFailedRunReasonNeverLeaksRawProviderErrorInternals proves the T2 half
+// of B-E15.3a's honest recording: a provider's raw error — exactly what a
+// wrapped pgx failure carries (a SQLSTATE code, a table or column name) —
+// must never reach workflow_run.detail, because that column is read
+// verbatim by any workspace user holding automation:read (GET
+// /automations/{id}/runs, handlers_automations.go). Against the pre-fix
+// code (reasonDetail(applyErr.Error())) this test fails on the
+// "secret_table" substring; sanitizedReason (workflows_run.go) is what
+// makes it pass.
+func TestFailedRunReasonNeverLeaksRawProviderErrorInternals(t *testing.T) {
+	fx := setupAutomationDB(t)
+	rawProviderErr := errors.New(`pq: relation "secret_table" does not exist (SQLSTATE 42P01)`)
+	h := scriptedWorkflow{
+		name: "wf_leaky_provider",
+		apply: func(workflow.Event) (workflow.RunResult, error) {
+			return workflow.RunResult{}, rawProviderErr
+		},
+	}
+	fx.seedAutomation(t, h.name)
+	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: this fixture carries no owner_id, so the match-time gate skips before ever touching it
+	engine.RegisterWorkflow(h)
+
+	env := kevents.Envelope{
+		EventID:     ids.NewV7(),
+		Type:        scriptedTrigger,
+		WorkspaceID: fx.ws,
+		OccurredAt:  time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC),
+		Entity:      kevents.EntityRef{Type: "deal", ID: ids.NewV7()},
+	}
+	if err := engine.HandleEvent(context.Background(), env); err == nil {
+		t.Fatal("HandleEvent swallowed the apply failure")
+	}
+
+	run := fx.runsByHandler(t)[h.name]
+	if run.status != "failed" {
+		t.Fatalf("status = %q, want failed", run.status)
+	}
+	reason, err := decodeRunDetail(run.detail)
+	if err != nil {
+		t.Fatalf("detail did not decode: %v", err)
+	}
+	if reason == nil || *reason == "" {
+		t.Fatal("a failed run must still carry a human-readable reason")
+	}
+	if strings.Contains(*reason, "secret_table") || strings.Contains(*reason, "SQLSTATE") || strings.Contains(*reason, "pq:") {
+		t.Fatalf("detail.reason = %q, leaks the raw provider error's internals", *reason)
+	}
+}
+
 // assertRecordedOutcomes checks each scripted handler landed exactly one
 // run row in its terminal state, reason decoded from the detail column
 // through the SAME reader the run-history API uses.
@@ -97,14 +146,24 @@ func assertRecordedOutcomes(t *testing.T, fx *autoFixture, wantRuns int, stagedA
 	} else if !strings.Contains(reasonOf("wf_skip"), "did not satisfy") {
 		t.Errorf("wf_skip reason %q does not say why nothing happened", reasonOf("wf_skip"))
 	}
-	if run := runs["wf_matchfail"]; run.status != "failed" || !strings.Contains(reasonOf("wf_matchfail"), "boom-match") {
-		t.Errorf("wf_matchfail = %+v, want failed carrying the match error", run)
+	// The reason names WHICH phase failed (a human reading run history needs
+	// that), but never repeats the raw handler/provider error text: a real
+	// Match/Plan/Apply failure can carry a raw pgx error (SQLSTATE, table,
+	// column names), and this column is read verbatim by any workspace user
+	// with automation:read (T2, workflows_run.go's sanitizedReason).
+	if run := runs["wf_matchfail"]; run.status != "failed" ||
+		!strings.Contains(reasonOf("wf_matchfail"), "matching the trigger") ||
+		strings.Contains(reasonOf("wf_matchfail"), "boom-match") {
+		t.Errorf("wf_matchfail = %+v, want failed naming the match phase without the raw match error", run)
 	}
-	if run := runs["wf_planfail"]; run.status != "failed" || !strings.Contains(reasonOf("wf_planfail"), "boom-plan") {
-		t.Errorf("wf_planfail = %+v, want failed carrying the plan error", run)
+	if run := runs["wf_planfail"]; run.status != "failed" ||
+		!strings.Contains(reasonOf("wf_planfail"), "planning the effect") ||
+		strings.Contains(reasonOf("wf_planfail"), "boom-plan") {
+		t.Errorf("wf_planfail = %+v, want failed naming the plan phase without the raw plan error", run)
 	}
-	if run := runs["wf_applyfail"]; run.status != "failed" || !strings.Contains(reasonOf("wf_applyfail"), "boom-apply") {
-		t.Errorf("wf_applyfail = %+v, want failed carrying the apply error", run)
+	if run := runs["wf_applyfail"]; run.status != "failed" ||
+		reasonOf("wf_applyfail") == "" || strings.Contains(reasonOf("wf_applyfail"), "boom-apply") {
+		t.Errorf("wf_applyfail = %+v, want failed with a sanitized, non-empty reason that omits the raw apply error", run)
 	}
 	run := runs["wf_staged"]
 	if run.status != "requires_approval" {

@@ -179,9 +179,19 @@ func (%[2]s) Spec() workflow.Spec {
 		Name: %[1]q,
 		Trigger: workflow.Trigger{
 			// Set EventType (a bus event, e.g. "deal.stage_changed") XOR
-			// Schedule (a cron expression) — never both. This placeholder
-			// only keeps the trigger non-empty; replace it before this
-			// handler goes anywhere near StarterWorkflows().
+			// Schedule — never both. Schedule is NOT a cron expression: it
+			// is a clock:<name> marker string this engine never parses
+			// (workflows_clock_handlers.go's noActivityScheduleMarker doc);
+			// the real cadence comes from the River periodic job's own
+			// interval. A clock handler also needs its own candidate
+			// source wired at the time-scan (timescan.go's
+			// activityScanHandlers, today's only wired source) — without
+			// one it registers and compiles fine but is never evaluated
+			// (see workflows_clock_handlers.go's renewalReminder for the
+			// honestly-documented example of a handler still waiting on
+			// one). This placeholder only keeps the trigger non-empty;
+			// replace it before this handler goes anywhere near
+			// StarterWorkflows().
 			EventType: "replace_me.set_the_real_trigger_event_type",
 		},
 		// TierGreen auto-executes; TierYellow stages for approval before

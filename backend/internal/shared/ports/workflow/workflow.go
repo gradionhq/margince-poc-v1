@@ -51,7 +51,13 @@ type Spec struct {
 }
 
 // Trigger binds to the event bus or a schedule: EventType for bus events,
-// Schedule (cron) when EventType is empty.
+// Schedule when EventType is empty — a clock:<name> marker, never a cron
+// expression (modules/automation/workflows_clock_handlers.go's
+// noActivityScheduleMarker doc): the real cadence is the River periodic
+// job's own interval, and a Schedule-bearing handler also needs its own
+// candidate source wired at the time-scan (modules/automation/
+// timescan.go's activityScanHandlers is the only wired source today) or
+// it registers but is never actually evaluated.
 type Trigger struct {
 	EventType string
 	Schedule  string

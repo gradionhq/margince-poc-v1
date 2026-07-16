@@ -133,16 +133,16 @@ type ActionDef struct {
 // type there the way create_task does: applyAddToList and applyDraftEmail
 // act on whatever action.Target names (a list membership target, an
 // anchor thread), and applyNotify touches no entity at all. Their
-// PermissionPinned classification is still reasoned ahead of an
-// enforcing gate (requireAuthorCeiling, ceiling.go, is author-time UX,
-// not the fire-time boundary) rather than proven by the switch: draft_email
-// is expected to gate the same `activity` object create_task does
-// (migrations/core/0008_activity.up.sql); add_to_list is expected to
-// always mutate list membership; notify and request_approval are
-// expected to land as the same "create something for a human to act on"
-// shape modules/approvals/authority.go already grants on
-// send_email/book_meeting/deal_follow_up. Each pin is confirmed when the
-// fire-time gate this doc already flags as missing is built.
+// PermissionPinned classification is reasoned rather than proven by the
+// switch — draft_email gates the same `activity` object create_task does
+// (migrations/core/0008_activity.up.sql); add_to_list always mutates list
+// membership; notify and request_approval land as the same "create
+// something for a human to act on" shape modules/approvals/authority.go
+// already grants on send_email/book_meeting/deal_follow_up — and gate.go's
+// match-time gate now enforces each pin at fire time, re-checking the
+// owner's live RBAC against exactly the object named here (proven for the
+// reverse direction by TestRequiredPermissionForKindReverseMapIsUnambiguous,
+// catalog_closure_test.go).
 var actionDefs = map[ActionType]ActionDef{
 	ActionTypeCreateTask: {
 		Type: ActionTypeCreateTask, Tier: tierGreen, Executor: workflow.ActionCreateTask,
