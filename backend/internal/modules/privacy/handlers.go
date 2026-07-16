@@ -85,9 +85,11 @@ func auditEntryToWire(e AuditEntry) (crmcontracts.AuditLogEntry, error) {
 		id := openapi_types.UUID(e.OnBehalfOf.UUID)
 		out.OnBehalfOf = &id
 	}
+	// entity_id is NOT NULL since 0075 (audit_log is record-mutations-only);
+	// the contract field is non-optional to match. The domain read model
+	// still carries a pointer for historical rows, so guard defensively.
 	if e.EntityID != nil {
-		id := openapi_types.UUID(*e.EntityID)
-		out.EntityId = &id
+		out.EntityId = openapi_types.UUID(*e.EntityID)
 	}
 	var err error
 	if out.Before, err = decodeJSONObject(e.Before); err != nil {
