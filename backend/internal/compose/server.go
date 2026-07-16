@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -67,6 +68,7 @@ type Server struct {
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers
+	captureExclusionHandlers
 	filteredExportHandlers
 	orgRollupHandlers
 	strengthHandlers
@@ -357,6 +359,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// are never persisted (RunTransient), so the default registry needs no
 		// vault — WithKeyvault rebuilds it with one for the persisting paths.
 		imapConnectHandlers: imapConnectHandlers{registry: NewCaptureRegistry(pool, nil)},
+		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
+		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
+		// pre-ingestion gate (wired in NewCaptureRegistry).
+		captureExclusionHandlers: captureExclusionHandlers{store: capture.NewExclusions(pool)},
 		// First-class filtered export (B-E15.13): the writer reuses the ONE
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source
