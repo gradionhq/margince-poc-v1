@@ -27,6 +27,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -359,9 +360,9 @@ func TestLoginLockoutEndToEnd(t *testing.T) {
 	}
 	var outcome string
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT evidence->>'outcome' FROM audit_log
-		 WHERE action = 'login' AND evidence->>'email' = $1
-		 ORDER BY id DESC LIMIT 1`, e.member.Email).Scan(&outcome); err != nil {
+		`SELECT detail->>'outcome' FROM system_log
+		 WHERE action = 'login' AND detail->>'email_hash' = $1
+		 ORDER BY id DESC LIMIT 1`, storekit.SuppressionHash(e.member.Email)).Scan(&outcome); err != nil {
 		t.Fatal(err)
 	}
 	if outcome != "lockout" {

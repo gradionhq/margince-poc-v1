@@ -115,7 +115,7 @@ func (e *searchEnv) seedExportFixture(t *testing.T) exportFixture {
 	e.seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
 		VALUES ($1, $2, 'person', $3, 'rep3.pdf', 'blob/rep3', 'manual', 'human:x')`, f.rep3Person)
 
-	// Audit rows targeting each rep's person, and a login row (no entity).
+	// Audit rows targeting each rep's person (audit_log is record-mutations-only).
 	e.seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
 		VALUES ($1, $2, 'human', $3, 'create', 'person', $4)`, "human:"+e.Rep1.String(), f.rep1Person)
 	e.seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
