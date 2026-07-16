@@ -128,10 +128,13 @@ var tableOwners = map[string]string{
 	"brief_run":       "internal/compose/briefs",
 	"brief_item":      "internal/compose/briefs",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
-	// shared field-provenance layer (B-E02.12) is spelled once next to it
+	// shared field-provenance layer (B-E02.12) is spelled once next to it.
+	// system_log is the non-entity operational ledger written through
+	// storekit.LogSystem, the same storekit-owned posture as audit_log.
 	"audit_log":        storekitOwned,
 	"event_outbox":     storekitOwned,
 	"field_provenance": storekitOwned,
+	"system_log":       storekitOwned,
 }
 
 // crossStoreWrites are the ratified writes outside the writer's own tables,
@@ -189,9 +192,16 @@ var crossStoreWrites = map[string]string{
 	// direct audit_log/event_outbox writers: storekit.Audit stamps
 	// captured_by from an authenticated principal, which these paths do
 	// not have or which need columns storekit's writer does not carry.
-	"internal/modules/identity:audit_log":     "login, failed-login and passport audits fire before/without an authenticated principal for storekit.Audit to stamp; identity appends the same append-only rows itself",
+	"internal/modules/identity:audit_log":     "the passport-mint audit stamps its actor from the granting human identity just resolved (not the request principal storekit.Audit would read); identity appends the append-only row itself",
 	"internal/modules/approvals:audit_log":    "approval evidence stamps passport_id/on_behalf_of, columns storekit's writer does not carry; same append-only table, this module's own writer",
 	"internal/modules/approvals:event_outbox": "approvals stages its events with the full envelope (passport actor fields) storekit.Emit does not carry; still outbox-only publishing",
+
+	// identity owns login/failed-login, which land in system_log (a login
+	// mutates no record). They fire before/without an authenticated
+	// principal for storekit.LogSystem to stamp — bootstrap and failed
+	// logins have no session yet — so identity appends the append-only rows
+	// directly, the same reason it writes its own audit_log rows above.
+	"internal/modules/identity:system_log": "login and failed-login land in system_log but fire before/without an authenticated principal for storekit.LogSystem to stamp; identity appends the append-only rows itself",
 }
 
 // sqlWriteTargets extracts write-statement table names from one SQL (or

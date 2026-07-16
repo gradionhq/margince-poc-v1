@@ -64,7 +64,13 @@ type Trace struct {
 	// CausationID is the event_id that caused THIS event; nil for the
 	// first event in a chain.
 	CausationID *ids.UUID `json:"causation_id"`
-	// AuditLogID is the audit_log row written in the same transaction.
+	// AuditLogID is the ledger row written in the SAME transaction as this
+	// event, so a consumer can join the event to its governance record. For
+	// a record mutation that is the audit_log row (the P12 spine); for an
+	// entity-less pipeline event (capture.skipped and its siblings) it is
+	// the system_log row instead. Either way it is non-zero — an event with
+	// no ledger row is unauditable. The JSON key stays `audit_log_id` for
+	// wire compatibility.
 	AuditLogID ids.UUID `json:"audit_log_id"`
 }
 
@@ -99,7 +105,12 @@ func (e Envelope) Validate() error {
 	if e.Actor.ID == "" {
 		return fmt.Errorf("events: %s envelope has no actor", e.Type)
 	}
-	if e.Entity.Type == "" || e.Entity.ID.IsZero() {
+	// A pipeline event (capture.skipped and its siblings) may be entity-less
+	// by nature — an excluded message names nothing (catalog.go
+	// pipelineEventTypes, capture.md AC1.3). Every other event must name its
+	// subject: the read-back handle a consumer fetches under its own RLS and
+	// the per-entity-type stream routing key.
+	if !IsPipelineEvent(e.Type) && (e.Entity.Type == "" || e.Entity.ID.IsZero()) {
 		return fmt.Errorf("events: %s envelope has no entity ref", e.Type)
 	}
 	if e.Trace.CorrelationID.IsZero() || e.Trace.AuditLogID.IsZero() {

@@ -390,10 +390,16 @@ func insertSession(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID 
 	return err
 }
 
+// auditLogin appends the login fact to system_log — the ledger for
+// non-entity operational events. A login mutates no record (it has no
+// entity), so it belongs in system_log, not the audit_log record-mutation
+// spine. It writes the row directly (not via storekit.LogSystem) because
+// the login path has no authenticated principal for LogSystem to stamp from
+// — the same reason identity owns its own audit-ledger writer.
 func auditLogin(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, detail string) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, evidence)
-		 VALUES ($1, 'human', $2, 'login', 'session', jsonb_build_object('detail', $3::text))`,
+		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
+		 VALUES ($1, 'human', $2, 'login', jsonb_build_object('detail', $3::text))`,
 		wsID, "human:"+userID.String(), detail)
 	return err
 }

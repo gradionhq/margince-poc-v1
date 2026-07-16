@@ -359,8 +359,8 @@ func TestLoginLockoutEndToEnd(t *testing.T) {
 	}
 	var outcome string
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT evidence->>'outcome' FROM audit_log
-		 WHERE action = 'login' AND evidence->>'email' = $1
+		`SELECT detail->>'outcome' FROM system_log
+		 WHERE action = 'login' AND detail->>'email' = $1
 		 ORDER BY id DESC LIMIT 1`, e.member.Email).Scan(&outcome); err != nil {
 		t.Fatal(err)
 	}

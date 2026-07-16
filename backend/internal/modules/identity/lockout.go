@@ -166,9 +166,14 @@ func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, e
 				outcome = "lockout" // §27: the lock transition is its own audited fact
 			}
 		}
+		// The failed/lockout login fact lands in system_log — a login mutates
+		// no record, so it belongs in the non-entity operational ledger, not
+		// the audit_log record-mutation spine. Written directly (not via
+		// storekit.LogSystem) because a failed login has no authenticated
+		// principal to stamp from — the actor is a literal unauthenticated human.
 		_, err = tx.Exec(ctx,
-			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, evidence)
-			 VALUES ($1, 'human', 'human:unauthenticated', 'login', 'session',
+			`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
+			 VALUES ($1, 'human', 'human:unauthenticated', 'login',
 			         jsonb_build_object('outcome', $2::text, 'email', $3::text))`,
 			wsID, outcome, email)
 		return err

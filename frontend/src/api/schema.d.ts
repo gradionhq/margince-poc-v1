@@ -4771,10 +4771,13 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "login" | "assign" | "advance_stage" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo";
             entity_type: string;
-            /** Format: uuid */
-            entity_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Every audit_log row names the record it mutated (NOT NULL since 0075).
+             */
+            entity_id: string;
             before?: {
                 [key: string]: unknown;
             } | null;

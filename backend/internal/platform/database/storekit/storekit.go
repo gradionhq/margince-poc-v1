@@ -96,6 +96,32 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 	return id, err
 }
 
+// LogSystem writes one append-only system_log row inside the current
+// transaction — the ledger for a SYSTEM / non-entity operational event
+// (login, bulk export, capture skip) that mutates no record and so has no
+// place in audit_log (the P12 record-mutation spine). Actor and workspace
+// are derived exactly as Audit derives them — from the authenticated
+// principal and the workspace GUC — so a caller with no actor bound is a
+// programming error, refused before any SQL runs. It returns the row id so
+// an entity-less pipeline event can carry it as trace.audit_log_id (the
+// repurposed "ledger row id", events.md §2). detail is nil-safe: nil writes
+// SQL NULL.
+func LogSystem(ctx context.Context, tx pgx.Tx, action string, detail map[string]any) (ids.UUID, error) {
+	p, err := Actor(ctx)
+	if err != nil {
+		return ids.Nil, err
+	}
+	wsID, _ := principal.WorkspaceID(ctx)
+
+	id := ids.NewV7()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO system_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, detail)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		id, wsID, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
+		action, JSONArg(detail))
+	return id, err
+}
+
 // Emit stages a domain event in the transactional outbox (events.md
 // §4.2). The envelope is complete at staging time — event_id (UUIDv7),
 // actor incl. passport/on-behalf-of, and the trace linking this event to

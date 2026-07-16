@@ -130,11 +130,14 @@ func (w *FilteredExportWriter) WriteFiltered(ctx context.Context, resource strin
 			RowCount:    len(rows),
 		}
 
-		// The export operation itself is audited (P7/P12): who exported
-		// which slice, when. It targets no single record (entity_id NULL),
-		// so the filter and the row count stand in for "what slice".
-		_, err = storekit.Audit(ctx, tx, "export", engine.Table, ids.Nil, nil, map[string]any{
+		// The export operation itself is logged (P7/P12): who exported which
+		// slice, when. A bulk export targets no single record, so it belongs
+		// in system_log (the non-entity operational ledger), not the audit_log
+		// record-mutation spine. The exported table, filter, and row count
+		// stand in for "what slice".
+		_, err = storekit.LogSystem(ctx, tx, "export", map[string]any{
 			"kind":      "filtered",
+			"table":     engine.Table,
 			"format":    string(format),
 			"row_count": len(rows),
 			"filter":    pred,
