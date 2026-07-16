@@ -74,6 +74,18 @@
   --r-lg: 20px;
   --r-full: 9999px;
 
+  /* Vertical-rhythm scale — the 4/8/12/16/24 rungs the screens were already
+   * reaching for ad-hoc (inconsistently spelled 10/12/14/16 before this).
+   * Layout rhythm, not part of the §2 Ledger-Green colour identity; a
+   * spacing scale in the spec's design-language would supersede this
+   * (raised upstream). Card/form/header rhythm and the boundary rules in
+   * atoms.css consume these; new gaps SHOULD too (check-ds-spacing gate). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
   --f-display: "Outfit", system-ui, sans-serif;
   --f-body: "DM Sans", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, monospace;

@@ -38,7 +38,7 @@
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-card);
-  padding: 16px;
+  padding: var(--space-4);
 }
 .card-inset {
   background: var(--bgCard);
@@ -245,8 +245,22 @@
 .section-header {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin: 24px 0 12px;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 var(--space-3);
+}
+/* A section header leading a card sits on the card's own padding — the 24px
+ * page-flow top margin (inter-section rhythm down a .wrap) otherwise drops
+ * the title below the card edge, and below the action button it shares a
+ * .list-head row with. Owns both the plain and the list-head-wrapped case. */
+.card > .section-header:first-child,
+.card > .list-head:first-child > .section-header {
+  margin-top: 0;
+}
+/* Filter/status tabs above a result list: the gap to the content below rides
+ * here so it holds for every body state (rows, empty, loading) — not only
+ * when a populated list happens to push its own top margin down. */
+.filter-tabs {
+  margin-bottom: var(--space-3);
 }
 .section-header h2 {
   font-size: 15px;
@@ -264,6 +278,46 @@
   gap: 5px;
 }
 
+/* RecordPicker: a pick is never silent. The current selection shows as an
+ * accent-tinted summary that outlives the search results, and the matching
+ * option in the live list carries the same pressed treatment as .cf-objchip. */
+.recordpicker-options {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recordpicker-option {
+  width: 100%;
+  text-align: left;
+}
+.recordpicker-option[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accentLight);
+}
+.recordpicker-selected {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--accentLight);
+  color: var(--textPrimary);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.recordpicker-selected-check {
+  color: var(--accent);
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
 /* Repeatable-row form group (create.tsx RepeatableRowsField): label → rows →
  * "Add" button at 8px rhythm — a distinct wrapper from bare .field's tighter
  * 5px, since a row group needs more breathing room than a single input. */
@@ -277,7 +331,7 @@
 .form-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 /* Group divider inside a form (create.tsx RecordFormBody): sets custom fields

@@ -170,4 +170,44 @@ describe("ConfirmModal", () => {
       false,
     );
   });
+
+  it("lets the caller gate the confirm while its own precondition is unmet", async () => {
+    const onConfirm = vi.fn();
+    rtlRender(
+      <ConfirmModal
+        open
+        onClose={() => undefined}
+        title="Fulfil erasure request"
+        confirmLabel="Erase + suppress"
+        confirmVariant="danger"
+        confirmDisabled
+        onConfirm={onConfirm}
+      >
+        <p>Type ERASE to confirm.</p>
+      </ConfirmModal>,
+    );
+
+    const confirm = screen.getByRole("button", { name: "Erase + suppress" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(confirm);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("leaves the confirm enabled when the caller sets no gate", () => {
+    rtlRender(
+      <ConfirmModal
+        open
+        onClose={() => undefined}
+        title="Revoke"
+        confirmLabel="Revoke"
+        onConfirm={() => undefined}
+      >
+        <p>body</p>
+      </ConfirmModal>,
+    );
+    expect(
+      (screen.getByRole("button", { name: "Revoke" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
 });

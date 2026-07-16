@@ -28,11 +28,37 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// The wire field names a DSR ValidationError carries. A client tells a
+// stale-transition refusal apart from a missing-answer one on this exact
+// string (details.errors[].field), so each is spelled once here rather than
+// retyped at every raise site.
+const (
+	fieldStatus     = "status"
+	fieldSubjectRef = "subject_ref"
+	fieldResolution = "resolution"
+)
+
+// illegalTransition is raised from both guards — the pre-erase check and the
+// conditional UPDATE that loses a concurrent race — which must name the same
+// field and reason, or a client stops recognising the race it already handles.
+func illegalTransition(from, to string) *ValidationError {
+	return &ValidationError{
+		Field:  fieldStatus,
+		Reason: from + " → " + to + " is not a legal transition",
+	}
+}
+
 const dsrColumns = `id, kind, status, subject_ref, assignee_id, due_at, resolution, created_at`
 
 // dsrSelectByID is the single-row fetch shared by GetDSR and UpdateDSR — one
 // spelling so the projected columns cannot drift between the two paths.
 const dsrSelectByID = "SELECT " + dsrColumns + " FROM data_subject_request WHERE id = $1"
+
+// dsrSelectForUpdate locks the request row for the length of the enclosing
+// transaction. FulfilErasure holds this lock across the irreversible erase so
+// no concurrent transition can interleave between "this erasure is legal to
+// fulfil" and the scrub itself.
+const dsrSelectForUpdate = dsrSelectByID + " FOR UPDATE"
 
 type dsrRow struct {
 	// ID is the data_subject_request case id — a compliance workflow row,
@@ -77,7 +103,46 @@ func requireDSRAdmin(ctx context.Context, action principal.Action) error {
 	return nil
 }
 
-func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string) ([]dsrRow, storekit.Page, error) {
+// dsrListQuery assembles the keyset-paged queue SQL and its args: an optional
+// id > cursor arm, an optional single-status filter, ordered by id with the
+// +1 over-fetch ListDSRs uses to detect a further page. A malformed cursor is
+// a client error, not an empty result.
+func dsrListQuery(cursor, status string, bounded int) (string, []any, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sql := "SELECT " + dsrColumns + " FROM data_subject_request WHERE true"
+	if cursor != "" {
+		after, err := ids.Parse(cursor)
+		if err != nil {
+			return "", nil, &ValidationError{Field: "cursor", Reason: "malformed"}
+		}
+		sql += storekit.SQLf(" AND id > $%d", arg(after))
+	}
+	if status != "" {
+		sql += storekit.SQLf(" AND status = $%d", arg(status))
+	}
+	sql += storekit.SQLf(" ORDER BY id LIMIT $%d", arg(bounded+1))
+	return sql, args, nil
+}
+
+// collectDSRs drains a queue result set, surfacing a scan or iteration error
+// rather than a silent short read.
+func collectDSRs(rows pgx.Rows) ([]dsrRow, error) {
+	var out []dsrRow
+	for rows.Next() {
+		d, err := scanDSR(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ListDSRs walks the case queue newest-id-last. status narrows to one
+// queue state ("" = no filter); the contract publishes the filter, so the
+// store implements it rather than returning everything.
+func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string, status string) ([]dsrRow, storekit.Page, error) {
 	if err := requireDSRAdmin(ctx, principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -85,30 +150,17 @@ func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string) ([]dsrR
 	var out []dsrRow
 	var page storekit.Page
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var args []any
-		arg := func(v any) int { args = append(args, v); return len(args) }
-		sql := "SELECT " + dsrColumns + " FROM data_subject_request WHERE true"
-		if cursor != "" {
-			after, err := ids.Parse(cursor)
-			if err != nil {
-				return &ValidationError{Field: "cursor", Reason: "malformed"}
-			}
-			sql += storekit.SQLf(" AND id > $%d", arg(after))
+		sql, args, err := dsrListQuery(cursor, status, bounded)
+		if err != nil {
+			return err
 		}
-		sql += storekit.SQLf(" ORDER BY id LIMIT $%d", arg(bounded+1))
 		rows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			d, err := scanDSR(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, d)
-		}
-		if err := rows.Err(); err != nil {
+		out, err = collectDSRs(rows)
+		if err != nil {
 			return err
 		}
 		if len(out) > bounded {
@@ -132,7 +184,7 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 		return dsrRow{}, err
 	}
 	if strings.TrimSpace(in.SubjectRef) == "" {
-		return dsrRow{}, &ValidationError{Field: "subject_ref", Reason: "required"}
+		return dsrRow{}, &ValidationError{Field: fieldSubjectRef, Reason: "required"}
 	}
 	var out dsrRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -146,7 +198,7 @@ func (s *Store) CreateDSR(ctx context.Context, in CreateDSRInput) (dsrRow, error
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "create", "data_subject_request", out.ID, nil, map[string]any{
-			"kind": in.Kind, "subject_ref": in.SubjectRef, "due_at": in.DueAt,
+			"kind": in.Kind, fieldSubjectRef: in.SubjectRef, "due_at": in.DueAt,
 		})
 		return err
 	})
@@ -178,6 +230,34 @@ type UpdateDSRInput struct {
 	Resolution *string
 }
 
+// hasResolution reports whether an update carries (or the row already
+// stores) an actual answer — a nil-only check would accept "" or
+// whitespace-only text as a resolution, which is exactly the "closing needs
+// an answer" rule this guards against.
+func hasResolution(value *string) bool {
+	return value != nil && strings.TrimSpace(*value) != ""
+}
+
+// validateDSRUpdate is the one spelling of every UpdateDSR precondition:
+// the closed transition map and the "closing needs an answer" rule. It is
+// called twice — inside UpdateDSR's own transaction (the authoritative
+// gate, every caller must clear it) and by the handler ahead of fulfilling
+// an erasure (an early refusal, so a request that could never legally
+// close never triggers the irreversible erase).
+func validateDSRUpdate(current dsrRow, in UpdateDSRInput) *ValidationError {
+	if in.Status == nil || *in.Status == current.Status {
+		return nil
+	}
+	if !dsrTransitions[current.Status][*in.Status] {
+		return illegalTransition(current.Status, *in.Status)
+	}
+	if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
+		!hasResolution(in.Resolution) && !hasResolution(current.Resolution) {
+		return &ValidationError{Field: fieldResolution, Reason: "closing a request needs its answer"}
+	}
+	return nil
+}
+
 func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (dsrRow, error) {
 	if err := requireDSRAdmin(ctx, principal.ActionUpdate); err != nil {
 		return dsrRow{}, err
@@ -192,35 +272,133 @@ func (s *Store) UpdateDSR(ctx context.Context, id ids.UUID, in UpdateDSRInput) (
 		if err != nil {
 			return err
 		}
-		if in.Status != nil && *in.Status != current.Status {
-			if !dsrTransitions[current.Status][*in.Status] {
-				return &ValidationError{Field: "status",
-					Reason: current.Status + " → " + *in.Status + " is not a legal transition"}
-			}
-			if (*in.Status == "fulfilled" || *in.Status == "rejected") &&
-				in.Resolution == nil && current.Resolution == nil {
-				return &ValidationError{Field: "resolution", Reason: "closing a request needs its answer"}
-			}
+		if verr := validateDSRUpdate(current, in); verr != nil {
+			return verr
 		}
-		row := tx.QueryRow(ctx, `
+		sql := `
 			UPDATE data_subject_request SET
 			  status = coalesce($2, status),
 			  assignee_id = coalesce($3, assignee_id),
 			  resolution = coalesce($4, resolution)
-			WHERE id = $1
-			RETURNING `+dsrColumns,
-			id, in.Status, in.AssigneeID, in.Resolution)
+			WHERE id = $1`
+		args := []any{id, in.Status, in.AssigneeID, in.Resolution}
+		if in.Status != nil {
+			// Nothing holds this row locked between the read above and the
+			// write below, so require it to still be in the state we just
+			// validated the transition against — a status change that lands
+			// in that window (another officer closing or rejecting the same
+			// request) is refused as illegal rather than silently overwritten.
+			args = append(args, current.Status)
+			sql += storekit.SQLf(" AND status = $%d", len(args))
+		}
+		sql += " RETURNING " + dsrColumns
+		row := tx.QueryRow(ctx, sql, args...)
 		if out, err = scanDSR(row); err != nil {
+			if in.Status != nil && errors.Is(err, pgx.ErrNoRows) {
+				return illegalTransition(current.Status, *in.Status)
+			}
 			return err
 		}
 		_, err = storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
-			"status": current.Status,
+			fieldStatus: current.Status,
 		}, map[string]any{
-			"status": out.Status, "resolution": in.Resolution != nil,
+			fieldStatus: out.Status, fieldResolution: in.Resolution != nil,
 		})
 		return err
 	})
 	return out, err
+}
+
+// FulfilErasure fulfils an erasure request atomically with respect to every
+// other officer touching the same row. It locks the request FOR UPDATE and
+// HOLDS that lock across the injected erase, so a concurrent UpdateDSR on this
+// same request blocks on the lock (then loses the transition as illegal) rather
+// than slipping a reject/fulfil in between the read that proved this fulfil
+// legal and the scrub that acts on it — the race that would otherwise leave a
+// subject erased on a request the queue still shows open or rejected.
+//
+// erase is the privacy engine's cross-store scrub (compose injects it via the
+// Eraser seam); it commits in its OWN transaction — consent owns
+// data_subject_request, privacy owns the person/capture/retrieval erase, and no
+// single transaction may legally span both. Ordering carries the guarantee: the
+// scrub MUST land before the status flips to fulfilled. A finalize that fails
+// after the scrub committed leaves an already-erased subject on a still-open
+// request, which a retry re-fulfils harmlessly (ErasePerson anonymizes in place
+// and is idempotent) — never a request certified fulfilled over an erase that
+// never ran. Because we hold the request lock (not the person rows) while erase
+// checks out a second pooled connection for its own transaction, the two never
+// contend: this nests one connection deep, well within the pool on the
+// human-driven, admin-only DSR surface.
+func (s *Store) FulfilErasure(ctx context.Context, id ids.UUID, in UpdateDSRInput,
+	erase func(ctx context.Context, personID ids.UUID, reason string) error,
+) (dsrRow, error) {
+	if err := requireDSRAdmin(ctx, principal.ActionUpdate); err != nil {
+		return dsrRow{}, err
+	}
+	// ids.Parse proves syntax only; a subject_ref that fails even that names
+	// no person at all. Both doors — unparseable, and syntactically valid but
+	// naming nobody (the erase's ErrNotFound) — converge on this one refusal.
+	unresolvedSubject := &ValidationError{
+		Field:  fieldSubjectRef,
+		Reason: "an erasure request must name a person id before it can be fulfilled",
+	}
+	var out dsrRow
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		current, err := scanDSR(tx.QueryRow(ctx, dsrSelectForUpdate, id))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if verr := validateDSRUpdate(current, in); verr != nil {
+			return verr
+		}
+		personID, parseErr := ids.Parse(current.SubjectRef)
+		if parseErr != nil {
+			return unresolvedSubject
+		}
+		if err := erase(ctx, personID, "dsr:"+current.ID.String()); err != nil {
+			if errors.Is(err, apperrors.ErrNotFound) {
+				return unresolvedSubject
+			}
+			return err
+		}
+		out, err = finalizeErasureFulfil(ctx, tx, id, in, current)
+		return err
+	})
+	return out, err
+}
+
+// finalizeErasureFulfil flips the FOR UPDATE-locked request to fulfilled and
+// appends the audit row, run inside the caller's held-lock transaction (never
+// on its own). The AND status guard mirrors UpdateDSR's finalize as defense in
+// depth — with the lock held it can only match, but a miss still maps to the
+// honest illegal-transition error rather than a silent no-op.
+func finalizeErasureFulfil(ctx context.Context, tx pgx.Tx, id ids.UUID, in UpdateDSRInput, current dsrRow) (dsrRow, error) {
+	row := tx.QueryRow(ctx, `
+			UPDATE data_subject_request SET
+			  status = 'fulfilled',
+			  assignee_id = coalesce($2, assignee_id),
+			  resolution = coalesce($3, resolution)
+			WHERE id = $1 AND status = $4
+			RETURNING `+dsrColumns,
+		id, in.AssigneeID, in.Resolution, current.Status)
+	out, err := scanDSR(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dsrRow{}, illegalTransition(current.Status, "fulfilled")
+		}
+		return dsrRow{}, err
+	}
+	if _, err := storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
+		fieldStatus: current.Status,
+	}, map[string]any{
+		fieldStatus: out.Status, fieldResolution: in.Resolution != nil,
+	}); err != nil {
+		return dsrRow{}, err
+	}
+	return out, nil
 }
 
 func wireDSR(d dsrRow) crmcontracts.DataSubjectRequest {

@@ -42,6 +42,7 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/collections:ApplyTag":              "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
 	"internal/modules/consent:CreateDSR":                 "the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side",
 	"internal/modules/consent:UpdateDSR":                 "the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side",
+	"internal/modules/consent:finalizeErasureFulfil":     "the audit-only finalize step of FulfilErasure: the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side (the erase side effect emits its own person.* event inside privacy.ErasePerson)",
 	"internal/modules/consent:IssueDoubleOptIn":          "the closed catalog (events.md \u00a75) defines no consent.doi_issued type; the later grant (recordConsent) emits consent.changed \u2014 issuance is attributable via its audit row",
 	"internal/modules/agents:Create":                     "automation config is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no automation.* type; the runs it produces are separately recorded in workflow_run",
 	"internal/modules/agents:Update":                     "automation config is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no automation.* type; the runs it produces are separately recorded in workflow_run",

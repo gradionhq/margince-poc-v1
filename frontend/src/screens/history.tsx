@@ -383,12 +383,14 @@ export function RecordHistoryTab({
 
   return (
     <div>
-      <SegmentedControl
-        options={HISTORY_TABS}
-        value={tab}
-        onChange={setTab}
-        labels={tabLabels}
-      />
+      <div className="filter-tabs">
+        <SegmentedControl
+          options={HISTORY_TABS}
+          value={tab}
+          onChange={setTab}
+          labels={tabLabels}
+        />
+      </div>
       {tab === "changes" ? (
         <RecordHistory kind={kind} id={id} />
       ) : (

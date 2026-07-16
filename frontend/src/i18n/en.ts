@@ -261,6 +261,7 @@ export const en = {
   "common.error": "Couldn't load this view.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
+  "common.saving": "Saving…",
 
   "list.search": "Search",
   "list.sort": "Sort",
@@ -272,12 +273,30 @@ export const en = {
   "people.name": "Name",
   "people.email": "Email",
   "people.capturedBy": "Captured by",
-  "person.consent": "Consent by purpose",
+  "person.consent": "Consent",
   "consent.grant": "Grant",
   "consent.withdraw": "Withdraw",
-  "consent.doubleOptIn": "Double opt-in",
+  "consent.doubleOptIn": "Issue double opt-in",
   "consent.doiIssued": "One-time token (shown once):",
   "consent.doiExpires": "Expires",
+  "consent.noRecord": "no record",
+  "consent.noPurposes": "This workspace tracks no consent purposes yet.",
+  "consent.defaultDeny":
+    "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorises another.",
+  "consent.proofLog": "Proof log",
+  "consent.proofEmpty":
+    "No consent decision recorded for this purpose. An empty log is honest, not a gap.",
+  "consent.sourceUnknown": "source not recorded",
+  "consent.tokenLabel": "Confirmation token",
+  "consent.tokenHint":
+    "This purpose needs a double opt-in: paste the one-time token to make the grant effective.",
+  "consent.actorHuman": "Human",
+  "consent.actorAgent": "Agent",
+  "consent.actorSystem": "System",
+  "consent.actorConnector": "Connector",
+  "consent.actorUnknown": "actor not recorded",
+  "consent.purposesUnavailable":
+    "Couldn't load the consent purpose catalogue, so which purposes need a double opt-in can't be shown right now.",
 
   "org.name": "Company",
   "org.industry": "Industry",
@@ -655,6 +674,45 @@ export const en = {
   "settings.privacySub": "data-subject requests with their statutory deadlines",
   "settings.due": "due {date}",
 
+  "privacy.addPurpose": "Add purpose",
+  "privacy.purposeKey": "Key",
+  "privacy.purposeLabel": "Label",
+  "privacy.purposeDoi": "Requires double opt-in",
+  "privacy.purposeCreate": "Create purpose",
+  "privacy.purposeAppendOnly":
+    "A purpose cannot be renamed or removed once created — the catalogue is append-only. Choose the key carefully.",
+  "privacy.facetAll": "All",
+  "privacy.overdue": "Overdue",
+  "privacy.closed":
+    "Closed — a closed request never reopens. A new concern is a new request.",
+  "privacy.assignee": "Assignee",
+  "privacy.assigneeUnassignable":
+    "Once set, an assignee cannot be cleared here.",
+  "privacy.resolution": "Resolution",
+  "privacy.resolutionRequired": "Closing a request needs its answer.",
+  "privacy.movedOn":
+    "This request moved on — someone else decided it first. Re-read below.",
+  "privacy.inProgress": "In progress",
+  "privacy.fulfil": "Fulfil",
+  "privacy.reject": "Reject",
+  "privacy.newRequest": "New request",
+  "privacy.kind": "Kind",
+  "privacy.person": "Person",
+  "privacy.subjectRef": "Subject reference",
+  "privacy.dueAt": "Due",
+  "privacy.openRequest": "Open request",
+  "privacy.erasureNeedsPerson":
+    "An erasure request must name a person in this workspace — fulfilling it erases that record. A free-text subject cannot be erased.",
+  "privacy.accessManual":
+    "An access request is fulfilled by hand: record what you sent in the resolution. This system does not assemble or export the data for you.",
+  "privacy.fulfilErasureTitle": "Fulfil erasure request",
+  "privacy.erasureIrreversible":
+    "This permanently erases the person across the whole system — record, captured activity, and derived values. It cannot be undone. The erasure is itself audited.",
+  "privacy.typeErase": "Type ERASE to confirm",
+  "privacy.erasureConfirm": "Erase + suppress",
+  "privacy.legalHold":
+    "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
+
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub": "Configure pipelines and their stages (admin/ops).",
   "pipeline.new": "New pipeline",
@@ -935,6 +993,40 @@ export const en = {
   "book.email": "Your email",
   "book.consentWording":
     "I agree that my name and email are stored to arrange and follow up on this meeting.",
+
+  "prefs.title": "Choose what you hear from us",
+  "prefs.sub":
+    "Each purpose is separate — this isn't all-or-nothing. Transactional messages can't be switched off here, because you need them; everything else is yours to control.",
+  "prefs.invalidLink":
+    "This link is no longer valid. Preference links expire and can be withdrawn — ask for a fresh one from any recent email.",
+  "prefs.rateLimited":
+    "Too many attempts from here just now. Wait a minute and reload.",
+  "prefs.subscribed": "Subscribed",
+  "prefs.notSubscribed":
+    "Not subscribed — you receive nothing for this purpose",
+  "prefs.alwaysOn": "always on",
+  "prefs.lockedWhy": "Transactional — exempt from opt-out.",
+  "prefs.notSaved": "Not saved yet.",
+  "prefs.savePending": "Pending: {changes}.",
+  "prefs.saveProof":
+    "We record the exact wording you saw and a timestamp as proof — then it applies to every future send.",
+  "prefs.save": "Save preferences",
+  "prefs.discard": "Discard",
+  "prefs.partialSave":
+    "Something went wrong part-way. Some of your choices may have been saved — we've reloaded your current settings so you can see exactly where you stand.",
+  "prefs.wordingGeneric": '"Send me {label}."',
+  "prefs.wording.marketing_email":
+    '"Send me product updates & occasional marketing email."',
+  "prefs.wording.events": '"Send me event & webinar invitations."',
+  "prefs.unsubscribeAll": "Unsubscribe from all marketing",
+  "prefs.unsubscribeAllHint":
+    "Prefer to stop all non-essential mail at once? You'll still get transactional messages.",
+  "prefs.oneClickDone":
+    "Done — you're off our marketing email. It takes effect immediately across every campaign.",
+  "prefs.oneClickAlreadyOff": "Nothing to do — these were already off.",
+  "prefs.undo": "Undo — keep receiving marketing",
+  "prefs.undoExplicit":
+    "Re-subscribing is an explicit opt-in — we won't silently turn it back on. Save below to record your consent, or discard.",
 
   "auto.sub": "a closed catalog — pick a type, set its parameters, enable it",
   "auto.readOnly":

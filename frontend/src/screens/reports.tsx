@@ -160,18 +160,20 @@ export function ReportsScreen() {
   return (
     <div className="wrap narrow">
       <SectionHeader title={t("nav.reports")} sub={t("reports.sub")} />
-      <SegmentedControl
-        options={
-          ["deals-by-stage", "forecast", "open-deals-per-company"] as const
-        }
-        value={report}
-        onChange={setReport}
-        labels={{
-          "deals-by-stage": t("reports.reportDeals"),
-          forecast: t("reports.reportForecast"),
-          "open-deals-per-company": t("reports.reportOpenByCompany"),
-        }}
-      />
+      <div className="filter-tabs">
+        <SegmentedControl
+          options={
+            ["deals-by-stage", "forecast", "open-deals-per-company"] as const
+          }
+          value={report}
+          onChange={setReport}
+          labels={{
+            "deals-by-stage": t("reports.reportDeals"),
+            forecast: t("reports.reportForecast"),
+            "open-deals-per-company": t("reports.reportOpenByCompany"),
+          }}
+        />
+      </div>
       <QueryGate query={reportQuery}>
         {(report_) => {
           let body: ReactNode;

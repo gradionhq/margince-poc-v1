@@ -1,0 +1,41 @@
+/* ConsentSection layout only — the row/badge/timeline primitives themselves
+ * come from atoms.css and composed.css's .timeline. Tokens only (ds-purity). */
+
+.consent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borderSubtle);
+}
+.consent-row:last-child {
+  border-bottom: 0;
+}
+.consent-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.consent-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* The token field gets its own line below the actions row (the .field label-
+ * above-input idiom create.tsx/privacy.tsx use) rather than sitting inline
+ * among the buttons, where its label pushed the row off the buttons' shared
+ * baseline. Capped width — a one-time token has no reason to stretch full row. */
+.consent-token-field {
+  margin-top: 8px;
+  max-width: 320px;
+}
+
+/* Indent + the card-inset elevation dsr-expanded uses elsewhere: without it
+ * the expanded proof log reads as a sibling of the NEXT purpose row rather
+ * than belonging to the one whose button opened it. */
+.consent-proof-log {
+  margin-top: 8px;
+  margin-left: 4px;
+}

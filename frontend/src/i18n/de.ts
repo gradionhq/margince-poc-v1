@@ -267,6 +267,7 @@ export const de = {
   "common.error": "Konnten diese Ansicht nicht laden.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
+  "common.saving": "Wird gespeichert…",
 
   "list.search": "Suchen",
   "list.sort": "Sortieren",
@@ -278,12 +279,31 @@ export const de = {
   "people.name": "Name",
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",
-  "person.consent": "Einwilligung pro Zweck",
+  "person.consent": "Einwilligung",
   "consent.grant": "Erteilen",
   "consent.withdraw": "Widerrufen",
-  "consent.doubleOptIn": "Double-Opt-in",
+  "consent.doubleOptIn": "Double-Opt-in anfordern",
   "consent.doiIssued": "Einmal-Token (nur einmal sichtbar):",
   "consent.doiExpires": "Läuft ab",
+  "consent.noRecord": "kein Eintrag",
+  "consent.noPurposes":
+    "Dieser Workspace erfasst noch keine Einwilligungszwecke.",
+  "consent.defaultDeny":
+    "Ausgehende Kommunikation ist pro Zweck standardmäßig gesperrt: ein Versand wird blockiert, sofern keine aktive, nachgewiesene Einwilligung für diesen Zweck vorliegt. Eine Einwilligung für einen Zweck berechtigt niemals einen anderen.",
+  "consent.proofLog": "Nachweisprotokoll",
+  "consent.proofEmpty":
+    "Für diesen Zweck ist keine Einwilligungsentscheidung erfasst. Ein leeres Protokoll ist ehrlich, keine Lücke.",
+  "consent.sourceUnknown": "Quelle nicht erfasst",
+  "consent.tokenLabel": "Bestätigungs-Token",
+  "consent.tokenHint":
+    "Dieser Zweck benötigt ein Double-Opt-in: Einmal-Token hier einfügen, damit die Einwilligung wirksam wird.",
+  "consent.actorHuman": "Mensch",
+  "consent.actorAgent": "Agent",
+  "consent.actorSystem": "System",
+  "consent.actorConnector": "Connector",
+  "consent.actorUnknown": "Akteur nicht erfasst",
+  "consent.purposesUnavailable":
+    "Der Einwilligungszweck-Katalog konnte nicht geladen werden — welche Zwecke ein Double-Opt-in brauchen, lässt sich gerade nicht anzeigen.",
 
   "org.name": "Firma",
   "org.industry": "Branche",
@@ -667,6 +687,46 @@ export const de = {
   "settings.privacySub": "Betroffenenanfragen mit ihren gesetzlichen Fristen",
   "settings.due": "fällig {date}",
 
+  "privacy.addPurpose": "Zweck hinzufügen",
+  "privacy.purposeKey": "Schlüssel",
+  "privacy.purposeLabel": "Bezeichnung",
+  "privacy.purposeDoi": "Erfordert Double-Opt-in",
+  "privacy.purposeCreate": "Zweck anlegen",
+  "privacy.purposeAppendOnly":
+    "Ein Zweck kann nach dem Anlegen nicht umbenannt oder entfernt werden — der Katalog ist append-only. Wähle den Schlüssel sorgfältig.",
+  "privacy.facetAll": "Alle",
+  "privacy.overdue": "Überfällig",
+  "privacy.closed":
+    "Abgeschlossen — eine abgeschlossene Anfrage wird nie wieder geöffnet. Ein neues Anliegen ist eine neue Anfrage.",
+  "privacy.assignee": "Zuständig",
+  "privacy.assigneeUnassignable":
+    "Einmal gesetzt, kann die Zuständigkeit hier nicht entfernt werden.",
+  "privacy.resolution": "Ergebnis",
+  "privacy.resolutionRequired":
+    "Zum Abschließen einer Anfrage braucht es ihre Antwort.",
+  "privacy.movedOn":
+    "Diese Anfrage ist weitergezogen — jemand anders hat zuerst entschieden. Bitte unten neu lesen.",
+  "privacy.inProgress": "In Bearbeitung",
+  "privacy.fulfil": "Erfüllen",
+  "privacy.reject": "Ablehnen",
+  "privacy.newRequest": "Neuer Antrag",
+  "privacy.kind": "Art",
+  "privacy.person": "Person",
+  "privacy.subjectRef": "Betroffenen-Referenz",
+  "privacy.dueAt": "Frist",
+  "privacy.openRequest": "Antrag anlegen",
+  "privacy.erasureNeedsPerson":
+    "Ein Löschantrag muss eine Person in diesem Workspace benennen — bei Erfüllung wird genau dieser Datensatz gelöscht. Eine Freitext-Referenz kann nicht gelöscht werden.",
+  "privacy.accessManual":
+    "Ein Auskunftsantrag wird von Hand erfüllt: Halte im Ergebnis fest, was du versendet hast. Dieses System stellt die Daten nicht automatisch zusammen und exportiert sie nicht für dich.",
+  "privacy.fulfilErasureTitle": "Löschantrag erfüllen",
+  "privacy.erasureIrreversible":
+    "Dies löscht die Person dauerhaft im gesamten System — Datensatz, erfasste Aktivität und abgeleitete Werte. Das kann nicht rückgängig gemacht werden. Die Löschung selbst wird protokolliert.",
+  "privacy.typeErase": "Zum Bestätigen ERASE eingeben",
+  "privacy.erasureConfirm": "Löschen + sperren",
+  "privacy.legalHold":
+    "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
+
   "settings.pipelines": "Pipelines",
   "settings.pipelinesSub":
     "Pipelines und ihre Phasen konfigurieren (Admin/Ops).",
@@ -955,6 +1015,40 @@ export const de = {
   "book.email": "Deine E-Mail",
   "book.consentWording":
     "Ich bin einverstanden, dass mein Name und meine E-Mail gespeichert werden, um diesen Termin zu vereinbaren und nachzufassen.",
+
+  "prefs.title": "Wähle, was du von uns hörst",
+  "prefs.sub":
+    "Jeder Zweck steht für sich — hier ist nicht alles oder nichts. Transaktionale Nachrichten lassen sich hier nicht abschalten, weil du sie brauchst; alles andere bestimmst du selbst.",
+  "prefs.invalidLink":
+    "Dieser Link ist nicht mehr gültig. Präferenz-Links laufen ab oder können widerrufen werden — frag in einer aktuellen E-Mail nach einem neuen.",
+  "prefs.rateLimited":
+    "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
+  "prefs.subscribed": "Abonniert",
+  "prefs.notSubscribed":
+    "Nicht abonniert — du bekommst für diesen Zweck nichts",
+  "prefs.alwaysOn": "immer an",
+  "prefs.lockedWhy": "Transaktional — von der Abmeldung ausgenommen.",
+  "prefs.notSaved": "Noch nicht gespeichert.",
+  "prefs.savePending": "Ausstehend: {changes}.",
+  "prefs.saveProof":
+    "Wir speichern den genauen Wortlaut, den du gesehen hast, und einen Zeitstempel als Nachweis — danach gilt er für jeden künftigen Versand.",
+  "prefs.save": "Einstellungen speichern",
+  "prefs.discard": "Verwerfen",
+  "prefs.partialSave":
+    "Beim Speichern ist etwas schiefgelaufen. Einige deiner Entscheidungen wurden möglicherweise schon übernommen — wir haben deinen aktuellen Stand neu geladen, damit du genau siehst, wo du stehst.",
+  "prefs.wordingGeneric": "„{label} senden.“",
+  "prefs.wording.marketing_email":
+    "„Schick mir Produkt-Updates und gelegentliche Marketing-E-Mails.“",
+  "prefs.wording.events": "„Schick mir Einladungen zu Events und Webinaren.“",
+  "prefs.unsubscribeAll": "Von allem Marketing abmelden",
+  "prefs.unsubscribeAllHint":
+    "Lieber alle nicht notwendigen Mails auf einmal stoppen? Transaktionale Nachrichten bekommst du weiterhin.",
+  "prefs.oneClickDone":
+    "Erledigt — du bekommst keine Marketing-E-Mails mehr von uns. Das gilt sofort für jede Kampagne.",
+  "prefs.oneClickAlreadyOff": "Nichts zu tun — das war bereits abgeschaltet.",
+  "prefs.undo": "Rückgängig — Marketing weiter erhalten",
+  "prefs.undoExplicit":
+    "Ein erneutes Abonnieren ist eine ausdrückliche Zustimmung — wir schalten es nicht stillschweigend wieder ein. Speichere unten, um deine Zustimmung festzuhalten, oder verwirf.",
 
   "auto.sub":
     "ein geschlossener Katalog — Typ wählen, Parameter setzen, aktivieren",

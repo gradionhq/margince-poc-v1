@@ -128,6 +128,10 @@ font-lock:
 ## icon-lint — icon-glyph lock lint (UI chrome is Lucide only).
 icon-lint:
 	frontend/scripts/check-icon-glyph.sh
+## ds-spacing — spacing gate: no NEW raw-px margin/padding/gap in inline styles
+## (diff-scoped vs origin/main; use the --space-* scale or a layout class).
+ds-spacing:
+	frontend/scripts/check-ds-spacing.sh
 
 ## seed-dev — create/refresh the demo workspace (demo-workspace,
 ## admin@demo.test / demo-password-123) through the public API, then seed
@@ -162,6 +166,7 @@ frontend-check:
 	frontend/scripts/check-ds-purity.sh
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
+	frontend/scripts/check-ds-spacing.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
 		{ git diff --exit-code -- src/api/schema.d.ts || \
 			{ echo "frontend types drifted from backend/api/crm.yaml — commit the regenerated src/api/schema.d.ts (printed above)"; exit 1; }; } && \

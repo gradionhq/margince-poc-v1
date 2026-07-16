@@ -104,12 +104,54 @@ describe("RecordPicker", () => {
     );
 
     await userEvent.type(screen.getByRole("searchbox"), "o");
-    const picked = await screen.findByText("Otto Fischer");
-    expect(picked.closest("button")?.getAttribute("aria-pressed")).toBe("true");
-    const notPicked = await screen.findByText("Anna Weber");
-    expect(notPicked.closest("button")?.getAttribute("aria-pressed")).toBe(
-      "false",
+    // Scope to the list option (a button) — the name also appears in the
+    // always-visible selection summary below, which is not a button.
+    const picked = await screen.findByRole("button", { name: "Otto Fischer" });
+    expect(picked.getAttribute("aria-pressed")).toBe("true");
+    const notPicked = screen.getByRole("button", { name: "Anna Weber" });
+    expect(notPicked.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("surfaces the current selection even with no active search", async () => {
+    // The bug this pins: a picked record left no visible trace once the
+    // candidate list was gone (empty term, or a fresh reopen with only a
+    // preset `selected`). The selection summary must show regardless.
+    rtlRender(
+      <RecordPicker
+        label="Search…"
+        searchTargets={vi.fn().mockResolvedValue(candidates)}
+        onPick={vi.fn()}
+        selected={{ id: "c-1", name: "Anna Weber" }}
+      />,
     );
+
+    // Nothing typed ⇒ no candidate list, but the selection still shows.
+    expect(screen.queryByRole("button", { name: "Anna Weber" })).toBeNull();
+    expect(screen.getByText("Anna Weber")).toBeTruthy();
+  });
+
+  it("clears the search once a candidate is picked", async () => {
+    const onPick = vi.fn();
+    rtlRender(
+      <RecordPicker
+        label="Search…"
+        searchTargets={vi.fn().mockResolvedValue(candidates)}
+        onPick={onPick}
+      />,
+    );
+
+    await userEvent.type(screen.getByRole("searchbox"), "anna");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anna Weber" }),
+    );
+
+    expect(onPick).toHaveBeenCalledWith({ id: "c-1", name: "Anna Weber" });
+    // The pick collapses the list and empties the field, so the resolved
+    // selection reads cleanly instead of sitting under a stale result set.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Otto Fischer" })).toBeNull(),
+    );
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("");
   });
 
   it("renders a rejected search inline instead of throwing", async () => {
