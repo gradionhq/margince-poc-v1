@@ -33,7 +33,12 @@ const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 // resolves each connection's credential (nil is valid for a role that only
 // runs the transient one-shot pull, which persists no credential).
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault) *capture.Registry {
-	sink := capture.NewSink(pool).WithStager(mergeStager{svc: approvals.NewService(pool)})
+	sink := capture.NewSink(pool).
+		WithStager(mergeStager{svc: approvals.NewService(pool)}).
+		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
+		// any write, so it covers EVERY connector (imap one-shot, gmail
+		// sync) uniformly (capture.md CAP-DDL-3, AC1.3).
+		WithExclusions(capture.NewExclusions(pool))
 	return capture.NewRegistry(pool, sink, identity.NewService(pool), vault)
 }
 

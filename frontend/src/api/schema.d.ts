@@ -1597,6 +1597,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/capture/exclusions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the calling user's personal-mail exclusion rules (RC-2).
+         * @description The bounded per-user rule set that gates whether ingestion writes anything at all (RC-2):
+         *     exclude by sender domain, recipient domain, or mail label — deliberately NOT a filtering
+         *     DSL. A matching message produces zero CRM rows plus a `capture.skipped{personal_exclusion}`
+         *     event (capture.md CAP-DDL-3, EVT-SEM-10). Personal by nature — a rep manages their own.
+         */
+        get: operations["listCaptureExclusions"];
+        put?: never;
+        /**
+         * Add a personal-mail exclusion rule (RC-2).
+         * @description Adds one bounded rule — `kind` ∈ `sender_domain` | `recipient_domain` | `label`, `value`
+         *     the domain or label. Idempotent on (user, kind, value): re-adding an existing rule is a
+         *     no-op returning the existing row. Human-only — an agent must not widen or narrow a human's
+         *     personal-mail boundary.
+         */
+        post: operations["createCaptureExclusion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/exclusions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a personal-mail exclusion rule (RC-2).
+         * @description Removes one of the caller's own rules. Idempotent. Human-only.
+         */
+        delete: operations["deleteCaptureExclusion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/approvals": {
         parameters: {
             query?: never;
@@ -3111,6 +3164,32 @@ export interface components {
             authorize_url?: string | null;
             /** @description The established/updated connection (appears after the callback completes for OAuth). */
             connection?: components["schemas"]["CaptureConnection"];
+        };
+        /**
+         * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
+         *     produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
+         *     filtering DSL — a small typed (kind, value) pair, per connected user.
+         */
+        CaptureExclusionRule: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Match a sender domain, a recipient domain, or a mail label.
+             * @enum {string}
+             */
+            kind: "sender_domain" | "recipient_domain" | "label";
+            /** @description The normalized domain (e.g. `personal-family.example`) or the provider mail-label name. */
+            value: string;
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
+        CreateCaptureExclusionRequest: {
+            /** @enum {string} */
+            kind: "sender_domain" | "recipient_domain" | "label";
+            value: string;
+        };
+        CaptureExclusionRuleListResponse: {
+            data: components["schemas"]["CaptureExclusionRule"][];
         };
         /** @description RFC 7807 problem+json with a stable machine `code` and structured `details`. */
         Problem: {
@@ -10180,6 +10259,76 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Disconnected (or already disconnected). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCaptureExclusions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calling user's exclusion rules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureExclusionRuleListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createCaptureExclusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCaptureExclusionRequest"];
+            };
+        };
+        responses: {
+            /** @description Rule created (or the existing rule, on an idempotent re-add). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureExclusionRule"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteCaptureExclusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rule removed (or already absent). */
             204: {
                 headers: {
                     [name: string]: unknown;

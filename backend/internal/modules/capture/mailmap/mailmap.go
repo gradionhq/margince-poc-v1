@@ -34,15 +34,17 @@ const maxBodyLen = 8000
 // Message is the pure result of reading one RFC822 message against the
 // mailbox owner — everything the mapping needs, with no provider handle.
 type Message struct {
-	messageID    string
-	subject      string
-	body         string
-	occurredAt   time.Time
-	direction    string // inbound | outbound
-	from         string
-	to           string
-	counterparty string
-	autoSubmit   bool
+	messageID        string
+	subject          string
+	body             string
+	occurredAt       time.Time
+	direction        string // inbound | outbound
+	from             string
+	to               string
+	counterparty     string
+	senderDomain     string   // lowercased domain of From — for the RC-2 gate
+	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
+	autoSubmit       bool
 }
 
 // Counterparty is the non-owner address on the message (the person this
@@ -82,15 +84,17 @@ func Parse(raw []byte, owner string) (Message, error) {
 	autoSubmit := isAutoSubmitted(header.Get("Auto-Submitted"), header.Get("Precedence"))
 
 	return Message{
-		messageID:    strings.TrimSpace(messageID),
-		subject:      strings.TrimSpace(subject),
-		body:         body,
-		occurredAt:   occurredAt,
-		direction:    direction,
-		from:         from,
-		to:           to,
-		counterparty: counterparty,
-		autoSubmit:   autoSubmit,
+		messageID:        strings.TrimSpace(messageID),
+		subject:          strings.TrimSpace(subject),
+		body:             body,
+		occurredAt:       occurredAt,
+		direction:        direction,
+		from:             from,
+		to:               to,
+		counterparty:     counterparty,
+		senderDomain:     domainOf(from),
+		recipientDomains: domainsOf(toList),
+		autoSubmit:       autoSubmit,
 	}, nil
 }
 
@@ -146,7 +150,45 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 		Source:     source,
 		CapturedBy: "connector:" + connectorName,
 		Raw:        raw,
+		// The RC-2 exclusion gate reads these in the ONE Sink before any
+		// write; labels are left empty here (RFC822 carries none — a
+		// provider label feed is a follow-up), so only domain rules bite
+		// on mail read over imap/gmail-raw today.
+		Match: connector.ExclusionAttrs{
+			SenderDomain:     m.senderDomain,
+			RecipientDomains: m.recipientDomains,
+		},
 	}
+}
+
+// domainOf returns the lowercased domain part of an address, or "" if the
+// address carries no "@". It splits at the LAST "@" so a quoted local part
+// containing one (e.g. `"weird@local"@example.com`) still yields the domain.
+func domainOf(addr string) string {
+	addr = strings.ToLower(strings.TrimSpace(addr))
+	if idx := strings.LastIndex(addr, "@"); idx >= 0 {
+		return addr[idx+1:]
+	}
+	return ""
+}
+
+// domainsOf returns the lowercased, de-duplicated domains of an address
+// list, order-preserving — every recipient's domain the RC-2 gate may match.
+func domainsOf(list []*mail.Address) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	for _, a := range list {
+		d := domainOf(a.Address)
+		if d == "" {
+			continue
+		}
+		if _, dup := seen[d]; dup {
+			continue
+		}
+		seen[d] = struct{}{}
+		out = append(out, d)
+	}
+	return out
 }
 
 // extractText returns the message's plain-text body. It prefers a
