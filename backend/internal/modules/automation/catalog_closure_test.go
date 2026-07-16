@@ -75,6 +75,32 @@ func assertPermissionIsExactlyOneShape(t *testing.T, a ActionType, p Permission)
 	}
 }
 
+// pinnedTargetScopedActions is the reviewed set: assign_owner and
+// set_field both route to provider.Update{Ref: action.Target} in
+// workflows.go's ApplyActions, and Target's type is read off the firing
+// event, so neither can pin a single object. Pinned by name, not derived,
+// so a future change that flips an action's Shape — widening or
+// narrowing the author-time ceiling — must touch this list and be seen
+// in review, never slip through as a one-line change to actionDefs.
+var pinnedTargetScopedActions = map[ActionType]bool{
+	ActionTypeAssignOwner: true,
+	ActionTypeSetField:    true,
+}
+
+func TestTargetScopedActionsMatchTheReviewedSet(t *testing.T) {
+	for _, a := range AllActionTypes() {
+		def, ok := ActionDefFor(a)
+		if !ok {
+			continue // reported by TestEveryActionHasADefinition
+		}
+		want := pinnedTargetScopedActions[a]
+		got := def.RequiredPermission.Shape == PermissionTargetScoped
+		if got != want {
+			t.Errorf("action %q is target-scoped=%v, want %v — a Shape change here is a security-relevant decision, not a drive-by edit", a, got, want)
+		}
+	}
+}
+
 // Every ActionDef's Executor must name a real workflow.ActionKind, or a
 // typo or a kind dropped from the ports layer would silently strand an
 // action with an executor nothing can run.
