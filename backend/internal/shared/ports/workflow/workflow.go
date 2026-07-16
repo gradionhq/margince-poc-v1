@@ -73,6 +73,14 @@ type Event struct {
 
 	AutomationID ids.UUID
 	Params       json.RawMessage
+
+	// OwnerID is the human who authored this automation instance
+	// (automation.owner_id) — the "on behalf of" attribute of a firing,
+	// analogous to AutomationID. Zero for a system-seeded automation (no
+	// owner_id was ever stamped) and for a system handler (no instance
+	// behind it at all): the match-time owner-permission gate reads this
+	// to decide whose live authority a firing must still hold.
+	OwnerID ids.UUID
 }
 
 // Effect is the typed, enumerable set of actions a run may take. No

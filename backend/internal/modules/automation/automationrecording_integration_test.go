@@ -40,7 +40,7 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 			return workflow.RunResult{}, &workflow.StagedApprovalError{ApprovalID: stagedApproval}
 		}},
 	}
-	engine := NewWorkflowEngine(fx.pool)
+	engine := NewWorkflowEngine(fx.pool, nil) // nil resolver: these fixtures carry no owner_id, so the match-time gate skips before ever touching it
 	for _, h := range handlers {
 		fx.seedAutomation(t, h.name)
 		engine.RegisterWorkflow(h)

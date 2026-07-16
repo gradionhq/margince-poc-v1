@@ -142,6 +142,62 @@ func TestEveryTriggerHasADefinition(t *testing.T) {
 	}
 }
 
+// TestRequiredPermissionForKindReverseMapIsUnambiguous is the soundness
+// proof gate.go's match-time gate depends on: the gate sees a planned
+// workflow.Action, which names only the executor (ActionKind), so it
+// reverse-looks-up the permission through RequiredPermissionForKind. That
+// lookup is sound only if no two catalog ActionTypes share an executor
+// while disagreeing on the required permission — this asserts exactly
+// that, over the full registry, rather than trusting it by inspection.
+func TestRequiredPermissionForKindReverseMapIsUnambiguous(t *testing.T) {
+	seen := map[workflow.ActionKind]Permission{}
+	for _, a := range AllActionTypes() {
+		def, ok := ActionDefFor(a)
+		if !ok {
+			continue // reported by TestEveryActionHasADefinition
+		}
+		if existing, already := seen[def.Executor]; already {
+			if existing != def.RequiredPermission {
+				t.Errorf("executor %q maps to two different permissions across action types (%+v vs %+v) — "+
+					"RequiredPermissionForKind's reverse lookup would be ambiguous", def.Executor, existing, def.RequiredPermission)
+			}
+			continue
+		}
+		seen[def.Executor] = def.RequiredPermission
+	}
+}
+
+// TestRequiredPermissionForKindResolvesEveryRegisteredExecutor proves the
+// reverse lookup actually returns the SAME permission the forward
+// registry (actionDefs) carries for every executor a catalog action uses
+// today — not just that it doesn't collide.
+func TestRequiredPermissionForKindResolvesEveryRegisteredExecutor(t *testing.T) {
+	for _, a := range AllActionTypes() {
+		def, ok := ActionDefFor(a)
+		if !ok {
+			continue
+		}
+		perm, ok := RequiredPermissionForKind(def.Executor)
+		if !ok {
+			t.Errorf("RequiredPermissionForKind(%q) ok=false, want the permission action %q registers", def.Executor, a)
+			continue
+		}
+		if perm != def.RequiredPermission {
+			t.Errorf("RequiredPermissionForKind(%q) = %+v, want %+v", def.Executor, perm, def.RequiredPermission)
+		}
+	}
+}
+
+// TestRequiredPermissionForKindFailsForAnUnregisteredExecutor proves the
+// reverse lookup fails honestly (ok=false) for an executor kind no
+// catalog action names, rather than resolving to a fabricated
+// zero-value permission the gate could mistake for a real pinned object.
+func TestRequiredPermissionForKindFailsForAnUnregisteredExecutor(t *testing.T) {
+	if _, ok := RequiredPermissionForKind(workflow.ActionEnqueueJob); ok {
+		t.Error("RequiredPermissionForKind(ActionEnqueueJob) ok=true, want false — no catalog action names this executor")
+	}
+}
+
 func toStrings[T ~string](in []T) []string {
 	out := make([]string, len(in))
 	for i, v := range in {

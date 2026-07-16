@@ -70,19 +70,19 @@ const (
 )
 
 // Permission is the verb+object an automation's author must hold for the
-// effect the automation will carry. A firing currently runs as
-// PrincipalSystem, and platform/auth's object RBAC short-circuits system
-// principals — so this author-time check is presently the only moment an
-// automation's rights are checked at all. It is a fast-fail convenience,
-// not the security boundary: the boundary automations need is an
-// owner-bound match-time gate — resolving automation.owner_id's live seat
-// + RBAC against the real, now-known entity type, the way platform/auth's
-// on-behalf-of admission path already does for agent principals — and
-// that gate does not exist yet. Action is the verb, genuinely static per
-// action type; Object is set only when Shape is PermissionPinned. Both
-// reuse the exact spellings the rest of the codebase gates on
-// (identity/internal/policy's coreObjects, principal.Action) — never a
-// new vocabulary.
+// effect the automation will carry. requireAuthorCeiling (ceiling.go)
+// checks it once at authoring time — a fast-fail convenience that stops a
+// user from authoring an effect they plainly cannot perform by hand, but
+// not the security boundary: a firing runs long after authoring, and the
+// author's authority can be revoked in between. The real boundary is
+// gate.go's match-time gate, which re-resolves the automation's owner_id's
+// live RBAC against the real, now-known firing entity type — the same
+// shape platform/auth's on-behalf-of admission path already runs for agent
+// principals — immediately before every firing applies. Action is the
+// verb, genuinely static per action type; Object is set only when Shape
+// is PermissionPinned. Both reuse the exact spellings the rest of the
+// codebase gates on (identity/internal/policy's coreObjects,
+// principal.Action) — never a new vocabulary.
 type Permission struct {
 	Shape  PermissionShape
 	Object string
@@ -189,4 +189,22 @@ func AllActionTypes() []ActionType {
 func ActionDefFor(a ActionType) (ActionDef, bool) {
 	def, ok := actionDefs[a]
 	return def, ok
+}
+
+// RequiredPermissionForKind reverse-maps an executor kind back to the
+// permission an action carrying it requires. The match-time gate
+// (gate.go) sees a planned workflow.Action, which names the executor
+// (ActionKind) — not the catalog's user-facing ActionType this registry
+// is keyed on — so it needs this direction of the same table.
+// TestRequiredPermissionForKindReverseMapIsUnambiguous
+// (catalog_closure_test.go) proves no two ActionTypes map to the same
+// executor with different permissions, so a first match is sound rather
+// than merely convenient.
+func RequiredPermissionForKind(k workflow.ActionKind) (Permission, bool) {
+	for _, def := range actionDefs {
+		if def.Executor == k {
+			return def.RequiredPermission, true
+		}
+	}
+	return Permission{}, false
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -29,7 +30,11 @@ import (
 // (formulas-and-rules §3 — "recomputed on each captured signal") and
 // fires always.
 func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
-	engine := automation.NewWorkflowEngine(pool)
+	// identity.Service implements shared/ports/authz.Resolver — the
+	// match-time owner-permission gate's (gate.go) authority source. The
+	// engine depends only on the port; this is the one place a concrete
+	// identity is injected (ADR-0054 §8), same as platform/auth.NewGate.
+	engine := automation.NewWorkflowEngine(pool, identity.NewService(pool))
 	peopleStore := people.NewStore(pool)
 	ex := automation.Executors{
 		Provider:  NewProvider(pool),

@@ -85,6 +85,24 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 		return e.recordFailedBeforeApply(ctx, h, ev, "encoding the planned actions: "+err.Error(), err)
 	}
 
+	// The match-time owner-permission gate (gate.go, AUTO-T06): a human-
+	// authored firing (ev.OwnerID set) re-checks the OWNER's live RBAC
+	// against the planned effect before Apply ever runs, closing the gap
+	// left by the author-time ceiling (ceiling.go) — an automation's
+	// author can lose their authority long after authoring it. runOne is
+	// shared by the matcher (HandleEvent) and the time-scan, so wiring the
+	// gate here gives both entries the one path, one gate.
+	decision, err := checkOwnerPermission(ctx, e.resolver, ev, effect)
+	if err != nil {
+		// A transient resolver failure (DB down, …) is not a permission
+		// answer: surface it so the firing retries later rather than
+		// claiming a terminal run row over an infrastructure blip.
+		return err
+	}
+	if decision.blocked {
+		return e.recordBlocked(ctx, h, ev, plannedJSON, decision.reason)
+	}
+
 	claimed, err := e.claimRun(ctx, h, ev, plannedJSON, "applied", nil)
 	if err != nil || !claimed {
 		return err

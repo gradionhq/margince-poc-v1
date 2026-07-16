@@ -26,6 +26,7 @@ import (
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
@@ -42,10 +43,15 @@ type WorkflowEngine struct {
 	// apply to them.
 	system []workflow.Handler
 	pool   *pgxpool.Pool
+	// resolver backs the match-time owner-permission gate (gate.go,
+	// AUTO-T06): the ratified authz.Resolver seam, never modules/identity
+	// directly (a module never imports a sibling) — the composition root
+	// injects the real implementation (compose/workflows.go).
+	resolver authz.Resolver
 }
 
-func NewWorkflowEngine(pool *pgxpool.Pool) *WorkflowEngine {
-	return &WorkflowEngine{pool: pool}
+func NewWorkflowEngine(pool *pgxpool.Pool, resolver authz.Resolver) *WorkflowEngine {
+	return &WorkflowEngine{pool: pool, resolver: resolver}
 }
 
 // RegisterWorkflow adds one handler at composition time.
@@ -142,6 +148,7 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 		for _, inst := range instances[h.Spec().Name] {
 			iev := ev
 			iev.AutomationID = inst.id.UUID
+			iev.OwnerID = inst.owner
 			iev.Params = inst.params
 			if err := e.runOne(runCtx, h, iev); err != nil && firstErr == nil {
 				firstErr = fmt.Errorf("workflow %s: %w", h.Spec().Name, err)
@@ -151,9 +158,13 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 	return firstErr
 }
 
-// automationInstance is the enabled-row slice dispatch needs.
+// automationInstance is the enabled-row slice dispatch needs. owner is the
+// zero ids.UUID for a system-seeded automation (owner_id NULL) — the
+// match-time gate reads it to decide whether a firing has a human
+// authority to re-check at all.
 type automationInstance struct {
 	id     ids.AutomationID
+	owner  ids.UUID
 	params json.RawMessage
 }
 
@@ -164,7 +175,7 @@ func (e *WorkflowEngine) liveInstances(ctx context.Context) (map[string][]automa
 	out := map[string][]automationInstance{}
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT id, key, params FROM automation WHERE enabled AND archived_at IS NULL ORDER BY created_at, id`)
+			`SELECT id, key, params, owner_id FROM automation WHERE enabled AND archived_at IS NULL ORDER BY created_at, id`)
 		if err != nil {
 			return err
 		}
@@ -172,8 +183,12 @@ func (e *WorkflowEngine) liveInstances(ctx context.Context) (map[string][]automa
 		for rows.Next() {
 			var inst automationInstance
 			var key string
-			if err := rows.Scan(&inst.id, &key, &inst.params); err != nil {
+			var owner *ids.UUID
+			if err := rows.Scan(&inst.id, &key, &inst.params, &owner); err != nil {
 				return err
+			}
+			if owner != nil {
+				inst.owner = *owner
 			}
 			out[key] = append(out[key], inst)
 		}

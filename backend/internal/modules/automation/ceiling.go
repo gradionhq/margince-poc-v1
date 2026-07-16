@@ -14,14 +14,14 @@ import (
 
 // requireAuthorCeiling fast-fails authoring when the author lacks the
 // permission the automation's action needs. It is a UX convenience, not
-// the security boundary: a firing currently runs as PrincipalSystem, which
-// platform/auth's object RBAC short-circuits, so nothing re-checks the
-// author's rights at fire time. The boundary automations need is an
-// owner-bound match-time gate — resolving automation.owner_id's live seat
-// and RBAC against the entity the trigger actually fired on — and that
-// gate is not built yet (catalog_actions.go's Permission doc carries the
-// full rationale). This check only stops a user from authoring an
-// automation whose effect they plainly cannot perform by hand today.
+// the security boundary: a firing runs long after authoring, and the
+// author's authority can be revoked in between — gate.go's match-time
+// gate is the boundary that re-checks the automation's owner_id's live
+// RBAC against the entity the trigger actually fired on, immediately
+// before every firing applies (catalog_actions.go's Permission doc
+// carries the full rationale). This check only stops a user from
+// authoring an automation whose effect they plainly cannot perform by
+// hand today.
 func requireAuthorCeiling(ctx context.Context, entry CatalogEntry) error {
 	def, ok := ActionDefFor(ActionType(entry.Action))
 	if !ok {
