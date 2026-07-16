@@ -36,8 +36,8 @@ func TestActionCatalogMatchesTheSpecBothDirections(t *testing.T) {
 // to prevent. The map key and Type must agree, or a copy-paste into the
 // wrong map slot would silently label one action as another. Every action
 // is exactly one of {pinned-with-object, target-scoped-with-no-object} —
-// never silently neither, which is the ambiguity a blank Object used to
-// hide (assign_owner and set_field both act on whatever entity the trigger
+// never silently neither, which is the ambiguity a blank Object hides
+// (assign_owner and set_field both act on whatever entity the trigger
 // fired on; a pinned object for either would gate the wrong entity type).
 func TestEveryActionHasADefinition(t *testing.T) {
 	for _, a := range AllActionTypes() {
@@ -75,19 +75,20 @@ func assertPermissionIsExactlyOneShape(t *testing.T, a ActionType, p Permission)
 	}
 }
 
-// pinnedTargetScopedActions is the reviewed set: assign_owner and
-// set_field both route to provider.Update{Ref: action.Target} in
-// workflows.go's ApplyActions, and Target's type is read off the firing
-// event, so neither can pin a single object. Pinned by name, not derived,
-// so a future change that flips an action's Shape — widening or
-// narrowing the author-time ceiling — must touch this list and be seen
-// in review, never slip through as a one-line change to actionDefs.
+// pinnedTargetScopedActions names the actions whose object cannot be
+// pinned: assign_owner and set_field both route to
+// provider.Update{Ref: action.Target} in workflows.go's ApplyActions, and
+// Target's type is read off the firing event, so neither can pin a single
+// object. Pinned by name, not derived, so a future change that flips an
+// action's Shape — widening or narrowing the author-time ceiling — must
+// touch this list and be seen in review, never slip through as a
+// one-line change to actionDefs.
 var pinnedTargetScopedActions = map[ActionType]bool{
 	ActionTypeAssignOwner: true,
 	ActionTypeSetField:    true,
 }
 
-func TestTargetScopedActionsMatchTheReviewedSet(t *testing.T) {
+func TestOnlyEntityAgnosticActionsAreTargetScoped(t *testing.T) {
 	for _, a := range AllActionTypes() {
 		def, ok := ActionDefFor(a)
 		if !ok {
@@ -120,11 +121,11 @@ func TestEveryActionExecutorIsAKnownWorkflowKind(t *testing.T) {
 	}
 }
 
-// TriggerDefFor must resolve for every closed TriggerKind — the comment on
-// triggerDefs claims this is enforced; before this test existed, deleting a
-// triggerDefs row passed every other test in this package. Entry is closed
-// to event|clock, and a clock trigger consumes no event by design
-// (AUTO-EV-7), so EventType must be empty whenever Entry is "clock".
+// TriggerDefFor must resolve for every closed TriggerKind, or a trigger
+// kind with no definition would silently strand any automation that
+// picks it. Entry is closed to event|clock, and a clock trigger consumes
+// no event by design (AUTO-EV-7), so EventType must be empty whenever
+// Entry is "clock".
 func TestEveryTriggerHasADefinition(t *testing.T) {
 	for _, k := range AllTriggerKinds() {
 		def, ok := TriggerDefFor(k)
