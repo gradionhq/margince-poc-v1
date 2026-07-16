@@ -70,6 +70,48 @@ func TestSearchFoldsAccentsAndStemsByLanguage(t *testing.T) {
 	}
 }
 
+func TestSearchFoldsApostrophesInNames(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+
+	// The typographic apostrophe (U+2019) — what pasted text actually
+	// carries; f_unaccent folds it to ASCII ' before the strip.
+	oreilly, err := e.People.CreatePerson(admin, people.CreatePersonInput{
+		FullName: "Tim O’Reilly", Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create person: %v", err)
+	}
+
+	// Global search: the collapsed spelling, the apostrophe spelling,
+	// and the bare surname must all find the row.
+	searchStore := search.NewStore(e.Pool)
+	for _, q := range []string{"oreilly", "o'reilly", "o’reilly", "reilly"} {
+		page, err := searchStore.Search(admin, search.Input{Query: q, Types: []string{"person"}})
+		if err != nil {
+			t.Fatalf("search %q: %v", q, err)
+		}
+		if !hasHit(page, ids.UUID(oreilly.Id)) {
+			t.Errorf("search for %q did not find 'Tim O’Reilly' — apostrophe folding is broken", q)
+		}
+	}
+
+	// List quick-find: the trigram contains-match must fold the same way.
+	persons, _, err := e.People.ListPeople(admin, people.ListPeopleInput{Query: strPtr("oreil")})
+	if err != nil {
+		t.Fatalf("list people: %v", err)
+	}
+	found := false
+	for _, p := range persons {
+		if p.Id == oreilly.Id {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("list q='oreil' did not quick-find 'Tim O’Reilly' — the folded trigram path is broken")
+	}
+}
+
 func hasHit(page search.Page, id ids.UUID) bool {
 	for _, hit := range page.Hits {
 		if hit.ID == id {
