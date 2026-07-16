@@ -1,4 +1,4 @@
--- 0077 down: reverse the re-key. Reversibility here is the standard
+-- 0078 down: reverse the re-key. Reversibility here is the standard
 -- immediate-rollback guarantee (up then down restores the pre-migration
 -- state) — NOT a live rollback safe at an arbitrary later point: a row
 -- created under 'assign_lead_owner' by a human author AFTER the up

@@ -280,7 +280,7 @@ func authorableOnlyCatalogEntries() []CatalogEntry {
 		{
 			// AUTHORABLE, not seeded: the honest name for the owner-
 			// assignment behaviour the OLD route_lead key carried before
-			// AUTO-NOTE-2's reconciliation (migrations/core/0077 re-keys
+			// AUTO-NOTE-2's reconciliation (migrations/core/0078 re-keys
 			// any live row). Tier is green, not actionDefs' "dynamic" label
 			// for assign_owner (catalog_actions.go) — the automation.tier
 			// column's own CHECK constraint (migrations/core/0035) and the
