@@ -103,6 +103,42 @@ func requireDSRAdmin(ctx context.Context, action principal.Action) error {
 	return nil
 }
 
+// dsrListQuery assembles the keyset-paged queue SQL and its args: an optional
+// id > cursor arm, an optional single-status filter, ordered by id with the
+// +1 over-fetch ListDSRs uses to detect a further page. A malformed cursor is
+// a client error, not an empty result.
+func dsrListQuery(cursor, status string, bounded int) (string, []any, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sql := "SELECT " + dsrColumns + " FROM data_subject_request WHERE true"
+	if cursor != "" {
+		after, err := ids.Parse(cursor)
+		if err != nil {
+			return "", nil, &ValidationError{Field: "cursor", Reason: "malformed"}
+		}
+		sql += storekit.SQLf(" AND id > $%d", arg(after))
+	}
+	if status != "" {
+		sql += storekit.SQLf(" AND status = $%d", arg(status))
+	}
+	sql += storekit.SQLf(" ORDER BY id LIMIT $%d", arg(bounded+1))
+	return sql, args, nil
+}
+
+// collectDSRs drains a queue result set, surfacing a scan or iteration error
+// rather than a silent short read.
+func collectDSRs(rows pgx.Rows) ([]dsrRow, error) {
+	var out []dsrRow
+	for rows.Next() {
+		d, err := scanDSR(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // ListDSRs walks the case queue newest-id-last. status narrows to one
 // queue state ("" = no filter); the contract publishes the filter, so the
 // store implements it rather than returning everything.
@@ -114,33 +150,17 @@ func (s *Store) ListDSRs(ctx context.Context, limit *int, cursor string, status 
 	var out []dsrRow
 	var page storekit.Page
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var args []any
-		arg := func(v any) int { args = append(args, v); return len(args) }
-		sql := "SELECT " + dsrColumns + " FROM data_subject_request WHERE true"
-		if cursor != "" {
-			after, err := ids.Parse(cursor)
-			if err != nil {
-				return &ValidationError{Field: "cursor", Reason: "malformed"}
-			}
-			sql += storekit.SQLf(" AND id > $%d", arg(after))
+		sql, args, err := dsrListQuery(cursor, status, bounded)
+		if err != nil {
+			return err
 		}
-		if status != "" {
-			sql += storekit.SQLf(" AND status = $%d", arg(status))
-		}
-		sql += storekit.SQLf(" ORDER BY id LIMIT $%d", arg(bounded+1))
 		rows, err := tx.Query(ctx, sql, args...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
-		for rows.Next() {
-			d, err := scanDSR(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, d)
-		}
-		if err := rows.Err(); err != nil {
+		out, err = collectDSRs(rows)
+		if err != nil {
 			return err
 		}
 		if len(out) > bounded {
@@ -344,32 +364,41 @@ func (s *Store) FulfilErasure(ctx context.Context, id ids.UUID, in UpdateDSRInpu
 			}
 			return err
 		}
-		// The FOR UPDATE lock guarantees status is still what we validated, so
-		// the AND status clause can only match; it mirrors UpdateDSR's finalize
-		// shape (deliberately copied — this path cannot delegate to UpdateDSR
-		// while holding the row lock) and stands as defense in depth.
-		row := tx.QueryRow(ctx, `
+		out, err = finalizeErasureFulfil(ctx, tx, id, in, current)
+		return err
+	})
+	return out, err
+}
+
+// finalizeErasureFulfil flips the FOR UPDATE-locked request to fulfilled and
+// appends the audit row, run inside the caller's held-lock transaction (never
+// on its own). The AND status guard mirrors UpdateDSR's finalize as defense in
+// depth — with the lock held it can only match, but a miss still maps to the
+// honest illegal-transition error rather than a silent no-op.
+func finalizeErasureFulfil(ctx context.Context, tx pgx.Tx, id ids.UUID, in UpdateDSRInput, current dsrRow) (dsrRow, error) {
+	row := tx.QueryRow(ctx, `
 			UPDATE data_subject_request SET
 			  status = 'fulfilled',
 			  assignee_id = coalesce($2, assignee_id),
 			  resolution = coalesce($3, resolution)
 			WHERE id = $1 AND status = $4
 			RETURNING `+dsrColumns,
-			id, in.AssigneeID, in.Resolution, current.Status)
-		if out, err = scanDSR(row); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return illegalTransition(current.Status, "fulfilled")
-			}
-			return err
+		id, in.AssigneeID, in.Resolution, current.Status)
+	out, err := scanDSR(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dsrRow{}, illegalTransition(current.Status, "fulfilled")
 		}
-		_, err = storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
-			fieldStatus: current.Status,
-		}, map[string]any{
-			fieldStatus: out.Status, fieldResolution: in.Resolution != nil,
-		})
-		return err
-	})
-	return out, err
+		return dsrRow{}, err
+	}
+	if _, err := storekit.Audit(ctx, tx, "update", "data_subject_request", id, map[string]any{
+		fieldStatus: current.Status,
+	}, map[string]any{
+		fieldStatus: out.Status, fieldResolution: in.Resolution != nil,
+	}); err != nil {
+		return dsrRow{}, err
+	}
+	return out, nil
 }
 
 func wireDSR(d dsrRow) crmcontracts.DataSubjectRequest {
