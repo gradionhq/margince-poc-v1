@@ -277,12 +277,15 @@ func TestDraftEmailFiringLandsTheComposedDraftOnTheRunRecord(t *testing.T) {
 	// The composed draft must be findable IN the run record — a draft_email
 	// firing whose only effect is the text would be a fake success if the
 	// run said 'applied' with nothing durable behind it.
+	// workflow.Action carries no json tags, so it serializes into
+	// workflow_run.applied with its Go field names; Go matches those keys to
+	// these exported fields case-insensitively without a tag.
 	var appliedActions []struct {
-		Kind string `json:"Kind"`
+		Kind string
 		Args struct {
 			Subject string `json:"draft_subject"`
 			Body    string `json:"draft_body"`
-		} `json:"Args"`
+		}
 	}
 	if err := json.Unmarshal(appliedJSON, &appliedActions); err != nil {
 		t.Fatalf("decoding workflow_run.applied: %v", err)
