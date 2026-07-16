@@ -123,7 +123,7 @@ func TestScanInstanceCandidatesSynthesizesOneEventPerCandidate(t *testing.T) {
 	}
 
 	h := noActivityReminder{}
-	if err := scanInstanceCandidates(context.Background(), scan, h, inst, wsID, now, run); err != nil {
+	if err := scanInstanceCandidates(context.Background(), scan, h, inst, wsID, now, run, noActivityDays); err != nil {
 		t.Fatalf("scanInstanceCandidates: %v", err)
 	}
 
@@ -159,11 +159,11 @@ func TestScanInstanceCandidatesSynthesizesOneEventPerCandidate(t *testing.T) {
 		t.Errorf("entities = %+v, %+v — want %+v, %+v in order", calls[0].ev.Entity, calls[1].ev.Entity, entity1, entity2)
 	}
 
-	gotAnchor1, err := noActivityAnchor(calls[0].ev)
+	gotAnchor1, err := touchAnchor(calls[0].ev)
 	if err != nil || !gotAnchor1.Equal(anchor1) {
 		t.Errorf("first event's anchor = %v (err %v), want %v", gotAnchor1, err, anchor1)
 	}
-	gotAnchor2, err := noActivityAnchor(calls[1].ev)
+	gotAnchor2, err := touchAnchor(calls[1].ev)
 	if err != nil || !gotAnchor2.Equal(anchor2) {
 		t.Errorf("second event's anchor = %v (err %v), want %v", gotAnchor2, err, anchor2)
 	}
@@ -182,8 +182,42 @@ func TestScanInstanceCandidatesStopsOnARunFailure(t *testing.T) {
 	runErr := errors.New("runOne: claiming the run row failed")
 	run := func(context.Context, workflow.Handler, workflow.Event) error { return runErr }
 
-	err := scanInstanceCandidates(context.Background(), scan, noActivityReminder{}, inst, ids.NewV7(), now, run)
+	err := scanInstanceCandidates(context.Background(), scan, noActivityReminder{}, inst, ids.NewV7(), now, run, noActivityDays)
 	if !errors.Is(err, runErr) {
 		t.Fatalf("scanInstanceCandidates err = %v, want it to wrap %v", err, runErr)
+	}
+}
+
+// TestActivityScanHandlersRoutesEachHandlerToItsOwnDaysReader is the
+// generalized-dispatch proof (Task 14b): scanWorkspace looks a clock
+// handler's enumerator up in this map rather than a growing if/else
+// chain, so this proves each of the two ActivityScan-driven catalog
+// names resolves to ITS OWN days reader (never the other's, never a
+// shared default) and that a handler with no ActivityScan enumeration —
+// renewal_reminder, whose candidate source is deferred, see
+// workflows_clock_handlers.go's renewalReminder doc — has no entry at
+// all, so scanWorkspace's map lookup honestly skips it instead of
+// mishandling it as an ActivityScan consumer.
+func TestActivityScanHandlersRoutesEachHandlerToItsOwnDaysReader(t *testing.T) {
+	noActivity, ok := activityScanHandlers[noActivityReminderName]
+	if !ok {
+		t.Fatal("activityScanHandlers has no entry for no_activity_reminder")
+	}
+	days, err := noActivity(nil)
+	if err != nil || days != defaultNoActivityDays {
+		t.Errorf("activityScanHandlers[no_activity_reminder](nil) = (%d, %v), want (%d, nil) — it must resolve to noActivityDays, not check_in_cadence's reader", days, err, defaultNoActivityDays)
+	}
+
+	checkIn, ok := activityScanHandlers[checkInCadenceName]
+	if !ok {
+		t.Fatal("activityScanHandlers has no entry for check_in_cadence")
+	}
+	days, err = checkIn(nil)
+	if err != nil || days != defaultCheckInDays {
+		t.Errorf("activityScanHandlers[check_in_cadence](nil) = (%d, %v), want (%d, nil) — it must resolve to checkInCadenceDays, not no_activity_reminder's reader", days, err, defaultCheckInDays)
+	}
+
+	if _, ok := activityScanHandlers[renewalReminderName]; ok {
+		t.Error("activityScanHandlers has an entry for renewal_reminder — its candidate source is deferred (workflows_clock_handlers.go), scanWorkspace must skip it honestly rather than treat it as an ActivityScan consumer")
 	}
 }

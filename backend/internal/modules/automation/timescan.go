@@ -32,11 +32,31 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
-// noActivityBatchLimit bounds how many stale candidates one instance's
-// pass draws per tick — the same fleet-pass-cap reasoning
-// closedatesweep.go's closeDateBatch documents (a migrated backlog drains
-// over successive ticks rather than blocking the pass).
-const noActivityBatchLimit = 200
+// clockScanBatchLimit bounds how many stale candidates one instance's
+// pass draws per tick, for every ActivityScan-driven clock handler
+// (no_activity_reminder, check_in_cadence) — the same fleet-pass-cap
+// reasoning closedatesweep.go's closeDateBatch documents (a migrated
+// backlog drains over successive ticks rather than blocking the pass).
+const clockScanBatchLimit = 200
+
+// activityScanHandlers maps each ActivityScan-driven clock handler's
+// catalog name to its own days-knob reader (workflows_clock_handlers.go):
+// no_activity_reminder and check_in_cadence share the IDENTICAL
+// LastTouchBefore candidate source and differ only in which params key
+// names their own cadence. scanWorkspace looks a handler's enumerator up
+// here rather than growing an if/else chain, so adding a THIRD
+// ActivityScan-driven handler later is one map entry, not a new branch.
+//
+// A handler with no entry here — renewal_reminder, today — rides a
+// different anchor entirely (a custom field's value, not a last-touch
+// timestamp) and has no candidate source wired at all; see its own doc
+// in workflows_clock_handlers.go for why. scanWorkspace below skips it
+// honestly rather than mishandling it as an ActivityScan consumer it
+// is not.
+var activityScanHandlers = map[string]clockDaysExtractor{
+	noActivityReminderName: noActivityDays,
+	checkInCadenceName:     checkInCadenceDays,
+}
 
 // TimeScanner drives every CLOCK-triggered automation instance: it holds
 // the WorkflowEngine so it can call e.runOne (same package) and the
@@ -109,10 +129,9 @@ func scanWorkspaces(workspaces []ids.UUID, scanOne func(wsID ids.UUID) error, lo
 }
 
 // scanWorkspace loads one workspace's enabled clock automations and, for
-// each no_activity_reminder instance, converges its stale candidates onto
-// runOne. Task 14b's clock handlers (check_in_cadence, renewal_reminder)
-// ride a different candidate seam than ActivityScan, so they are skipped
-// here rather than mishandled — this task wires exactly one.
+// each instance whose handler has an ActivityScan enumerator wired
+// (activityScanHandlers above), converges its stale candidates onto
+// runOne.
 func (s *TimeScanner) scanWorkspace(ctx context.Context, wsID ids.UUID, now time.Time) error {
 	wsCtx := principal.WithWorkspaceID(ctx, wsID)
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:time-scan"})
@@ -123,12 +142,13 @@ func (s *TimeScanner) scanWorkspace(ctx context.Context, wsID ids.UUID, now time
 		return fmt.Errorf("loading clock automation instances: %w", err)
 	}
 	for _, h := range s.engine.clockHandlers() {
-		if h.Spec().Name != noActivityReminderName {
+		daysFor, ok := activityScanHandlers[h.Spec().Name]
+		if !ok {
 			continue
 		}
 		for _, inst := range instances[h.Spec().Name] {
-			if err := scanInstanceCandidates(wsCtx, s.scan, h, inst, wsID, now, s.engine.runOne); err != nil {
-				return fmt.Errorf("no_activity_reminder instance %s: %w", inst.id, err)
+			if err := scanInstanceCandidates(wsCtx, s.scan, h, inst, wsID, now, s.engine.runOne, daysFor); err != nil {
+				return fmt.Errorf("%s instance %s: %w", h.Spec().Name, inst.id, err)
 			}
 		}
 	}
@@ -136,11 +156,12 @@ func (s *TimeScanner) scanWorkspace(ctx context.Context, wsID ids.UUID, now time
 }
 
 // scanInstanceCandidates is one automation instance's body: derive its
-// N-day cutoff, draw stale candidates through the ActivityScan seam, and
-// hand each one to run (production: engine.runOne; a unit test substitutes
-// a recording stub so the event-synthesis contract below is provable
-// without a workspace transaction). Factored out as a free function —
-// rather than a TimeScanner method — for exactly that substitution.
+// N-day cutoff via the caller's own days reader, draw stale candidates
+// through the ActivityScan seam, and hand each one to run (production:
+// engine.runOne; a unit test substitutes a recording stub so the
+// event-synthesis contract below is provable without a workspace
+// transaction). Factored out as a free function — rather than a
+// TimeScanner method — for exactly that substitution.
 func scanInstanceCandidates(
 	ctx context.Context,
 	scan ActivityScan,
@@ -149,18 +170,19 @@ func scanInstanceCandidates(
 	wsID ids.UUID,
 	now time.Time,
 	run func(ctx context.Context, h workflow.Handler, ev workflow.Event) error,
+	daysFor clockDaysExtractor,
 ) error {
-	days, err := noActivityDays(inst.params)
+	days, err := daysFor(inst.params)
 	if err != nil {
 		return err
 	}
 	cutoff := now.AddDate(0, 0, -days)
-	candidates, err := scan.LastTouchBefore(ctx, cutoff, noActivityBatchLimit)
+	candidates, err := scan.LastTouchBefore(ctx, cutoff, clockScanBatchLimit)
 	if err != nil {
 		return fmt.Errorf("scanning stale entities: %w", err)
 	}
 	for _, cand := range candidates {
-		ev, err := buildNoActivityEvent(wsID, now, inst, cand)
+		ev, err := buildActivityAnchorEvent(wsID, now, inst, cand)
 		if err != nil {
 			return err
 		}
@@ -171,17 +193,18 @@ func scanInstanceCandidates(
 	return nil
 }
 
-// buildNoActivityEvent synthesizes the workflow.Event one stale candidate
-// fires with — the occurrence-key contract (Task 12, occurrence_test.go):
-// ID is a FRESH ids.NewV7() every call (trigger_event is NOT NULL and is
-// pure per-pass provenance, workflows_run.go's claimRun doc — never the
-// dedupe key), while the anchor rides Payload so
-// noActivityReminder.IdempotencyKey (workflows_clock_handlers.go) can
-// derive the REAL dedupe key from it instead.
-func buildNoActivityEvent(wsID ids.UUID, now time.Time, inst automationInstance, cand EntityAnchor) (workflow.Event, error) {
-	payload, err := json.Marshal(noActivityAnchorPayload{LastActivityAt: cand.Anchor})
+// buildActivityAnchorEvent synthesizes the workflow.Event one stale
+// candidate fires with — the occurrence-key contract (Task 12,
+// occurrence_test.go), shared by both ActivityScan-driven handlers: ID is
+// a FRESH ids.NewV7() every call (trigger_event is NOT NULL and is pure
+// per-pass provenance, workflows_run.go's claimRun doc — never the
+// dedupe key), while the anchor rides Payload so the handler's own
+// IdempotencyKey (workflows_clock_handlers.go's anchorIdempotencyKey)
+// can derive the REAL dedupe key from it instead.
+func buildActivityAnchorEvent(wsID ids.UUID, now time.Time, inst automationInstance, cand EntityAnchor) (workflow.Event, error) {
+	payload, err := json.Marshal(touchAnchorPayload{LastActivityAt: cand.Anchor})
 	if err != nil {
-		return workflow.Event{}, fmt.Errorf("automation: encoding the no_activity anchor: %w", err)
+		return workflow.Event{}, fmt.Errorf("automation: encoding the last-touch anchor: %w", err)
 	}
 	return workflow.Event{
 		ID:           ids.NewV7(),

@@ -27,6 +27,8 @@ func StarterWorkflows(ex Executors) []workflow.Handler {
 		stageChangeNotify{ex: ex},
 		postMeetingRecap{ex: ex},
 		noActivityReminder{ex: ex},
+		checkInCadence{ex: ex},
+		renewalReminder{ex: ex},
 	}
 }
 
