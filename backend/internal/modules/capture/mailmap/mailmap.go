@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package imap
-
-// The pure RFC822 → activity mapping: no provider handle, no I/O beyond
+// Package mailmap is the pure RFC822 → activity mapping shared by every
+// mail-capture connector (imap, gmail): no provider handle, no I/O beyond
 // reading the in-memory message bytes. This is the test-guarded surface —
-// the connector's Sync and Normalize both compose these functions, so the
-// classification (direction, skip rules) and the field mapping are proven by
-// fixtures, not a live mailbox.
+// a connector's Sync and Normalize compose these functions, so the
+// classification (direction, skip rules) and the field mapping are proven
+// by fixtures, not a live mailbox. ToRecord is parameterised by the
+// connector name so the same mapping stamps whichever connector read the
+// message onto the row's provenance.
+package mailmap
 
 import (
 	"bytes"
@@ -25,9 +27,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// parsedMessage is the pure result of reading one RFC822 message against
-// the mailbox owner — everything the mapping needs, with no provider handle.
-type parsedMessage struct {
+// maxBodyLen caps the stored email body — the timeline needs a legible
+// excerpt, not the full multi-megabyte thread with quoted history.
+const maxBodyLen = 8000
+
+// Message is the pure result of reading one RFC822 message against the
+// mailbox owner — everything the mapping needs, with no provider handle.
+type Message struct {
 	messageID    string
 	subject      string
 	body         string
@@ -39,14 +45,18 @@ type parsedMessage struct {
 	autoSubmit   bool
 }
 
+// Counterparty is the non-owner address on the message (the person this
+// mail was with) — exported so a connector can tally distinct contacts.
+func (m Message) Counterparty() string { return m.counterparty }
+
 var htmlTag = regexp.MustCompile(`(?s)<[^>]*>`)
 
-// parseMessage reads the headers and the text body of one message and
-// classifies its direction relative to the mailbox owner.
-func parseMessage(raw []byte, owner string) (parsedMessage, error) {
+// Parse reads the headers and the text body of one message and classifies
+// its direction relative to the mailbox owner.
+func Parse(raw []byte, owner string) (Message, error) {
 	reader, err := mail.CreateReader(bytes.NewReader(raw))
 	if err != nil {
-		return parsedMessage{}, fmt.Errorf("imap: parsing message: %w", err)
+		return Message{}, fmt.Errorf("mailmap: parsing message: %w", err)
 	}
 	header := reader.Header
 
@@ -71,7 +81,7 @@ func parseMessage(raw []byte, owner string) (parsedMessage, error) {
 
 	autoSubmit := isAutoSubmitted(header.Get("Auto-Submitted"), header.Get("Precedence"))
 
-	return parsedMessage{
+	return Message{
 		messageID:    strings.TrimSpace(messageID),
 		subject:      strings.TrimSpace(subject),
 		body:         body,
@@ -84,10 +94,10 @@ func parseMessage(raw []byte, owner string) (parsedMessage, error) {
 	}, nil
 }
 
-// skipReason names why a message is intentionally dropped, or reports that
+// SkipReason names why a message is intentionally dropped, or reports that
 // it should be captured. The rule set keeps automated/system noise off the
 // timeline: no stable id, no sender, auto-submitted, or a machine sender.
-func (m parsedMessage) skipReason() (string, bool) {
+func (m Message) SkipReason() (string, bool) {
 	if m.messageID == "" {
 		return "no Message-ID", true
 	}
@@ -103,12 +113,19 @@ func (m parsedMessage) skipReason() (string, bool) {
 	return "", false
 }
 
-// toRecord builds the provenance-stamped activity record. The counterparty
-// (From/To) is folded into a compact header on the body — the activity
-// schema has no dedicated participant column, and the timeline needs to
-// show who the mail was with.
-func (m parsedMessage) toRecord(raw []byte) connector.NormalizedRecord {
-	source := "imap:" + m.messageID
+// ID is the RFC822 Message-ID — the idempotency source id every mail
+// connector keys on (data-model §7/§8).
+func (m Message) ID() string { return m.messageID }
+
+// ToRecord builds the provenance-stamped activity record for the connector
+// named connectorName (e.g. "imap", "gmail"): NaturalKey.SourceSystem and
+// the Source/CapturedBy prefixes all carry that name, so the same message
+// read over a different transport is still deduped on (name, Message-ID).
+// The counterparty (From/To) is folded into a compact header on the body —
+// the activity schema has no dedicated participant column, and the timeline
+// needs to show who the mail was with.
+func (m Message) ToRecord(connectorName string, raw []byte) connector.NormalizedRecord {
+	source := connectorName + ":" + m.messageID
 	header := fmt.Sprintf("From: %s\nTo: %s", orDash(m.from), orDash(m.to))
 	body := header
 	if m.body != "" {
