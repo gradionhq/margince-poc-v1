@@ -19,17 +19,20 @@ import (
 // StarterWorkflows returns the shipped handler set over the injected
 // record seam. The route_lead starter is NOT here: its engine is
 // lead-store SQL, so the people module provides that handler and
-// compose registers it beside these.
-func StarterWorkflows(provider datasource.SystemOfRecordProvider) []workflow.Handler {
+// compose registers it beside these. approvals is the staging seam
+// every handler's Apply threads into ApplyActions, whether or not this
+// particular starter's own effect ever lands a 🟡 action.
+func StarterWorkflows(provider datasource.SystemOfRecordProvider, approvals Approvals) []workflow.Handler {
 	return []workflow.Handler{
-		stageChangeCreateTask{provider: provider},
+		stageChangeCreateTask{provider: provider, approvals: approvals},
 	}
 }
 
 // stageChangeCreateTask keeps momentum: every stage move mints a
 // follow-up task on the deal's own timeline.
 type stageChangeCreateTask struct {
-	provider datasource.SystemOfRecordProvider
+	provider  datasource.SystemOfRecordProvider
+	approvals Approvals
 }
 
 func (stageChangeCreateTask) Spec() workflow.Spec {
@@ -76,7 +79,7 @@ func (w stageChangeCreateTask) Plan(_ context.Context, ev workflow.Event) (workf
 }
 
 func (w stageChangeCreateTask) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
-	applied, err := ApplyActions(ctx, w.provider, eff)
+	applied, err := ApplyActions(ctx, w.provider, w.approvals, eff)
 	return workflow.RunResult{Applied: applied}, err
 }
 

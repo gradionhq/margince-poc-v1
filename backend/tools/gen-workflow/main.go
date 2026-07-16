@@ -172,7 +172,8 @@ import (
 )
 
 type %[2]s struct {
-	provider datasource.SystemOfRecordProvider
+	provider  datasource.SystemOfRecordProvider
+	approvals Approvals
 }
 
 func (%[2]s) Spec() workflow.Spec {
@@ -204,7 +205,7 @@ func (%[2]s) Plan(_ context.Context, _ workflow.Event) (workflow.Effect, error) 
 }
 
 func (h %[2]s) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
-	applied, err := ApplyActions(ctx, h.provider, eff)
+	applied, err := ApplyActions(ctx, h.provider, h.approvals, eff)
 	return workflow.RunResult{Applied: applied}, err
 }
 

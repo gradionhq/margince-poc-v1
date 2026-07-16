@@ -24,6 +24,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -239,11 +240,6 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 				WHERE handler = $1 AND idempotency_key = $2`,
 				h.Spec().Name, runKey(h, ev), detail)
 			return err
-		case errors.Is(applyErr, apperrors.ErrRequiresApproval):
-			_, err = tx.Exec(ctx, `
-				UPDATE workflow_run SET status = 'requires_approval'
-				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev))
-			return err
 		case applyErr != nil:
 			detail, err := reasonDetail(applyErr.Error())
 			if err != nil {
@@ -338,7 +334,10 @@ func (e *WorkflowEngine) recordSkip(ctx context.Context, h workflow.Handler, ev 
 // typed action runs through the SAME datasource seam every surface
 // uses. The closed switch IS the anti-builder guard — an action kind
 // the seam does not know is a programming error, not a plugin point.
-func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvider, effect workflow.Effect) ([]workflow.Action, error) {
+// approvals is the seam a 🟡 action stages through (seams.go) — every
+// caller holds one, even though a run never redeems mid-Apply today
+// (runOne always calls Handler.Apply with a nil token).
+func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvider, approvals Approvals, effect workflow.Effect) ([]workflow.Action, error) {
 	var applied []workflow.Action
 	for _, action := range effect.Actions {
 		switch action.Kind {
@@ -362,12 +361,20 @@ func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvide
 			}); err != nil {
 				return applied, err
 			}
-		case workflow.ActionAdvanceDeal, workflow.ActionSendEmail:
-			// The 🟡 kinds: a deterministic handler carrying one of these
-			// must arrive with an approval token; the token path lands
-			// with the workflow-approval slice.
-			return applied, fmt.Errorf("action %s: %w", action.Kind, apperrors.ErrRequiresApproval)
-		case workflow.ActionEmitFlowEvent, workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
+		case workflow.ActionAdvanceDeal, workflow.ActionSendEmail, workflow.ActionEmitFlowEvent:
+			// The 🟡 kinds — request_approval's own executor is
+			// ActionEmitFlowEvent, confirm-first by its very nature, same
+			// as advance_deal-to-won/lost and send_email. A deterministic
+			// handler carrying one of these stages the action for a human
+			// decision instead of dead-ending: the run parks behind the
+			// resulting approval id (runOne), and resuming a released
+			// staging is the token path a later slice adds.
+			id, err := stageForApproval(ctx, approvals, action)
+			if err != nil {
+				return applied, err
+			}
+			return applied, &workflow.StagedApprovalError{ApprovalID: id}
+		case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
 			// Declared kinds whose executors ride later slices; refusing
 			// loudly beats silently claiming success.
 			return applied, fmt.Errorf("crmagents: action %s has no executor yet", action.Kind)
@@ -377,4 +384,30 @@ func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvide
 		applied = append(applied, action)
 	}
 	return applied, nil
+}
+
+// stageForApproval builds the human-facing staging request for one 🟡
+// action and hands it to the approvals seam. ProposedChange/DiffHash are
+// derived the same way every other stager in this codebase derives them
+// (e.g. compose/closedate.go): canonicalize the action's own args and
+// hash that, never a fabricated placeholder — so a redelivered firing of
+// the identical action reaches the identical diff_hash a human already
+// saw, instead of minting a fresh unrecognizable staging each retry.
+func stageForApproval(ctx context.Context, approvals Approvals, action workflow.Action) (ids.ApprovalID, error) {
+	raw := action.Args
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	canonical, diffHash, err := diffhash.Canonical(raw)
+	if err != nil {
+		return ids.ApprovalID{}, fmt.Errorf("automation: canonicalizing %s for staging: %w", action.Kind, err)
+	}
+	return approvals.Stage(ctx, StageRequest{
+		Kind:           string(action.Kind),
+		ProposedChange: canonical,
+		DiffHash:       diffHash,
+		TargetType:     string(action.Target.Type),
+		TargetID:       action.Target.ID,
+		Summary:        fmt.Sprintf("automation wants to %s on %s %s", action.Kind, action.Target.Type, action.Target.ID),
+	})
 }
