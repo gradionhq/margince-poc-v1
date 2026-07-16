@@ -17,6 +17,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -171,11 +172,18 @@ func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, e
 		// the audit_log record-mutation spine. Written directly (not via
 		// storekit.LogSystem) because a failed login has no authenticated
 		// principal to stamp from — the actor is a literal unauthenticated human.
+		//
+		// The attempted address is logged as an irreversible hash, never
+		// plaintext: system_log is widely retained, and the failed-login path
+		// has no resolved user, so the address is the only target identifier.
+		// SuppressionHash (the one identifier hashing rule — trimmed+lowercased
+		// sha256) keeps a brute-force against one target correlatable across
+		// attempts (identical hash) without retaining the PII.
 		_, err = tx.Exec(ctx,
 			`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
 			 VALUES ($1, 'human', 'human:unauthenticated', 'login',
-			         jsonb_build_object('outcome', $2::text, 'email', $3::text))`,
-			wsID, outcome, email)
+			         jsonb_build_object('outcome', $2::text, 'email_hash', $3::text))`,
+			wsID, outcome, storekit.SuppressionHash(email))
 		return err
 	})
 }
