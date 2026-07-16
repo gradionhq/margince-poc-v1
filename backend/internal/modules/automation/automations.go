@@ -328,7 +328,7 @@ func entrySnapshots(entry CatalogEntry) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	actionJSON, err := json.Marshal(map[string]string{"kind": entry.Action})
+	actionJSON, err := json.Marshal(map[string]string{fieldKind: entry.Action})
 	if err != nil {
 		return nil, nil, err
 	}

@@ -142,7 +142,7 @@ func (noActivityReminder) Plan(_ context.Context, ev workflow.Event) (workflow.E
 		return workflow.Effect{}, err
 	}
 	args, err := json.Marshal(map[string]any{
-		"kind":    "task",
+		fieldKind: "task",
 		"subject": fmt.Sprintf("Check in — no activity since %s", anchor.Format(time.DateOnly)),
 		"due_at":  ev.OccurredAt,
 		"links": []map[string]any{{

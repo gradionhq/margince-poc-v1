@@ -58,13 +58,17 @@ func (stageChangeCreateTask) Match(_ context.Context, ev workflow.Event) (bool, 
 	return payload.ToSemantic == "" || payload.ToSemantic == "open", nil
 }
 
+// fieldKind is the "kind" json key shared by the action snapshot and the
+// task effects handlers plan — named once so the string doesn't drift.
+const fieldKind = "kind"
+
 func (w stageChangeCreateTask) Plan(_ context.Context, ev workflow.Event) (workflow.Effect, error) {
 	dueInDays, err := DueInDays(ev.Params, 2)
 	if err != nil {
 		return workflow.Effect{}, err
 	}
 	args, err := json.Marshal(map[string]any{
-		"kind":    "task",
+		fieldKind: "task",
 		"subject": "Plan the next step after the stage change",
 		"due_at":  ev.OccurredAt.AddDate(0, 0, dueInDays),
 		"links": []map[string]any{{
