@@ -7389,7 +7389,7 @@ components:
     AuditLogEntry:
       type: object
       description: An append-only audit row. Mirrors the `audit_log` table.
-      required: [id, workspace_id, actor_type, actor_id, action, entity_type, occurred_at]
+      required: [id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, occurred_at]
       properties:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
@@ -7400,9 +7400,11 @@ components:
         action:
           type: string
           # Every mutation is attributable (P12). connector captures audit as actor_type=connector.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, login, assign, advance_stage, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo]
+          # audit_log is record-mutations-only: login and bulk export moved to system_log,
+          # so `login` is not here. `export` stays — the DSR person export is entity-bound.
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo]
         entity_type: { type: string }
-        entity_id: { type: [string, 'null'], format: uuid }
+        entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }
         after: { type: [object, 'null'], additionalProperties: true }
         authorization_rule: { type: [string, 'null'], description: Which RBAC/scope rule allowed it. }
