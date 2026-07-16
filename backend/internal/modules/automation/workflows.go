@@ -369,7 +369,7 @@ const systemSource = "system"
 func ApplyActions(ctx context.Context, ex Executors, effect workflow.Effect) ([]workflow.Action, error) {
 	var applied []workflow.Action
 	for _, action := range effect.Actions {
-		staged, err := applyOne(ctx, ex, action)
+		recorded, staged, err := applyOne(ctx, ex, action)
 		if err != nil {
 			return applied, err
 		}
@@ -378,28 +378,32 @@ func ApplyActions(ctx context.Context, ex Executors, effect workflow.Effect) ([]
 			// behind the approval id and nothing after it applies.
 			return applied, staged
 		}
-		applied = append(applied, action)
+		// recorded is the action AS APPLIED, which is not always the action
+		// as planned: draft_email enriches it with the composed draft so the
+		// run record durably holds the artifact (handlers_actions.go).
+		applied = append(applied, recorded)
 	}
 	return applied, nil
 }
 
-// applyOne executes — or stages — one typed action through the seams. The
-// closed switch IS the anti-builder guard: a kind the seams do not know is
-// a programming error, not a plugin point. A non-nil first return is a 🟡
-// staging that short-circuits the batch.
-func applyOne(ctx context.Context, ex Executors, action workflow.Action) (*workflow.StagedApprovalError, error) {
+// applyOne executes — or stages — one typed action through the seams and
+// returns the action AS APPLIED (draft_email enriches it; every other kind
+// returns it unchanged). The closed switch IS the anti-builder guard: a
+// kind the seams do not know is a programming error, not a plugin point. A
+// non-nil middle return is a 🟡 staging that short-circuits the batch.
+func applyOne(ctx context.Context, ex Executors, action workflow.Action) (workflow.Action, *workflow.StagedApprovalError, error) {
 	switch action.Kind {
 	case workflow.ActionCreateTask, workflow.ActionCreateRecord:
-		return nil, applyCreate(ctx, ex.Provider, action)
+		return action, nil, applyCreate(ctx, ex.Provider, action)
 	case workflow.ActionUpdateRecord:
-		return nil, applyUpdate(ctx, ex.Provider, action)
+		return action, nil, applyUpdate(ctx, ex.Provider, action)
 	case workflow.ActionAssignOwner:
 		// AUTO-T07's dynamic tier: every real firing today is single-entity
 		// (assign_owner_tier.go's AssignOwnerScope doc) — the zero-value
 		// scope here is that honest default, not a fabricated bulk signal.
 		// applyAssignOwner's own branch (🟢 write vs 🟡 stage) is proven
 		// against a synthetic scaled scope by its unit tests.
-		return nil, applyAssignOwner(ctx, ex, action, AssignOwnerScope{})
+		return action, nil, applyAssignOwner(ctx, ex, action, AssignOwnerScope{})
 	case workflow.ActionAdvanceDeal, workflow.ActionSendEmail, workflow.ActionEmitFlowEvent:
 		// The 🟡 kinds — request_approval's own executor is
 		// ActionEmitFlowEvent, confirm-first by its very nature, same as
@@ -410,21 +414,22 @@ func applyOne(ctx context.Context, ex Executors, action workflow.Action) (*workf
 		// path a later slice adds.
 		id, err := stageForApproval(ctx, ex.Approvals, action)
 		if err != nil {
-			return nil, err
+			return action, nil, err
 		}
-		return &workflow.StagedApprovalError{ApprovalID: id}, nil
+		return action, &workflow.StagedApprovalError{ApprovalID: id}, nil
 	case workflow.ActionNotify:
-		return nil, applyNotify(ctx, ex.Notifier, action)
+		return action, nil, applyNotify(ctx, ex.Notifier, action)
 	case workflow.ActionAddToList:
-		return nil, applyAddToList(ctx, ex.Lists, action)
+		return action, nil, applyAddToList(ctx, ex.Lists, action)
 	case workflow.ActionDraftEmail:
-		return nil, applyDraftEmail(ctx, ex.Comms, action)
+		recorded, err := applyDraftEmail(ctx, ex.Comms, action)
+		return recorded, nil, err
 	case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
 		// Declared kinds whose executors ride later slices; refusing loudly
 		// beats silently claiming success.
-		return nil, fmt.Errorf("crmagents: action %s has no executor yet", action.Kind)
+		return action, nil, fmt.Errorf("crmagents: action %s has no executor yet", action.Kind)
 	default:
-		return nil, fmt.Errorf("crmagents: unknown action kind %q", action.Kind)
+		return action, nil, fmt.Errorf("crmagents: unknown action kind %q", action.Kind)
 	}
 }
 

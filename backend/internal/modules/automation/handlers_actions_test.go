@@ -232,7 +232,14 @@ func TestApplyActionsAddToListNeverSwallowsAnAddMemberFailure(t *testing.T) {
 
 // --- draft_email ---
 
-func TestApplyActionsDraftEmailComputesADraftAndNeverSends(t *testing.T) {
+// TestApplyActionsDraftEmailCapturesTheDraftInTheAppliedRecord is the
+// anti-fake-success guard: Comms.DraftEmail is pure compute and the async
+// automation path has no agent to receive its text, so the composed draft
+// MUST land durably on the applied action (→ workflow_run.applied), or a
+// run reporting 'applied' would have silently dropped its entire effect.
+// This fails against compute-and-discard: the bare planned Args carry only
+// the intent, never the composed subject/body.
+func TestApplyActionsDraftEmailCapturesTheDraftInTheAppliedRecord(t *testing.T) {
 	comms := &fakeComms{subject: "Re: hello", body: "following up"}
 	anchor := ids.NewV7()
 	action := workflow.Action{
@@ -254,6 +261,23 @@ func TestApplyActionsDraftEmailComputesADraftAndNeverSends(t *testing.T) {
 	got := comms.calls[0]
 	if got.anchor != anchor || got.intent != "nudge toward a decision" {
 		t.Errorf("DraftEmail called with %+v, want anchor=%v intent=%q", got, anchor, "nudge toward a decision")
+	}
+
+	// The composed draft rides the applied action durably — this is what
+	// makes 'applied' honest for a firing whose only effect is the text.
+	var rec struct {
+		Intent  string `json:"intent"`
+		Subject string `json:"draft_subject"`
+		Body    string `json:"draft_body"`
+	}
+	if err := json.Unmarshal(applied[0].Args, &rec); err != nil {
+		t.Fatalf("applied draft_email Args do not decode: %v", err)
+	}
+	if rec.Subject != "Re: hello" || rec.Body != "following up" {
+		t.Errorf("applied draft = (subject=%q, body=%q), want the composed (%q, %q) durably captured — a discarded draft under 'applied' is a fake success", rec.Subject, rec.Body, "Re: hello", "following up")
+	}
+	if rec.Intent != "nudge toward a decision" {
+		t.Errorf("applied draft dropped the requested intent %q — got %q", "nudge toward a decision", rec.Intent)
 	}
 }
 

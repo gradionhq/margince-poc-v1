@@ -84,19 +84,41 @@ type draftEmailArgs struct {
 	Intent string `json:"intent"`
 }
 
-// applyDraftEmail is draft_email's executor: it computes a draft and
-// stops there — the send is ActionSendEmail, already 🟡 in ApplyActions'
-// switch. The computed subject/body are discarded once returned
-// error-free, the same way ApplyActions already discards
-// provider.Create/Update's non-error results; applying draft_email
-// means a draft was successfully computed, full stop.
-func applyDraftEmail(ctx context.Context, comms Comms, action workflow.Action) error {
+// draftEmailRecord is the durable artifact a draft_email firing leaves on
+// workflow_run.applied: the intent that was requested plus the composed
+// draft. Comms.DraftEmail is pure compute — it returns an in-memory
+// subject/body and persists nothing — and the async automation path has
+// no agent to receive that text the way the MCP surface does. Carrying it
+// here is what makes the run's 'applied' status honest: a real, findable
+// draft exists in run history, never sent (the send is ActionSendEmail,
+// already 🟡). This is the whole effect of draft_email, so it is recorded,
+// not discarded.
+type draftEmailRecord struct {
+	Intent  string `json:"intent,omitempty"`
+	Subject string `json:"draft_subject"`
+	Body    string `json:"draft_body"`
+}
+
+// applyDraftEmail is draft_email's executor: it composes a draft over the
+// anchor via the Comms seam and returns the action ENRICHED with that
+// draft, so ApplyActions records the draft onto workflow_run.applied. It
+// never sends — composing is the entire effect, and a lost draft under a
+// reported 'applied' would be a fake success.
+func applyDraftEmail(ctx context.Context, comms Comms, action workflow.Action) (workflow.Action, error) {
 	in, err := decodeActionArgs[draftEmailArgs](action.Args)
 	if err != nil {
-		return err
+		return action, err
 	}
-	_, _, err = comms.DraftEmail(ctx, action.Target.ID, in.Intent)
-	return err
+	subject, body, err := comms.DraftEmail(ctx, action.Target.ID, in.Intent)
+	if err != nil {
+		return action, err
+	}
+	recorded, err := json.Marshal(draftEmailRecord{Intent: in.Intent, Subject: subject, Body: body})
+	if err != nil {
+		return action, fmt.Errorf("automation: recording the composed draft: %w", err)
+	}
+	action.Args = recorded
+	return action, nil
 }
 
 // applyAssignOwner is ActionAssignOwner's executor: AUTO-T07's dynamic
