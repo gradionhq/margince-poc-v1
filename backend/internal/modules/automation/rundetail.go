@@ -70,6 +70,7 @@ func decodeRunDetail(raw []byte) (*string, error) {
 		return nil, err
 	}
 	if d.Reason == "" {
+		//nolint:nilnil // a reason-less run (a clean applied firing) has nothing to surface: the nil *string IS the value the read model renders as "no detail", not an error.
 		return nil, nil
 	}
 	return &d.Reason, nil

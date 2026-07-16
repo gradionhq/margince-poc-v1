@@ -81,7 +81,7 @@ func workspaceIDBySlug(t *testing.T, e *env) string {
 // shape (nil for a clean run) — this suite seeds rows directly at the DB,
 // bypassing the engine, so it must match that shape for the HTTP read
 // side (ListRuns/wireAutomationRun) to render the reason correctly.
-func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, planned, applied *string, detail []byte, at time.Time) string {
+func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, planned, applied *string, detail []byte, at time.Time) {
 	t.Helper()
 	runID := ids.NewV7().String()
 	plannedJSON := "[]"
@@ -95,7 +95,6 @@ func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, pl
 		ids.NewV7(), plannedJSON, applied, status, detail, at); err != nil {
 		t.Fatalf("seeding workflow_run: %v", err)
 	}
-	return runID
 }
 
 // runDetailReason builds the workflow_run.detail jsonb payload for a

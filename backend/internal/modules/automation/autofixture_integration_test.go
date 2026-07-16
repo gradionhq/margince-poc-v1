@@ -126,14 +126,13 @@ func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID
 // "@<automation id>"). detail is the raw jsonb payload (rundetail.go) —
 // callers build it with reasonDetail/stagedApprovalDetail so the fixture
 // writes through the SAME shape the engine does; nil for a clean run.
-func (fx *autoFixture) seedRun(t *testing.T, automationID ids.AutomationID, key, status string, detail []byte, at time.Time) ids.UUID {
+func (fx *autoFixture) seedRun(t *testing.T, automationID ids.AutomationID, key, status string, detail []byte, at time.Time) {
 	t.Helper()
 	id := ids.NewV7()
 	fx.exec(t, `
 		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, status, detail, created_at)
 		VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6, $7, $8)`,
 		id, fx.ws, key, fmt.Sprintf("%s:%s@%s", key, id, automationID), ids.NewV7(), status, detail, at)
-	return id
 }
 
 // scriptedWorkflow lets each engine test case pin one phase's behavior.
