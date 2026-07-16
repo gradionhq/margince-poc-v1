@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -92,4 +93,28 @@ type Executors struct {
 	Lists     Lists
 	Comms     Comms
 	Notifier  Notifier // nil in this repo today — see Notifier's doc
+}
+
+// EntityAnchor is one ActivityScan candidate: an entity whose most recent
+// touch is stale enough to be plausibly "no activity for N days", carrying
+// that touch as Anchor — the timestamp a clock handler's IdempotencyKey
+// must derive its key from (Task 12's occurrence-key contract, workflows_run.go's
+// runKey doc): the firing re-arms exactly when Anchor moves and stays quiet
+// while it doesn't.
+type EntityAnchor struct {
+	Ref    datasource.EntityRef
+	Anchor time.Time
+}
+
+// ActivityScan is the read seam TimeScanner (timescan.go) drives every
+// no_activity_for_n_days clock candidate through. Declared with only
+// ids/datasource/stdlib types, like every seam in this file, so this
+// module never imports activities directly (ADR-0054 §9) — reads MUST
+// go through here rather than a direct SQL query against activities'
+// tables: tableownership_test only gates WRITES, so a cross-module READ
+// would otherwise slip through unnoticed, and this seam is exactly why it
+// doesn't. Compose's adapter sources LastTouchBefore from the activities
+// module's own tables (activities.Store.LastTouchBefore).
+type ActivityScan interface {
+	LastTouchBefore(ctx context.Context, cutoff time.Time, limit int) ([]EntityAnchor, error)
 }

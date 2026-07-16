@@ -69,6 +69,17 @@ func (e *WorkflowEngine) RegisterWorkflow(h workflow.Handler) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: workflow %s declares no trigger", spec.Name))
 	}
+	if spec.Trigger.EventType != "" && spec.Trigger.Schedule != "" {
+		// isClockTrigger (workflows_run.go) and runOne's dispatch both
+		// assume EventType/Schedule are mutually exclusive: a handler
+		// setting both would have its non-matches silently swallowed as a
+		// clock trigger's (runOne never records a clock non-match) even
+		// though it also claims to ride the bus as an event trigger — the
+		// documented convention becomes an enforced one here rather than
+		// staying a doc comment a future handler could quietly violate.
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: workflow %s declares BOTH an event trigger and a schedule trigger", spec.Name))
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, existing := range e.handlers {
@@ -160,6 +171,22 @@ func (e *WorkflowEngine) HandleEvent(ctx context.Context, env kevents.Envelope) 
 		}
 	}
 	return firstErr
+}
+
+// clockHandlers returns the registered handlers whose trigger is a
+// schedule rather than an event type — TimeScanner's own entry point
+// (timescan.go), reading the same registry HandleEvent dispatches off,
+// under the same lock discipline.
+func (e *WorkflowEngine) clockHandlers() []workflow.Handler {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var out []workflow.Handler
+	for _, h := range e.handlers {
+		if isClockTrigger(h) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // automationInstance is the enabled-row slice dispatch needs. owner is the

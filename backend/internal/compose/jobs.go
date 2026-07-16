@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -87,6 +88,27 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 	return enumErr
 }
 
+// TimeScanArgs schedules one clock-trigger scan pass (Task 14a): the
+// coarse ActivityScan pre-filter converging every CLOCK-triggered
+// automation instance (no_activity_reminder today) onto runOne — the
+// same dispatch path event triggers use.
+type TimeScanArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (TimeScanArgs) Kind() string { return "time_scan" }
+
+// timeScanWorker delegates a River job to the automation module's
+// TimeScanner — River-agnostic by construction (this file's own doc: the
+// adapters are the only code that knows about River).
+type timeScanWorker struct {
+	river.WorkerDefaults[TimeScanArgs]
+	scanner *automation.TimeScanner
+}
+
+func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
+	return w.scanner.Scan(ctx)
+}
+
 // activeSweepStates is the uniqueness window for the periodic passes: a new
 // tick is suppressed only while a prior run is still in flight (available,
 // pending, running, scheduled, retryable) — reproducing the old ticker's
@@ -107,18 +129,20 @@ func sweepInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByState: activeSweepStates}}
 }
 
-// NewJobRunner wires the deals correctors into River periodic jobs for the
-// worker process role. The intervals keep the operator-facing
-// --close-date-interval / --reconcile-interval flags as the schedule source;
-// RunOnStart preserves the old ticker's boot-time first pass.
+// NewJobRunner wires the deals correctors and the automation time-scan
+// into River periodic jobs for the worker process role. The intervals
+// keep the operator-facing --close-date-interval / --reconcile-interval /
+// --time-scan-interval flags as the schedule source; RunOnStart preserves
+// the old ticker's boot-time first pass.
 //
 // When gmailReg is non-nil (the deployment configured the Gmail OAuth app),
 // a Gmail incremental-sync poll is added on gmailInterval — leader-elected
 // like the sweeps, so replicas never double-poll.
-func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval time.Duration, gmailReg *capture.Registry, gmailInterval time.Duration) (*jobs.Runner, error) {
+func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval, timeScanInterval time.Duration, gmailReg *capture.Registry, gmailInterval time.Duration) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
+	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
@@ -129,6 +153,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, recon
 		river.NewPeriodicJob(
 			river.PeriodicInterval(reconcileInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return FollowUpReconcileArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(timeScanInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
 	}
