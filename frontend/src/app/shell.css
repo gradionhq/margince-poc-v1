@@ -36,14 +36,17 @@
    wins over this rule). Only direct-child siblings match — nested .card-inset
    blocks keep their own spacing. */
 .wrap > .card + .card {
-  margin-top: 16px;
+  margin-top: var(--space-4);
 }
 
-/* List header row: the section title grows, the create action sits beside it. */
+/* List header row: the section title grows, the create action sits beside it.
+ * The card > .section-header:first-child / list-head boundary rule that keeps
+ * the title level with the action button lives in atoms.css beside the
+ * .section-header definition it corrects. */
 .list-head {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .list-head > :first-child {
   flex: 1;
@@ -56,7 +59,7 @@
 }
 .list-head-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* List toolbar row: search grows, sort/filters/toggle sit fixed-width beside

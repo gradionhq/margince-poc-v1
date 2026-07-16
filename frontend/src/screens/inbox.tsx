@@ -691,15 +691,19 @@ export function InboxScreen() {
   return (
     <div className="wrap narrow">
       <SectionHeader title={t("nav.inbox")} sub={t("inbox.sub")} />
-      <SegmentedControl
-        options={["pending", "decided"] as const}
-        value={tab}
-        onChange={setTab}
-        labels={{
-          pending: t("inbox.tab.pending"),
-          decided: t("inbox.tab.decided"),
-        }}
-      />
+      {/* .filter-tabs: the gap below the tabs holds for every query state —
+          empty and loading bodies clear the tabs like a populated list does. */}
+      <div className="filter-tabs">
+        <SegmentedControl
+          options={["pending", "decided"] as const}
+          value={tab}
+          onChange={setTab}
+          labels={{
+            pending: t("inbox.tab.pending"),
+            decided: t("inbox.tab.decided"),
+          }}
+        />
+      </div>
       {decidedNote}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) => (

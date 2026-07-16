@@ -25,7 +25,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 10px;
 }
 
 .dsr-row {
@@ -58,6 +57,9 @@
 
 .dsr-form {
   margin-top: 10px;
+  /* Own the boundary to the facet tabs below — without it the form card's
+   * bottom edge butts straight against the tabs (0px), reading as cramped. */
+  margin-bottom: var(--space-3);
 }
 
 /* The typed-ERASE field, one gap-step below the modal's lead paragraph —

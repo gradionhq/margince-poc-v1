@@ -365,7 +365,7 @@ export function ConsentSection({ personId }: Readonly<{ personId: string }>) {
   return (
     <section
       className="card"
-      style={{ marginBottom: 16 }}
+      style={{ marginBottom: "var(--space-4)" }}
       aria-label={t("person.consent")}
     >
       <SectionHeader

@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SearchField } from "./atoms";
 
@@ -74,21 +75,37 @@ export function RecordPicker({
           {searchError}
         </p>
       )}
-      <ul style={{ listStyle: "none", margin: "8px 0", padding: 0 }}>
-        {candidates.map((candidate) => (
-          <li key={candidate.id}>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              aria-pressed={selected?.id === candidate.id}
-              onClick={() => onPick(candidate)}
-              style={{ width: "100%", textAlign: "left" }}
-            >
-              {candidate.name}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {/* The current selection stays visible on its own line, independent of
+          the search results — a picked record used to vanish the moment its
+          candidate list closed, so nothing on screen said what was chosen. */}
+      {selected && (
+        <p className="recordpicker-selected" aria-live="polite">
+          <Check className="recordpicker-selected-check" aria-hidden />
+          {selected.name}
+        </p>
+      )}
+      {candidates.length > 0 && (
+        <ul className="recordpicker-options">
+          {candidates.map((candidate) => (
+            <li key={candidate.id}>
+              <button
+                type="button"
+                className="btn btn-ghost recordpicker-option"
+                aria-pressed={selected?.id === candidate.id}
+                onClick={() => {
+                  onPick(candidate);
+                  // Collapse the list and empty the field so the resolved
+                  // selection reads cleanly instead of sitting under a stale
+                  // result set.
+                  setTerm("");
+                }}
+              >
+                {candidate.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

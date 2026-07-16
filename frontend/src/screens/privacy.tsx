@@ -212,7 +212,7 @@ export function ConsentPurposesCard() {
     },
   });
   return (
-    <section className="card" style={{ marginBottom: 14 }}>
+    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <div className="list-head">
         <SectionHeader title={t("settings.purposes")} />
         <Button small onClick={() => setAdding((value) => !value)}>
@@ -225,9 +225,9 @@ export function ConsentPurposesCard() {
           <div
             style={{
               display: "flex",
-              gap: 8,
+              gap: "var(--space-2)",
               flexWrap: "wrap",
-              marginTop: adding ? 10 : 0,
+              marginTop: adding ? "var(--space-3)" : 0,
             }}
           >
             {page.data.map((purpose) => (
@@ -881,7 +881,13 @@ export function PrivacyInboxCard() {
   let body: ReactNode;
   if (query.isPending) {
     body = (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-3)",
+        }}
+      >
         <Skeleton width="60%" />
         <Skeleton width="90%" />
       </div>
@@ -890,10 +896,14 @@ export function PrivacyInboxCard() {
     body = (
       <EmptyState>
         <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: 6 }}>
+        <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
           {query.error instanceof Error ? query.error.message : null}
         </p>
-        <Button small onClick={() => query.refetch()} style={{ marginTop: 10 }}>
+        <Button
+          small
+          onClick={() => query.refetch()}
+          style={{ marginTop: "var(--space-3)" }}
+        >
           {t("common.retry")}
         </Button>
       </EmptyState>
@@ -938,12 +948,16 @@ export function PrivacyInboxCard() {
         </Button>
       </div>
       {creating && <NewDsrForm onDone={() => setCreating(false)} />}
-      <SegmentedControl
-        options={DSR_STATUS_FACETS}
-        value={facet}
-        onChange={setFacet}
-        labels={facetLabels}
-      />
+      {/* .filter-tabs puts the gap below the tabs so it holds for every body
+          state (rows, empty, loading), not just a populated list. */}
+      <div className="filter-tabs">
+        <SegmentedControl
+          options={DSR_STATUS_FACETS}
+          value={facet}
+          onChange={setFacet}
+          labels={facetLabels}
+        />
+      </div>
       {body}
       <FulfilErasureModal
         dsr={fulfilling?.dsr ?? null}
