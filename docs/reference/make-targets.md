@@ -11,7 +11,7 @@ common backend targets and adds the frontend lane. In `backend/`, `make`
 |---|---|
 | `help` | List targets (the default goal) |
 | `install` | One-shot fresh-worktree setup (frontend deps + Go gate binaries + git hooks). The factory's `worktree-init` runs this by name |
-| `dev` | Full local stack: db-up + migrate + `cmd/api` + API-seed + the Vite SPA, on `http://localhost:5173` (api `:8080`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Reads an optional Anthropic BYOK key from `.env.local` for the live cold-start read-back |
+| `dev` | Full local stack: db-up + migrate + `cmd/api` + `cmd/worker` (always on: the outbox relay + Surface-B runner) + API-seed + the Vite SPA, on `http://localhost:5173` (api `:8080`). Returns when ready; the servers run in the background. `DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` on slug-derived ports (two worktrees at once). Reads an optional Anthropic BYOK key from `.env.local` for the live cold-start read-back |
 | `dev-stop` | `make dev-stop [DEV_SLUG=<slug>] [DROP=1]` — stop the stack started by `make dev` and free its ports; `DROP=1` also drops an isolated `margince_dev_<slug>` database |
 | `mcp-inspector` | `make mcp-inspector TOKEN=mgp_… [DEV_SLUG=<slug>] [WORKSPACE=<slug>]` — build `cmd/mcp` and open the MCP Inspector over stdio against the running `make dev` stack. Token comes from `TOKEN=` or `MARGINCE_PASSPORT_TOKEN` in `.env.local`; the DSN is read from the running stack (so `DEV_SLUG` just works). Token + DSN pass through the environment only, never argv |
 | `db-up` / `infra-up` | Start the dev Postgres 16 (pgvector, port 55432) and Redis 7 (port 56379) containers, create the app role (`infra-up` is an alias) |
@@ -41,10 +41,10 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture, enum sync, `audit_log` enum coherence, contract `$ref` resolution) run uncached |
-| `test-integration` | Real-Postgres lane (`-tags integration`): RLS gates, governed-agent loop, HTTP end-to-end. **Parallel** — each package runs on its own throwaway clone db (`CREATE DATABASE … TEMPLATE margince_test`) + private MinIO bucket, so packages share nothing; within a package still `-p 1`. Fails loudly without a database — never skips. Tune concurrency with `INTEGRATION_JOBS=N` |
+| `test-integration` | Real-Postgres lane (`-tags integration`): RLS gates, governed-agent loop, HTTP end-to-end. Runs on its own `margince_test` namespace, never the dev `margince` DB, so it can run concurrently with `make dev`. **Parallel** — each package runs on its own throwaway clone db (`CREATE DATABASE … TEMPLATE margince_test`) + private MinIO bucket + its own Redis logical db (1..15 by slot; db 0 stays reserved for `make dev`), so packages share nothing; within a package still `-p 1`. Fails loudly without a database — never skips. Tune concurrency with `INTEGRATION_JOBS=N` |
 | `test-db-up` | (Re)build the migrated `margince_test` template the parallel lane clones from |
-| `test-it` | Run ONE integration package on a throwaway clone: `make test-it DIR=backend/internal/modules/people [RUN=TestName]` |
-| `test-integration-serial` | Escape hatch: the old sequential lane on the shared dev DB (for debugging a parallel-isolation issue) |
+| `test-it` | Run ONE integration package on a throwaway clone (+ own MinIO bucket + Redis db 15): `make test-it DIR=backend/internal/modules/people [RUN=TestName]` |
+| `test-integration-serial` | Escape hatch: the old sequential lane on the shared `margince_test` DB (for debugging a parallel-isolation issue) |
 | `lint` | `golangci-lint run` (depguard, gosec, misspell, revive, gofmt) |
 | `arch-lint` | go-arch-lint over `.go-arch-lint.yml` — a hard gate on the import DAG |
 | `gen` | Regenerate everything derived from `api/crm.yaml` (contract types, 501 stubs, agent-policy table) |

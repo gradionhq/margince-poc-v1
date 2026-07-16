@@ -72,8 +72,9 @@ infra-up: db-up
 infra-down:
 	$(MAKE) -C backend infra-down
 
-## dev — the full local stack in a real browser: Postgres + Redis, the api, and
-## the Vite dev server, so the SPA runs against a live api on http://localhost:8080
+## dev — the full local stack in a real browser: Postgres + Redis, the api, the
+## background worker (cmd/worker — outbox relay + Surface-B runner, always on),
+## and the Vite dev server, so the SPA runs against a live api on http://localhost:8080
 ## (FE on :5173). Bare `make dev` uses the shared `margince` database; `make dev
 ## DEV_SLUG=<slug>` gives an isolated margince_dev_<slug> on slug-derived ports,
 ## so two worktrees run concurrently without colliding. Reads an optional

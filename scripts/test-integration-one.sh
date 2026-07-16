@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run ONE integration package (optionally a single test) on a throwaway clone db +
-# private MinIO bucket — the fast inner-loop shortcut for iterating on one test
-# without booting the whole parallel lane.
+# private MinIO bucket + its own Redis logical db (MARGINCE_TEST_REDIS_DB, 15 by
+# default — never db 0, which a running `make dev` owns) — the fast inner-loop
+# shortcut for iterating on one test without booting the whole parallel lane.
 #
 #   scripts/test-integration-one.sh DIR [RUN]
 #     DIR  repo-root package dir, e.g. backend/internal/compose/integration
@@ -45,4 +46,5 @@ echo "test-integration-one: backend $rel ${RUN:+(-run $RUN) }(db=$db)"
        MARGINCE_TEST_DSN="$(owner_clone_dsn "$db")" \
        MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
        MARGINCE_TEST_BLOBSTORE_BUCKET="$(bucket_for one)" \
+       MARGINCE_TEST_REDIS_DB="${MARGINCE_TEST_REDIS_DB:-15}" \
     go test -p 1 -tags=integration -v -count=1 -timeout=300s "${run_flag[@]+"${run_flag[@]}"}" "$rel" )
