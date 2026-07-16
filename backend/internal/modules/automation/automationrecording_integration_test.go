@@ -71,39 +71,56 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 }
 
 // assertRecordedOutcomes checks each scripted handler landed exactly one
-// run row in its terminal state, reason on the error column.
+// run row in its terminal state, reason decoded from the detail column
+// through the SAME reader the run-history API uses.
 func assertRecordedOutcomes(t *testing.T, fx *autoFixture, wantRuns int, stagedApproval ids.ApprovalID) {
 	t.Helper()
 	runs := fx.runsByHandler(t)
 	if len(runs) != wantRuns {
 		t.Fatalf("recorded %d runs, want one per handler (%d) — an outcome went unrecorded", len(runs), wantRuns)
 	}
-	detail := func(name string) string {
-		run := runs[name]
-		if run.detail == nil {
-			t.Fatalf("%s: run has no reason on the error column", name)
+	reasonOf := func(name string) string {
+		reason, err := decodeRunDetail(runs[name].detail)
+		if err != nil {
+			t.Fatalf("%s: detail did not decode: %v", name, err)
 		}
-		return *run.detail
+		if reason == nil {
+			t.Fatalf("%s: run has no reason in its detail", name)
+		}
+		return *reason
 	}
 	if run := runs["wf_ok"]; run.status != "applied" || run.detail != nil {
 		t.Errorf("wf_ok = %+v, want a clean applied run", run)
 	}
 	if run := runs["wf_skip"]; run.status != "skipped" || run.planned != "[]" {
 		t.Errorf("wf_skip = %+v, want skipped with an empty plan", run)
-	} else if !strings.Contains(detail("wf_skip"), "did not satisfy") {
-		t.Errorf("wf_skip reason %q does not say why nothing happened", detail("wf_skip"))
+	} else if !strings.Contains(reasonOf("wf_skip"), "did not satisfy") {
+		t.Errorf("wf_skip reason %q does not say why nothing happened", reasonOf("wf_skip"))
 	}
-	if run := runs["wf_matchfail"]; run.status != "failed" || !strings.Contains(detail("wf_matchfail"), "boom-match") {
+	if run := runs["wf_matchfail"]; run.status != "failed" || !strings.Contains(reasonOf("wf_matchfail"), "boom-match") {
 		t.Errorf("wf_matchfail = %+v, want failed carrying the match error", run)
 	}
-	if run := runs["wf_planfail"]; run.status != "failed" || !strings.Contains(detail("wf_planfail"), "boom-plan") {
+	if run := runs["wf_planfail"]; run.status != "failed" || !strings.Contains(reasonOf("wf_planfail"), "boom-plan") {
 		t.Errorf("wf_planfail = %+v, want failed carrying the plan error", run)
 	}
-	if run := runs["wf_applyfail"]; run.status != "failed" || !strings.Contains(detail("wf_applyfail"), "boom-apply") {
+	if run := runs["wf_applyfail"]; run.status != "failed" || !strings.Contains(reasonOf("wf_applyfail"), "boom-apply") {
 		t.Errorf("wf_applyfail = %+v, want failed carrying the apply error", run)
 	}
-	if run := runs["wf_staged"]; run.status != "requires_approval" || !strings.Contains(detail("wf_staged"), stagedApproval.String()) {
-		t.Errorf("wf_staged = %+v, want requires_approval carrying the staging pointer", run)
+	run := runs["wf_staged"]
+	if run.status != "requires_approval" {
+		t.Fatalf("wf_staged = %+v, want requires_approval", run)
+	}
+	staged, err := parseRunDetail(run.detail)
+	if err != nil {
+		t.Fatalf("wf_staged: detail did not decode: %v", err)
+	}
+	// The staging pointer is a parsed jsonb field, not a substring of the
+	// reason sentence — proving MarkRunBlocked can match on it structurally.
+	if staged.ApprovalID == nil || *staged.ApprovalID != stagedApproval {
+		t.Errorf("wf_staged detail = %+v, want approval_id = %s", staged, stagedApproval)
+	}
+	if !strings.Contains(staged.Reason, stagedApproval.String()) {
+		t.Errorf("wf_staged reason %q does not name the approval", staged.Reason)
 	}
 }
 
@@ -139,7 +156,11 @@ func assertRejectionBlocksParkedRun(t *testing.T, fx *autoFixture, engine *Workf
 	if run.status != "blocked" {
 		t.Fatalf("rejected staging left the run %q, want blocked", run.status)
 	}
-	if run.detail == nil || !strings.Contains(*run.detail, stagedApproval.String()) || !strings.Contains(*run.detail, "rejected") {
-		t.Fatalf("blocked reason %v does not name the approval and the rejection", run.detail)
+	reason, err := decodeRunDetail(run.detail)
+	if err != nil {
+		t.Fatalf("blocked run detail did not decode: %v", err)
+	}
+	if reason == nil || !strings.Contains(*reason, stagedApproval.String()) || !strings.Contains(*reason, "rejected") {
+		t.Fatalf("blocked reason %v does not name the approval and the rejection", reason)
 	}
 }

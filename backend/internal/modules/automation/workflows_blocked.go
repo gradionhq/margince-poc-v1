@@ -7,9 +7,10 @@ package automation
 // workflow run that staged a 🟡 approval and then saw it rejected is a
 // finished run whose effect never happened — the history must say so,
 // with which approval and why. The linkage rides the run row's detail
-// column (workflow_run gained no approval_id column): the Apply path
-// stamps stagedApprovalDetail(id) when it parks the run, and blocking
-// matches on exactly that stamp.
+// column (workflow_run gained no separate approval_id column): the
+// Apply path stamps stagedApprovalDetail(id) (rundetail.go) when it
+// parks the run, and blocking matches on that jsonb payload's
+// approval_id field.
 
 import (
 	"context"
@@ -23,13 +24,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// stagedApprovalDetail is the ONE spelling of the run-row staging
-// pointer: writer (runOne) and matcher (MarkRunBlocked) both call it, so
-// the linkage can never drift apart.
-func stagedApprovalDetail(id ids.ApprovalID) string {
-	return "staged as approval " + id.String() + "; awaiting the human decision"
-}
 
 // HandleApprovalDecided is the engine-side approval.decided consumer: a
 // REJECTED decision on a workflow staging lands as the parked run's
@@ -60,17 +54,24 @@ func (e *WorkflowEngine) HandleApprovalDecided(ctx context.Context, env kevents.
 }
 
 // MarkRunBlocked lands the terminal 'blocked' outcome (with its reason)
-// on the run parked behind one staged approval. Approval expiry has no
-// bus signal today (expiry is computed lazily at read time, never swept)
-// — an expiry sweeper, when one exists, records its outcome through this
-// same entry point with an "expired" reason. Idempotent: only a
-// still-parked run flips, so a redelivered decision changes nothing.
+// on the run parked behind one staged approval, matching on the
+// approval_id field the Apply path stamped into detail — never on the
+// whole reason string, so a wording change can never break the match.
+// Approval expiry has no bus signal today (expiry is computed lazily at
+// read time, never swept) — an expiry sweeper, when one exists, records
+// its outcome through this same entry point with an "expired" reason.
+// Idempotent: only a still-parked run flips, so a redelivered decision
+// changes nothing.
 func (e *WorkflowEngine) MarkRunBlocked(ctx context.Context, approvalID ids.ApprovalID, reason string) error {
+	detail, err := reasonDetail(reason)
+	if err != nil {
+		return fmt.Errorf("automation: encoding the blocked reason: %w", err)
+	}
 	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			UPDATE workflow_run SET status = 'blocked', error = $2
-			WHERE status = 'requires_approval' AND error = $1`,
-			stagedApprovalDetail(approvalID), reason)
+			UPDATE workflow_run SET status = 'blocked', detail = $2
+			WHERE status = 'requires_approval' AND detail->>'approval_id' = $1`,
+			approvalID.String(), detail)
 		return err
 	})
 }

@@ -13,6 +13,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -75,8 +76,12 @@ func workspaceIDBySlug(t *testing.T, e *env) string {
 
 // seedWorkflowRun records one engine firing linked the way the engine
 // links them: handler = catalog key, idempotency key suffixed with
-// "@<automation id>". planned/applied ride the workflow.Action encoding.
-func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, planned, applied *string, detail *string, at time.Time) string {
+// "@<automation id>". planned/applied ride the workflow.Action encoding;
+// detail is the raw jsonb payload in the automation module's rundetail.go
+// shape (nil for a clean run) — this suite seeds rows directly at the DB,
+// bypassing the engine, so it must match that shape for the HTTP read
+// side (ListRuns/wireAutomationRun) to render the reason correctly.
+func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, planned, applied *string, detail []byte, at time.Time) string {
 	t.Helper()
 	runID := ids.NewV7().String()
 	plannedJSON := "[]"
@@ -84,13 +89,29 @@ func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, pl
 		plannedJSON = *planned
 	}
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, applied, status, error, created_at)
+		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, applied, status, detail, created_at)
 		VALUES ($1, $2, 'route_lead', $3, $4, $5, $6, $7, $8, $9)`,
 		runID, wsID, fmt.Sprintf("route_lead:%s@%s", runID, automationID),
 		ids.NewV7(), plannedJSON, applied, status, detail, at); err != nil {
 		t.Fatalf("seeding workflow_run: %v", err)
 	}
 	return runID
+}
+
+// runDetailReason builds the workflow_run.detail jsonb payload for a
+// plain reason, matching the shape the automation module's writers
+// produce (rundetail.go's runDetail{Reason: ...}, unexported there — this
+// suite seeds the row directly at the DB, so it reproduces the wire
+// shape rather than importing the type).
+func runDetailReason(t *testing.T, reason string) []byte {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		Reason string `json:"reason"`
+	}{Reason: reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 // requireStr asserts a wire pointer field is present with the wanted value.
@@ -143,7 +164,7 @@ func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID strin
 	targetLead := ids.NewV7().String()
 	actionTrace := fmt.Sprintf(`[{"Kind":"assign_owner","Target":{"Type":"lead","ID":"%s"},"Args":{}}]`, targetLead)
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	reason := func(s string) *string { return &s }
+	reason := func(s string) []byte { return runDetailReason(t, s) }
 
 	seedWorkflowRun(t, e, wsID, autoID, "applied", &actionTrace, &actionTrace, nil, base)
 	seedWorkflowRun(t, e, wsID, autoID, "failed", nil, nil, reason("provider error"), base.Add(time.Minute))
