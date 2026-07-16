@@ -369,72 +369,85 @@ const systemSource = "system"
 func ApplyActions(ctx context.Context, ex Executors, effect workflow.Effect) ([]workflow.Action, error) {
 	var applied []workflow.Action
 	for _, action := range effect.Actions {
-		switch action.Kind {
-		case workflow.ActionCreateTask, workflow.ActionCreateRecord:
-			entity := action.Target.Type
-			if action.Kind == workflow.ActionCreateTask {
-				entity = datasource.EntityActivity
-			}
-			if _, err := ex.Provider.Create(ctx, datasource.CreateInput{
-				EntityType: entity,
-				Fields:     action.Args,
-				Source:     systemSource,
-			}); err != nil {
-				return applied, err
-			}
-		case workflow.ActionUpdateRecord:
-			if _, err := ex.Provider.Update(ctx, datasource.UpdateInput{
-				Ref:    action.Target,
-				Patch:  action.Args,
-				Source: systemSource,
-			}); err != nil {
-				return applied, err
-			}
-		case workflow.ActionAssignOwner:
-			// AUTO-T07's dynamic tier: every real firing today is
-			// single-entity (assign_owner_tier.go's AssignOwnerScope doc)
-			// — the zero-value scope here is that honest default, not a
-			// fabricated bulk signal. applyAssignOwner's own branch (🟢
-			// write vs 🟡 stage) is proven against a synthetic scaled
-			// scope by its unit tests.
-			if err := applyAssignOwner(ctx, ex, action, AssignOwnerScope{}); err != nil {
-				return applied, err
-			}
-		case workflow.ActionAdvanceDeal, workflow.ActionSendEmail, workflow.ActionEmitFlowEvent:
-			// The 🟡 kinds — request_approval's own executor is
-			// ActionEmitFlowEvent, confirm-first by its very nature, same
-			// as advance_deal-to-won/lost and send_email. A deterministic
-			// handler carrying one of these stages the action for a human
-			// decision instead of dead-ending: the run parks behind the
-			// resulting approval id (runOne), and resuming a released
-			// staging is the token path a later slice adds.
-			id, err := stageForApproval(ctx, ex.Approvals, action)
-			if err != nil {
-				return applied, err
-			}
-			return applied, &workflow.StagedApprovalError{ApprovalID: id}
-		case workflow.ActionNotify:
-			if err := applyNotify(ctx, ex.Notifier, action); err != nil {
-				return applied, err
-			}
-		case workflow.ActionAddToList:
-			if err := applyAddToList(ctx, ex.Lists, action); err != nil {
-				return applied, err
-			}
-		case workflow.ActionDraftEmail:
-			if err := applyDraftEmail(ctx, ex.Comms, action); err != nil {
-				return applied, err
-			}
-		case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
-			// Declared kinds whose executors ride later slices; refusing
-			// loudly beats silently claiming success.
-			return applied, fmt.Errorf("crmagents: action %s has no executor yet", action.Kind)
-		default:
-			return applied, fmt.Errorf("crmagents: unknown action kind %q", action.Kind)
+		staged, err := applyOne(ctx, ex, action)
+		if err != nil {
+			return applied, err
+		}
+		if staged != nil {
+			// A 🟡 action stages rather than executing: the run parks
+			// behind the approval id and nothing after it applies.
+			return applied, staged
 		}
 		applied = append(applied, action)
 	}
 	return applied, nil
+}
+
+// applyOne executes — or stages — one typed action through the seams. The
+// closed switch IS the anti-builder guard: a kind the seams do not know is
+// a programming error, not a plugin point. A non-nil first return is a 🟡
+// staging that short-circuits the batch.
+func applyOne(ctx context.Context, ex Executors, action workflow.Action) (*workflow.StagedApprovalError, error) {
+	switch action.Kind {
+	case workflow.ActionCreateTask, workflow.ActionCreateRecord:
+		return nil, applyCreate(ctx, ex.Provider, action)
+	case workflow.ActionUpdateRecord:
+		return nil, applyUpdate(ctx, ex.Provider, action)
+	case workflow.ActionAssignOwner:
+		// AUTO-T07's dynamic tier: every real firing today is single-entity
+		// (assign_owner_tier.go's AssignOwnerScope doc) — the zero-value
+		// scope here is that honest default, not a fabricated bulk signal.
+		// applyAssignOwner's own branch (🟢 write vs 🟡 stage) is proven
+		// against a synthetic scaled scope by its unit tests.
+		return nil, applyAssignOwner(ctx, ex, action, AssignOwnerScope{})
+	case workflow.ActionAdvanceDeal, workflow.ActionSendEmail, workflow.ActionEmitFlowEvent:
+		// The 🟡 kinds — request_approval's own executor is
+		// ActionEmitFlowEvent, confirm-first by its very nature, same as
+		// advance_deal-to-won/lost and send_email. A deterministic handler
+		// carrying one of these stages the action for a human decision
+		// instead of dead-ending: the run parks behind the resulting
+		// approval id (runOne), and resuming a released staging is the token
+		// path a later slice adds.
+		id, err := stageForApproval(ctx, ex.Approvals, action)
+		if err != nil {
+			return nil, err
+		}
+		return &workflow.StagedApprovalError{ApprovalID: id}, nil
+	case workflow.ActionNotify:
+		return nil, applyNotify(ctx, ex.Notifier, action)
+	case workflow.ActionAddToList:
+		return nil, applyAddToList(ctx, ex.Lists, action)
+	case workflow.ActionDraftEmail:
+		return nil, applyDraftEmail(ctx, ex.Comms, action)
+	case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
+		// Declared kinds whose executors ride later slices; refusing loudly
+		// beats silently claiming success.
+		return nil, fmt.Errorf("crmagents: action %s has no executor yet", action.Kind)
+	default:
+		return nil, fmt.Errorf("crmagents: unknown action kind %q", action.Kind)
+	}
+}
+
+func applyCreate(ctx context.Context, provider datasource.SystemOfRecordProvider, action workflow.Action) error {
+	entity := action.Target.Type
+	if action.Kind == workflow.ActionCreateTask {
+		entity = datasource.EntityActivity
+	}
+	_, err := provider.Create(ctx, datasource.CreateInput{
+		EntityType: entity,
+		Fields:     action.Args,
+		Source:     systemSource,
+	})
+	return err
+}
+
+func applyUpdate(ctx context.Context, provider datasource.SystemOfRecordProvider, action workflow.Action) error {
+	_, err := provider.Update(ctx, datasource.UpdateInput{
+		Ref:    action.Target,
+		Patch:  action.Args,
+		Source: systemSource,
+	})
+	return err
 }
 
 // stageForApproval builds the human-facing staging request for one 🟡

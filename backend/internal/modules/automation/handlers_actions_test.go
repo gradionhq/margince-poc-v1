@@ -87,39 +87,51 @@ func (p *fakeUpdateProvider) Update(_ context.Context, in datasource.UpdateInput
 	p.calls = append(p.calls, in)
 	return in.Ref, p.err
 }
+
 func (p *fakeUpdateProvider) Read(context.Context, datasource.EntityRef) (datasource.Record, error) {
 	panic("fakeUpdateProvider: Read not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) Search(context.Context, datasource.SearchQuery) (datasource.SearchResult, error) {
 	panic("fakeUpdateProvider: Search not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) ListObjects(context.Context) ([]datasource.ObjectDef, error) {
 	panic("fakeUpdateProvider: ListObjects not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) ListFields(context.Context, datasource.EntityType) ([]datasource.FieldDef, error) {
 	panic("fakeUpdateProvider: ListFields not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) RunReport(context.Context, datasource.ReportPlan) (datasource.ReportResult, error) {
 	panic("fakeUpdateProvider: RunReport not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) StageSemantic(context.Context, ids.UUID) (string, ids.UUID, error) {
 	panic("fakeUpdateProvider: StageSemantic not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) Create(context.Context, datasource.CreateInput) (datasource.EntityRef, error) {
 	panic("fakeUpdateProvider: Create not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) AdvanceDeal(context.Context, datasource.AdvanceDealInput) (datasource.EntityRef, error) {
 	panic("fakeUpdateProvider: AdvanceDeal not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) Archive(context.Context, datasource.EntityRef) (datasource.EntityRef, error) {
 	panic("fakeUpdateProvider: Archive not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) Merge(context.Context, datasource.MergeInput) (datasource.EntityRef, error) {
 	panic("fakeUpdateProvider: Merge not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) PromoteLead(context.Context, ids.UUID, string, *string) (datasource.EntityRef, bool, error) {
 	panic("fakeUpdateProvider: PromoteLead not stubbed for this test")
 }
+
 func (p *fakeUpdateProvider) Freshness(context.Context, datasource.EntityRef) (datasource.FreshnessInfo, error) {
 	panic("fakeUpdateProvider: Freshness not stubbed for this test")
 }
@@ -271,7 +283,6 @@ func TestApplyAssignOwnerSingleEntityWritesThroughProviderUpdate(t *testing.T) {
 	action := workflow.Action{Kind: workflow.ActionAssignOwner, Target: target, Args: json.RawMessage(`{"owner_id":"` + ids.NewV7().String() + `"}`)}
 
 	err := applyAssignOwner(context.Background(), Executors{Provider: provider}, action, AssignOwnerScope{Bulk: false})
-
 	if err != nil {
 		t.Fatalf("applyAssignOwner err = %v, want nil", err)
 	}
