@@ -127,14 +127,13 @@ func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID
 // real owner_id, the exact shape automations.go's Create stamps
 // (storekit.UUIDOrNil(actor.UserID)) — the gate.go match-time gate applies
 // only to instances seeded this way.
-func (fx *autoFixture) seedAutomationWithOwner(t *testing.T, key string, owner ids.UUID) ids.AutomationID {
+func (fx *autoFixture) seedAutomationWithOwner(t *testing.T, key string, owner ids.UUID) {
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
 	fx.exec(t, `
 		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled)
 		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $4, true)`,
 		id, fx.ws, key, owner)
-	return id
 }
 
 // seedRun inserts one recorded firing for the automation, linked the way

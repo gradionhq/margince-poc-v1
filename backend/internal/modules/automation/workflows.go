@@ -50,6 +50,10 @@ type WorkflowEngine struct {
 	resolver authz.Resolver
 }
 
+// NewWorkflowEngine builds the engine over the pool and the authz resolver
+// the match-time owner gate re-checks each human-authored firing against
+// (gate.go). compose injects the real resolver; a nil one fails firings
+// closed rather than waving them through.
 func NewWorkflowEngine(pool *pgxpool.Pool, resolver authz.Resolver) *WorkflowEngine {
 	return &WorkflowEngine{pool: pool, resolver: resolver}
 }
