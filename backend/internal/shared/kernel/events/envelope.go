@@ -109,8 +109,15 @@ func (e Envelope) Validate() error {
 	// by nature — an excluded message names nothing (catalog.go
 	// pipelineEventTypes, capture.md AC1.3). Every other event must name its
 	// subject: the read-back handle a consumer fetches under its own RLS and
-	// the per-entity-type stream routing key.
-	if !IsPipelineEvent(e.Type) && (e.Entity.Type == "" || e.Entity.ID.IsZero()) {
+	// the per-entity-type stream routing key. When a pipeline event DOES carry
+	// an entity (capture.received names the raw record), it must be complete —
+	// a half-filled ref (a type with no id, or vice versa) is malformed and
+	// would route or read back wrong, so it is rejected either way.
+	if e.Entity.Type != "" || !e.Entity.ID.IsZero() {
+		if e.Entity.Type == "" || e.Entity.ID.IsZero() {
+			return fmt.Errorf("events: %s envelope has a partially populated entity ref", e.Type)
+		}
+	} else if !IsPipelineEvent(e.Type) {
 		return fmt.Errorf("events: %s envelope has no entity ref", e.Type)
 	}
 	if e.Trace.CorrelationID.IsZero() || e.Trace.AuditLogID.IsZero() {

@@ -64,7 +64,7 @@ func TestLogSystem_writesConnectorRowWithDerivedActor(t *testing.T) {
 		return tx.QueryRow(ctx,
 			`SELECT actor_type, actor_id, on_behalf_of, action, detail,
 			        NOT EXISTS (SELECT 1 FROM information_schema.columns
-			                    WHERE table_name='system_log' AND column_name IN ('entity_type','entity_id'))
+			                    WHERE table_schema = current_schema() AND table_name='system_log' AND column_name IN ('entity_type','entity_id'))
 			 FROM system_log WHERE id = $1`, id).
 			Scan(&actorType, &actorID, &onBehalf, &action, &detailJSON, &entityAbsent)
 	}); err != nil {

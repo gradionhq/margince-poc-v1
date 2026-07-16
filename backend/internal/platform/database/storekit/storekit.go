@@ -111,7 +111,10 @@ func LogSystem(ctx context.Context, tx pgx.Tx, action string, detail map[string]
 	if err != nil {
 		return ids.Nil, err
 	}
-	wsID, _ := principal.WorkspaceID(ctx)
+	// MustWorkspace is safe here: LogSystem only runs inside WithWorkspaceTx,
+	// which already failed if no workspace was bound, and the system_log RLS
+	// WITH CHECK rejects a mismatched workspace_id as a final backstop.
+	wsID := MustWorkspace(ctx)
 
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,

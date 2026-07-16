@@ -19,7 +19,7 @@ func validEnvelope(t *testing.T, eventType string) Envelope {
 		Type:        eventType,
 		Version:     VersionOf(eventType),
 		WorkspaceID: ids.NewV7(),
-		OccurredAt:  time.Now().UTC(),
+		OccurredAt:  time.Date(2026, 7, 16, 9, 38, 0, 0, time.UTC),
 		Actor:       Actor{Type: "connector", ID: "connector:gmail"},
 		Entity:      EntityRef{Type: "activity", ID: ids.NewV7()},
 		Trace:       Trace{CorrelationID: ids.NewV7(), AuditLogID: ids.NewV7()},
@@ -66,5 +66,16 @@ func TestValidate_pipelineEventMayCarryEntity(t *testing.T) {
 	env := validEnvelope(t, "capture.received")
 	if err := env.Validate(); err != nil {
 		t.Fatalf("capture.received with an entity should validate, got: %v", err)
+	}
+}
+
+// The relaxation makes the entity optional, not lax: a pipeline event that
+// carries a HALF-filled ref (a type with no id) is malformed and must be
+// rejected — it would route or read back wrong.
+func TestValidate_pipelineEventRejectsPartialEntity(t *testing.T) {
+	env := validEnvelope(t, "capture.received")
+	env.Entity = EntityRef{Type: "activity"} // id left zero
+	if err := env.Validate(); err == nil {
+		t.Fatal("a pipeline event with a type but no id must be rejected")
 	}
 }
