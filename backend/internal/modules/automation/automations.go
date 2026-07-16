@@ -160,6 +160,9 @@ func (s *AutomationStore) Create(ctx context.Context, in CreateAutomationInput) 
 	if !ok {
 		return Automation{}, &ParamError{Field: "key", Reason: "not a catalog automation type"}
 	}
+	if err := requireAuthorCeiling(ctx, entry); err != nil {
+		return Automation{}, err
+	}
 	if in.Name == "" {
 		return Automation{}, &ParamError{Field: "name", Reason: "must not be empty"}
 	}
@@ -230,6 +233,11 @@ func (s *AutomationStore) Update(ctx context.Context, id ids.AutomationID, in Up
 			entry, ok := CatalogEntryByKey(before.Key)
 			if !ok {
 				return fmt.Errorf("automation %s names catalog key %q the registry no longer carries", id, before.Key)
+			}
+			// A re-parameterized automation is re-authored: the ceiling
+			// runs again, not just once at creation.
+			if err := requireAuthorCeiling(ctx, entry); err != nil {
+				return err
 			}
 			if err := entry.Validate(in.Params); err != nil {
 				return err
