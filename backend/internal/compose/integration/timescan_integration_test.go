@@ -5,14 +5,22 @@
 
 package integration
 
-// The end-to-end proof for Task 14a's clock-trigger machinery: a real
-// TimeScanner.Scan pass (compose.NewTimeScanner, over the real
-// ActivityScan seam sourced from activities' own tables) finds a deal
-// whose only linked activity is stale, fires no_activity_reminder through
-// the SAME runOne path event triggers use, and lands a real create_task
-// reminder. A second pass over the SAME anchor must NOT refire — the
-// occurrence key (Task 12) holding across the real scan, not just the
-// scripted proof in automation/occurrence_integration_test.go.
+// The end-to-end proof for Task 14a's clock-trigger machinery and its
+// occurrence key (Task 12), over a real migrated Postgres. A deal whose
+// last GENUINE engagement (a human 'call') is stale fires
+// no_activity_reminder through the SAME runOne path event triggers use,
+// landing a real create_task reminder. The load-bearing property this
+// suite pins — the one the earlier draft did NOT — is that the reminder's
+// OWN task (source "system") does not count as engagement: the deal stays
+// a candidate on the second pass, so runOne is invoked AGAIN, and the
+// only thing suppressing a duplicate is the anchor-derived idempotency
+// key. A key built from ev.ID (a fresh uuid per pass) would add a second
+// reminder here; the anchor-derived key does not. A genuinely new human
+// touch then moves the anchor and re-arms exactly one more firing.
+//
+// The clock is pinned (NewTimeScannerWithClock) so "no activity for N
+// days" is evaluated against the seeded timestamps, never the wall clock;
+// no sleep, no real-time flakiness.
 
 import (
 	"context"
@@ -28,67 +36,114 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func TestTimeScannerFiresNoActivityReminderOnceThenHoldsTheOccurrenceKey(t *testing.T) {
+func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Gone Quiet Deal", pipeline, open, nil)
 
 	owner := OwnerConn(t)
-	// The deal's only linked activity is stale — 10 days old, older than
-	// no_activity_reminder's 7-day default (no params seeded below), so
-	// this deal is exactly the candidate LastTouchBefore must surface.
-	staleSince := time.Now().UTC().AddDate(0, 0, -10)
-	touchID := ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, 'call', 'Last real touch', $3, 'manual', 'human:x')`,
-		touchID, e.WS, staleSince); err != nil {
-		t.Fatalf("seeding the stale activity: %v", err)
-	}
-	LinkActivity(t, owner, e.WS, touchID, "deal", dealID)
+
+	// The scan evaluates against this pinned instant. The default
+	// threshold is 7 days (no params seeded below), so anything older than
+	// scanNow-7d is stale.
+	scanNow := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	now := func() time.Time { return scanNow }
+
+	// One GENUINE human engagement, 10 days before the pinned now — older
+	// than the 7-day threshold, so the deal is a candidate. Source
+	// 'manual' (a human logging a call) is exactly what MUST reset the
+	// clock; it is not the automation engine's own "system" output.
+	firstTouch := scanNow.AddDate(0, 0, -10)
+	seedGenuineTouch(t, owner, e.WS, dealID, "call", firstTouch)
 
 	// A system-seeded instance (no owner_id): the match-time owner gate
 	// (automation/gate.go) skips entirely for a zero OwnerID, so this test
-	// proves the scan/dispatch machinery without also standing up a real
-	// RBAC fixture for an owning human — that gate is proven elsewhere
+	// exercises the scan/dispatch/occurrence-key machinery without also
+	// standing up a real RBAC fixture — that gate is proven separately
 	// (automation/gate_integration_test.go).
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
-		 VALUES ($1, $2, 'no_activity_reminder', 'No Activity Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', '{}'::jsonb, true)`,
-		ids.NewV7(), e.WS); err != nil {
-		t.Fatalf("seeding the no_activity_reminder instance: %v", err)
-	}
+	seedNoActivityReminder(t, owner, e.WS)
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	scanner := compose.NewTimeScanner(e.Pool, quiet)
+	scanner := compose.NewTimeScannerWithClock(e.Pool, now, quiet)
 
+	// Pass 1: the deal is stale, so the reminder fires exactly once.
 	if err := scanner.Scan(context.Background()); err != nil {
 		t.Fatalf("first scan: %v", err)
 	}
 	if got := reminderTaskCount(t, e, dealID); got != 1 {
-		t.Fatalf("reminder tasks linked to the deal after the first scan = %d, want exactly 1 — the reminder must land", got)
+		t.Fatalf("reminder tasks after pass 1 = %d, want exactly 1 — the reminder must land", got)
 	}
 	if got := runCountForHandler(t, e, "no_activity_reminder"); got != 1 {
-		t.Fatalf("workflow_run rows for no_activity_reminder after the first scan = %d, want exactly 1", got)
+		t.Fatalf("workflow_run rows after pass 1 = %d, want exactly 1", got)
 	}
 
-	// Second pass: the SAME anchor (the activity never moved) must not
-	// refire — the occurrence key (Task 12) holds across a real scan.
+	// Pass 2 with NOTHING changed. Because LastTouchBefore excludes the
+	// engine's own "system" task, the deal's genuine anchor is STILL the
+	// -10d call — the deal is STILL a candidate, so runOne IS invoked
+	// again. The anchor has not moved, so the anchor-derived idempotency
+	// key is identical and claimRun's ON CONFLICT absorbs the second pass.
+	// (Were the key ev.ID-based, this pass would mint a fresh key and add
+	// a SECOND reminder task + run — which is exactly why the candidate
+	// must still be present here for the assertion to have teeth.)
 	if err := scanner.Scan(context.Background()); err != nil {
 		t.Fatalf("second scan: %v", err)
 	}
 	if got := reminderTaskCount(t, e, dealID); got != 1 {
-		t.Fatalf("reminder tasks linked to the deal after the SECOND scan = %d, want still exactly 1 — the unchanged anchor must not refire", got)
+		t.Fatalf("reminder tasks after pass 2 = %d, want still exactly 1 — the unchanged anchor must not refire (occurrence key)", got)
 	}
 	if got := runCountForHandler(t, e, "no_activity_reminder"); got != 1 {
-		t.Fatalf("workflow_run rows for no_activity_reminder after the second scan = %d, want still exactly 1", got)
+		t.Fatalf("workflow_run rows after pass 2 = %d, want still exactly 1", got)
+	}
+
+	// A genuinely new human touch — still stale (8 days before now, past
+	// the 7-day threshold) but MORE RECENT than the first — moves the
+	// anchor. A moved anchor is a new occurrence key, so the trigger
+	// re-arms and fires exactly one more time.
+	secondTouch := scanNow.AddDate(0, 0, -8)
+	seedGenuineTouch(t, owner, e.WS, dealID, "call", secondTouch)
+
+	if err := scanner.Scan(context.Background()); err != nil {
+		t.Fatalf("third scan (after a new genuine touch): %v", err)
+	}
+	if got := reminderTaskCount(t, e, dealID); got != 2 {
+		t.Fatalf("reminder tasks after the anchor moved = %d, want exactly 2 — a new genuine engagement must re-arm the trigger", got)
+	}
+	if got := runCountForHandler(t, e, "no_activity_reminder"); got != 2 {
+		t.Fatalf("workflow_run rows after the anchor moved = %d, want exactly 2", got)
+	}
+}
+
+// seedGenuineTouch inserts one human-logged activity (source 'manual', the
+// non-"system" provenance a real touch carries) at the given instant and
+// links it to the deal — the engagement LastTouchBefore's anchor is
+// computed from.
+func seedGenuineTouch(t *testing.T, owner *pgx.Conn, ws, dealID ids.UUID, kind string, at time.Time) {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, $2, $3, 'Genuine engagement', $4, 'manual', 'human:x')`,
+		id, ws, kind, at); err != nil {
+		t.Fatalf("seeding a genuine %s touch: %v", kind, err)
+	}
+	LinkActivity(t, owner, ws, id, "deal", dealID)
+}
+
+// seedNoActivityReminder enrolls one enabled, ownerless no_activity_reminder
+// instance — the configured-and-on state the scan fires off.
+func seedNoActivityReminder(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
+		 VALUES ($1, $2, 'no_activity_reminder', 'No Activity Reminder', '{"schedule":"clock"}', '{"kind":"create_task"}', '{}'::jsonb, true)`,
+		ids.NewV7(), ws); err != nil {
+		t.Fatalf("seeding the no_activity_reminder instance: %v", err)
 	}
 }
 
 // reminderTaskCount counts the create_task activities no_activity_reminder
-// would have minted on the deal's own timeline — kind='task' distinguishes
-// the reminder from the stale 'call' activity that made the deal a
-// candidate in the first place.
+// minted on the deal's timeline — kind='task' distinguishes the reminder
+// from the 'call' engagements that make the deal a candidate.
 func reminderTaskCount(t *testing.T, e *Env, dealID ids.UUID) int {
 	t.Helper()
 	return e.WsCount(t, `
@@ -98,9 +153,9 @@ func reminderTaskCount(t *testing.T, e *Env, dealID ids.UUID) int {
 }
 
 // runCountForHandler reads workflow_run rows for one handler name — the
-// durable claim runOne makes per (handler, idempotency_key), read here
-// through a workspace transaction since RLS forces it even for the
-// owner-less pool path.
+// durable claim runOne makes per (handler, idempotency_key), read through
+// a workspace transaction since RLS forces it even for the owner-less pool
+// path.
 func runCountForHandler(t *testing.T, e *Env, handler string) int {
 	t.Helper()
 	var n int

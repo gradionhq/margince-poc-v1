@@ -23,8 +23,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// LastTouchCandidate is one linked entity whose most recent activity
-// (across every kind and every link) landed before the caller's cutoff.
+// automationSource is the activity.source value the automation engine
+// stamps on every activity it creates (its create_task / create_record
+// output, automation/workflows.go's systemSource). LastTouchBefore
+// excludes these so the engine's OWN reminder task cannot count as a
+// "touch" that resets the very clock it fires off. A module never imports
+// a sibling (ADR-0054 §9), so this is the value-level shadow of that
+// constant, not a shared symbol — kept in lockstep by the integration
+// proof (compose/integration), which fires a real reminder and asserts
+// the anchor does not move.
+const automationSource = "system"
+
+// LastTouchCandidate is one linked entity whose most recent GENUINE
+// engagement (across every kind and every link) landed before the
+// caller's cutoff. "Genuine" excludes the automation engine's own output
+// (automationSource) — see LastTouchBefore.
 type LastTouchCandidate struct {
 	EntityType string
 	EntityID   ids.UUID
@@ -32,16 +45,28 @@ type LastTouchCandidate struct {
 }
 
 // LastTouchBefore returns, for every entity linked through activity_link,
-// its most recent activity.occurred_at whenever that maximum is before
-// cutoff, oldest-touch first, capped at limit — the read
+// its most recent GENUINE-engagement activity.occurred_at whenever that
+// maximum is before cutoff, oldest-touch first, capped at limit — the read
 // automation.TimeScanner's no_activity_for_n_days clock candidates are
 // built from.
 //
-// Honest limitation: an entity that has never had ANY linked activity
-// carries no activity_link row at all, so it never appears here — a
-// created-but-never-touched record is not (yet) surfaced as "stale" by
-// this read. Widening that is a real change to what "no activity" means
-// for this trigger, not a bug in this query.
+// "No activity for N days" means the rep has not ENGAGED the record — a
+// human touch (call, email, meeting, note), an inbound reply, or a
+// captured mail (Gmail/IMAP, source "gmail:…"/"imap:…") all count. The
+// automation engine's OWN writes (source = automationSource) do NOT: a
+// reminder task the engine created must not look like engagement, or the
+// firing would reset its own anchor to ~now, age out of the candidate
+// set, then re-surface with the task's timestamp as a fresh anchor and
+// nag every N days forever. Excluding automationSource keeps the anchor
+// pinned to the last real touch, so no_activity_reminder fires ONCE per
+// quiet spell (recurring "check in every N days regardless" is
+// check_in_cadence's job, not this trigger's).
+//
+// Honest limitation: an entity whose links are all archived or all
+// automation-sourced contributes no genuine touch, so it never appears
+// here — a never-genuinely-touched record is not (yet) surfaced as
+// "stale" by this read. Widening that is a real change to what "no
+// activity" means for this trigger, not a bug in this query.
 func (s *Store) LastTouchBefore(ctx context.Context, cutoff time.Time, limit int) ([]LastTouchCandidate, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, err
@@ -58,10 +83,11 @@ func (s *Store) LastTouchBefore(ctx context.Context, cutoff time.Time, limit int
 			FROM activity_link al
 			JOIN activity a ON a.id = al.activity_id
 			WHERE a.archived_at IS NULL
+			  AND a.source <> $1
 			GROUP BY al.entity_type, coalesce(al.person_id, al.organization_id, al.deal_id, al.lead_id)
-			HAVING max(a.occurred_at) < $1
+			HAVING max(a.occurred_at) < $2
 			ORDER BY max(a.occurred_at), entity_id
-			LIMIT $2`, cutoff, limit)
+			LIMIT $3`, automationSource, cutoff, limit)
 		if err != nil {
 			return err
 		}
