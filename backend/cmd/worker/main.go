@@ -234,7 +234,13 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 			ClientSecret: cfg.gmailClientSecret,
 		})
 	}
-	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailReg, cfg.gmailSyncInterval)
+	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		CloseDateInterval: cfg.closeDateInterval,
+		ReconcileInterval: cfg.reconcileInterval,
+		TimeScanInterval:  cfg.timeScanInterval,
+		GmailRegistry:     gmailReg,
+		GmailInterval:     cfg.gmailSyncInterval,
+	})
 	if err != nil {
 		return nil, err
 	}

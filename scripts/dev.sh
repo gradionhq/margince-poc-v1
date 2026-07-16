@@ -177,13 +177,17 @@ up)
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
   # kill. Redis is the ONE shared instance.
+  # --inline-relay=false: the worker (started below) always runs the
+  # standalone outbox relay now, so the api must not also run one — two
+  # relays racing the same outbox would double-ship every event.
   MARGINCE_ENV=dev \
     MARGINCE_BLOBSTORE_ENDPOINT="localhost:${MINIO_PORT}" \
     MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" \
-    --redis "localhost:${REDIS_PORT}" "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
+    --redis "localhost:${REDIS_PORT}" --inline-relay=false \
+    "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
   be_pid=$!
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
@@ -208,18 +212,33 @@ up)
     exit 1
   fi
 
-  # The Gmail sync poller (cmd/worker) — the background loop that turns a
-  # connected mailbox into activities. It shares the app DSN + Redis and the
-  # exported dev vault key; a short poll makes the demo responsive.
-  worker_pid=""
+  # The background worker (cmd/worker) — the ONLY cg:workflows consumer and
+  # the ONLY River scheduler (close-date sweep, follow-up reconcile, the
+  # automation time-scan, and — when Gmail is configured — the Gmail
+  # incremental-sync poll). It now always runs: without it `make dev` fires
+  # no automations at all, event-triggered or clock-triggered. It also owns
+  # the outbox relay (see --inline-relay=false on the api above).
+  #
+  # --retention-interval 720h: the worker also runs the nightly GDPR
+  # retention/erasure pass unconditionally. River's RunOnStart still fires
+  # one evaluation immediately at boot (that's inherent, not gated by this
+  # flag) — but it only ERASES data past its jurisdiction floor, so on fresh
+  # seeded demo data it's a no-op. The long interval just stops it from
+  # recurring for the life of a dev session.
+  ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
+  worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then
-    ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
     # Gmail client id/secret come from the exported env (not CLI flags); the
-    # worker's flags default to them.
-    MARGINCE_ENV=dev \
-      ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
-      --gmail-sync-interval 30s >>"$log" 2>&1 &
-    worker_pid=$!
+    # worker's flags default to them. A short poll makes the demo responsive.
+    worker_gmail_flags=(--gmail-sync-interval 30s)
+  fi
+  MARGINCE_ENV=dev \
+    ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
+    --retention-interval 720h \
+    "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
+  worker_pid=$!
+  echo "  worker   automations running (outbox relay, close-date sweep, reconcile, time-scan)"
+  if [[ "$gmail_enabled" == "1" ]]; then
     echo "  gmail    sync worker running (poll every 30s)"
   fi
 
