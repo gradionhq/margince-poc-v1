@@ -24,11 +24,14 @@ import (
 
 // NewWorkflowEngine builds the engine with the shipped starter set and
 // the system invariants: the starters are catalog automations (instance-
-// gated, pausable) — stage_change_create_task from automation, route_lead
-// from people (the routing decision is transactional lead-store SQL) —
-// while the lead-score recompute is a formula obligation
-// (formulas-and-rules §3 — "recomputed on each captured signal") and
-// fires always.
+// gated, pausable) — the automation module's own seven handlers
+// (StarterWorkflows, incl. route_lead's create_task reading) plus
+// assign_lead_owner from people (the routing decision is transactional
+// lead-store SQL — AUTO-NOTE-2, §3.5: assign_lead_owner ASSIGNS AN
+// OWNER, a different act from automation's own route_lead, which
+// creates a task) — while the lead-score recompute is a formula
+// obligation (formulas-and-rules §3 — "recomputed on each captured
+// signal") and fires always.
 func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
 	// identity.Service implements shared/ports/authz.Resolver — the
 	// match-time owner-permission gate's (gate.go) authority source. The

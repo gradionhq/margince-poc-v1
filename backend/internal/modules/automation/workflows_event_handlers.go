@@ -33,6 +33,11 @@ type dealOwnerFields struct {
 // run lands 'failed' with this reason rather than a silently empty notify.
 var errDealHasNoOwner = errors.New("automation: stage_change_notify: deal has no assigned owner to notify")
 
+// stageChangeNotifyName is the catalog key Task 6 seeds this starter
+// under — CatalogEntry.Key must equal the backing handler's Spec().Name
+// (automations_catalog.go's CatalogEntry doc).
+const stageChangeNotifyName = "stage_change_notify"
+
 // stageChangeNotify tells the deal's owner about every stage move,
 // including the closes (won/lost) that end stageChangeCreateTask's own
 // follow-up cadence — a rep especially wants to hear that their own deal
@@ -43,7 +48,7 @@ type stageChangeNotify struct {
 
 func (stageChangeNotify) Spec() workflow.Spec {
 	return workflow.Spec{
-		Name:    "stage_change_notify",
+		Name:    stageChangeNotifyName,
 		Trigger: workflow.Trigger{EventType: eventDealStageChanged},
 		Tier:    mcp.TierGreen,
 	}
@@ -88,7 +93,7 @@ func (w stageChangeNotify) Apply(ctx context.Context, _ workflow.Event, eff work
 }
 
 func (stageChangeNotify) IdempotencyKey(ev workflow.Event) string {
-	return "stage_change_notify:" + ev.ID.String()
+	return stageChangeNotifyName + ":" + ev.ID.String()
 }
 
 // activityKindMeeting is the wire value activity.captured carries in its
@@ -125,9 +130,14 @@ type postMeetingRecap struct {
 	ex Executors
 }
 
+// postMeetingRecapName is the catalog key Task 6 seeds this starter
+// under — CatalogEntry.Key must equal the backing handler's Spec().Name
+// (automations_catalog.go's CatalogEntry doc).
+const postMeetingRecapName = "post_meeting_recap"
+
 func (postMeetingRecap) Spec() workflow.Spec {
 	return workflow.Spec{
-		Name:    "post_meeting_recap",
+		Name:    postMeetingRecapName,
 		Trigger: workflow.Trigger{EventType: eventActivityCaptured},
 		Tier:    mcp.TierGreen,
 	}
@@ -165,5 +175,5 @@ func (w postMeetingRecap) Apply(ctx context.Context, _ workflow.Event, eff workf
 }
 
 func (postMeetingRecap) IdempotencyKey(ev workflow.Event) string {
-	return "post_meeting_recap:" + ev.ID.String()
+	return postMeetingRecapName + ":" + ev.ID.String()
 }

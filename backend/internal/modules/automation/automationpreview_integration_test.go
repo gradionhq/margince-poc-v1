@@ -135,7 +135,7 @@ func TestPreviewDraftOverrideAndValidation(t *testing.T) {
 
 	// A draft override previews another recipe under the same stored
 	// instance's RBAC/404 anchor (the editor's preview-before-save).
-	routeKey := "route_lead"
+	routeKey := "assign_lead_owner"
 	window := 7
 	draft, err := store.Preview(ctx, autoID, AutomationPreviewInput{Key: &routeKey, WindowDays: &window})
 	if err != nil {

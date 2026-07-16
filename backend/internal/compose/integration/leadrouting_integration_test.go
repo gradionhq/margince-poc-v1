@@ -178,7 +178,7 @@ func TestLeadRoutingLeavesHumanAssignmentsAlone(t *testing.T) {
 	var runs int
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM workflow_run WHERE handler = 'route_lead'`).Scan(&runs)
+			`SELECT count(*) FROM workflow_run WHERE handler = 'assign_lead_owner'`).Scan(&runs)
 	})
 	if err != nil || runs != 1 {
 		t.Fatalf("run claim count = %d (%v), want 1", runs, err)

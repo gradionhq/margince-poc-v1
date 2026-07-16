@@ -299,13 +299,31 @@ func (s *AutomationStore) Archive(ctx context.Context, id ids.AutomationID) erro
 	})
 }
 
-// SeedStarterAutomationsTx enrolls the starter library for a fresh
+// SeedStarterAutomationsTx enrolls EXACTLY the SIX seeded starter
+// templates (Catalog()'s Seeded entries — UAT.md:72) for a fresh
 // workspace inside the bootstrap transaction — ENABLED, deliberately:
 // the contract's created-paused rule governs user-configured instances;
 // a system-seeded floor ("no lead sits unseen") that arrived paused
-// would silently not exist. Recorded in this batch's decision file.
+// would silently not exist. The authorable-but-unseeded entries
+// (assign_lead_owner, stage_change_create_task) are reachable through
+// the API but never land here unasked. Default params run through the
+// SAME entry.Validate a human author's create call does — an empty
+// params blob is what every seeded template's own handler reader
+// already treats as "use my own default" (e.g. DueInDays,
+// noActivityDays), so this seeds honestly-validated rows, never a blob
+// bypassing the catalog's own gate.
 func SeedStarterAutomationsTx(ctx context.Context, tx pgx.Tx) error {
 	for _, entry := range Catalog() {
+		if !entry.Seeded {
+			continue
+		}
+		if err := entry.Validate(nil); err != nil {
+			return fmt.Errorf("seed automation %s: default params fail catalog validation: %w", entry.Key, err)
+		}
+		paramsJSON, err := json.Marshal(nonNilParams(nil))
+		if err != nil {
+			return fmt.Errorf("seed automation %s: %w", entry.Key, err)
+		}
 		triggerJSON, actionJSON, err := entrySnapshots(entry)
 		if err != nil {
 			return err
@@ -313,8 +331,8 @@ func SeedStarterAutomationsTx(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO automation (workspace_id, key, name, origin, trigger, action, params, enabled, tier)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, 'catalog', $3, $4, '{}'::jsonb, true, $5)`,
-			entry.Key, entry.Name, triggerJSON, actionJSON, entry.Tier); err != nil {
+			        $1, $2, 'catalog', $3, $4, $5, true, $6)`,
+			entry.Key, entry.Name, triggerJSON, actionJSON, paramsJSON, entry.Tier); err != nil {
 			return fmt.Errorf("seed automation %s: %w", entry.Key, err)
 		}
 	}

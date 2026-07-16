@@ -44,13 +44,13 @@ func TestRequireAuthorCeiling(t *testing.T) {
 		},
 		{
 			name:    "target-scoped action, author lacks update on the resolved entity",
-			entry:   CatalogEntry{Key: "route_lead", Action: string(ActionTypeAssignOwner), Trigger: "lead.created"},
+			entry:   CatalogEntry{Key: "assign_lead_owner", Action: string(ActionTypeAssignOwner), Trigger: "lead.created"},
 			grants:  map[string]principal.ObjectGrant{"lead": {Read: true}}, // read, not update
 			wantErr: true,
 		},
 		{
 			name:    "target-scoped action, author holds update on the resolved entity",
-			entry:   CatalogEntry{Key: "route_lead", Action: string(ActionTypeAssignOwner), Trigger: "lead.created"},
+			entry:   CatalogEntry{Key: "assign_lead_owner", Action: string(ActionTypeAssignOwner), Trigger: "lead.created"},
 			grants:  map[string]principal.ObjectGrant{"lead": {Update: true}},
 			wantErr: false,
 		},
@@ -59,7 +59,7 @@ func TestRequireAuthorCeiling(t *testing.T) {
 			// holding update on "deal" (a plausible but wrong guess) must
 			// not satisfy an automation whose trigger fired on "lead".
 			name:    "target-scoped action, grant on the wrong entity does not satisfy",
-			entry:   CatalogEntry{Key: "route_lead", Action: string(ActionTypeAssignOwner), Trigger: "lead.created"},
+			entry:   CatalogEntry{Key: "assign_lead_owner", Action: string(ActionTypeAssignOwner), Trigger: "lead.created"},
 			grants:  map[string]principal.ObjectGrant{"deal": {Update: true}},
 			wantErr: true,
 		},

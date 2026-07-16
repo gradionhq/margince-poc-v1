@@ -32,41 +32,121 @@ type CatalogEntry struct {
 	Tier         string // green | yellow (from the handler, never the caller)
 	ParamsSchema map[string]any
 	Validate     func(params map[string]any) error
+	// Seeded marks the entry as one of the SIX starter templates
+	// SeedStarterAutomationsTx (automations.go) enrolls into a fresh
+	// workspace, enabled, on bootstrap (UAT.md:72 — "exactly the six
+	// seeded templates"). An entry with Seeded false is still fully
+	// instantiable through the API (the catalog stays the closed,
+	// authorable set) — it just never lands in a workspace unasked.
+	Seeded bool
 }
 
-// dueInDaysSchema is the one-knob schema of the task starters: how
-// many days out the created task is due.
-func dueInDaysSchema(defaultDays int, description string) map[string]any {
+// singleIntParamSchema is the one-knob schema every "how many days"
+// starter shares — due_in_days, no_activity_days, check_in_days, and
+// days_before all take the identical bounded-integer shape and differ
+// only in which key names the knob and what its own default/bounds are.
+func singleIntParamSchema(key string, defaultValue, minValue, maxValue int, description string) map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"due_in_days": map[string]any{
+			key: map[string]any{
 				"type":        "integer",
-				"minimum":     1,
-				"maximum":     30,
-				"default":     defaultDays,
+				"minimum":     minValue,
+				"maximum":     maxValue,
+				"default":     defaultValue,
 				"description": description,
 			},
 		},
 	}
 }
 
-// validateDueInDays is the hand-rolled counterpart of dueInDaysSchema —
-// the closed catalog owns two tiny schemas, which does not buy a
-// jsonschema dependency.
-func validateDueInDays(params map[string]any) error {
-	for key, value := range params {
-		if key != "due_in_days" {
-			return &ParamError{Field: "params." + key, Reason: "not a parameter of this automation type"}
+// validateSingleIntParam is singleIntParamSchema's hand-rolled
+// counterpart — the closed catalog owns its own tiny schemas, which
+// does not buy a jsonschema dependency: an unknown knob or a mistyped
+// or out-of-range value is a 422, never a stored blob the engine
+// chokes on later.
+func validateSingleIntParam(key string, minValue, maxValue int) func(params map[string]any) error {
+	return func(params map[string]any) error {
+		for k, value := range params {
+			if k != key {
+				return &ParamError{Field: "params." + k, Reason: "not a parameter of this automation type"}
+			}
+			n, ok := value.(float64) // decoded JSON numbers arrive as float64
+			if !ok || n != math.Trunc(n) {
+				return &ParamError{Field: "params." + key, Reason: "must be an integer"}
+			}
+			if n < float64(minValue) || n > float64(maxValue) {
+				return &ParamError{Field: "params." + key,
+					Reason: fmt.Sprintf("must be between %d and %d", minValue, maxValue)}
+			}
 		}
-		n, ok := value.(float64) // decoded JSON numbers arrive as float64
-		if !ok || n != math.Trunc(n) {
-			return &ParamError{Field: "params.due_in_days", Reason: "must be an integer"}
-		}
-		if n < 1 || n > 30 {
-			return &ParamError{Field: "params.due_in_days", Reason: "must be between 1 and 30 days"}
-		}
+		return nil
+	}
+}
+
+// dueInDaysSchema is the shared shape of the create_task starters that
+// key their one knob "due_in_days": how many days out the created task
+// is due.
+func dueInDaysSchema(defaultDays int, description string) map[string]any {
+	return singleIntParamSchema("due_in_days", defaultDays, 1, 30, description)
+}
+
+// validateDueInDays is dueInDaysSchema's validator.
+var validateDueInDays = validateSingleIntParam("due_in_days", 1, 30)
+
+// noActivityReminderSchema is no_activity_reminder's one-knob shape,
+// keyed "no_activity_days" — the exact property name
+// workflows_clock_handlers.go's noActivityDays reads off an instance's
+// params, so the editor's schema and the handler's reader can never
+// drift onto two different knob names for the same automation.
+func noActivityReminderSchema() map[string]any {
+	return singleIntParamSchema("no_activity_days", defaultNoActivityDays, 1, 365,
+		"How many quiet days (no genuine activity) before the reminder fires.")
+}
+
+// validateNoActivityReminderParams is noActivityReminderSchema's validator.
+var validateNoActivityReminderParams = validateSingleIntParam("no_activity_days", 1, 365)
+
+// checkInCadenceSchema is check_in_cadence's own one-knob shape, keyed
+// "check_in_days" — checkInCadenceDays' (workflows_clock_handlers.go)
+// own reader, distinct from no_activity_reminder's key so a workspace
+// may enable both with independent cadences.
+func checkInCadenceSchema() map[string]any {
+	return singleIntParamSchema("check_in_days", defaultCheckInDays, 1, 365,
+		"How many quiet days (no genuine activity) before the check-in reminder fires.")
+}
+
+// validateCheckInCadenceParams is checkInCadenceSchema's validator.
+var validateCheckInCadenceParams = validateSingleIntParam("check_in_days", 1, 365)
+
+// renewalReminderSchema is renewal_reminder's one-knob shape, keyed
+// "days_before" — renewalDaysBefore's (workflows_clock_handlers.go) own
+// reader.
+func renewalReminderSchema() map[string]any {
+	return singleIntParamSchema("days_before", defaultRenewalDaysBefore, 1, 365,
+		"How many days ahead of the renewal date to remind.")
+}
+
+// validateRenewalReminderParams is renewalReminderSchema's validator.
+var validateRenewalReminderParams = validateSingleIntParam("days_before", 1, 365)
+
+// noParamsSchema is the empty-knob schema for a starter with nothing to
+// parameterize (stage_change_notify, post_meeting_recap): both fire
+// unconditionally off their trigger alone, so the only valid params
+// blob is the empty one.
+func noParamsSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           map[string]any{},
+	}
+}
+
+// validateNoParams rejects any key at all — the starter reads no params.
+func validateNoParams(params map[string]any) error {
+	for key := range params {
+		return &ParamError{Field: "params." + key, Reason: "not a parameter of this automation type"}
 	}
 	return nil
 }
@@ -76,7 +156,7 @@ func validateDueInDays(params map[string]any) error {
 // (segregation-in-scoring: routing never reads the contact graph).
 var RoutableLeadFields = []string{"source", "company_name", "candidate_org_key"}
 
-// leadRoutingSchema is the route_lead params shape (features/03 §3
+// leadRoutingSchema is the assign_lead_owner params shape (features/03 §3
 // AC-S5): an ordered round-robin pool, an optional per-owner cap, and
 // ordered field-match rules that outrank the rotation. This schema is
 // the config source of truth for the editor; the people module's
@@ -227,32 +307,141 @@ type ParamError struct {
 
 func (e *ParamError) Error() string { return e.Field + ": " + e.Reason }
 
-// Catalog returns the closed starter library. Each key names the
-// workflow.Handler compose registers under it: stage_change_create_task
-// ships in this module's StarterWorkflows; route_lead's engine lives in
-// the people module (the transactional assignment is lead-store SQL)
-// and compose wires it to this entry.
+// assignLeadOwnerName mirrors people.assignLeadOwnerName: the catalog
+// key MUST equal the backing handler's Spec().Name, but a module never
+// imports a sibling (ADR-0054 §9) — so this is its own copy of the
+// literal, not a shared symbol. Kept in lockstep by
+// internal/compose/leadrouting_config_test.go, which resolves this
+// exact key against the real people.LeadRoutingWorkflow handler.
+const assignLeadOwnerName = "assign_lead_owner"
+
+// Catalog returns the closed automation library — the full authorable
+// set: the six Seeded starter templates (seededCatalogEntries) plus the
+// authorable-only entries (authorableOnlyCatalogEntries) that never
+// enroll into a fresh workspace unasked. Split into two builders so
+// each stays a short, single-purpose list rather than one long literal.
 func Catalog() []CatalogEntry {
+	return append(seededCatalogEntries(), authorableOnlyCatalogEntries()...)
+}
+
+// seededCatalogEntries is UAT.md:72's pinned six — the exact set
+// SeedStarterAutomationsTx (automations.go) enrolls, ENABLED, into
+// every fresh workspace. Each Key names the workflow.Handler
+// automation's own StarterWorkflows registers under it.
+func seededCatalogEntries() []CatalogEntry {
 	return []CatalogEntry{
 		{
-			Key:          "route_lead",
-			Name:         "Route new leads",
+			Key:          noActivityReminderName,
+			Name:         "No-activity reminder",
+			Description:  "Reminds an entity's owner once its most recent captured activity has gone quiet for N days.",
+			Trigger:      noActivityScheduleMarker,
+			Action:       string(ActionTypeCreateTask),
+			Tier:         tierGreen,
+			ParamsSchema: noActivityReminderSchema(),
+			Validate:     validateNoActivityReminderParams,
+			Seeded:       true,
+		},
+		{
+			Key:          renewalReminderName,
+			Name:         "Renewal reminder",
+			Description:  "Reminds an entity's owner as its configured renewal date approaches.",
+			Trigger:      renewalScheduleMarker,
+			Action:       string(ActionTypeCreateTask),
+			Tier:         tierGreen,
+			ParamsSchema: renewalReminderSchema(),
+			Validate:     validateRenewalReminderParams,
+			Seeded:       true,
+		},
+		{
+			Key:          stageChangeNotifyName,
+			Name:         "Stage-change notify",
+			Description:  "Notifies the deal's owner on every stage move, including the closes that end the follow-up cadence.",
+			Trigger:      eventDealStageChanged,
+			Action:       string(ActionTypeNotify),
+			Tier:         tierGreen,
+			ParamsSchema: noParamsSchema(),
+			Validate:     validateNoParams,
+			Seeded:       true,
+		},
+		{
+			Key:          routeLeadName,
+			Name:         "Route new lead to a task",
+			Description:  "Mints a follow-up task the moment a new lead is captured, so every lead gets a first next step.",
+			Trigger:      eventLeadCreated,
+			Action:       string(ActionTypeCreateTask),
+			Tier:         tierGreen,
+			ParamsSchema: dueInDaysSchema(defaultRouteLeadDueInDays, "How many days out the follow-up task on the new lead is due."),
+			Validate:     validateDueInDays,
+			Seeded:       true,
+		},
+		{
+			Key:          checkInCadenceName,
+			Name:         "Check-in cadence",
+			Description:  "Reminds an entity's owner to re-engage once it has gone quiet for the automation's own (typically longer) cadence.",
+			Trigger:      checkInCadenceScheduleMarker,
+			Action:       string(ActionTypeCreateTask),
+			Tier:         tierGreen,
+			ParamsSchema: checkInCadenceSchema(),
+			Validate:     validateCheckInCadenceParams,
+			Seeded:       true,
+		},
+		{
+			Key:          postMeetingRecapName,
+			Name:         "Post-meeting recap draft",
+			Description:  "Drafts a follow-up recap whenever a meeting is logged.",
+			Trigger:      eventActivityCaptured,
+			Action:       string(ActionTypeDraftEmail),
+			Tier:         tierGreen,
+			ParamsSchema: noParamsSchema(),
+			Validate:     validateNoParams,
+			Seeded:       true,
+		},
+	}
+}
+
+// authorableOnlyCatalogEntries are real, instantiable catalog types that
+// SeedStarterAutomationsTx never enrolls (Seeded false) — reachable
+// through the API, never through the bootstrap floor.
+func authorableOnlyCatalogEntries() []CatalogEntry {
+	return []CatalogEntry{
+		{
+			// AUTHORABLE, not seeded: the honest name for the owner-
+			// assignment behaviour the OLD route_lead key carried before
+			// AUTO-NOTE-2's reconciliation (migrations/core/0075 re-keys
+			// any live row). Tier is green, not actionDefs' "dynamic" label
+			// for assign_owner (catalog_actions.go) — the automation.tier
+			// column's own CHECK constraint (migrations/core/0035) and the
+			// wire contract's tier enum (crm.yaml) both close tier to
+			// green|yellow, and green is the honest default: no shipped
+			// automation's own params carry a scale signal yet
+			// (assign_owner_tier.go's own doc), so every real firing today
+			// resolves single-entity — resolveAssignOwnerTier's own
+			// zero-value case.
+			Key:          assignLeadOwnerName,
+			Name:         "Assign new leads an owner",
 			Description:  "Assigns every new lead an owner: matching rules first, else round-robin across the pool, never exceeding capacity caps.",
-			Trigger:      "lead.created",
-			Action:       "assign_owner",
+			Trigger:      eventLeadCreated,
+			Action:       string(ActionTypeAssignOwner),
 			Tier:         tierGreen,
 			ParamsSchema: leadRoutingSchema(),
 			Validate:     validateLeadRoutingParams,
+			Seeded:       false,
 		},
 		{
-			Key:          "stage_change_create_task",
+			// AUTHORABLE, not seeded: a create_task-on-stage-change template
+			// that predates the six-template pin (UAT.md:72). The six's own
+			// stage-change template is stage_change_notify (above); this one
+			// stays registered and instantiable rather than removed — an
+			// extra available template, never a seeded seventh.
+			Key:          stageChangeCreateTaskName,
 			Name:         "Follow up on stage changes",
 			Description:  "Mints a follow-up task on the deal timeline after every open stage move.",
 			Trigger:      eventDealStageChanged,
-			Action:       "create_task",
+			Action:       string(ActionTypeCreateTask),
 			Tier:         tierGreen,
 			ParamsSchema: dueInDaysSchema(2, "How many days out the follow-up task is due."),
 			Validate:     validateDueInDays,
+			Seeded:       false,
 		},
 	}
 }

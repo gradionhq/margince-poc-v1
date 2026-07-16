@@ -45,8 +45,9 @@ type automationRunsPage struct {
 	} `json:"page"`
 }
 
-// createRouteLeadAutomation creates one valid route_lead instance over
-// the API and returns its id (it lands paused; runs/preview do not care).
+// createRouteLeadAutomation creates one valid assign_lead_owner instance
+// over the API and returns its id (it lands paused; runs/preview do not
+// care).
 func createRouteLeadAutomation(t *testing.T, e *env) string {
 	t.Helper()
 	var created struct {
@@ -54,7 +55,7 @@ func createRouteLeadAutomation(t *testing.T, e *env) string {
 		Key string `json:"key"`
 	}
 	if status := e.call(t, "POST", "/v1/automations", anyMap{
-		"key": "route_lead", "name": "Router under observation",
+		"key": "assign_lead_owner", "name": "Router under observation",
 		"params": anyMap{"owners": []string{"0198c0de-0000-7000-8000-000000000001"}, "cap_per_owner": 3},
 	}, nil, &created); status != http.StatusCreated {
 		t.Fatalf("create automation → %d", status)
@@ -90,8 +91,8 @@ func seedWorkflowRun(t *testing.T, e *env, wsID, automationID, status string, pl
 	}
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, applied, status, detail, created_at)
-		VALUES ($1, $2, 'route_lead', $3, $4, $5, $6, $7, $8, $9)`,
-		runID, wsID, fmt.Sprintf("route_lead:%s@%s", runID, automationID),
+		VALUES ($1, $2, 'assign_lead_owner', $3, $4, $5, $6, $7, $8, $9)`,
+		runID, wsID, fmt.Sprintf("assign_lead_owner:%s@%s", runID, automationID),
 		ids.NewV7(), plannedJSON, applied, status, detail, at); err != nil {
 		t.Fatalf("seeding workflow_run: %v", err)
 	}
@@ -220,7 +221,7 @@ func assertRunsRenderEveryOutcomeWithItsTrace(t *testing.T, e *env, autoID strin
 }
 
 // assertPreviewMeasuresWithoutWriting pins the dry-run: the stored
-// route_lead recipe counts the open unrouted lead pool, the draft
+// assign_lead_owner recipe counts the open unrouted lead pool, the draft
 // override previews another catalog type before saving, the editor's 422
 // vocabulary matches a save's, and the whole thing leaves zero rows.
 func assertPreviewMeasuresWithoutWriting(t *testing.T, e *env, autoID string) {

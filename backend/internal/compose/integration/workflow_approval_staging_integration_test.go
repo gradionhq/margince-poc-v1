@@ -50,11 +50,11 @@ func (a testApprovalsAdapter) Stage(ctx context.Context, in automation.StageRequ
 }
 
 // yellowStagingProbe is a synthetic 🟡 handler that exists only for this
-// suite: none of the shipped starters carries a 🟡 action yet
-// (stage_change_create_task is 🟢; route_lead and the lead-score
-// recompute are always-on system invariants with no approval-tier action
-// either), so nothing else currently exercises ApplyActions' 🟡 branch
-// against a real database.
+// suite: none of the shipped starters carries a 🟡 action yet (every
+// seeded template is 🟢; assign_lead_owner and the lead-score recompute
+// are always-on system invariants with no approval-tier action either),
+// so nothing else currently exercises ApplyActions' 🟡 branch against a
+// real database.
 type yellowStagingProbe struct {
 	approvals automation.Approvals
 	toStage   ids.UUID

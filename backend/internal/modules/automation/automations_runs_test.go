@@ -52,6 +52,9 @@ func TestEveryCatalogKeyHasAPreviewDefinition(t *testing.T) {
 			t.Errorf("catalog key %q has no preview definition — POST /automations/{id}/preview would 500", entry.Key)
 			continue
 		}
+		if def.unsupported != "" {
+			continue // a documented gap (previewNotYetSupported's own reason), not a missing definition
+		}
 		if def.table == "" || def.firedCount == nil || len(def.fields) == 0 {
 			t.Errorf("preview definition for %q is incomplete: table=%q fields=%d firedCount set=%v",
 				entry.Key, def.table, len(def.fields), def.firedCount != nil)

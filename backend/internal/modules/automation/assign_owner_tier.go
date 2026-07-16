@@ -21,8 +21,8 @@ import "github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 // No shipped automation sets Bulk today: every Action this codebase
 // plans carries exactly one datasource.EntityRef in its Target (a
 // single entity by construction — see ApplyActions' switch), and
-// route_lead — the only live user of "assign_owner" — resolves its
-// owner through people's own lead-routing SQL, never through this
+// assign_lead_owner — the only live user of "assign_owner" — resolves
+// its owner through people's own lead-routing SQL, never through this
 // resolver or ApplyActions' ActionAssignOwner case at all. Bulk exists
 // so the day a workspace author defines a genuinely bulk-scope
 // reassignment automation, ApplyActions already has a resolver ready to

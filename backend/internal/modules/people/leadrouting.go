@@ -38,9 +38,9 @@ type RoutingRule struct {
 	OwnerID ids.UserID `json:"owner_id"`
 }
 
-// RoutingConfig is the route_lead automation's params blob, decoded.
-// The catalog's params_schema (agents module) is the editor-facing
-// mirror of this shape; both name the same knobs.
+// RoutingConfig is the assign_lead_owner automation's params blob,
+// decoded. The catalog's params_schema (automation module) is the
+// editor-facing mirror of this shape; both name the same knobs.
 type RoutingConfig struct {
 	Owners      []ids.UserID  `json:"owners"`        // round-robin pool, in rotation order
 	CapPerOwner int           `json:"cap_per_owner"` // max open leads per owner; 0 = uncapped
@@ -274,10 +274,25 @@ func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UserID) (act
 	return active, openLoad, rows.Err()
 }
 
-// LeadRoutingWorkflow returns the route_lead handler compose registers
-// as a catalog automation (instance-gated, parameterized): the params
-// carry the pool, caps, and rules; the transactional decision lives in
-// the store so the count-and-assign is one atomic unit.
+// assignLeadOwnerName is the catalog key compose registers this handler
+// under. Named "assign_lead_owner" — NOT "route_lead" — per AUTO-NOTE-2
+// (§3.5): this handler ASSIGNS AN OWNER, a different act from "route a
+// new lead to a task" (the automation module's own route_lead starter,
+// workflows_starter.go), which the spec's user-reachable vocabulary
+// (AUTO-PARAM-5) reserves for the create_task reading of those words.
+// Duplicated as a bare literal in automation's own catalog entry
+// (automations_catalog.go) rather than imported: a module never
+// imports a sibling (ADR-0054 §9), so the two sides of "same handler
+// name, two modules" are kept in lockstep by CatalogEntry.Key's own
+// invariant (equal the backing handler's Spec().Name), proven by a
+// compose-level fitness test, not by a shared symbol.
+const assignLeadOwnerName = "assign_lead_owner"
+
+// LeadRoutingWorkflow returns the assign_lead_owner handler compose
+// registers as a catalog automation (instance-gated, parameterized):
+// the params carry the pool, caps, and rules; the transactional
+// decision lives in the store so the count-and-assign is one atomic
+// unit.
 func LeadRoutingWorkflow(store *Store) workflow.Handler {
 	return leadRouting{store: store}
 }
@@ -288,7 +303,7 @@ type leadRouting struct {
 
 func (leadRouting) Spec() workflow.Spec {
 	return workflow.Spec{
-		Name:    "route_lead",
+		Name:    assignLeadOwnerName,
 		Trigger: workflow.Trigger{EventType: "lead.created"},
 		Tier:    mcp.TierGreen,
 	}
@@ -331,5 +346,5 @@ func (w leadRouting) Apply(ctx context.Context, ev workflow.Event, eff workflow.
 // IdempotencyKey is the LEAD, not the envelope: a redelivered
 // lead.created must not re-route.
 func (leadRouting) IdempotencyKey(ev workflow.Event) string {
-	return "route_lead:" + ev.Entity.ID.String()
+	return assignLeadOwnerName + ":" + ev.Entity.ID.String()
 }
