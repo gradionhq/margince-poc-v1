@@ -11,8 +11,10 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -115,3 +117,16 @@ type RunResult struct {
 	Applied    []Action
 	AuditLogID ids.UUID
 }
+
+// StagedApprovalError is the typed form of the "staged as approval"
+// answer: a chat client shows the message, while a programmatic caller
+// (the Surface-B runner) suspends on the id instead of parsing prose.
+type StagedApprovalError struct{ ApprovalID ids.ApprovalID }
+
+func (e *StagedApprovalError) Error() string {
+	return fmt.Sprintf(
+		"staged as approval %s — once a human approves it, repeat this exact call with \"approval_id\": %q: %s",
+		e.ApprovalID, e.ApprovalID.String(), apperrors.ErrRequiresApproval)
+}
+
+func (e *StagedApprovalError) Unwrap() error { return apperrors.ErrRequiresApproval }

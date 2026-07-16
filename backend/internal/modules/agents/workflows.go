@@ -224,7 +224,7 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 	// error surfaces — returning applyErr from inside the tx closure would
 	// roll the very 'failed' row back and leave the claim lying 'applied'.
 	recordErr := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		var staged *StagedApprovalError
+		var staged *workflow.StagedApprovalError
 		switch {
 		case errors.As(applyErr, &staged):
 			// The staging pointer rides the detail column — the run row's

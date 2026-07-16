@@ -19,8 +19,8 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // Registry implements mcp.Registry. Registration happens at composition
@@ -144,22 +144,9 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		if stageErr != nil {
 			return nil, stageErr
 		}
-		return nil, &StagedApprovalError{ApprovalID: id}
+		return nil, &workflow.StagedApprovalError{ApprovalID: id}
 	}
 }
-
-// StagedApprovalError is the typed form of the "staged as approval"
-// answer: a chat client shows the message, while a programmatic caller
-// (the Surface-B runner) suspends on the id instead of parsing prose.
-type StagedApprovalError struct{ ApprovalID ids.ApprovalID }
-
-func (e *StagedApprovalError) Error() string {
-	return fmt.Sprintf(
-		"staged as approval %s — once a human approves it, repeat this exact call with \"approval_id\": %q: %s",
-		e.ApprovalID, e.ApprovalID.String(), apperrors.ErrRequiresApproval)
-}
-
-func (e *StagedApprovalError) Unwrap() error { return apperrors.ErrRequiresApproval }
 
 // Spec returns the registered spec for name — the REST admission path
 // (ADR-0055) resolves a mutating operation's tool twin through this.

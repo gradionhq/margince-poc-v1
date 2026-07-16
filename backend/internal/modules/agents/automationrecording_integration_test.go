@@ -37,7 +37,7 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 			return workflow.RunResult{}, errors.New("boom-apply")
 		}},
 		{name: "wf_staged", apply: func(workflow.Event) (workflow.RunResult, error) {
-			return workflow.RunResult{}, &StagedApprovalError{ApprovalID: stagedApproval}
+			return workflow.RunResult{}, &workflow.StagedApprovalError{ApprovalID: stagedApproval}
 		}},
 	}
 	engine := NewWorkflowEngine(fx.pool)
