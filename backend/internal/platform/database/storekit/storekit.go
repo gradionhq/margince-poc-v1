@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -191,6 +192,23 @@ func Emit(ctx context.Context, tx pgx.Tx, auditID ids.UUID, eventType, entityTyp
 		`INSERT INTO event_outbox (stream, envelope) VALUES ($1, $2)`,
 		stream, body)
 	return err
+}
+
+// EmitPipeline stages an entity-less pipeline event (events envelope
+// pipeline class — capture.skipped and its siblings): a bus event that names
+// NO subject because the pipeline step produced nothing (an excluded message
+// creates nothing). ledgerID is the system_log (or audit_log) row written in
+// the SAME transaction — the trace link that keeps the event attributable.
+// It is Emit with an empty entity ref; Validate admits an empty entity only
+// for the pipeline-event types, so a caller that hands a normal event type
+// here is refused rather than silently shipping an unroutable envelope.
+//
+//craft:ignore naked-any the outbox payload seam: each event type carries its own events.md payload shape, serialized into the envelope (same as Emit)
+func EmitPipeline(ctx context.Context, tx pgx.Tx, ledgerID ids.UUID, eventType string, payload any) error {
+	if !events.IsPipelineEvent(eventType) {
+		return fmt.Errorf("store: %s is not an entity-less pipeline event — use Emit with its entity ref", eventType)
+	}
+	return Emit(ctx, tx, ledgerID, eventType, "", ids.Nil, payload)
 }
 
 // UUIDOrNil maps a zero UUID to SQL NULL / JSON null (the Principal uses
