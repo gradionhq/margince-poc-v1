@@ -224,7 +224,25 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 	// The outcome record commits in its OWN transaction before the apply
 	// error surfaces — returning applyErr from inside the tx closure would
 	// roll the very 'failed' row back and leave the claim lying 'applied'.
-	recordErr := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+	if recordErr := e.recordApplyOutcome(ctx, h, ev, result, applyErr); recordErr != nil {
+		return errors.Join(applyErr, recordErr)
+	}
+	if applyErr != nil && !errors.Is(applyErr, apperrors.ErrRequiresApproval) && !errors.Is(applyErr, ErrNoNotificationTransport) {
+		// A staged 🟡 is a healthy suspension and a no-transport notify is
+		// an honest out-of-scope skip — neither is a dispatch failure; a
+		// real apply failure still surfaces after its record committed.
+		return applyErr
+	}
+	return nil
+}
+
+// recordApplyOutcome writes the terminal shape of one Apply call onto its
+// run row: which of the four outcomes (staged, no-transport skip, failed,
+// applied) it was, plus the reason a human reads on the run (rundetail.go).
+// Split out of runOne so the dispatch flow above stays readable as the
+// outcome vocabulary grows.
+func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Handler, ev workflow.Event, result workflow.RunResult, applyErr error) error {
+	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var staged *workflow.StagedApprovalError
 		switch {
 		case errors.As(applyErr, &staged):
@@ -239,6 +257,19 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 				UPDATE workflow_run SET status = 'requires_approval', detail = $3
 				WHERE handler = $1 AND idempotency_key = $2`,
 				h.Spec().Name, runKey(h, ev), detail)
+			return err
+		case errors.Is(applyErr, ErrNoNotificationTransport):
+			// Matched and would have delivered, but this environment has
+			// nowhere to send it — an honest out-of-scope skip (§3.3),
+			// distinct from both a Match/Plan condition-declined skip
+			// (recordSkip) and a real 'failed' — nothing went wrong here.
+			detail, err := reasonDetail("no notification transport configured")
+			if err != nil {
+				return err
+			}
+			_, err = tx.Exec(ctx, `
+				UPDATE workflow_run SET status = 'skipped', detail = $3
+				WHERE handler = $1 AND idempotency_key = $2`, h.Spec().Name, runKey(h, ev), detail)
 			return err
 		case applyErr != nil:
 			detail, err := reasonDetail(applyErr.Error())
@@ -260,15 +291,6 @@ func (e *WorkflowEngine) runOne(ctx context.Context, h workflow.Handler, ev work
 			return err
 		}
 	})
-	if recordErr != nil {
-		return errors.Join(applyErr, recordErr)
-	}
-	if applyErr != nil && !errors.Is(applyErr, apperrors.ErrRequiresApproval) {
-		// A staged 🟡 is a healthy suspension, not a dispatch failure; a
-		// real apply failure still surfaces after its record committed.
-		return applyErr
-	}
-	return nil
 }
 
 // claimRun claims the (handler, key) row FIRST: whoever inserts runs; a
@@ -330,14 +352,21 @@ func (e *WorkflowEngine) recordSkip(ctx context.Context, h workflow.Handler, ev 
 	return err
 }
 
+// systemSource is the provenance every deterministic workflow write
+// stamps: an automation acts as the system, never on behalf of the
+// human who authored or enabled it. Named once so ApplyActions'
+// Create/Update calls and applyAssignOwner's (handlers_actions.go)
+// cannot drift into three independent spellings of the same fact.
+const systemSource = "system"
+
 // ApplyActions is the shared executor handlers delegate Apply to: each
-// typed action runs through the SAME datasource seam every surface
-// uses. The closed switch IS the anti-builder guard — an action kind
-// the seam does not know is a programming error, not a plugin point.
-// approvals is the seam a 🟡 action stages through (seams.go) — every
+// typed action runs through the SAME set of seams every surface uses
+// (ex, seams.go). The closed switch IS the anti-builder guard — an
+// action kind the seam does not know is a programming error, not a
+// plugin point. ex.Approvals is what a 🟡 action stages through — every
 // caller holds one, even though a run never redeems mid-Apply today
 // (runOne always calls Handler.Apply with a nil token).
-func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvider, approvals Approvals, effect workflow.Effect) ([]workflow.Action, error) {
+func ApplyActions(ctx context.Context, ex Executors, effect workflow.Effect) ([]workflow.Action, error) {
 	var applied []workflow.Action
 	for _, action := range effect.Actions {
 		switch action.Kind {
@@ -346,19 +375,29 @@ func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvide
 			if action.Kind == workflow.ActionCreateTask {
 				entity = datasource.EntityActivity
 			}
-			if _, err := provider.Create(ctx, datasource.CreateInput{
+			if _, err := ex.Provider.Create(ctx, datasource.CreateInput{
 				EntityType: entity,
 				Fields:     action.Args,
-				Source:     "system",
+				Source:     systemSource,
 			}); err != nil {
 				return applied, err
 			}
-		case workflow.ActionUpdateRecord, workflow.ActionAssignOwner:
-			if _, err := provider.Update(ctx, datasource.UpdateInput{
+		case workflow.ActionUpdateRecord:
+			if _, err := ex.Provider.Update(ctx, datasource.UpdateInput{
 				Ref:    action.Target,
 				Patch:  action.Args,
-				Source: "system",
+				Source: systemSource,
 			}); err != nil {
+				return applied, err
+			}
+		case workflow.ActionAssignOwner:
+			// AUTO-T07's dynamic tier: every real firing today is
+			// single-entity (assign_owner_tier.go's AssignOwnerScope doc)
+			// — the zero-value scope here is that honest default, not a
+			// fabricated bulk signal. applyAssignOwner's own branch (🟢
+			// write vs 🟡 stage) is proven against a synthetic scaled
+			// scope by its unit tests.
+			if err := applyAssignOwner(ctx, ex, action, AssignOwnerScope{}); err != nil {
 				return applied, err
 			}
 		case workflow.ActionAdvanceDeal, workflow.ActionSendEmail, workflow.ActionEmitFlowEvent:
@@ -369,11 +408,23 @@ func ApplyActions(ctx context.Context, provider datasource.SystemOfRecordProvide
 			// decision instead of dead-ending: the run parks behind the
 			// resulting approval id (runOne), and resuming a released
 			// staging is the token path a later slice adds.
-			id, err := stageForApproval(ctx, approvals, action)
+			id, err := stageForApproval(ctx, ex.Approvals, action)
 			if err != nil {
 				return applied, err
 			}
 			return applied, &workflow.StagedApprovalError{ApprovalID: id}
+		case workflow.ActionNotify:
+			if err := applyNotify(ctx, ex.Notifier, action); err != nil {
+				return applied, err
+			}
+		case workflow.ActionAddToList:
+			if err := applyAddToList(ctx, ex.Lists, action); err != nil {
+				return applied, err
+			}
+		case workflow.ActionDraftEmail:
+			if err := applyDraftEmail(ctx, ex.Comms, action); err != nil {
+				return applied, err
+			}
 		case workflow.ActionRecomputeScore, workflow.ActionEnqueueJob:
 			// Declared kinds whose executors ride later slices; refusing
 			// loudly beats silently claiming success.

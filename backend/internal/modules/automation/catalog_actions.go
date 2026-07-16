@@ -107,35 +107,42 @@ type ActionDef struct {
 // already runs this shape for advance_deal (🟢 between open stages, 🟡 to
 // Won/Lost), and AUTO-T07 states the same split for reassignment —
 // owner-scoped is 🟢, reassign-at-scale is the held 🟡 form. The tier
-// resolves from the automation's own filter/scope at fire time; this
-// registry only declares that the tier IS dynamic, never which of the
-// two a given firing lands on — the resolver that reads the automation's
-// filter/scope to decide is not wired yet.
+// resolves from the automation's own filter/scope at fire time
+// (assign_owner_tier.go's resolveAssignOwnerTier, wired into
+// ApplyActions' ActionAssignOwner case, workflows.go) — no shipped
+// automation's own params carry a scale signal yet, so every real
+// firing today resolves single-entity; the 🟡 branch is proven against a
+// synthetic scaled input by its own unit tests, never fabricated into a
+// real template.
 //
-// RequiredPermission's Shape is proven for three actions by workflows.go's
+// RequiredPermission's Shape is proven for two actions by workflows.go's
 // ApplyActions switch: create_task's executor case forces entity =
 // datasource.EntityActivity no matter what fired it, so it is
-// PermissionPinned; assign_owner and set_field share an executor case
-// that routes to provider.Update{Ref: action.Target}, whose entity type
-// comes from the firing event rather than this registry, so both are
-// PermissionTargetScoped (verb: update) — pinning either to a single
-// object would gate the wrong entity whenever the trigger fires on
-// something else.
+// PermissionPinned; assign_owner and set_field each route to
+// provider.Update{Ref: action.Target} (in their own executor cases —
+// applyAssignOwner and the ActionUpdateRecord arm — rather than a shared
+// one), whose entity type comes from the firing event rather than this
+// registry, so both are PermissionTargetScoped (verb: update) — pinning
+// either to a single object would gate the wrong entity whenever the
+// trigger fires on something else.
 //
 // The other four — notify, add_to_list, draft_email, request_approval —
-// have no entity-naming executor case in that switch yet: notify,
-// add_to_list, and draft_email currently fall through to ApplyActions'
-// default ("unknown action kind") case, and request_approval's executor
-// (ActionEmitFlowEvent) hits a case that names no entity either. Their
-// PermissionPinned classification is reasoned ahead of wiring, not
-// proven by the switch: draft_email is expected to always create an
-// `activity` row (kind email, migrations/core/0008_activity.up.sql), the
-// same as create_task; add_to_list is expected to always mutate list
-// membership; notify and request_approval are expected to land as the
-// same "create something for a human to act on" shape
-// modules/approvals/authority.go already grants on
-// send_email/book_meeting/deal_follow_up. Each pin is confirmed when its
-// executor gains an entity-naming case in that switch.
+// now have real executor cases (handlers_actions.go's applyNotify/
+// applyAddToList/applyDraftEmail; request_approval's ActionEmitFlowEvent
+// still stages like every other 🟡 kind), but none names a FIXED entity
+// type there the way create_task does: applyAddToList and applyDraftEmail
+// act on whatever action.Target names (a list membership target, an
+// anchor thread), and applyNotify touches no entity at all. Their
+// PermissionPinned classification is still reasoned ahead of an
+// enforcing gate (requireAuthorCeiling, ceiling.go, is author-time UX,
+// not the fire-time boundary) rather than proven by the switch: draft_email
+// is expected to gate the same `activity` object create_task does
+// (migrations/core/0008_activity.up.sql); add_to_list is expected to
+// always mutate list membership; notify and request_approval are
+// expected to land as the same "create something for a human to act on"
+// shape modules/approvals/authority.go already grants on
+// send_email/book_meeting/deal_follow_up. Each pin is confirmed when the
+// fire-time gate this doc already flags as missing is built.
 var actionDefs = map[ActionType]ActionDef{
 	ActionTypeCreateTask: {
 		Type: ActionTypeCreateTask, Tier: tierGreen, Executor: workflow.ActionCreateTask,

@@ -11,28 +11,26 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // StarterWorkflows returns the shipped handler set over the injected
-// record seam. The route_lead starter is NOT here: its engine is
+// executor seams. The route_lead starter is NOT here: its engine is
 // lead-store SQL, so the people module provides that handler and
-// compose registers it beside these. approvals is the staging seam
-// every handler's Apply threads into ApplyActions, whether or not this
-// particular starter's own effect ever lands a 🟡 action.
-func StarterWorkflows(provider datasource.SystemOfRecordProvider, approvals Approvals) []workflow.Handler {
+// compose registers it beside these. ex is the seam bundle every
+// handler's Apply threads into ApplyActions, whether or not this
+// particular starter's own effect ever exercises every seam in it.
+func StarterWorkflows(ex Executors) []workflow.Handler {
 	return []workflow.Handler{
-		stageChangeCreateTask{provider: provider, approvals: approvals},
+		stageChangeCreateTask{ex: ex},
 	}
 }
 
 // stageChangeCreateTask keeps momentum: every stage move mints a
 // follow-up task on the deal's own timeline.
 type stageChangeCreateTask struct {
-	provider  datasource.SystemOfRecordProvider
-	approvals Approvals
+	ex Executors
 }
 
 func (stageChangeCreateTask) Spec() workflow.Spec {
@@ -79,7 +77,7 @@ func (w stageChangeCreateTask) Plan(_ context.Context, ev workflow.Event) (workf
 }
 
 func (w stageChangeCreateTask) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
-	applied, err := ApplyActions(ctx, w.provider, w.approvals, eff)
+	applied, err := ApplyActions(ctx, w.ex, eff)
 	return workflow.RunResult{Applied: applied}, err
 }
 

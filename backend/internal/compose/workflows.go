@@ -12,8 +12,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
+	"github.com/gradionhq/margince/backend/internal/modules/collections"
+	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -28,8 +31,21 @@ import (
 func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
 	engine := automation.NewWorkflowEngine(pool)
 	peopleStore := people.NewStore(pool)
-	stager := automationApprovalsAdapter{svc: approvals.NewService(pool)}
-	for _, handler := range automation.StarterWorkflows(NewProvider(pool), stager) {
+	ex := automation.Executors{
+		Provider:  NewProvider(pool),
+		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
+		Lists:     listsAdapter{store: collections.NewStore(pool)},
+		Comms: commsAdapter{
+			store: activities.NewStore(pool),
+			gate:  consent.NewGate(consent.NewStore(pool)),
+		},
+		// Notifier stays nil: this repo wires no notification transport
+		// (no notification table, the inbox is approvals-only) — a
+		// notify firing surfaces as a visible 'skipped' run instead
+		// (automation.ErrNoNotificationTransport, workflows.go) until a
+		// real channel lands here.
+	}
+	for _, handler := range automation.StarterWorkflows(ex) {
 		engine.RegisterWorkflow(handler)
 	}
 	engine.RegisterWorkflow(people.LeadRoutingWorkflow(peopleStore))
@@ -37,6 +53,18 @@ func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
 		engine.RegisterSystemWorkflow(handler)
 	}
 	return engine
+}
+
+// listsAdapter maps automation.Lists onto collections.Store.AddMember,
+// dropping the returned member row: an add_to_list action only needs to
+// know whether the membership write succeeded.
+type listsAdapter struct{ store *collections.Store }
+
+var _ automation.Lists = listsAdapter{}
+
+func (l listsAdapter) AddMember(ctx context.Context, listID ids.ListID, entityType string, entityID ids.UUID) error {
+	_, err := l.store.AddMember(ctx, listID, entityType, entityID)
+	return err
 }
 
 // automationApprovalsAdapter maps the automation module's staging seam

@@ -3,20 +3,19 @@
 
 package automation
 
-// The approvals seam (AUTO-T05, features/03 §5): ApplyActions recognizes
-// a 🟡 action but has nowhere to send it without a staging dependency —
-// without one, the run parks at requires_approval with no approval row
-// behind it and no way for a human to ever see or decide it. Declared
-// with ids/json/stdlib types only, so this module never imports the
-// approvals module directly (a module never imports a sibling,
-// ADR-0054 §9); compose owns the adapter that maps this onto the real
-// approvals.Service.
+// The seams ApplyActions drives each typed action through (AUTO-T05,
+// AUTO-T07, features/03 §5): every one is declared with ids/json/stdlib
+// types only, so this module never imports the module that actually
+// backs it (ADR-0054 §9, "a module never imports a sibling"); compose
+// owns every adapter that maps a seam here onto the real implementation.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // Approvals is the staging dependency ApplyActions holds: a 🟡 action
@@ -41,4 +40,56 @@ type StageRequest struct {
 	TargetType     string
 	TargetID       ids.UUID
 	Summary        string
+}
+
+// Lists is the add_to_list seam onto collections' static-list
+// membership write (collections/members.go's Store.AddMember); compose's
+// adapter drops the returned member row — an automation only needs to
+// know whether the write succeeded, never the row it produced.
+type Lists interface {
+	AddMember(ctx context.Context, listID ids.ListID, entityType string, entityID ids.UUID) error
+}
+
+// Comms is the draft_email seam onto activities' deterministic draft
+// compute (compose's commsAdapter, the same path the MCP draft_email
+// tool proposes over — agents.Comms.DraftEmail structurally satisfies
+// this interface, so compose reuses the one adapter rather than
+// wrapping it a second time). Applying draft_email means the draft was
+// computed, full stop — the send is a separate, approval-gated act
+// (ActionSendEmail, already 🟡 in ApplyActions' switch), never a side
+// effect of this call.
+type Comms interface {
+	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
+}
+
+// Notifier is the notify seam onto a real delivery transport. This repo
+// wires none today — no notification table, no channel adapter; the
+// inbox a human works from is approvals-only. ApplyActions' notify case
+// checks for a nil Notifier and answers ErrNoNotificationTransport
+// instead of silently discarding the firing (§3.3, UAT.md) — the day a
+// transport lands, compose wires a real Notifier here and this
+// interface already has a caller waiting for it.
+type Notifier interface {
+	Notify(ctx context.Context, recipient ids.UUID, subject, body string) error
+}
+
+// ErrNoNotificationTransport is notify's honest answer when no Notifier
+// is wired: the firing matched and would have delivered, but this
+// environment has nowhere to send it. runOne (workflows.go) maps it to
+// a 'skipped' run with a readable reason — distinct from a Match/Plan
+// condition-declined skip and distinct from 'failed' (nothing went
+// wrong; delivery is simply out of scope for this run), so a rep reading
+// run history sees why nothing was sent instead of a silent gap or a
+// fabricated success.
+var ErrNoNotificationTransport = errors.New("automation: no notification transport configured")
+
+// Executors bundles every seam ApplyActions may drive a typed action
+// through. One struct rather than a five-parameter signature: adding a
+// seam is one field here, not a break at every existing call site.
+type Executors struct {
+	Provider  datasource.SystemOfRecordProvider
+	Approvals Approvals
+	Lists     Lists
+	Comms     Comms
+	Notifier  Notifier // nil in this repo today — see Notifier's doc
 }

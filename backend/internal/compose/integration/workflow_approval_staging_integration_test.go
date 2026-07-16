@@ -81,9 +81,10 @@ func (p yellowStagingProbe) Plan(_ context.Context, ev workflow.Event) (workflow
 }
 
 func (p yellowStagingProbe) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
-	// nil provider: a 🟡 action stages instead of writing, so this proves
-	// ApplyActions never reaches the write side on this path (workflows.go).
-	applied, err := automation.ApplyActions(ctx, nil, p.approvals, eff)
+	// A zero-value Provider: a 🟡 action stages instead of writing, so
+	// this proves ApplyActions never reaches the write side on this path
+	// (workflows.go).
+	applied, err := automation.ApplyActions(ctx, automation.Executors{Approvals: p.approvals}, eff)
 	return workflow.RunResult{Applied: applied}, err
 }
 

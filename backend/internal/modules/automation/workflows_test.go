@@ -52,7 +52,7 @@ func TestApplyActionsStagesAYellowActionInsteadOfDeadEnding(t *testing.T) {
 	// provider is nil and never dereferenced: a 🟡 action stages instead
 	// of writing, so reaching the end of this call with no panic already
 	// proves the write side of the switch was never touched.
-	_, err := ApplyActions(context.Background(), nil, fake, workflow.Effect{Actions: []workflow.Action{action}})
+	_, err := ApplyActions(context.Background(), Executors{Approvals: fake}, workflow.Effect{Actions: []workflow.Action{action}})
 
 	var staged *workflow.StagedApprovalError
 	if !errors.As(err, &staged) {
@@ -96,7 +96,7 @@ func TestApplyActionsRequestApprovalActionAlsoStages(t *testing.T) {
 		Args:   json.RawMessage(`{}`),
 	}
 
-	_, err := ApplyActions(context.Background(), nil, fake, workflow.Effect{Actions: []workflow.Action{action}})
+	_, err := ApplyActions(context.Background(), Executors{Approvals: fake}, workflow.Effect{Actions: []workflow.Action{action}})
 
 	var staged *workflow.StagedApprovalError
 	if !errors.As(err, &staged) {
@@ -120,7 +120,7 @@ func TestApplyActionsNeverSwallowsAStageFailure(t *testing.T) {
 		Args:   json.RawMessage(`{"to_stage_id":"11111111-1111-7111-8111-111111111111"}`),
 	}
 
-	_, err := ApplyActions(context.Background(), nil, fake, workflow.Effect{Actions: []workflow.Action{action}})
+	_, err := ApplyActions(context.Background(), Executors{Approvals: fake}, workflow.Effect{Actions: []workflow.Action{action}})
 
 	if !errors.Is(err, stageErr) {
 		t.Fatalf("ApplyActions err = %v, want it to wrap the Stage failure %v", err, stageErr)
