@@ -14,10 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"slices"
-	"strings"
-
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // CatalogEntry describes one instantiable automation type. Key equals
@@ -41,21 +37,39 @@ type CatalogEntry struct {
 	Seeded bool
 }
 
+// The JSON-schema vocabulary the closed catalog's hand-built schemas
+// speak — one spelling of each keyword so the schema helpers read
+// uniformly and a mistyped one is a build error, not a schema the
+// editor form silently cannot render.
+const (
+	schemaTypeObject         = "object"
+	schemaTypeString         = "string"
+	schemaKeyProperties      = "properties"
+	schemaKeyAdditionalProps = "additionalProperties"
+	schemaKeyDescription     = "description"
+)
+
+// errNotAParameter is the 422 reason every closed-catalog validator
+// returns for a params key outside its own schema. The routing rule keys
+// (ruleKeyField/ruleKeyEquals/keyOwnerID) live beside their own schema in
+// catalog_leadrouting_schema.go.
+const errNotAParameter = "not a parameter of this automation type"
+
 // singleIntParamSchema is the one-knob schema every "how many days"
 // starter shares — due_in_days, no_activity_days, check_in_days, and
 // days_before all take the identical bounded-integer shape and differ
 // only in which key names the knob and what its own default/bounds are.
 func singleIntParamSchema(key string, defaultValue, minValue, maxValue int, description string) map[string]any {
 	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties": map[string]any{
+		"type":                   schemaTypeObject,
+		schemaKeyAdditionalProps: false,
+		schemaKeyProperties: map[string]any{
 			key: map[string]any{
-				"type":        "integer",
-				"minimum":     minValue,
-				"maximum":     maxValue,
-				"default":     defaultValue,
-				"description": description,
+				"type":               "integer",
+				"minimum":            minValue,
+				"maximum":            maxValue,
+				"default":            defaultValue,
+				schemaKeyDescription: description,
 			},
 		},
 	}
@@ -70,7 +84,7 @@ func validateSingleIntParam(key string, minValue, maxValue int) func(params map[
 	return func(params map[string]any) error {
 		for k, value := range params {
 			if k != key {
-				return &ParamError{Field: "params." + k, Reason: "not a parameter of this automation type"}
+				return &ParamError{Field: "params." + k, Reason: errNotAParameter}
 			}
 			n, ok := value.(float64) // decoded JSON numbers arrive as float64
 			if !ok || n != math.Trunc(n) {
@@ -137,166 +151,18 @@ var validateRenewalReminderParams = validateSingleIntParam("days_before", 1, 365
 // blob is the empty one.
 func noParamsSchema() map[string]any {
 	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties":           map[string]any{},
+		"type":                   schemaTypeObject,
+		schemaKeyAdditionalProps: false,
+		schemaKeyProperties:      map[string]any{},
 	}
 }
 
 // validateNoParams rejects any key at all — the starter reads no params.
 func validateNoParams(params map[string]any) error {
 	for key := range params {
-		return &ParamError{Field: "params." + key, Reason: "not a parameter of this automation type"}
+		return &ParamError{Field: "params." + key, Reason: errNotAParameter}
 	}
 	return nil
-}
-
-// RoutableLeadFields mirrors the closed field set the people module's
-// routing engine matches rules on — lead-local columns only
-// (segregation-in-scoring: routing never reads the contact graph).
-var RoutableLeadFields = []string{"source", "company_name", "candidate_org_key"}
-
-// leadRoutingSchema is the assign_lead_owner params shape (features/03 §3
-// AC-S5): an ordered round-robin pool, an optional per-owner cap, and
-// ordered field-match rules that outrank the rotation. This schema is
-// the config source of truth for the editor; the people module's
-// RoutingConfig decodes the identical shape.
-func leadRoutingSchema() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"properties": map[string]any{
-			"owners": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string", "format": "uuid"},
-				"description": "Round-robin pool of user ids, in rotation order.",
-			},
-			"cap_per_owner": map[string]any{
-				"type":        "integer",
-				"minimum":     1,
-				"description": "Max open (new/working) leads an owner may hold; omitted = uncapped.",
-			},
-			"rules": map[string]any{
-				"type":        "array",
-				"description": "Evaluated in order before round-robin; a matching lead goes to the rule's owner if under cap.",
-				"items": map[string]any{
-					"type":                 "object",
-					"additionalProperties": false,
-					"required":             []string{"field", "equals", "owner_id"},
-					"properties": map[string]any{
-						"field":    map[string]any{"enum": RoutableLeadFields},
-						"equals":   map[string]any{"type": "string"},
-						"owner_id": map[string]any{"type": "string", "format": "uuid"},
-					},
-				},
-			},
-		},
-	}
-}
-
-// validateLeadRoutingParams is the hand-rolled counterpart of
-// leadRoutingSchema — same anti-DSL posture as validateDueInDays: an
-// unknown knob or a mistyped value is a 422, never a stored blob the
-// engine chokes on later.
-func validateLeadRoutingParams(params map[string]any) error {
-	for key, value := range params {
-		switch key {
-		case "owners":
-			if err := validateRoutingOwners(value); err != nil {
-				return err
-			}
-		case "cap_per_owner":
-			if err := validateRoutingCap(value); err != nil {
-				return err
-			}
-		case "rules":
-			if err := validateRoutingRules(value); err != nil {
-				return err
-			}
-		default:
-			return &ParamError{Field: "params." + key, Reason: "not a parameter of this automation type"}
-		}
-	}
-	return nil
-}
-
-func validateRoutingOwners(value any) error {
-	list, ok := value.([]any)
-	if !ok {
-		return &ParamError{Field: "params.owners", Reason: "must be an array of user ids"}
-	}
-	for i, item := range list {
-		if !isUUIDString(item) {
-			return &ParamError{Field: fmt.Sprintf("params.owners[%d]", i), Reason: "must be a UUID"}
-		}
-	}
-	return nil
-}
-
-func validateRoutingCap(value any) error {
-	n, ok := value.(float64) // decoded JSON numbers arrive as float64
-	if !ok || n != math.Trunc(n) {
-		return &ParamError{Field: "params.cap_per_owner", Reason: "must be an integer"}
-	}
-	if n < 1 {
-		return &ParamError{Field: "params.cap_per_owner", Reason: "must be at least 1"}
-	}
-	return nil
-}
-
-func validateRoutingRules(value any) error {
-	list, ok := value.([]any)
-	if !ok {
-		return &ParamError{Field: "params.rules", Reason: "must be an array of rules"}
-	}
-	for i, item := range list {
-		if err := validateRoutingRule(i, item); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateRoutingRule(i int, item any) error {
-	at := func(field string) string { return fmt.Sprintf("params.rules[%d].%s", i, field) }
-	rule, ok := item.(map[string]any)
-	if !ok {
-		return &ParamError{Field: fmt.Sprintf("params.rules[%d]", i), Reason: "must be an object"}
-	}
-	for key, value := range rule {
-		switch key {
-		case "field":
-			name, ok := value.(string)
-			if !ok || !slices.Contains(RoutableLeadFields, name) {
-				return &ParamError{Field: at("field"), Reason: "must be one of " + strings.Join(RoutableLeadFields, ", ")}
-			}
-		case "equals":
-			if _, ok := value.(string); !ok {
-				return &ParamError{Field: at("equals"), Reason: "must be a string"}
-			}
-		case "owner_id":
-			if !isUUIDString(value) {
-				return &ParamError{Field: at("owner_id"), Reason: "must be a UUID"}
-			}
-		default:
-			return &ParamError{Field: at(key), Reason: "not a rule property"}
-		}
-	}
-	for _, required := range []string{"field", "equals", "owner_id"} {
-		if _, present := rule[required]; !present {
-			return &ParamError{Field: at(required), Reason: "is required"}
-		}
-	}
-	return nil
-}
-
-func isUUIDString(value any) bool {
-	s, ok := value.(string)
-	if !ok {
-		return false
-	}
-	_, err := ids.Parse(s)
-	return err == nil
 }
 
 // ParamError maps to 422 at the transport.

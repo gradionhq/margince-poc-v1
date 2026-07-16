@@ -143,27 +143,37 @@ func activityStaleMatch(ev workflow.Event, days clockDaysExtractor) (bool, error
 	return anchor.Before(cutoff), nil
 }
 
-// anchorReminderTaskEffect mints the one create_task reminder shape every
-// anchor-derived clock handler plans (no_activity_reminder,
-// check_in_cadence, renewal_reminder): a task anchored on the fired
-// entity whose subject is the caller's own wording — the same create_task
-// shape stageChangeCreateTask (workflows_starter.go) builds, generalized
-// to whatever entity type actually fired rather than a hardcoded "deal".
-func anchorReminderTaskEffect(ev workflow.Event, subject string) (workflow.Effect, error) {
+// taskCreateEffect is the ONE create_task effect shape every task-minting
+// starter plans — the clock reminders here AND the event starters in
+// workflows_starter.go (stage_change_create_task, route_lead). A task of
+// the given subject, due at dueAt, linked to whatever entity actually
+// fired. Sharing the builder keeps the effect's JSON keys
+// (task/subject/due_at/links/entity_type/entity_id) in exactly one place,
+// so an editor-facing schema change lands once, not in three hand-copied
+// maps that could drift.
+func taskCreateEffect(ev workflow.Event, subject string, dueAt time.Time) (workflow.Effect, error) {
 	args, err := json.Marshal(map[string]any{
 		fieldKind: "task",
 		"subject": subject,
-		"due_at":  ev.OccurredAt,
+		"due_at":  dueAt,
 		"links": []map[string]any{{
 			"entity_type": string(ev.Entity.Type), "entity_id": ev.Entity.ID,
 		}},
 	})
 	if err != nil {
-		return workflow.Effect{}, fmt.Errorf("automation: encoding the reminder task: %w", err)
+		return workflow.Effect{}, fmt.Errorf("automation: encoding the task: %w", err)
 	}
 	return workflow.Effect{Actions: []workflow.Action{{
 		Kind: workflow.ActionCreateTask, Target: ev.Entity, Args: args,
 	}}}, nil
+}
+
+// anchorReminderTaskEffect is the clock handlers' view of taskCreateEffect:
+// a reminder due AT the anchor moment (ev.OccurredAt), anchored on the
+// fired entity, with the caller's own wording — no_activity_reminder,
+// check_in_cadence, and renewal_reminder all plan through it.
+func anchorReminderTaskEffect(ev workflow.Event, subject string) (workflow.Effect, error) {
+	return taskCreateEffect(ev, subject, ev.OccurredAt)
 }
 
 // anchorIdempotencyKey is the load-bearing occurrence key (Task 12) every

@@ -122,14 +122,14 @@ func leadPreviewDefs() map[string]previewDef {
 			baseWhere: "t.archived_at IS NULL",
 			fields: map[string]storekit.Field{
 				"status":   {Expr: "t.status", Type: storekit.FieldPicklist},
-				"owner_id": {Expr: "t.owner_id", Type: storekit.FieldID},
+				keyOwnerID: {Expr: "t.owner_id", Type: storekit.FieldID},
 			},
 			// When: lead.created. If: the router only assigns where no
 			// owner is set — so the blast radius now is the open, unrouted
 			// lead pool.
 			match: storekit.Predicate{And: []storekit.Predicate{
 				{Field: "status", Op: storekit.OpIn, Value: []any{"new", "working"}},
-				{Field: "owner_id", Op: storekit.OpExists, Value: false},
+				{Field: keyOwnerID, Op: storekit.OpExists, Value: false},
 			}},
 			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 				// Every lead created in the window was one firing —

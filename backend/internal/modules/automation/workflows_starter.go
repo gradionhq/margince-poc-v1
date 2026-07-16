@@ -76,20 +76,12 @@ func (w stageChangeCreateTask) Plan(_ context.Context, ev workflow.Event) (workf
 	if err != nil {
 		return workflow.Effect{}, err
 	}
-	args, err := json.Marshal(map[string]any{
-		fieldKind: "task",
-		"subject": "Plan the next step after the stage change",
-		"due_at":  ev.OccurredAt.AddDate(0, 0, dueInDays),
-		"links": []map[string]any{{
-			"entity_type": "deal", "entity_id": ev.Entity.ID,
-		}},
-	})
-	if err != nil {
-		return workflow.Effect{}, err
-	}
-	return workflow.Effect{Actions: []workflow.Action{{
-		Kind: workflow.ActionCreateTask, Target: ev.Entity, Args: args,
-	}}}, nil
+	// The fired entity IS the deal (this handler triggers only on
+	// deal.stage_changed), so taskCreateEffect's string(ev.Entity.Type)
+	// resolves to "deal" — the same value this map hardcoded before the
+	// shared builder existed.
+	return taskCreateEffect(ev, "Plan the next step after the stage change",
+		ev.OccurredAt.AddDate(0, 0, dueInDays))
 }
 
 func (w stageChangeCreateTask) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
@@ -142,20 +134,8 @@ func (w routeLeadCreateTask) Plan(_ context.Context, ev workflow.Event) (workflo
 	if err != nil {
 		return workflow.Effect{}, err
 	}
-	args, err := json.Marshal(map[string]any{
-		fieldKind: "task",
-		"subject": "Follow up with the new lead",
-		"due_at":  ev.OccurredAt.AddDate(0, 0, dueInDays),
-		"links": []map[string]any{{
-			"entity_type": string(ev.Entity.Type), "entity_id": ev.Entity.ID,
-		}},
-	})
-	if err != nil {
-		return workflow.Effect{}, err
-	}
-	return workflow.Effect{Actions: []workflow.Action{{
-		Kind: workflow.ActionCreateTask, Target: ev.Entity, Args: args,
-	}}}, nil
+	return taskCreateEffect(ev, "Follow up with the new lead",
+		ev.OccurredAt.AddDate(0, 0, dueInDays))
 }
 
 func (w routeLeadCreateTask) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
