@@ -136,17 +136,18 @@ func TestFilteredExportOpenFormatsAndAudit(t *testing.T) {
 		}
 	}
 
-	// The export operation itself is audited: one 'export' row on 'deal'
-	// recording the format and row count of the slice.
-	action, entityType, after := lastAudit(t, e, "export")
-	if action != "export" || entityType != "deal" {
-		t.Fatalf("audit row = (%s, %s), want (export, deal)", action, entityType)
+	// The export operation itself is logged: one 'export' row in system_log
+	// (a bulk export mutates no record — it is a non-entity operational
+	// event) recording the exported table, format, and row count of the slice.
+	action, detail := lastSystemLog(t, e, "export")
+	if action != "export" || detail["table"] != "deal" {
+		t.Fatalf("system_log row = (%s, table=%v), want (export, deal)", action, detail["table"])
 	}
-	if after["format"] != "csv" && after["format"] != "json" {
-		t.Fatalf("audit row omits the export format: %v", after)
+	if detail["format"] != "csv" && detail["format"] != "json" {
+		t.Fatalf("system_log row omits the export format: %v", detail)
 	}
-	if after["row_count"] == nil {
-		t.Fatalf("audit row omits the exported slice size: %v", after)
+	if detail["row_count"] == nil {
+		t.Fatalf("system_log row omits the exported slice size: %v", detail)
 	}
 }
 
@@ -193,10 +194,10 @@ func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
 	}
 }
 
-// lastAudit reads the most recent audit_log row for an action inside the
-// workspace-bound GUC (FORCE RLS applies even to the table owner), so the
+// lastSystemLog reads the most recent system_log row for an action inside
+// the workspace-bound GUC (FORCE RLS applies even to the table owner), so the
 // suite can assert the export was recorded.
-func lastAudit(t *testing.T, e *searchEnv, action string) (gotAction, entityType string, after map[string]any) {
+func lastSystemLog(t *testing.T, e *searchEnv, action string) (gotAction string, detail map[string]any) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := e.owner.Begin(ctx)
@@ -208,17 +209,17 @@ func lastAudit(t *testing.T, e *searchEnv, action string) (gotAction, entityType
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, e.WS.String()); err != nil {
 		t.Fatalf("set guc: %v", err)
 	}
-	var afterRaw []byte
+	var detailRaw []byte
 	err = tx.QueryRow(ctx,
-		`SELECT action, entity_type, after FROM audit_log WHERE action = $1 ORDER BY occurred_at DESC LIMIT 1`,
-		action).Scan(&gotAction, &entityType, &afterRaw)
+		`SELECT action, detail FROM system_log WHERE action = $1 ORDER BY occurred_at DESC LIMIT 1`,
+		action).Scan(&gotAction, &detailRaw)
 	if err != nil {
-		t.Fatalf("reading audit row: %v", err)
+		t.Fatalf("reading system_log row: %v", err)
 	}
-	if err := json.Unmarshal(afterRaw, &after); err != nil {
-		t.Fatalf("audit after is not JSON: %v", err)
+	if err := json.Unmarshal(detailRaw, &detail); err != nil {
+		t.Fatalf("system_log detail is not JSON: %v", err)
 	}
-	return gotAction, entityType, after
+	return gotAction, detail
 }
 
 // TestFilteredExportHTTPEndToEnd drives the endpoint over the wire: a valid

@@ -86,7 +86,9 @@ var auditOnlyWrites = map[string]string{
 	"internal/compose/briefs:SnapshotRun":                "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose/briefs:markItem":                   "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose/briefs:resurfaceExpiredSnoozes":    "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
-	"internal/compose:WriteFiltered":                     "filtered export is a read whose only write IS the audit row \u2014 the closed catalog (events.md \u00a75) defines no export type (the same ratification as AssembleSAR)",
+	// WriteFiltered no longer belongs here: the bulk export is a non-entity
+	// operational event, so it moved from storekit.Audit to storekit.LogSystem
+	// (system_log, 0074) \u2014 it writes no audit_log row at all now.
 }
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {

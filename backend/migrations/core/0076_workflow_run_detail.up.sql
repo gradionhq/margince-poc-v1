@@ -1,4 +1,4 @@
--- 0074: workflow_run.detail (Schema appendix pins `detail jsonb`). The
+-- 0076: workflow_run.detail (Schema appendix pins `detail jsonb`). The
 -- existing `error` text column carries two payloads: a human-readable
 -- failure/skip/block reason, and — while a run is parked for a staged
 -- 🟡 approval — a machine-parsed staging pointer matched back by exact

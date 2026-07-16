@@ -116,6 +116,29 @@ var catalog = map[string]struct {
 	"passport.revoked": {"identity", 1},
 }
 
+// pipelineEventTypes are the capture-pipeline events that may ride the bus
+// WITHOUT a subject entity ref. A pipeline step can be subject-less by
+// nature — capture.skipped names NOTHING (an excluded personal message
+// creates no row), yet the spec still requires it on the bus as the
+// machine-checkable "personal mail is never ingested" proof (capture.md
+// AC1.3, EVT-SEM-10). These events carry no entity handle, but they DO keep
+// the ledger trace link (audit_log OR system_log) so the outcome stays
+// attributable — Validate enforces the trace, only the entity is relaxed.
+var pipelineEventTypes = map[string]struct{}{
+	"capture.received":   {},
+	"capture.normalized": {},
+	"capture.failed":     {},
+	"capture.skipped":    {},
+}
+
+// IsPipelineEvent reports whether an event type is an entity-less
+// pipeline-event class member (see pipelineEventTypes): its envelope may
+// carry an empty Entity ref where a normal event must name its subject.
+func IsPipelineEvent(eventType string) bool {
+	_, ok := pipelineEventTypes[eventType]
+	return ok
+}
+
 // Types returns every catalog event type, sorted — the enumerable set
 // codegen and the naming fitness test walk.
 func Types() []string {

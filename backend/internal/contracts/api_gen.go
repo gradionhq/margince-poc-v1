@@ -377,7 +377,6 @@ const (
 	Export          AuditLogEntryAction = "export"
 	Import          AuditLogEntryAction = "import"
 	ImportUndo      AuditLogEntryAction = "import_undo"
-	Login           AuditLogEntryAction = "login"
 	Merge           AuditLogEntryAction = "merge"
 	Promote         AuditLogEntryAction = "promote"
 	RecordShare     AuditLogEntryAction = "record_share"
@@ -420,8 +419,6 @@ func (e AuditLogEntryAction) Valid() bool {
 	case Import:
 		return true
 	case ImportUndo:
-		return true
-	case Login:
 		return true
 	case Merge:
 		return true
@@ -4415,8 +4412,10 @@ type AuditLogEntry struct {
 	// AuthorizationRule Which RBAC/scope rule allowed it.
 	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
 	Before            *map[string]interface{} `json:"before,omitempty"`
-	EntityId          *openapi_types.UUID     `json:"entity_id,omitempty"`
-	EntityType        string                  `json:"entity_type"`
+
+	// EntityId Every audit_log row names the record it mutated (NOT NULL since 0075).
+	EntityId   openapi_types.UUID `json:"entity_id"`
+	EntityType string             `json:"entity_type"`
 
 	// Evidence e.g. which inbound email/meeting triggered a promotion.
 	Evidence   *map[string]interface{} `json:"evidence,omitempty"`

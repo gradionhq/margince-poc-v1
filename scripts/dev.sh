@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-command local dev stack on the ONE shared infra: Postgres + Redis, the api
-# (cmd/api), and the Vite dev server — so the SPA runs in a real browser against
-# a live api. Bare `make dev` uses the shared `margince` database on :8080/:5173;
+# (cmd/api), the background worker (cmd/worker — outbox relay + Surface-B runner),
+# and the Vite dev server — so the SPA runs in a real browser against a live api.
+# Bare `make dev` uses the shared `margince` database on :8080/:5173;
 # `make dev DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` database on
 # slug-derived ports, so two worktrees can run concurrently without colliding on
 # the database or the host ports.
@@ -176,17 +177,17 @@ up)
 
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
-  # kill. Redis is the ONE shared instance.
-  # --inline-relay=false: the worker (started below) always runs the
-  # standalone outbox relay now, so the api must not also run one — two
-  # relays racing the same outbox would double-ship every event.
+  # kill. Redis is the ONE shared instance. The api keeps its default inline
+  # relay: it coexists with the worker's standalone relay (started below) —
+  # outbox rows are claimed FOR UPDATE SKIP LOCKED, so two relays never
+  # double-ship.
   MARGINCE_ENV=dev \
     MARGINCE_BLOBSTORE_ENDPOINT="localhost:${MINIO_PORT}" \
     MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" \
-    --redis "localhost:${REDIS_PORT}" --inline-relay=false \
+    --redis "localhost:${REDIS_PORT}" \
     "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
   be_pid=$!
 
@@ -212,34 +213,45 @@ up)
     exit 1
   fi
 
-  # The background worker (cmd/worker) — the ONLY cg:workflows consumer and
-  # the ONLY River scheduler (close-date sweep, follow-up reconcile, the
-  # automation time-scan, and — when Gmail is configured — the Gmail
-  # incremental-sync poll). It now always runs: without it `make dev` fires
-  # no automations at all, event-triggered or clock-triggered. It also owns
-  # the outbox relay (see --inline-relay=false on the api above).
+  # The background process role (cmd/worker) always runs alongside the api in
+  # dev: the standalone outbox relay (coexists with the api's inline relay —
+  # rows are claimed FOR UPDATE SKIP LOCKED, so two relays never double-ship),
+  # the Surface-B runner scheduler, and the retention / close-date / reconcile
+  # sweeps AND the automation time-scan (the ONLY cg:workflows consumer + the
+  # clock-trigger scheduler — without the worker, `make dev` fires no
+  # automations at all, event- or clock-triggered). It gets the SAME config
+  # surface as the api — the same $ai_flag (real Anthropic model when
+  # .env.local set ANTHROPIC_API_KEY, else the offline fake, so its runner
+  # matches the api), the same blobstore endpoint, and the .env.local keys
+  # already exported into this shell (vault + Gmail secrets travel via the
+  # environment, never CLI flags). Gmail adds a short sync poll only when the
+  # connector is configured.
   #
-  # --retention-interval 720h: the worker also runs the nightly GDPR
-  # retention/erasure pass unconditionally. River's RunOnStart still fires
-  # one evaluation immediately at boot (that's inherent, not gated by this
-  # flag) — but it only ERASES data past its jurisdiction floor, so on fresh
-  # seeded demo data it's a no-op. The long interval just stops it from
-  # recurring for the life of a dev session.
+  # --retention-interval 720h: the worker runs the nightly GDPR
+  # retention/erasure pass unconditionally. River's RunOnStart still fires one
+  # evaluation immediately at boot (inherent, not gated by this flag) — but it
+  # only ERASES data past its jurisdiction floor, so on fresh seeded demo data
+  # it is a no-op. The long interval just stops it recurring during a dev
+  # session.
   ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
   worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then
-    # Gmail client id/secret come from the exported env (not CLI flags); the
-    # worker's flags default to them. A short poll makes the demo responsive.
+    # A short poll makes the demo mailbox responsive; the default is 2m.
     worker_gmail_flags=(--gmail-sync-interval 30s)
   fi
   MARGINCE_ENV=dev \
+    MARGINCE_BLOBSTORE_ENDPOINT="localhost:${MINIO_PORT}" \
+    MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
+    MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
+    MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
     --retention-interval 720h \
-    "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
+    "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
   worker_pid=$!
-  echo "  worker   automations running (outbox relay, close-date sweep, reconcile, time-scan)"
   if [[ "$gmail_enabled" == "1" ]]; then
-    echo "  gmail    sync worker running (poll every 30s)"
+    echo "  worker   background relay + Surface-B runner + time-scan + Gmail sync (poll every 30s)"
+  else
+    echo "  worker   background relay + Surface-B runner + automation time-scan running"
   fi
 
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).

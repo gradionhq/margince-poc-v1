@@ -7,9 +7,19 @@ DB_NAME   ?= margince
 OWNER_DSN ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(DB_NAME)
 APP_DSN   ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(DB_NAME)
 
-export MARGINCE_TEST_DSN     ?= $(OWNER_DSN)
-export MARGINCE_TEST_APP_DSN ?= $(APP_DSN)
-export MARGINCE_TEST_REDIS   ?= localhost:$(REDIS_PORT)
+# The integration lane runs on its OWN `_test`-suffixed namespace on the shared
+# containers, so `make dev` (DB `margince`, Redis logical db 0) and
+# `make test-integration` never touch the same mutable state and can run
+# concurrently. Postgres: a separate `margince_test` database (the parallel lane
+# clones per-package throwaways from a template of the same name; the serial
+# escape hatch runs directly on it). Redis: db 0 is reserved for `make dev`, so
+# the test lanes default to db 15 and the parallel runner fans packages across
+# 1..15 (see scripts/test-integration-parallel.sh) — no stream collisions.
+TEST_DB_NAME ?= margince_test
+export MARGINCE_TEST_DSN     ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(TEST_DB_NAME)
+export MARGINCE_TEST_APP_DSN ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(TEST_DB_NAME)
+export MARGINCE_TEST_REDIS    ?= localhost:$(REDIS_PORT)
+export MARGINCE_TEST_REDIS_DB ?= 15
 # Blobstore (MinIO) — the integration lane fails loudly without it, never
 # skips, so the endpoint/creds/bucket are part of the compose + CI contract.
 # The bucket is created by the store at first connect.
@@ -59,7 +69,8 @@ test-db-up: ## (Re)build the migrated margince_test template the parallel lane c
 test-it: ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
 	@bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
 
-test-integration-serial: ## Escape hatch: the old sequential lane, all packages on the shared dev DB (debugging a parallel-isolation issue).
+test-integration-serial: ## Escape hatch: the old sequential lane, all packages on the shared margince_test DB (debugging a parallel-isolation issue).
+	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
 	@log=$$(mktemp); st=$$(mktemp); \
 	{ $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
 	code=$$(cat "$$st"); rm -f "$$st"; \

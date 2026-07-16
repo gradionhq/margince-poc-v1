@@ -1,4 +1,4 @@
--- 0075: reconcile the route_lead / assign_lead_owner catalog split
+-- 0077: reconcile the route_lead / assign_lead_owner catalog split
 -- (AUTO-NOTE-2, features/03 §3.5): the spec's user-reachable vocabulary
 -- (AUTO-PARAM-5) reserves "Route new lead to a task" for a create_task
 -- effect. The route_lead handler this codebase already shipped instead

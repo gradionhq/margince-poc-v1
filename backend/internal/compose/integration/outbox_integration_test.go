@@ -147,11 +147,11 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	})
 	var failed int
 	if err := owner.QueryRow(t.Context(),
-		`SELECT count(*) FROM audit_log WHERE action = 'login' AND evidence->>'outcome' = 'failed'`).Scan(&failed); err != nil {
+		`SELECT count(*) FROM system_log WHERE action = 'login' AND detail->>'outcome' = 'failed'`).Scan(&failed); err != nil {
 		t.Fatal(err)
 	}
 	if failed != 1 {
-		t.Fatalf("failed-login audit rows = %d, want 1", failed)
+		t.Fatalf("failed-login system_log rows = %d, want 1", failed)
 	}
 
 	// Failures two through five stay 401; the fifth consecutive failure
@@ -178,10 +178,10 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	}
 	var lockouts int
 	if err := owner.QueryRow(t.Context(),
-		`SELECT count(*) FROM audit_log WHERE action = 'login' AND evidence->>'outcome' = 'lockout'`).Scan(&lockouts); err != nil {
+		`SELECT count(*) FROM system_log WHERE action = 'login' AND detail->>'outcome' = 'lockout'`).Scan(&lockouts); err != nil {
 		t.Fatal(err)
 	}
 	if lockouts != 1 {
-		t.Fatalf("lockout audit rows = %d, want 1", lockouts)
+		t.Fatalf("lockout system_log rows = %d, want 1", lockouts)
 	}
 }

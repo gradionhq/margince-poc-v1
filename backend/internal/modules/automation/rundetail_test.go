@@ -4,7 +4,7 @@
 package automation
 
 // Pure unit coverage for the workflow_run.detail jsonb shape (migration
-// 0074): no database needed, since every writer and reader here is a
+// 0076): no database needed, since every writer and reader here is a
 // plain encode/decode pair over the same runDetail struct.
 
 import (
