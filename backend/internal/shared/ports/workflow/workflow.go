@@ -96,7 +96,26 @@ const (
 	ActionEmitFlowEvent  ActionKind = "emit_flow_event"
 	ActionRecomputeScore ActionKind = "recompute_score"
 	ActionEnqueueJob     ActionKind = "enqueue_job"
+
+	// The user-facing catalog's actions that have no lower-level kind:
+	// notify is delivery to a human, add_to_list writes through the list
+	// engine, and draft_email creates a draft and never sends — the send
+	// is a separate, approval-gated act.
+	ActionNotify     ActionKind = "notify"
+	ActionAddToList  ActionKind = "add_to_list"
+	ActionDraftEmail ActionKind = "draft_email"
 )
+
+// AllActionKinds is the closed set, in declaration order. The registry maps
+// the user-facing catalog onto these; a kind with no executor fails the
+// totality test rather than reaching a caller.
+func AllActionKinds() []ActionKind {
+	return []ActionKind{
+		ActionCreateRecord, ActionUpdateRecord, ActionCreateTask, ActionAssignOwner,
+		ActionAdvanceDeal, ActionSendEmail, ActionEmitFlowEvent, ActionRecomputeScore,
+		ActionEnqueueJob, ActionNotify, ActionAddToList, ActionDraftEmail,
+	}
+}
 
 type Action struct {
 	Kind   ActionKind
