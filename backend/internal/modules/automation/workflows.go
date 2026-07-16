@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The deterministic automation path (interfaces.md §5): typed handlers
 // in a registry, driven off the bus — the predictable sibling of the

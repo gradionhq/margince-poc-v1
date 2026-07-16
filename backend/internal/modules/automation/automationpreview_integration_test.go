@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package agents
+package automation
 
 // The designer's dry-run (A72/ADR-0035 Am.1) over a real migrated
 // Postgres: the preview matches current records under the caller's row

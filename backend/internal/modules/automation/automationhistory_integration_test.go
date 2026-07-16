@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package agents
+package automation
 
 // The /automations/{id}/runs read (A72/ADR-0035 Am.1) over a real
 // migrated Postgres: keyset paging newest-first, the wire-vocabulary

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The 'blocked' terminal outcome (A72/ADR-0035 Am.1, migration 0061): a
 // workflow run that staged a 🟡 approval and then saw it rejected is a

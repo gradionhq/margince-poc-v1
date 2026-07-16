@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package agents
+package automation
 
 // Honest run recording (B-E15.3a + A72/ADR-0035 Am.1) over a real
 // migrated Postgres: every firing outcome — applied, skipped, failed at

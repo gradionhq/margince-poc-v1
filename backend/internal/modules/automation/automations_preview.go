@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The designer's dry-run (A72/ADR-0035 Am.1): which records does this
 // automation's When/If match RIGHT NOW, and how often would it have

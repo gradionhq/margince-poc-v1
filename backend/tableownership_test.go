@@ -101,10 +101,11 @@ var tableOwners = map[string]string{
 	"voice_profile":       "internal/modules/ai",
 	"voice_corpus_source": "internal/modules/ai",
 	// agents (incl. the runner subpackage)
-	"agent_run":    "internal/modules/agents",
-	"runner_job":   "internal/modules/agents",
-	"workflow_run": "internal/modules/agents",
-	"automation":   "internal/modules/agents",
+	"agent_run":  "internal/modules/agents",
+	"runner_job": "internal/modules/agents",
+	// automation (the deterministic trigger-and-action catalog)
+	"workflow_run": "internal/modules/automation",
+	"automation":   "internal/modules/automation",
 	// signals (the warm-room signal spine + its append-only resolution log)
 	"signal":            "internal/modules/signals",
 	"signal_resolution": "internal/modules/signals",

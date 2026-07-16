@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // Automation instance CRUD (B-E15.4): per-workspace rows that
 // parameterize the workflow engine's closed catalog. Every mutation is

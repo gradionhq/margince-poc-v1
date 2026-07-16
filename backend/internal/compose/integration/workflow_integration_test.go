@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -32,7 +32,7 @@ import (
 func seedStarterAutomations(t *testing.T, e *searchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return agents.SeedStarterAutomationsTx(context.Background(), tx)
+		return automation.SeedStarterAutomationsTx(context.Background(), tx)
 	})
 	if err != nil {
 		t.Fatalf("seeding starter automations: %v", err)

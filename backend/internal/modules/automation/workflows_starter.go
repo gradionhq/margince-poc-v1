@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The starter workflow library (features/03 §5.3): small, deterministic
 // automations shipped as ordinary handlers — the worked examples the

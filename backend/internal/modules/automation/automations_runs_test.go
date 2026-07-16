@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The run-history vocabulary as specs: the wire outcome set, the
 // workflow_run.status set (migration 0061's CHECK), and the two maps

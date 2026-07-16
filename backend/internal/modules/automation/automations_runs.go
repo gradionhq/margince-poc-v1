@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The run-history read (A72/ADR-0035 Am.1): one automation's firings of
 // EVERY outcome, reconstructed from workflow_run. The linkage is the

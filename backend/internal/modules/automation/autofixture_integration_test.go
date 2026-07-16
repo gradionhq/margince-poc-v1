@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package agents
+package automation
 
 // The shared fixture for this package's integration suites, over the
 // already-migrated database (`make migrate` is the integration lane's

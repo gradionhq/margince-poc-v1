@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -32,7 +32,7 @@ import (
 type routingEnv struct {
 	*searchEnv
 	Rep2   ids.UUID
-	engine *agents.WorkflowEngine
+	engine *automation.WorkflowEngine
 }
 
 func setupRouting(t *testing.T) *routingEnv {
