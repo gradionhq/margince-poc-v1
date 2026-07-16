@@ -49,6 +49,7 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | `arch-lint` | go-arch-lint over `.go-arch-lint.yml` — a hard gate on the import DAG |
 | `gen` | Regenerate everything derived from `api/crm.yaml` (contract types, 501 stubs, agent-policy table) |
 | `drift` | `gen`, then fail if any generated file changed — the contract drift gate |
+| `gen-workflow` | `make gen-workflow NAME=<snake_case_handler_name>` — scaffold a new automation `workflow.Handler` + its test stub (write-once; refuses to overwrite an existing scaffold). See [how-to/add-an-automation-trigger-or-action.md](../how-to/add-an-automation-trigger-or-action.md) |
 
 The root `make check` runs the backend gate above **and** these deterministic
 root gates (each is a small script; all merge-blocking):

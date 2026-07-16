@@ -54,11 +54,13 @@ Operational endpoints (served next to `/v1`):
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick |
 | `--retention-interval` | — | `24h` | retention evaluator pass interval |
+| `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
 
 Without a declared model (`--ai-routing`/`--ai-fake`) the runner and the
-embedding lane simply do not start; the relay, retention, and workflow
-lanes always run. Shutdown is graceful: in-flight subscriber handlers
-finish their ack before the process exits.
+embedding lane simply do not start; the relay, retention, the event-triggered
+workflow dispatch (`cg:workflows`), and the clock time-scan always run.
+Shutdown is graceful: in-flight subscriber handlers finish their ack before
+the process exits.
 
 ## Object storage (api, worker) — attachments
 

@@ -158,10 +158,10 @@ per-client throttling at the proxy.
   one Go module under `backend/` (`github.com/gradionhq/margince/backend`)
   as the `internal/{modules,platform,shared}` triad —
   `shared/{kernel,apperrors,ports}` (stdlib-only leaves), `platform/*`
-  (plumbing, owns no domain), sixteen `modules/` (identity, people,
-  deals, activities, approvals, agents, ai, search, capture, consent,
-  privacy, collections, signals, customfields, quotas, and the `de`
-  jurisdiction pack — no sibling imports),
+  (plumbing, owns no domain), seventeen `modules/` (identity, people,
+  deals, activities, approvals, agents, automation, ai, search, capture,
+  consent, privacy, collections, signals, customfields, quotas, and the
+  `de` jurisdiction pack — no sibling imports),
   `internal/compose` (the one composition seam), and four process-role
   binaries
   `cmd/{api,worker,migrate,mcp}`. The DAG is enforced three ways
