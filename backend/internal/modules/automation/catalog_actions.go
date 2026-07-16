@@ -23,15 +23,50 @@ const (
 	ActionTypeRequestApproval ActionType = "request_approval"
 )
 
-// Permission is the object+action an automation's author must hold for
-// the effect the automation will carry. A firing runs as PrincipalSystem
+// PermissionShape says whether an action's RequiredPermission.Object is a
+// fixed value or must be resolved from the automation's fired target at
+// match time — never left to the convention that an empty Object means
+// "resolved," which is indistinguishable from "nobody filled this in."
+// Two members, and only two: an action is one or the other, never
+// neither.
+type PermissionShape string
+
+const (
+	// PermissionPinned: the action always acts on the same entity type
+	// regardless of what the trigger fired on, so Object below IS that
+	// fixed value (e.g. add_to_list always mutates list membership).
+	PermissionPinned PermissionShape = "pinned"
+	// PermissionTargetScoped: the action's real object is whatever entity
+	// type the automation's trigger fired on — workflows.go's
+	// ApplyActions routes both assign_owner and set_field to
+	// provider.Update{Ref: action.Target}, and Target's type comes from
+	// the event, not from this registry. Object is deliberately left
+	// unset here. This registry's Permission is an author-time fast-fail
+	// check, not the security boundary: an automation fires on behalf of
+	// its owner (automation.owner_id), and Task 13's match-time resolver
+	// is what checks the real, now-known entity type against the owner's
+	// live seat + RBAC (the ratified pattern at
+	// platform/auth/admit.go:70-95) — the same problem
+	// modules/approvals/authority.go already solves for its own
+	// entity-agnostic kinds (update_record et al.: "resolved from the
+	// target's entity type below", fail-closed on an unknown type).
+	PermissionTargetScoped PermissionShape = "target_scoped"
+)
+
+// Permission is the verb+object an automation's author must hold for the
+// effect the automation will carry. A firing runs as PrincipalSystem
 // (platform/auth/rbac.go short-circuits object RBAC for system
 // principals), so without this the author's own rights would never be
 // checked at all — author-time (the permission ceiling) is the only
-// moment they are. Object/Action reuse the exact spellings the rest of
-// the codebase gates on (identity/internal/policy's coreObjects,
-// principal.Action) — never a new vocabulary.
-type Permission struct{ Object, Action string }
+// moment they are. Action is the verb, genuinely static per action type;
+// Object is set only when Shape is PermissionPinned. Both reuse the exact
+// spellings the rest of the codebase gates on (identity/internal/policy's
+// coreObjects, principal.Action) — never a new vocabulary.
+type Permission struct {
+	Shape  PermissionShape
+	Object string
+	Action string
+}
 
 // ActionDef is the registry's ruling on one user-facing action: which
 // executor runs it, what tier it carries, and which permission its author
@@ -55,50 +90,49 @@ type ActionDef struct {
 // 11's job); this registry only declares that the tier IS dynamic, never
 // which of the two a given firing lands on.
 //
-// RequiredPermission reuses the exact object+action pattern
-// modules/approvals/authority.go already applies to staged effects (e.g.
-// "send_email"/"book_meeting"/"deal_follow_up": {"activity", ActionCreate}):
-// create_task, notify, draft_email and request_approval all land as an
-// `activity` row (kind task/note/email — migrations/core/0008_activity.up.sql)
-// or, for request_approval, the same "create something for a human to act
-// on" shape those staged kinds already use — matching the create grant a
-// human performing the same write would need. assign_owner's one shipped
-// precedent in this module (Catalog()'s route_lead) reassigns a lead.
-// set_field has no shipped precedent yet, so it is pinned to `deal` — the
-// object most existing and forthcoming catalog templates act on
-// (stage_change_create_task's trigger is deal-centric). Both are a coarse,
-// single-object ceiling per action TYPE rather than per fired instance;
-// Task 11's per-instance target-type resolution (the same problem the
-// dynamic tier resolver already has to solve) is where a tighter,
-// entity-specific ceiling would replace it.
+// RequiredPermission's Shape follows workflows.go's ApplyActions switch,
+// the ground truth for what each executor actually touches:
+// assign_owner and set_field both route to
+// provider.Update{Ref: action.Target}, and Target's type is read off the
+// firing event, not chosen here — pinning either to a single object would
+// gate the wrong entity whenever the trigger fires on something else, so
+// both are PermissionTargetScoped (verb: update). Every other action's
+// executor targets a fixed entity type regardless of what fired it
+// (create_task and draft_email always create an `activity` row — kind
+// task/email, migrations/core/0008_activity.up.sql; add_to_list always
+// mutates list membership; notify and request_approval both land as the
+// same "create something for a human to act on" shape
+// modules/approvals/authority.go already grants on
+// send_email/book_meeting/deal_follow_up) — so those five are
+// PermissionPinned.
 var actionDefs = map[ActionType]ActionDef{
 	ActionTypeCreateTask: {
 		Type: ActionTypeCreateTask, Tier: "green", Executor: workflow.ActionCreateTask,
-		RequiredPermission: Permission{Object: "activity", Action: "create"},
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
 	},
 	ActionTypeNotify: {
 		Type: ActionTypeNotify, Tier: "green", Executor: workflow.ActionNotify,
-		RequiredPermission: Permission{Object: "activity", Action: "create"},
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
 	},
 	ActionTypeAssignOwner: {
 		Type: ActionTypeAssignOwner, Tier: "dynamic", Executor: workflow.ActionAssignOwner,
-		RequiredPermission: Permission{Object: "lead", Action: "update"},
+		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: "update"},
 	},
 	ActionTypeAddToList: {
 		Type: ActionTypeAddToList, Tier: "green", Executor: workflow.ActionAddToList,
-		RequiredPermission: Permission{Object: "list", Action: "update"},
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: "list", Action: "update"},
 	},
 	ActionTypeSetField: {
 		Type: ActionTypeSetField, Tier: "green", Executor: workflow.ActionUpdateRecord,
-		RequiredPermission: Permission{Object: "deal", Action: "update"},
+		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: "update"},
 	},
 	ActionTypeDraftEmail: {
 		Type: ActionTypeDraftEmail, Tier: "green", Executor: workflow.ActionDraftEmail,
-		RequiredPermission: Permission{Object: "activity", Action: "create"},
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
 	},
 	ActionTypeRequestApproval: {
 		Type: ActionTypeRequestApproval, Tier: "yellow", Executor: workflow.ActionEmitFlowEvent,
-		RequiredPermission: Permission{Object: "activity", Action: "create"},
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
 	},
 }
 

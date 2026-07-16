@@ -3,7 +3,11 @@
 
 package automation
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
+)
 
 // The RC-11 vocabulary, pinned verbatim from the spec. The registry is the
 // sole membership authority; this asserts code and spec agree in BOTH
@@ -29,7 +33,12 @@ func TestActionCatalogMatchesTheSpecBothDirections(t *testing.T) {
 
 // Every action must resolve to a definition, or an automation could carry an
 // action with no tier and no permission — the escalation the ceiling exists
-// to prevent.
+// to prevent. The map key and Type must agree, or a copy-paste into the
+// wrong map slot would silently label one action as another. Every action
+// is exactly one of {pinned-with-object, target-scoped-with-no-object} —
+// never silently neither, which is the ambiguity a blank Object used to
+// hide (assign_owner and set_field both act on whatever entity the trigger
+// fired on; a pinned object for either would gate the wrong entity type).
 func TestEveryActionHasADefinition(t *testing.T) {
 	for _, a := range AllActionTypes() {
 		def, ok := ActionDefFor(a)
@@ -37,11 +46,71 @@ func TestEveryActionHasADefinition(t *testing.T) {
 			t.Errorf("action %q has no definition", a)
 			continue
 		}
+		if def.Type != a {
+			t.Errorf("action %q resolves to def.Type %q — the map key and Type must agree", a, def.Type)
+		}
 		if def.Tier != "green" && def.Tier != "yellow" && def.Tier != "dynamic" {
 			t.Errorf("action %q has tier %q, want green|yellow|dynamic", a, def.Tier)
 		}
-		if def.RequiredPermission.Object == "" || def.RequiredPermission.Action == "" {
-			t.Errorf("action %q declares no RequiredPermission — the author ceiling cannot gate it", a)
+		assertPermissionIsExactlyOneShape(t, a, def.RequiredPermission)
+	}
+}
+
+func assertPermissionIsExactlyOneShape(t *testing.T, a ActionType, p Permission) {
+	t.Helper()
+	if p.Action == "" {
+		t.Errorf("action %q declares no verb — the author ceiling cannot gate it", a)
+	}
+	switch p.Shape {
+	case PermissionPinned:
+		if p.Object == "" {
+			t.Errorf("action %q claims PermissionPinned but has no Object", a)
+		}
+	case PermissionTargetScoped:
+		if p.Object != "" {
+			t.Errorf("action %q is target-scoped but pins Object %q — the object must come from the fired target, not a guess", a, p.Object)
+		}
+	default:
+		t.Errorf("action %q has PermissionShape %q — must be exactly pinned or target-scoped, never neither", a, p.Shape)
+	}
+}
+
+// Every ActionDef's Executor must name a real workflow.ActionKind, or a
+// typo or a kind dropped from the ports layer would silently strand an
+// action with an executor nothing can run.
+func TestEveryActionExecutorIsAKnownWorkflowKind(t *testing.T) {
+	known := map[workflow.ActionKind]bool{}
+	for _, k := range workflow.AllActionKinds() {
+		known[k] = true
+	}
+	for _, a := range AllActionTypes() {
+		def, ok := ActionDefFor(a)
+		if !ok {
+			continue // reported by TestEveryActionHasADefinition
+		}
+		if !known[def.Executor] {
+			t.Errorf("action %q executor %q is not a member of workflow.AllActionKinds", a, def.Executor)
+		}
+	}
+}
+
+// TriggerDefFor must resolve for every closed TriggerKind — the comment on
+// triggerDefs claims this is enforced; before this test existed, deleting a
+// triggerDefs row passed every other test in this package. Entry is closed
+// to event|clock, and a clock trigger consumes no event by design
+// (AUTO-EV-7), so EventType must be empty whenever Entry is "clock".
+func TestEveryTriggerHasADefinition(t *testing.T) {
+	for _, k := range AllTriggerKinds() {
+		def, ok := TriggerDefFor(k)
+		if !ok {
+			t.Errorf("trigger %q has no definition — TriggerDefFor must resolve every AllTriggerKinds member", k)
+			continue
+		}
+		if def.Entry != "event" && def.Entry != "clock" {
+			t.Errorf("trigger %q has Entry %q, want event|clock", k, def.Entry)
+		}
+		if def.Entry == "clock" && def.EventType != "" {
+			t.Errorf("trigger %q is a clock trigger but declares EventType %q — clock triggers consume no event", k, def.EventType)
 		}
 	}
 }
