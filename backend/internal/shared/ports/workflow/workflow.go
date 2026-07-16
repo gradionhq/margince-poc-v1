@@ -96,11 +96,13 @@ const (
 	ActionEmitFlowEvent  ActionKind = "emit_flow_event"
 	ActionRecomputeScore ActionKind = "recompute_score"
 	ActionEnqueueJob     ActionKind = "enqueue_job"
+)
 
-	// The user-facing catalog's actions that have no lower-level kind:
-	// notify is delivery to a human, add_to_list writes through the list
-	// engine, and draft_email creates a draft and never sends — the send
-	// is a separate, approval-gated act.
+// The user-facing catalog's actions that have no lower-level kind: notify
+// is delivery to a human, add_to_list writes through the list engine, and
+// draft_email creates a draft and never sends — the send is a separate,
+// approval-gated act.
+const (
 	ActionNotify     ActionKind = "notify"
 	ActionAddToList  ActionKind = "add_to_list"
 	ActionDraftEmail ActionKind = "draft_email"

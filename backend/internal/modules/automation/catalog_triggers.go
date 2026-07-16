@@ -9,6 +9,7 @@ package automation
 // anti-builder guard the action side carries.
 type TriggerKind string
 
+// The seven closed trigger kinds (RC-11), in declaration order.
 const (
 	TriggerRecordCreatedUpdated  TriggerKind = "record_created_updated"
 	TriggerFieldReachesValue     TriggerKind = "field_reaches_value"
@@ -17,6 +18,22 @@ const (
 	TriggerDateFieldApproaching  TriggerKind = "date_field_approaching"
 	TriggerInboundReply          TriggerKind = "inbound_reply"
 	TriggerTaskOverdue           TriggerKind = "task_overdue"
+)
+
+// Trigger entry points (see TriggerDef.Entry): an event trigger reaches the
+// matcher off cg:workflows, a clock trigger reaches the time-scan.
+const (
+	entryEvent = "event"
+	entryClock = "clock"
+)
+
+// Event types the closed event-triggers pin to. These mirror
+// shared/kernel/events' catalog keys; kept as constants here because more
+// than one automation surface (the trigger registry, the starter handlers,
+// the legacy catalog) references the same string.
+const (
+	eventDealStageChanged = "deal.stage_changed"
+	eventEngagementReply  = "engagement.reply"
 )
 
 // TriggerDef declares how one trigger reaches the engine. Entry is "event"
@@ -40,17 +57,17 @@ type TriggerDef struct {
 // lookup miss is impossible for any TriggerKind returned by
 // AllTriggerKinds — enforced by the closure test.
 var triggerDefs = map[TriggerKind]TriggerDef{
-	TriggerRecordCreatedUpdated: {Kind: TriggerRecordCreatedUpdated, Entry: "event"},
-	TriggerFieldReachesValue:    {Kind: TriggerFieldReachesValue, Entry: "event"},
+	TriggerRecordCreatedUpdated: {Kind: TriggerRecordCreatedUpdated, Entry: entryEvent},
+	TriggerFieldReachesValue:    {Kind: TriggerFieldReachesValue, Entry: entryEvent},
 	// A specific verb, never the generic entity update (EVT-SEM-2):
 	// "enters/leaves stage" is a stage move, not any deal field edit.
-	TriggerDealEntersLeavesStage: {Kind: TriggerDealEntersLeavesStage, Entry: "event", EventType: "deal.stage_changed"},
-	TriggerNoActivityForNDays:    {Kind: TriggerNoActivityForNDays, Entry: "clock"},
-	TriggerDateFieldApproaching:  {Kind: TriggerDateFieldApproaching, Entry: "clock"},
+	TriggerDealEntersLeavesStage: {Kind: TriggerDealEntersLeavesStage, Entry: entryEvent, EventType: eventDealStageChanged},
+	TriggerNoActivityForNDays:    {Kind: TriggerNoActivityForNDays, Entry: entryClock},
+	TriggerDateFieldApproaching:  {Kind: TriggerDateFieldApproaching, Entry: entryClock},
 	// Idempotent per reply (EVT-SEM-14): a re-delivered engagement.reply
 	// must not re-fire the same automation instance twice.
-	TriggerInboundReply: {Kind: TriggerInboundReply, Entry: "event", EventType: "engagement.reply"},
-	TriggerTaskOverdue:  {Kind: TriggerTaskOverdue, Entry: "clock"},
+	TriggerInboundReply: {Kind: TriggerInboundReply, Entry: entryEvent, EventType: eventEngagementReply},
+	TriggerTaskOverdue:  {Kind: TriggerTaskOverdue, Entry: entryClock},
 }
 
 // AllTriggerKinds is the closed set, in declaration order. The closure

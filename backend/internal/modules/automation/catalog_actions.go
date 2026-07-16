@@ -13,6 +13,7 @@ import "github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 // which typed executor actually carries it out.
 type ActionType string
 
+// The seven user-facing action types (RC-11), in declaration order.
 const (
 	ActionTypeCreateTask      ActionType = "create_task"
 	ActionTypeNotify          ActionType = "notify"
@@ -21,6 +22,25 @@ const (
 	ActionTypeSetField        ActionType = "set_field"
 	ActionTypeDraftEmail      ActionType = "draft_email"
 	ActionTypeRequestApproval ActionType = "request_approval"
+)
+
+// Tier vocabulary for ActionDef.Tier, named so the registry reads in one
+// spelling and a mis-tier is a build error rather than a silent typo.
+const (
+	tierGreen   = "green"
+	tierYellow  = "yellow"
+	tierDynamic = "dynamic"
+)
+
+// The RBAC object and verb spellings the author-time ceiling gates on —
+// the same vocabulary platform/auth enforces (identity/internal/policy's
+// coreObjects, principal.Action). Named here so the registry reads
+// uniformly; coreObjects is a sibling internal package and not importable.
+const (
+	rbacObjActivity = "activity"
+	rbacObjList     = "list"
+	rbacVerbCreate  = "create"
+	rbacVerbUpdate  = "update"
 )
 
 // PermissionShape says whether an action's RequiredPermission.Object is a
@@ -32,12 +52,12 @@ const (
 type PermissionShape string
 
 const (
-	// PermissionPinned: the action always acts on the same entity type
-	// regardless of what the trigger fired on, so Object below IS that
+	// PermissionPinned marks an action that always acts on the same entity
+	// type regardless of what the trigger fired on, so Object below IS that
 	// fixed value (e.g. add_to_list always mutates list membership).
 	PermissionPinned PermissionShape = "pinned"
-	// PermissionTargetScoped: the action's real object is whatever entity
-	// type the automation's trigger fired on — workflows.go's
+	// PermissionTargetScoped marks an action whose real object is whatever
+	// entity type the automation's trigger fired on — workflows.go's
 	// ApplyActions routes both assign_owner and set_field to
 	// provider.Update{Ref: action.Target}, and Target's type comes from
 	// the event, not from this registry. Object is deliberately left
@@ -118,32 +138,32 @@ type ActionDef struct {
 // executor gains an entity-naming case in that switch.
 var actionDefs = map[ActionType]ActionDef{
 	ActionTypeCreateTask: {
-		Type: ActionTypeCreateTask, Tier: "green", Executor: workflow.ActionCreateTask,
-		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
+		Type: ActionTypeCreateTask, Tier: tierGreen, Executor: workflow.ActionCreateTask,
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 	ActionTypeNotify: {
-		Type: ActionTypeNotify, Tier: "green", Executor: workflow.ActionNotify,
-		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
+		Type: ActionTypeNotify, Tier: tierGreen, Executor: workflow.ActionNotify,
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 	ActionTypeAssignOwner: {
-		Type: ActionTypeAssignOwner, Tier: "dynamic", Executor: workflow.ActionAssignOwner,
-		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: "update"},
+		Type: ActionTypeAssignOwner, Tier: tierDynamic, Executor: workflow.ActionAssignOwner,
+		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: rbacVerbUpdate},
 	},
 	ActionTypeAddToList: {
-		Type: ActionTypeAddToList, Tier: "green", Executor: workflow.ActionAddToList,
-		RequiredPermission: Permission{Shape: PermissionPinned, Object: "list", Action: "update"},
+		Type: ActionTypeAddToList, Tier: tierGreen, Executor: workflow.ActionAddToList,
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjList, Action: rbacVerbUpdate},
 	},
 	ActionTypeSetField: {
-		Type: ActionTypeSetField, Tier: "green", Executor: workflow.ActionUpdateRecord,
-		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: "update"},
+		Type: ActionTypeSetField, Tier: tierGreen, Executor: workflow.ActionUpdateRecord,
+		RequiredPermission: Permission{Shape: PermissionTargetScoped, Action: rbacVerbUpdate},
 	},
 	ActionTypeDraftEmail: {
-		Type: ActionTypeDraftEmail, Tier: "green", Executor: workflow.ActionDraftEmail,
-		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
+		Type: ActionTypeDraftEmail, Tier: tierGreen, Executor: workflow.ActionDraftEmail,
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 	ActionTypeRequestApproval: {
-		Type: ActionTypeRequestApproval, Tier: "yellow", Executor: workflow.ActionEmitFlowEvent,
-		RequiredPermission: Permission{Shape: PermissionPinned, Object: "activity", Action: "create"},
+		Type: ActionTypeRequestApproval, Tier: tierYellow, Executor: workflow.ActionEmitFlowEvent,
+		RequiredPermission: Permission{Shape: PermissionPinned, Object: rbacObjActivity, Action: rbacVerbCreate},
 	},
 }
 

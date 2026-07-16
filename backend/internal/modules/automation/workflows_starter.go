@@ -35,7 +35,7 @@ type stageChangeCreateTask struct {
 func (stageChangeCreateTask) Spec() workflow.Spec {
 	return workflow.Spec{
 		Name:    "stage_change_create_task",
-		Trigger: workflow.Trigger{EventType: "deal.stage_changed"},
+		Trigger: workflow.Trigger{EventType: eventDealStageChanged},
 		Tier:    mcp.TierGreen,
 	}
 }
