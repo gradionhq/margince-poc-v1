@@ -34,6 +34,7 @@ const (
 const (
 	eventDealStageChanged = "deal.stage_changed"
 	eventEngagementReply  = "engagement.reply"
+	eventActivityCaptured = "activity.captured"
 )
 
 // TriggerDef declares how one trigger reaches the engine. Entry is "event"

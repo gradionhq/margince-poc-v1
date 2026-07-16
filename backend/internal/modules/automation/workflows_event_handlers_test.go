@@ -231,3 +231,151 @@ func TestStageChangeNotifyIdempotencyKeyIsStablePerEvent(t *testing.T) {
 		t.Error("IdempotencyKey did not vary across distinct events — replays of different events would collide")
 	}
 }
+
+// --- post_meeting_recap ---
+
+// TestPostMeetingRecapSpecNamesTheCatalogKey pins the orphan-key trap: the
+// engine dispatches instances[Spec().Name], so a Name drifting from the
+// catalog entry this PR's later slice seeds under "post_meeting_recap"
+// would make the handler a silent no-op forever.
+func TestPostMeetingRecapSpecNamesTheCatalogKey(t *testing.T) {
+	spec := postMeetingRecap{}.Spec()
+	if spec.Name != "post_meeting_recap" {
+		t.Errorf("Spec().Name = %q, want %q", spec.Name, "post_meeting_recap")
+	}
+	if spec.Trigger.EventType != eventActivityCaptured {
+		t.Errorf("Spec().Trigger.EventType = %q, want %q", spec.Trigger.EventType, eventActivityCaptured)
+	}
+	if spec.Tier != mcp.TierGreen {
+		t.Errorf("Spec().Tier = %v, want TierGreen", spec.Tier)
+	}
+}
+
+// TestPostMeetingRecapMatchFiresOnACapturedMeeting is the guard against the
+// silent-Match bug: Match must be TRUE for a captured meeting and FALSE for
+// every other captured kind, read straight off the activity.captured payload.
+func TestPostMeetingRecapMatchFiresOnACapturedMeeting(t *testing.T) {
+	matched, err := postMeetingRecap{}.Match(context.Background(), workflow.Event{
+		Payload: json.RawMessage(`{"kind":"meeting"}`),
+	})
+	if err != nil {
+		t.Fatalf("Match(meeting) err = %v, want nil", err)
+	}
+	if !matched {
+		t.Error("Match(kind=meeting) = false, want true — a captured meeting is the post-meeting signal")
+	}
+}
+
+// TestPostMeetingRecapMatchIgnoresNonMeetingKinds proves Match declines
+// every other captured kind and an empty payload — a recap is drafted only
+// when a meeting was logged, never on a note/call/email capture.
+func TestPostMeetingRecapMatchIgnoresNonMeetingKinds(t *testing.T) {
+	cases := []json.RawMessage{
+		json.RawMessage(`{"kind":"note"}`),
+		json.RawMessage(`{"kind":"call"}`),
+		json.RawMessage(`{"kind":"email"}`),
+		json.RawMessage(`{"kind":"task"}`),
+		json.RawMessage(`{}`),
+		nil,
+	}
+	for _, payload := range cases {
+		matched, err := postMeetingRecap{}.Match(context.Background(), workflow.Event{Payload: payload})
+		if err != nil {
+			t.Fatalf("Match(%s) err = %v, want nil", payload, err)
+		}
+		if matched {
+			t.Errorf("Match(%s) = true, want false — only a captured meeting draws a recap", payload)
+		}
+	}
+}
+
+// TestPostMeetingRecapMatchNeverSwallowsAMalformedPayload proves an
+// undecodable payload surfaces as an error rather than a silent false — a
+// swallowed decode failure would hide a broken upstream emitter.
+func TestPostMeetingRecapMatchNeverSwallowsAMalformedPayload(t *testing.T) {
+	_, err := postMeetingRecap{}.Match(context.Background(), workflow.Event{
+		Payload: json.RawMessage(`{"kind":`),
+	})
+	if err == nil {
+		t.Fatal("Match err = nil for a malformed payload, want a decode error")
+	}
+}
+
+// TestPostMeetingRecapPlanEmitsOneDraftEmailWithTheRecapIntent proves Plan
+// emits exactly one draft_email anchored on the captured meeting, carrying
+// the intent shape applyDraftEmail's decodeActionArgs reads.
+func TestPostMeetingRecapPlanEmitsOneDraftEmailWithTheRecapIntent(t *testing.T) {
+	meeting := datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()}
+	eff, err := postMeetingRecap{}.Plan(context.Background(), workflow.Event{Entity: meeting})
+	if err != nil {
+		t.Fatalf("Plan err = %v, want nil", err)
+	}
+	if len(eff.Actions) != 1 {
+		t.Fatalf("Plan emitted %d actions, want exactly 1", len(eff.Actions))
+	}
+	action := eff.Actions[0]
+	if action.Kind != workflow.ActionDraftEmail {
+		t.Errorf("action.Kind = %q, want %q", action.Kind, workflow.ActionDraftEmail)
+	}
+	if action.Target != meeting {
+		t.Errorf("action.Target = %v, want the captured meeting %v", action.Target, meeting)
+	}
+	var args draftEmailArgs
+	if err := json.Unmarshal(action.Args, &args); err != nil {
+		t.Fatalf("action.Args do not decode as draftEmailArgs: %v", err)
+	}
+	if args.Intent != recapIntent {
+		t.Errorf("draft_email intent = %q, want %q", args.Intent, recapIntent)
+	}
+}
+
+// TestPostMeetingRecapApplyComposesTheDraftDurably proves Apply threads the
+// planned draft_email through ApplyActions and the composed draft lands on
+// the applied action — the same durable-artifact contract 11a's executor
+// guarantees, exercised end-to-end through the handler.
+func TestPostMeetingRecapApplyComposesTheDraftDurably(t *testing.T) {
+	comms := &fakeComms{subject: "Recap: kickoff", body: "here's what we agreed"}
+	w := postMeetingRecap{ex: Executors{Comms: comms}}
+	meeting := datasource.EntityRef{Type: datasource.EntityActivity, ID: ids.NewV7()}
+
+	eff, err := w.Plan(context.Background(), workflow.Event{Entity: meeting})
+	if err != nil {
+		t.Fatalf("Plan err = %v, want nil", err)
+	}
+	result, err := w.Apply(context.Background(), workflow.Event{Entity: meeting}, eff, nil)
+	if err != nil {
+		t.Fatalf("Apply err = %v, want nil", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("Apply result.Applied = %v, want the one draft_email action", result.Applied)
+	}
+	if len(comms.calls) != 1 || comms.calls[0].anchor != meeting.ID || comms.calls[0].intent != recapIntent {
+		t.Fatalf("DraftEmail called with %+v, want anchor=%v intent=%q", comms.calls, meeting.ID, recapIntent)
+	}
+	var rec struct {
+		Subject string `json:"draft_subject"`
+		Body    string `json:"draft_body"`
+	}
+	if err := json.Unmarshal(result.Applied[0].Args, &rec); err != nil {
+		t.Fatalf("applied draft_email Args do not decode: %v", err)
+	}
+	if rec.Subject != "Recap: kickoff" || rec.Body != "here's what we agreed" {
+		t.Errorf("applied draft = (subject=%q, body=%q), want the composed recap durably captured", rec.Subject, rec.Body)
+	}
+}
+
+// TestPostMeetingRecapIdempotencyKeyIsStablePerEvent proves the key is
+// derived from the event id, so a redelivered activity.captured claims the
+// same run row instead of drafting a second recap.
+func TestPostMeetingRecapIdempotencyKeyIsStablePerEvent(t *testing.T) {
+	evID := ids.NewV7()
+	key1 := postMeetingRecap{}.IdempotencyKey(workflow.Event{ID: evID})
+	key2 := postMeetingRecap{}.IdempotencyKey(workflow.Event{ID: evID})
+	if key1 != key2 {
+		t.Errorf("IdempotencyKey is not stable across calls for the same event: %q != %q", key1, key2)
+	}
+	other := postMeetingRecap{}.IdempotencyKey(workflow.Event{ID: ids.NewV7()})
+	if key1 == other {
+		t.Error("IdempotencyKey did not vary across distinct events — replays of different events would collide")
+	}
+}
