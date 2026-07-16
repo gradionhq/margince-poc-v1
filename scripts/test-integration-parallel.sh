@@ -13,8 +13,12 @@
 #              TRUNCATEs between tests — see internal/platform/testdb).
 #   MinIO    — a private bucket (MARGINCE_TEST_BLOBSTORE_BUCKET=<base>-p<idx>),
 #              auto-created by the blobstore store.
-#   Redis    — the one shared instance, passed through: only the events package
-#              uses Redis (its own logical db 15), so nothing contends.
+#   Redis    — the one shared instance, but each package gets its own logical
+#              db (MARGINCE_TEST_REDIS_DB, mapped 1..15 by slot), so no two
+#              packages ever share a stream. Db 0 is reserved for `make dev`, so
+#              a running dev stack and this lane never collide either. Only the
+#              events package touches Redis today; the per-slot db keeps it
+#              collision-free if that ever changes.
 # Within a package nothing changes — still -p 1, the same sequential model that is
 # green today — so no test file needs editing.
 #
@@ -88,6 +92,8 @@ run_one() {
   local db="margince_it_p${idx}_$$"
   local log="$outdir/$idx.log"
   local bucket; bucket="$(bucket_for "$idx")"
+  # Redis logical db per slot, in 1..15 — db 0 stays reserved for `make dev`.
+  local redis_db=$(( 1 + (idx - 1) % 15 ))
   # Coverage args (empty unless COVERDIR is set). -coverpkg=./... attributes
   # cross-package exercise; binary output goes to a per-package dir, merged later.
   local cover_pre=() cover_post=()
@@ -97,7 +103,7 @@ run_one() {
     cover_post=(-args -test.gocoverdir="$COVERDIR/$idx")
   fi
   {
-    echo "=== integration $d $rel (db=$db bucket=$bucket) ==="
+    echo "=== integration $d $rel (db=$db bucket=$bucket redis-db=$redis_db) ==="
     make_clone "$db"
     local st=0
     ( cd "$d" \
@@ -105,6 +111,7 @@ run_one() {
            MARGINCE_TEST_DSN="$(owner_clone_dsn "$db")" \
            MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
            MARGINCE_TEST_BLOBSTORE_BUCKET="$bucket" \
+           MARGINCE_TEST_REDIS_DB="$redis_db" \
         go test -p 1 -tags=integration -v -count=1 -timeout="$IT_TIMEOUT" \
           "${cover_pre[@]+"${cover_pre[@]}"}" "$rel" "${cover_post[@]+"${cover_post[@]}"}" ) || st=$?
     drop_clone "$db"

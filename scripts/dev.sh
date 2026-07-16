@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-command local dev stack on the ONE shared infra: Postgres + Redis, the api
-# (cmd/api), and the Vite dev server — so the SPA runs in a real browser against
-# a live api. Bare `make dev` uses the shared `margince` database on :8080/:5173;
+# (cmd/api), the background worker (cmd/worker — outbox relay + Surface-B runner),
+# and the Vite dev server — so the SPA runs in a real browser against a live api.
+# Bare `make dev` uses the shared `margince` database on :8080/:5173;
 # `make dev DEV_SLUG=<slug>` gives an isolated `margince_dev_<slug>` database on
 # slug-derived ports, so two worktrees can run concurrently without colliding on
 # the database or the host ports.
@@ -208,19 +209,34 @@ up)
     exit 1
   fi
 
-  # The Gmail sync poller (cmd/worker) — the background loop that turns a
-  # connected mailbox into activities. It shares the app DSN + Redis and the
-  # exported dev vault key; a short poll makes the demo responsive.
-  worker_pid=""
+  # The background process role (cmd/worker) always runs alongside the api in
+  # dev: the standalone outbox relay (coexists with the api's inline relay —
+  # rows are claimed FOR UPDATE SKIP LOCKED, so two relays never double-ship),
+  # the Surface-B runner scheduler, and the retention / close-date / reconcile
+  # sweeps. It gets the SAME config surface as the api — the same $ai_flag
+  # (real Anthropic model when .env.local set ANTHROPIC_API_KEY, else the
+  # offline fake, so its runner matches the api), the same blobstore endpoint,
+  # and the .env.local keys already exported into this shell (vault + Gmail
+  # secrets travel via the environment, never CLI flags). Gmail adds a short
+  # sync poll only when the connector is configured.
+  ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
+  worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then
-    ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
-    # Gmail client id/secret come from the exported env (not CLI flags); the
-    # worker's flags default to them.
-    MARGINCE_ENV=dev \
-      ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
-      --gmail-sync-interval 30s >>"$log" 2>&1 &
-    worker_pid=$!
-    echo "  gmail    sync worker running (poll every 30s)"
+    # A short poll makes the demo mailbox responsive; the default is 2m.
+    worker_gmail_flags=(--gmail-sync-interval 30s)
+  fi
+  MARGINCE_ENV=dev \
+    MARGINCE_BLOBSTORE_ENDPOINT="localhost:${MINIO_PORT}" \
+    MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
+    MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
+    MARGINCE_BLOBSTORE_BUCKET=margince-dev \
+    ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
+    "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
+  worker_pid=$!
+  if [[ "$gmail_enabled" == "1" ]]; then
+    echo "  worker   background relay + Surface-B runner + Gmail sync (poll every 30s)"
+  else
+    echo "  worker   background relay + Surface-B runner running"
   fi
 
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).

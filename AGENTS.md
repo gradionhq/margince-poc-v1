@@ -30,7 +30,8 @@ make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
                         # Parallel — each package on its own throwaway clone db; ends
                         # with `OK: integration passed with 0 skips`, never skips silently
-make dev                # full local stack: db + api (:8080) + Vite SPA (:5173)
+make dev                # full local stack: db + api (:8080) + worker + Vite SPA (:5173)
+                        # (worker = cmd/worker, always on: outbox relay + Surface-B runner)
                         # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
 ```
