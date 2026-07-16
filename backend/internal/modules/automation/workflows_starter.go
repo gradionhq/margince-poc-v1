@@ -24,6 +24,7 @@ import (
 func StarterWorkflows(ex Executors) []workflow.Handler {
 	return []workflow.Handler{
 		stageChangeCreateTask{ex: ex},
+		stageChangeNotify{ex: ex},
 	}
 }
 
