@@ -44,10 +44,15 @@ type CatalogEntry struct {
 const (
 	schemaTypeObject         = "object"
 	schemaTypeString         = "string"
+	schemaKeyType            = "type"
 	schemaKeyProperties      = "properties"
 	schemaKeyAdditionalProps = "additionalProperties"
 	schemaKeyDescription     = "description"
 )
+
+// minParamDays is the lower bound every "how many days" knob shares: a
+// cadence of zero days is meaningless, so one is the floor for all of them.
+const minParamDays = 1
 
 // errNotAParameter is the 422 reason every closed-catalog validator
 // returns for a params key outside its own schema. The routing rule keys
@@ -59,14 +64,14 @@ const errNotAParameter = "not a parameter of this automation type"
 // starter shares — due_in_days, no_activity_days, check_in_days, and
 // days_before all take the identical bounded-integer shape and differ
 // only in which key names the knob and what its own default/bounds are.
-func singleIntParamSchema(key string, defaultValue, minValue, maxValue int, description string) map[string]any {
+func singleIntParamSchema(key string, defaultValue, maxValue int, description string) map[string]any {
 	return map[string]any{
-		"type":                   schemaTypeObject,
+		schemaKeyType:            schemaTypeObject,
 		schemaKeyAdditionalProps: false,
 		schemaKeyProperties: map[string]any{
 			key: map[string]any{
-				"type":               "integer",
-				"minimum":            minValue,
+				schemaKeyType:        "integer",
+				"minimum":            minParamDays,
 				"maximum":            maxValue,
 				"default":            defaultValue,
 				schemaKeyDescription: description,
@@ -80,7 +85,7 @@ func singleIntParamSchema(key string, defaultValue, minValue, maxValue int, desc
 // does not buy a jsonschema dependency: an unknown knob or a mistyped
 // or out-of-range value is a 422, never a stored blob the engine
 // chokes on later.
-func validateSingleIntParam(key string, minValue, maxValue int) func(params map[string]any) error {
+func validateSingleIntParam(key string, maxValue int) func(params map[string]any) error {
 	return func(params map[string]any) error {
 		for k, value := range params {
 			if k != key {
@@ -90,9 +95,11 @@ func validateSingleIntParam(key string, minValue, maxValue int) func(params map[
 			if !ok || n != math.Trunc(n) {
 				return &ParamError{Field: "params." + key, Reason: "must be an integer"}
 			}
-			if n < float64(minValue) || n > float64(maxValue) {
-				return &ParamError{Field: "params." + key,
-					Reason: fmt.Sprintf("must be between %d and %d", minValue, maxValue)}
+			if n < float64(minParamDays) || n > float64(maxValue) {
+				return &ParamError{
+					Field:  "params." + key,
+					Reason: fmt.Sprintf("must be between %d and %d", minParamDays, maxValue),
+				}
 			}
 		}
 		return nil
@@ -103,11 +110,11 @@ func validateSingleIntParam(key string, minValue, maxValue int) func(params map[
 // key their one knob "due_in_days": how many days out the created task
 // is due.
 func dueInDaysSchema(defaultDays int, description string) map[string]any {
-	return singleIntParamSchema("due_in_days", defaultDays, 1, 30, description)
+	return singleIntParamSchema("due_in_days", defaultDays, 30, description)
 }
 
 // validateDueInDays is dueInDaysSchema's validator.
-var validateDueInDays = validateSingleIntParam("due_in_days", 1, 30)
+var validateDueInDays = validateSingleIntParam("due_in_days", 30)
 
 // noActivityReminderSchema is no_activity_reminder's one-knob shape,
 // keyed "no_activity_days" — the exact property name
@@ -115,35 +122,35 @@ var validateDueInDays = validateSingleIntParam("due_in_days", 1, 30)
 // params, so the editor's schema and the handler's reader can never
 // drift onto two different knob names for the same automation.
 func noActivityReminderSchema() map[string]any {
-	return singleIntParamSchema("no_activity_days", defaultNoActivityDays, 1, 365,
+	return singleIntParamSchema("no_activity_days", defaultNoActivityDays, 365,
 		"How many quiet days (no genuine activity) before the reminder fires.")
 }
 
 // validateNoActivityReminderParams is noActivityReminderSchema's validator.
-var validateNoActivityReminderParams = validateSingleIntParam("no_activity_days", 1, 365)
+var validateNoActivityReminderParams = validateSingleIntParam("no_activity_days", 365)
 
 // checkInCadenceSchema is check_in_cadence's own one-knob shape, keyed
 // "check_in_days" — checkInCadenceDays' (workflows_clock_handlers.go)
 // own reader, distinct from no_activity_reminder's key so a workspace
 // may enable both with independent cadences.
 func checkInCadenceSchema() map[string]any {
-	return singleIntParamSchema("check_in_days", defaultCheckInDays, 1, 365,
+	return singleIntParamSchema("check_in_days", defaultCheckInDays, 365,
 		"How many quiet days (no genuine activity) before the check-in reminder fires.")
 }
 
 // validateCheckInCadenceParams is checkInCadenceSchema's validator.
-var validateCheckInCadenceParams = validateSingleIntParam("check_in_days", 1, 365)
+var validateCheckInCadenceParams = validateSingleIntParam("check_in_days", 365)
 
 // renewalReminderSchema is renewal_reminder's one-knob shape, keyed
 // "days_before" — renewalDaysBefore's (workflows_clock_handlers.go) own
 // reader.
 func renewalReminderSchema() map[string]any {
-	return singleIntParamSchema("days_before", defaultRenewalDaysBefore, 1, 365,
+	return singleIntParamSchema("days_before", defaultRenewalDaysBefore, 365,
 		"How many days ahead of the renewal date to remind.")
 }
 
 // validateRenewalReminderParams is renewalReminderSchema's validator.
-var validateRenewalReminderParams = validateSingleIntParam("days_before", 1, 365)
+var validateRenewalReminderParams = validateSingleIntParam("days_before", 365)
 
 // noParamsSchema is the empty-knob schema for a starter with nothing to
 // parameterize (stage_change_notify, post_meeting_recap): both fire
@@ -151,7 +158,7 @@ var validateRenewalReminderParams = validateSingleIntParam("days_before", 1, 365
 // blob is the empty one.
 func noParamsSchema() map[string]any {
 	return map[string]any{
-		"type":                   schemaTypeObject,
+		schemaKeyType:            schemaTypeObject,
 		schemaKeyAdditionalProps: false,
 		schemaKeyProperties:      map[string]any{},
 	}

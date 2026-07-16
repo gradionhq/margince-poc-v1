@@ -42,30 +42,30 @@ var RoutableLeadFields = []string{"source", "company_name", "candidate_org_key"}
 // RoutingConfig decodes the identical shape.
 func leadRoutingSchema() map[string]any {
 	return map[string]any{
-		"type":                   schemaTypeObject,
+		schemaKeyType:            schemaTypeObject,
 		schemaKeyAdditionalProps: false,
 		schemaKeyProperties: map[string]any{
 			"owners": map[string]any{
-				"type":               "array",
-				"items":              map[string]any{"type": schemaTypeString, "format": "uuid"},
+				schemaKeyType:        "array",
+				"items":              map[string]any{schemaKeyType: schemaTypeString, "format": "uuid"},
 				schemaKeyDescription: "Round-robin pool of user ids, in rotation order.",
 			},
 			"cap_per_owner": map[string]any{
-				"type":               "integer",
+				schemaKeyType:        "integer",
 				"minimum":            1,
 				schemaKeyDescription: "Max open (new/working) leads an owner may hold; omitted = uncapped.",
 			},
 			"rules": map[string]any{
-				"type":               "array",
+				schemaKeyType:        "array",
 				schemaKeyDescription: "Evaluated in order before round-robin; a matching lead goes to the rule's owner if under cap.",
 				"items": map[string]any{
-					"type":                   schemaTypeObject,
+					schemaKeyType:            schemaTypeObject,
 					schemaKeyAdditionalProps: false,
 					"required":               []string{ruleKeyField, ruleKeyEquals, keyOwnerID},
 					schemaKeyProperties: map[string]any{
 						ruleKeyField:  map[string]any{"enum": RoutableLeadFields},
-						ruleKeyEquals: map[string]any{"type": schemaTypeString},
-						keyOwnerID:    map[string]any{"type": schemaTypeString, "format": "uuid"},
+						ruleKeyEquals: map[string]any{schemaKeyType: schemaTypeString},
+						keyOwnerID:    map[string]any{schemaKeyType: schemaTypeString, "format": "uuid"},
 					},
 				},
 			},
