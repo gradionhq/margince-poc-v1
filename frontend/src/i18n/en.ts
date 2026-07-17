@@ -948,7 +948,8 @@ export const en = {
   "auth.failed": "That didn't work",
   "auth.forgotLink": "Forgot password?",
   "auth.forgotTitle": "Reset your password",
-  "auth.forgotSub": "enter your email — if it has an account, a reset link is on its way",
+  "auth.forgotSub":
+    "enter your email — if it has an account, a reset link is on its way",
   "auth.sendResetLink": "Send reset link",
   "auth.forgotSentTitle": "Check your inbox",
   "auth.forgotSentBody":
@@ -957,8 +958,7 @@ export const en = {
   "auth.resetSub": "your reset link checks out — set the new password below",
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
-  "auth.resetFailed":
-    "That reset link is invalid, used, or expired.",
+  "auth.resetFailed": "That reset link is invalid, used, or expired.",
   "auth.requestNewLink": "Request a new link",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":

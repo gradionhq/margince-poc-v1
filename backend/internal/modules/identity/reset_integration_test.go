@@ -48,6 +48,8 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	ctx := e.wsOnlyCtx()
 	mail := &capturedMail{}
 	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test/")
+	sent := make(chan struct{})
+	h.resetSendStarted = func() { close(sent) }
 
 	// The member holds a live session that the reset must end.
 	_, sessionToken, err := e.svc.Login(ctx, e.member.Email, memberPassword)
@@ -62,6 +64,9 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("forgot-password status = %d, want 202: %s", rec.Code, rec.Body)
 	}
+	// The send is asynchronous by design (response timing must not
+	// disclose account existence); the test seam signals completion.
+	<-sent
 	if mail.sent != 1 || mail.to != e.member.Email {
 		t.Fatalf("mail = %+v, want one message to the member", mail)
 	}

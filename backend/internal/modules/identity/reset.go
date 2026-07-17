@@ -45,8 +45,16 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		httperr.NotImplemented(w, r, "RequestPasswordReset")
 		return
 	}
+	// Throttle FIRST — before any parsing or work, so a malformed flood
+	// costs the same as a well-formed one. Per (email, IP) so an attacker
+	// cannot silence a real owner's reset from elsewhere, plus a per-IP
+	// ceiling — each attempt can cost the operator an outbound mail.
 	var req struct {
 		Email string `json:"email"`
+	}
+	if !h.resetPerIP.Allow(clientIP(r)) {
+		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
+		return
 	}
 	if !httperr.Decode(w, r, &req) {
 		return
@@ -56,11 +64,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, httperr.Validation("email", "invalid_email", "a valid email address is required"))
 		return
 	}
-	// The throttle mirrors login's shape: per (email, IP) so an attacker
-	// cannot silence a real owner's reset from elsewhere, plus a per-IP
-	// ceiling — each attempt can cost the operator an outbound mail.
-	accountKey := strings.ToLower(email.String()) + "|" + clientIP(r)
-	if !h.resetPerIP.Allow(clientIP(r)) || !h.resetPerEmail.Allow(accountKey) {
+	if !h.resetPerEmail.Allow(strings.ToLower(email.String()) + "|" + clientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
@@ -71,17 +75,25 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rawToken != "" {
-		// The mail leaves AFTER the token committed, outside the
-		// transaction. A relay failure is an operator incident, logged —
-		// but the response stays 202: answering differently would
-		// disclose that the address exists.
+		// The mail leaves AFTER the token committed and OFF the request
+		// path: the SMTP round-trip must not shape the response time, or
+		// the latency would disclose which addresses exist even though
+		// the body does not. A relay failure is an operator incident,
+		// logged — the response stays 202 either way.
 		link := h.resetBaseURL + "/reset-password?token=" + rawToken
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."
-		if err := h.resetMailer.Send(r.Context(), email.String(), "Reset your Margince password", body); err != nil {
-			slog.Error("password-reset email failed", "err", err)
-		}
+		sendCtx := context.WithoutCancel(r.Context())
+		done := h.resetSendStarted // test seam; nil in production
+		go func() {
+			if err := h.resetMailer.Send(sendCtx, email.String(), "Reset your Margince password", body); err != nil {
+				slog.Error("password-reset email failed", "err", err)
+			}
+			if done != nil {
+				done()
+			}
+		}()
 	}
 	w.WriteHeader(http.StatusAccepted)
 }

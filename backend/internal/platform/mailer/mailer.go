@@ -10,11 +10,14 @@ package mailer
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/smtp"
 	"strings"
+	"time"
 )
 
 // Mailer sends one plain-text transactional message. Implementations
@@ -34,34 +37,77 @@ type SMTP struct {
 	FromAddress string
 }
 
-// Send submits the message through the configured relay. The context
-// bounds the dial; net/smtp owns the protocol exchange.
+// Send submits the message through the configured relay. TLS is
+// REQUIRED: a reset mail carries a live credential, so a relay that
+// offers no STARTTLS refuses the send instead of downgrading to
+// cleartext — except a loopback relay (a local forwarder such as a
+// docker mailhog or a host postfix), where the wire never leaves the
+// machine.
 func (s SMTP) Send(ctx context.Context, to, subject, textBody string) error {
 	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
 		return errors.New("mailer: recipient and subject must be single-line (header injection)")
 	}
 	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
-	var auth smtp.Auth
-	if s.Username != "" {
-		auth = smtp.PlainAuth("", s.Username, s.Password, s.Host)
-	}
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s\r\n",
 		s.FromAddress, to, subject, textBody)
 
-	// net/smtp.SendMail has no context hook; honor cancellation at the
-	// dial by checking first — the send itself is bounded by the relay's
-	// own timeouts.
-	if err := ctx.Err(); err != nil {
-		return err
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("mailer: relay %s unreachable: %w", addr, err)
 	}
-	if err := smtp.SendMail(addr, auth, s.FromAddress, []string{to}, []byte(msg)); err != nil {
-		// The error may quote the relay's response, never the message
-		// body — safe to wrap.
-		var netErr net.Error
-		if errors.As(err, &netErr) {
-			return fmt.Errorf("mailer: relay %s unreachable: %w", addr, err)
+	client, err := smtp.NewClient(conn, s.Host)
+	if err != nil {
+		closeQuietly(conn)
+		return fmt.Errorf("mailer: relay %s greeting failed: %w", addr, err)
+	}
+	defer closeQuietly(client)
+
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err := client.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
+			return fmt.Errorf("mailer: relay %s STARTTLS failed: %w", addr, err)
 		}
+	} else if !isLoopback(s.Host) {
+		return fmt.Errorf("mailer: relay %s offers no STARTTLS — refusing to send a credential-bearing mail in cleartext", addr)
+	}
+	if s.Username != "" {
+		if err := client.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
+			return fmt.Errorf("mailer: relay %s refused the credentials: %w", addr, err)
+		}
+	}
+	if err := client.Mail(s.FromAddress); err != nil {
+		return fmt.Errorf("mailer: relay %s refused the sender: %w", addr, err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("mailer: relay %s refused the recipient: %w", addr, err)
+	}
+	w, err := client.Data()
+	if err != nil {
 		return fmt.Errorf("mailer: relay %s refused the message: %w", addr, err)
 	}
-	return nil
+	if _, err := w.Write([]byte(msg)); err != nil {
+		return fmt.Errorf("mailer: relay %s dropped mid-message: %w", addr, err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("mailer: relay %s did not accept the message: %w", addr, err)
+	}
+	return client.Quit()
+}
+
+// isLoopback reports whether the relay lives on this machine — the one
+// posture where a missing STARTTLS is acceptable (the bytes never touch
+// a network).
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// closeQuietly releases a transport on an error path where the send's
+// own error is the one that matters.
+func closeQuietly(c io.Closer) {
+	//craft:ignore swallowed-errors error-path transport cleanup — the send's own error is already on its way to the caller
+	_ = c.Close()
 }

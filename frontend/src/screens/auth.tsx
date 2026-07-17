@@ -24,7 +24,10 @@ type View =
 
 // resetTokenFromLocation reads the emailed deep link
 // (/reset-password?token=…): the SPA serves every path, and the
-// unauthenticated gate renders this screen wherever the link lands.
+// unauthenticated gate renders this screen wherever the link lands. The
+// token is a live single-use credential, so it is scrubbed from the
+// address bar (and browser history) the moment it is read — it lives on
+// only in component state.
 function resetTokenFromLocation(): string | null {
   if (typeof globalThis.location === "undefined") {
     return null;
@@ -32,7 +35,11 @@ function resetTokenFromLocation(): string | null {
   if (!globalThis.location.pathname.endsWith("/reset-password")) {
     return null;
   }
-  return new URLSearchParams(globalThis.location.search).get("token");
+  const token = new URLSearchParams(globalThis.location.search).get("token");
+  if (token) {
+    globalThis.history?.replaceState?.(null, "", globalThis.location.pathname);
+  }
+  return token;
 }
 
 export function AuthScreen({ onAuthed }: Readonly<{ onAuthed: () => void }>) {
@@ -158,7 +165,6 @@ function LoginForm({
             className="auth-input"
             type="email"
             autoComplete="email"
-            autoFocus
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
@@ -255,7 +261,6 @@ function ForgotForm({
             className="auth-input"
             type="email"
             autoComplete="email"
-            autoFocus
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
@@ -330,7 +335,6 @@ function ResetForm({
             className="auth-input"
             type="password"
             autoComplete="new-password"
-            autoFocus
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { api, workspaceSlug } from "../api/client";
+import { api } from "../api/client";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
 import type { Provenance } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -12,20 +12,22 @@ import type { MessageKey } from "../i18n/en";
 
 // The session principal (GET /v1/me): identity + effective role keys. One
 // spelling, one ["me"] cache entry — the App auth gate, the settings identity
-// card, and role-aware affordances all read the same probe. Without a
-// workspace slug there is no tenant to ask, so the hook fails fast instead of
-// guaranteeing a 401 round-trip.
+// card, and role-aware affordances all read the same probe. The server binds
+// the installation's singleton organization itself (A107/ADR-0061) — the
+// probe needs nothing but the session cookie.
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
     retry: false,
     queryFn: async () => {
-      if (!workspaceSlug()) {
-        throw new Error("no workspace");
-      }
       const { data, error } = await api.GET("/me");
       if (error) {
         throw new Error(problemMessage(error));
+      }
+      if (!data?.user) {
+        // The contract makes user required on MeResponse — a payload
+        // without it is not a session, whatever the status code said.
+        throw new Error("malformed /me response");
       }
       return data;
     },

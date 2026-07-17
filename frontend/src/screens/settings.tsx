@@ -81,11 +81,7 @@ type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
-      return (
-        <>
-          <IdentityCard />
-        </>
-      );
+      return <IdentityCard />;
     case "ai":
       return (
         <>
@@ -184,6 +180,8 @@ function IdentityCard() {
     </section>
   );
 }
+
+const PASSPORT_SCOPES = ["read", "draft", "write", "send", "enrich"] as const;
 
 function PassportCard() {
   const t = useT();

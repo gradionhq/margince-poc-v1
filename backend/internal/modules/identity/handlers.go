@@ -35,6 +35,10 @@ type Handlers struct {
 	// never renders a link this surface cannot honor (A107).
 	resetMailer  mailer.Mailer
 	resetBaseURL string
+	// resetSendStarted is a test seam: the async reset send signals here
+	// when it finishes, so a test can wait for the captured mail without
+	// sleeping. Nil in production.
+	resetSendStarted func()
 
 	// The unauthenticated endpoints carry their own throttles: login
 	// attempts cost a full Argon2 verification each and reset requests
