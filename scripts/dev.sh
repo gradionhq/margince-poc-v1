@@ -151,27 +151,37 @@ up)
   if [[ -f .env.local ]]; then
     set -a; . ./.env.local; set +a
   fi
-  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GEMINI_API_KEY:-}" ]]; then
     if grep -qE '^[[:space:]]*api_key:' "$routing_src"; then
       # The engineer bound their own literal keys — their file wins verbatim
       # (injecting on top would duplicate the api_key mapping key).
       cp "$routing_src" "$routing"
     else
-      # Stamp the key under each anthropic tier's model line, at the tier's own
-      # indentation (the block-style shape config/ai-routing.example.yaml ships).
-      awk -v key="${ANTHROPIC_API_KEY}" '
+      # Stamp each cloud key under its own provider's tier model line, at the
+      # tier's indentation (the block-style shape ai-routing.example.yaml ships).
+      # A native provider's key rides env so it never lands in a config file,
+      # exactly like ANTHROPIC_API_KEY. openai_compatible needs a base_url too,
+      # so it is bound literally in the config, not injected here.
+      awk -v anthropic_key="${ANTHROPIC_API_KEY:-}" \
+          -v openai_key="${OPENAI_API_KEY:-}" \
+          -v gemini_key="${GEMINI_API_KEY:-}" '
         { print }
-        /^[[:space:]]*provider:[[:space:]]*anthropic[[:space:]]*$/ { anthropic = 1 }
-        anthropic && /^[[:space:]]*model:/ {
-          print substr($0, 1, index($0, "model:") - 1) "api_key: " key
-          anthropic = 0
+        /^[[:space:]]*provider:[[:space:]]*anthropic[[:space:]]*$/ { prov = "anthropic" }
+        /^[[:space:]]*provider:[[:space:]]*openai[[:space:]]*$/    { prov = "openai" }
+        /^[[:space:]]*provider:[[:space:]]*gemini[[:space:]]*$/    { prov = "gemini" }
+        prov != "" && /^[[:space:]]*model:/ {
+          key = (prov == "anthropic") ? anthropic_key : (prov == "openai") ? openai_key : gemini_key
+          if (key != "") {
+            print substr($0, 1, index($0, "model:") - 1) "api_key: " key
+          }
+          prov = ""
         }
       ' "$routing_src" > "$routing"
     fi
     ai_flag=(--ai-routing "$routing")
-    echo "dev: using real Anthropic model for the cold-start read-back (key from .env.local)"
+    echo "dev: using a real cloud model for the cold-start read-back (key from .env.local)"
   else
-    echo "dev: no ANTHROPIC_API_KEY in .env.local — cold-start runs on the offline fake"
+    echo "dev: no cloud API key in .env.local (GEMINI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY) — cold-start runs on the offline fake"
   fi
 
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass

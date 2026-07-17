@@ -27,16 +27,21 @@ Anthropic, OpenAI, or Gemini.
 ## 2. Bind a tier
 
 Edit your local `config/ai-routing.yaml` (seeded from the template by
-`make install` / `make dev`). Bind a capability tier to the provider; `api_key`
-is read **literally** — the parser does not expand `${ENV}`.
+`make install` / `make dev`). Bind a capability tier to the provider. The
+shipped default binds **gemini** on `cheap_cloud` + `premium`. For a native
+provider (anthropic / openai / gemini) leave `api_key` **out** of the file — set
+it in `.env.local` (step 4) and `make dev` injects it at boot, so the key never
+lands in a config file:
 
 ```yaml
-# GPT on the cheap-cloud tier, Gemini on premium (native adapters):
+# Native adapters — no key in the file; make dev injects it from .env.local:
 tiers:
-  cheap_cloud: { provider: openai, model: gpt-5-mini, api_key: sk-… }
-  premium:     { provider: gemini, model: gemini-2.5-pro, api_key: … }
+  cheap_cloud: { provider: gemini, model: gemini-2.5-flash }
+  premium:     { provider: gemini, model: gemini-2.5-pro }
 
-# …or any OpenAI-compatible vendor via the generic adapter:
+# …or any OpenAI-compatible vendor via the generic adapter. It needs a base_url,
+# so bind it (and its key) literally here — the api_key is read verbatim, the
+# parser does not expand ${ENV}:
 tiers:
   cheap_cloud:
     provider: openai_compatible
@@ -73,16 +78,23 @@ embeddings: { provider: ollama, model: bge-m3 }   # a local embedder always work
 
 ## 4. Start the stack
 
-`make dev` flips from the offline fake into real routing when **`ANTHROPIC_API_KEY`**
-is set, and injects that key onto the *anthropic* tiers of a scratch config. For
-an `openai`/`gemini`/`openai_compatible` binding, put the key **literally** in
-`config/ai-routing.yaml` (step 2) and either:
+Set the key for your bound provider in `.env.local` — `GEMINI_API_KEY`,
+`OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`. `make dev` reads it, flips from the
+offline fake into real routing, and injects it as `api_key` onto that provider's
+tiers in a throwaway scratch config (the key never touches a committed or local
+config file):
 
 ```sh
-# a) flip make dev into real routing with any placeholder Anthropic key:
-ANTHROPIC_API_KEY=flip-real-routing make dev
-# b) or run the api binary directly against your config (from backend/):
-cd backend && go run ./cmd/api --ai-routing ../config/ai-routing.yaml
+# .env.local:  GEMINI_API_KEY=…
+make dev
+```
+
+`openai_compatible` needs a `base_url`, so bind it (with its key) literally in
+`config/ai-routing.yaml` (step 2) instead — `make dev` uses your file verbatim
+when it already carries an `api_key`. To run without `make dev`:
+
+```sh
+cd backend && go run ./cmd/api --ai-routing ../config/ai-routing.yaml   # keys literal in the file
 ```
 
 The api comes up on `:8080`. Exercise a lane that ladders to your tier — e.g.

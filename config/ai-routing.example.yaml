@@ -42,24 +42,32 @@ profile: eu_hosted
 #             OpenRouter, a Gemini …/v1beta/openai/ layer, LM Studio, …).
 #   api_key:  BYOK credential — REQUIRED for every cloud provider (anthropic,
 #             openai_compatible, openai, gemini; ADR-0020: we provide no
-#             inference). The value is read literally (no env expansion);
-#             `make dev` injects ANTHROPIC_API_KEY from .env.local into a
-#             scratch copy for dev, so no key ever lands in a committed file.
+#             inference). The value is read literally (no env expansion), so put
+#             your key in the gitignored config/ai-routing.yaml, never here.
+#             (`make dev` additionally injects ANTHROPIC_API_KEY from .env.local
+#             onto anthropic tiers only; openai/gemini keys go in the config.)
+#
+# Default binding below is gemini (cheap_cloud + premium) for easy cloud testing
+# — add your key to the local copy. anthropic / openai / openai_compatible are
+# shown as commented alternatives.
 tiers:
   local_small:
     provider: ollama
     model: gemma3
     # base_url: http://localhost:11434
 
+  # cheap_cloud + premium default to gemini for easy cloud testing. Do NOT put
+  # api_key here — set GEMINI_API_KEY in .env.local and `make dev` injects it
+  # into a scratch copy at boot, so the key never lands in a config file (same
+  # posture as the Anthropic key). A production deploy sets api_key in its own
+  # gitignored ai-routing.yaml (ADR-0020: BYOK, we provide no inference).
   cheap_cloud:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
-    # api_key: <customer BYOK key>
+    provider: gemini
+    model: gemini-2.5-flash
 
   premium:
-    provider: anthropic
-    model: claude-opus-4-8
-    # api_key: <customer BYOK key>
+    provider: gemini
+    model: gemini-2.5-pro
 
   # local_large is typically bound on sovereign deployments only, e.g. a
   # vLLM server fronting a large open-weights model:
@@ -68,27 +76,25 @@ tiers:
   #   model: google/gemma-3-12b-it
   #   base_url: http://localhost:8000
 
-  # BYOK cloud via the generic OpenAI-wire adapter (any OpenAI-compatible
-  # vendor). REQUIRES both base_url and api_key — a keyless or base-url-less
-  # binding fails at startup. base_url is the vendor HOST ROOT with NO version
-  # segment: the adapter appends /v1/chat/completions, so a base ending in /v1
-  # would double it (…/v1/v1/… → 404):
+  # ── Commented cloud alternatives — swap one in for the gemini default above ──
+  #
+  # Anthropic (native Messages API); make dev injects ANTHROPIC_API_KEY:
+  # cheap_cloud: { provider: anthropic, model: claude-haiku-4-5-20251001 }
+  # premium:     { provider: anthropic, model: claude-opus-4-8 }
+  #
+  # OpenAI (native Responses API — reasoning, prompt caching, attachments);
+  # make dev injects OPENAI_API_KEY:
+  # cheap_cloud: { provider: openai, model: gpt-5-mini }
+  #
+  # Generic OpenAI-wire adapter (any OpenAI-compatible vendor). REQUIRES both
+  # base_url and api_key — a keyless or base-url-less binding fails at startup.
+  # base_url is the vendor HOST ROOT with NO version segment: the adapter appends
+  # /v1/chat/completions, so a base ending in /v1 would double it (…/v1/v1/… → 404).
+  # openai_compatible needs base_url, so bind it literally here (not via env):
   # cheap_cloud:
   #   provider: openai_compatible
   #   model: mistral-small-2506       # pin an explicit version; -latest aliases drift
   #   base_url: https://api.mistral.ai   # NOT https://api.mistral.ai/v1
-  #   api_key: <customer BYOK key>
-
-  # BYOK cloud via the native adapters — reasoning/thinking, prompt caching,
-  # document attachments, itemized usage. base_url defaults to the vendor's;
-  # api_key is required:
-  # cheap_cloud:
-  #   provider: openai
-  #   model: gpt-5-mini
-  #   api_key: <customer BYOK key>
-  # premium:
-  #   provider: gemini
-  #   model: gemini-2.5-pro
   #   api_key: <customer BYOK key>
 
 # embeddings — the embedding lane, bound separately from the chat tiers
