@@ -19,13 +19,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
-	"github.com/gradionhq/margince/backend/migrations"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
-// freshlyMigratedOwner connects as owner, resets the schema, and
-// migrates — the schema-derivation arrange step, needing only the owner
-// DSN (no app pool is involved in a coverage sweep).
+// freshlyMigratedOwner connects as owner and returns a clean, migrated schema
+// (migrated once per process, then reset with a fast TRUNCATE — see package
+// testdb) — the schema-derivation arrange step, needing only the owner DSN (no
+// app pool is involved in a coverage sweep).
 func freshlyMigratedOwner(t *testing.T) *pgx.Conn {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -42,19 +42,11 @@ func freshlyMigratedOwner(t *testing.T) *pgx.Conn {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
-		t.Fatalf("resetting schema: %v", err)
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatalf("migrating schema: %v", err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatal(err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
-		t.Fatalf("migrating: %v", err)
+	if err := testdb.Truncate(ctx, owner); err != nil {
+		t.Fatalf("resetting database: %v", err)
 	}
 	return owner
 }

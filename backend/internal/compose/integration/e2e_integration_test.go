@@ -28,8 +28,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
-	"github.com/gradionhq/margince/backend/migrations"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
 type env struct {
@@ -72,19 +71,11 @@ func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 		}
 	})
 
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
-		t.Fatalf("resetting schema: %v", err)
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatalf("migrating schema: %v", err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatalf("loading migrations: %v", err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatalf("loading custom migrations: %v", err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
-		t.Fatalf("migrating: %v", err)
+	if err := testdb.Truncate(ctx, owner); err != nil {
+		t.Fatalf("resetting database: %v", err)
 	}
 
 	pool, err := database.NewPool(ctx, appDSN)

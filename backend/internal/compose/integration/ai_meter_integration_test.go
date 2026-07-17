@@ -20,14 +20,14 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
-// meterFreshDatabase resets and migrates the schema through the owner
-// role, returning the owner connection and the RLS-bound app DSN.
+// meterFreshDatabase resets the data to a clean slate and ensures the schema is
+// migrated (once per process, then a fast TRUNCATE — see package testdb),
+// returning the owner connection and the RLS-bound app DSN.
 func meterFreshDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, string) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -44,19 +44,11 @@ func meterFreshDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, string) {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
-		t.Fatalf("resetting schema: %v", err)
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatalf("migrating schema: %v", err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatal(err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
-		t.Fatalf("migrating: %v", err)
+	if err := testdb.Truncate(ctx, owner); err != nil {
+		t.Fatalf("resetting database: %v", err)
 	}
 	return owner, appDSN
 }
