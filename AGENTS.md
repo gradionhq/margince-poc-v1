@@ -1,8 +1,12 @@
 # AGENTS.md — operating this repo
 
-Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built
-from a separate spec repo (contract-first, P3: when this code
-and the spec disagree, the spec wins).
+Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built from the
+sibling spec repo **`margince-foundation`** (contract-first, P3: when this code and
+the spec disagree, the spec wins). Its tree is `specs/` — `specs/subsystems/` holds
+the per-module chapters, `specs/contract/` the normative contract, `specs/adr/` the
+decisions; the ticket backlog is at that repo's root in `backlog/`. See
+[CLAUDE.md](CLAUDE.md#where-the-spec-is-read-before-building) for the full map.
+Don't edit the spec from here — raise discrepancies for upstream reconciliation.
 
 **Start at [STATUS.md](STATUS.md)** — progress, in-flight work, and the
 session-pickup point; update it at the end of every working session.
@@ -210,7 +214,8 @@ scope clauses in `platform/auth`): object denial →
 
 ## Craftsmanship
 
-Match architecture/15 (anti-tell catalog T1–T11). The rule under every rule:
+Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule
+under every rule:
 **code that reads best to a human reads best to the next agent that edits it** —
 legibility is the product, not polish.
 
