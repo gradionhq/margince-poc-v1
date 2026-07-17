@@ -143,7 +143,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonMatch
 		// Equal confidence resolves to the lowest person id — a total
 		// order, so the queue does not shuffle between runs.
 		if confidence > best.Confidence ||
-			(confidence == best.Confidence && best.PersonID != (ids.PersonID{}) && row.id.UUID.String() < best.PersonID.UUID.String()) {
+			(confidence == best.Confidence && best.PersonID != (ids.PersonID{}) && row.id.String() < best.PersonID.String()) {
 			best.Confidence, best.PersonID = confidence, row.id
 		}
 	}
@@ -278,7 +278,7 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 		}
 		confidence := nameSimilarity(normalizeOrgName(c.DisplayName), normalizeOrgName(name))
 		if confidence > best.Confidence ||
-			(confidence == best.Confidence && best.OrganizationID != (ids.OrganizationID{}) && id.UUID.String() < best.OrganizationID.UUID.String()) {
+			(confidence == best.Confidence && best.OrganizationID != (ids.OrganizationID{}) && id.String() < best.OrganizationID.String()) {
 			best.Confidence, best.OrganizationID = confidence, id
 		}
 	}

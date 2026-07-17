@@ -341,10 +341,14 @@ PO-PARAM-1 suffix strip), migration `0082` (the GIN trigram indexes the formula'
 bound needs). All three of PO-F-1's worked examples reproduce exactly:
 `name_sim(Jon Doe, John Doe) = 0.9667`, `confidence = 0.982` → 🟡, `0.532` → create.
 
-**The branch is PARKED, not shippable.** Nothing calls the resolver yet, and a resolver with
-no callers is dead code under T3/T8. It ships when the wiring lands (§7b.4).
+**Update 2026-07-17 (later the same day): DH-GAP-1 is CLOSED upstream** — foundation commit
+`6466432` pins `dedupe_candidate` as DH-DDL-1 (ADR-0062/A108: a dedicated table, not an
+approval-inbox specialization), removes PO-F-1's unreachable `org_match = 0.5` tier
+(PO-N-DEDUPE-1), and clarifies capture.md's "withheld" (the merge is withheld, not the
+record). The resolver ships ahead of its wiring by founder decision; the wiring (§7b.4)
+and the backlog `docs_commit` re-derive are the follow-ups.
 
-### 7b.1 — BLOCKER: DH-GAP-1 has no storage, so the fuzzy tier has no destination
+### 7b.1 — RESOLVED upstream: DH-GAP-1 had no storage, so the fuzzy tier had no destination
 
 `specs/subsystems/data-hygiene.md:244` names this itself:
 > PO-F-1/PO-F-2's fuzzy output is defined as "route to a 🟡 review queue", but **no table in
