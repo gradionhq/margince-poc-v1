@@ -5,9 +5,17 @@
 -- capture_connection). Rows are upserted lazily on a connection's first sync;
 -- a connection with no row is due immediately.
 
+-- The composite-FK convention (0019): a tenant-local reference carries
+-- workspace_id so a cross-workspace target is rejected by the database
+-- itself, not just by RLS.
+ALTER TABLE capture_connection ADD CONSTRAINT uq_capture_connection_ws_id UNIQUE (workspace_id, id);
+
 CREATE TABLE capture_sync_state (
-  connection_id uuid PRIMARY KEY REFERENCES capture_connection(id) ON DELETE CASCADE,
+  connection_id uuid PRIMARY KEY,
   workspace_id  uuid NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
+  CONSTRAINT capture_sync_state_connection_id_fkey
+    FOREIGN KEY (workspace_id, connection_id)
+    REFERENCES capture_connection (workspace_id, id) ON DELETE CASCADE,
 
   -- The due-scan key. Rate limits honor Retry-After; other transient errors
   -- back off 2min·2^n capped at 4h, jittered. A connection in status 'error'
