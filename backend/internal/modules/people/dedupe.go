@@ -125,7 +125,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonMatch
 		  LEFT JOIN organization_domain od
 		    ON od.organization_id = r.organization_id AND od.archived_at IS NULL
 		 WHERE p.archived_at IS NULL
-		   AND (f_unaccent(lower(p.full_name)) % f_unaccent(lower($1))
+		   AND (f_fold_apostrophes(lower(p.full_name)) % f_fold_apostrophes(lower($1))
 		        OR ($2::uuid IS NOT NULL AND r.organization_id = $2))`,
 		c.FullName, c.CurrentPrimaryOrgID)
 	if err != nil {
@@ -263,7 +263,7 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 	rows, err := tx.Query(ctx, `
 		SELECT id, display_name FROM organization
 		 WHERE archived_at IS NULL
-		   AND f_unaccent(lower(display_name)) % f_unaccent(lower($1))`, c.DisplayName)
+		   AND f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))`, c.DisplayName)
 	if err != nil {
 		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
 	}

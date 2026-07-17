@@ -337,8 +337,10 @@ pending/proposed captured-contact state), `activities-and-timeline` (AT-T01..T05
 Branch `refactor/people-resolver-chokepoint` (commit `e5a4911`) implements the PO-F-1/PO-F-2
 resolver: `people/dedupe.go` (both tiers, trigram-restricted candidate sets, deterministic
 lowest-id tie-breaks), `people/namesim.go` (Jaro-Winkler pinned to PO-PARAM-JW-1/2 +
-PO-PARAM-1 suffix strip), migration `0082` (the GIN trigram indexes the formula's candidate
-bound needs). All three of PO-F-1's worked examples reproduce exactly:
+PO-PARAM-1 suffix strip). The GIN trigram indexes the formula's candidate bound needs already
+exist — 0052/0077's `idx_person_name_trgm` / `idx_org_name_trgm` over
+`f_fold_apostrophes(lower(name))`; the resolver's candidate queries use that same expression so
+the planner matches them. No new migration. All three of PO-F-1's worked examples reproduce exactly:
 `name_sim(Jon Doe, John Doe) = 0.9667`, `confidence = 0.982` → 🟡, `0.532` → create.
 
 **Update 2026-07-17 (later the same day): DH-GAP-1 is CLOSED upstream** — foundation commit
