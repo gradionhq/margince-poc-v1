@@ -361,9 +361,16 @@ test("PERF-1: record open renders under the 300ms perceived budget", async ({
   page,
 }) => {
   await page.goto("/#/contacts");
-  await expect(page.getByText("Anna Weber")).toBeVisible();
+  // Anchor on a settled screen before measuring: a click during hydration
+  // can land on a row whose handler is not attached yet — the navigation
+  // then never happens and the assertion times out as a phantom perf
+  // failure (twice-seen CI flake). networkidle + the visible row make the
+  // click deterministic; the budget still measures click → heading.
+  await page.waitForLoadState("networkidle");
+  const row = page.getByText("Anna Weber");
+  await expect(row).toBeVisible();
   const start = Date.now();
-  await page.getByText("Anna Weber").click();
+  await row.click();
   await expect(
     page.getByRole("heading", { level: 1, name: "Anna Weber" }),
   ).toBeVisible();
