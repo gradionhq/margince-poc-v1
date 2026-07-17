@@ -1457,10 +1457,21 @@ function GoogleConnectPanel({ outcome }: { outcome?: string }) {
         <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
           {t("ob.s4.googleOkBody")}
         </p>
+        {connections.isPending && (
+          <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
+            {t("ob.s4.googleVerifying")}
+          </p>
+        )}
         {gmailConnected && (
           <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
             <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
           </span>
+        )}
+        {!connections.isPending && !gmailConnected && (
+          <ConnectWarn
+            title={t("ob.s4.googleFailed")}
+            body={t("ob.s4.googleRetry")}
+          />
         )}
         <Button
           variant="primary"
@@ -1584,9 +1595,16 @@ function ImapConnectPanel() {
     },
   });
 
-  const ready = host.trim() !== "" && email.trim() !== "" && password !== "";
+  const parsedMax = max.trim() === "" ? 30 : Number(max);
+  const ready =
+    host.trim() !== "" &&
+    email.trim() !== "" &&
+    password !== "" &&
+    Number.isInteger(parsedMax) &&
+    parsedMax >= 1 &&
+    parsedMax <= 200;
 
-  if (connect.data) {
+  if (connect.data?.connected) {
     return (
       <div className="connect-result">
         <div className="cr-h">
@@ -1681,6 +1699,12 @@ function ImapConnectPanel() {
         <ConnectWarn
           title={t("ob.s4.connectFailed")}
           body={connect.error.message}
+        />
+      )}
+      {connect.data && !connect.data.connected && (
+        <ConnectWarn
+          title={t("ob.s4.connectFailed")}
+          body={t("ob.s4.googleRetry")}
         />
       )}
 

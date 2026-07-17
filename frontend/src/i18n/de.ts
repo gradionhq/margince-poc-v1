@@ -948,11 +948,12 @@ export const de = {
   "ob.s4.googleBtn": "Mit Google fortfahren",
   "ob.s4.msBtn": "Mit Microsoft fortfahren",
   "ob.s4.googleHint":
-    "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und ein Klick hier trennt die Verbindung wieder.",
+    "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
   "ob.s4.googleOkTitle": "Gmail verbunden",
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
   "ob.s4.googleLive": "Verbindung bestätigt — Hintergrund-Erfassung läuft",
+  "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
   "ob.s4.googleRetry":

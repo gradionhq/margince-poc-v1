@@ -928,11 +928,12 @@ export const en = {
   "ob.s4.googleBtn": "Continue with Google",
   "ob.s4.msBtn": "Continue with Microsoft",
   "ob.s4.googleHint":
-    "Read-only access. You'll approve it on Google's own consent screen, and one click here disconnects it again.",
+    "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
   "ob.s4.googleOkTitle": "Gmail connected",
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
   "ob.s4.googleLive": "Connection verified — background capture is on",
+  "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
   "ob.s4.googleRetry":
