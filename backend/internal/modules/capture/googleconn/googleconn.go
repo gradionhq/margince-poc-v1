@@ -25,6 +25,8 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // httpTimeout bounds every Google call so a stalled request can't pin an API
@@ -77,6 +79,37 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 		return resp.StatusCode, fmt.Errorf("googleconn: decoding %s: %w", path, ErrUnreachable)
 	}
 	return resp.StatusCode, nil
+}
+
+// Descriptor is the shared static metadata for a read-only Google capture
+// connector: read scope, green (read-only) tier, produces activities. name is
+// the registry key ("gmail", "gcal"). The two Google connectors are identical
+// here; a future one that isn't simply builds its own connector.Descriptor.
+func Descriptor(name string) connector.Descriptor {
+	return connector.Descriptor{
+		Name:     name,
+		Version:  "1",
+		Scopes:   []principal.Scope{principal.ScopeRead},
+		RiskTier: mcp.TierGreen, // read-only capture
+		Produces: []datasource.EntityType{datasource.EntityActivity},
+	}
+}
+
+// Session opens one sync/health pass: it unseals the AuthState and mints a fresh
+// access token from the durable refresh token, returning the connected owner
+// (the internal-vs-external anchor) and the short-lived access token. A stored
+// bundle we cannot read is a corruption, surfaced as an error rather than
+// silently treated as a fresh connection.
+func Session(ctx context.Context, oauth OAuth, auth connector.Auth) (owner, accessToken string, err error) {
+	var st AuthState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", "", fmt.Errorf("googleconn: malformed auth state: %w", err)
+	}
+	access, err := oauth.AccessToken(ctx, st.RefreshToken)
+	if err != nil {
+		return "", "", err
+	}
+	return st.Owner, access, nil
 }
 
 // OAuth is the OAuth2 handshake surface each Google connector supplies to

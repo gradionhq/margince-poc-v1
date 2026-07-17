@@ -25,10 +25,7 @@ import (
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 const connectorName = "gcal"
@@ -63,15 +60,9 @@ func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
 }
 
 // Descriptor is the connector's static metadata: name "gcal", read-only
-// (TierGreen), producing activities. Read at registration.
+// (TierGreen), producing activities — the shared Google connector shape.
 func (c *Connector) Descriptor() connector.Descriptor {
-	return connector.Descriptor{
-		Name:     connectorName,
-		Version:  "1",
-		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierGreen, // read-only capture
-		Produces: []datasource.EntityType{datasource.EntityActivity},
-	}
+	return googleconn.Descriptor(connectorName)
 }
 
 // Authenticate exchanges the authorization code for a refresh token, resolves
@@ -89,13 +80,7 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 // The advanced syncToken is returned as the new cursor; the registry persists
 // it only on a fully-successful Sync.
 func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
-	var st googleconn.AuthState
-	if err := json.Unmarshal(auth, &st); err != nil {
-		return nil, fmt.Errorf("gcal: malformed auth state: %w", err)
-	}
-	owner := st.Owner // local — never stored on the shared instance
-
-	access, err := c.oauth.AccessToken(ctx, st.RefreshToken)
+	owner, access, err := googleconn.Session(ctx, c.oauth, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +166,7 @@ func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]con
 // HealthCheck confirms the stored credential still mints a token and the
 // calendar answers. An outage degrades capture but never blocks core CRM.
 func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error {
-	var st googleconn.AuthState
-	if err := json.Unmarshal(auth, &st); err != nil {
-		return fmt.Errorf("gcal: malformed auth state: %w", err)
-	}
-	access, err := c.oauth.AccessToken(ctx, st.RefreshToken)
+	_, access, err := googleconn.Session(ctx, c.oauth, auth)
 	if err != nil {
 		return err
 	}
