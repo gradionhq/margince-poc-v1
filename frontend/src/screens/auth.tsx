@@ -1,224 +1,131 @@
-import { useMutation } from "@tanstack/react-query";
-import { FileCheck2, Lock, ShieldCheck } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
-import { api, setWorkspaceSlug } from "../api/client";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { type FormEvent, type ReactNode, useId, useState } from "react";
+import { api } from "../api/client";
 import { navigate } from "../app/router";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage } from "./common";
 import "./auth.css";
 
-// First-run auth (signup + login). A split hero on the funnel's design language:
-// the value proposition beside the form. The product has no subdomain in local
-// dev, so the workspace is resolved from the X-Workspace-Slug header the API
-// client sends — signup derives it from the workspace name, login collects it.
-// Both endpoints are the contract's public paths (POST /workspaces,
-// /auth/login); success sets the httpOnly session cookie the rest of the app
-// rides.
+// The default unauthenticated screen is LOGIN, not setup or signup
+// (A107/ADR-0061): one installation serves one organization, provisioned at
+// API boot from the deployment file — the browser never creates a tenant and
+// never selects one. A single centered column, a real <form> (Enter submits),
+// and only the authentication methods the capabilities probe reports as
+// operational: the forgot-password flow renders exactly when the server can
+// complete it.
 
-// Mirror of the server's identity.slugify (lowercase; keep [a-z0-9]; map
-// space/-/_ to '-'; trim leading/trailing '-'). Pinned against the Go rule in
-// auth.test.tsx so the two never drift — the dev slug must resolve the exact
-// workspace the bootstrap created.
-export function deriveWorkspaceSlug(name: string): string {
-  let out = "";
-  for (const ch of name.trim().toLowerCase()) {
-    if ((ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")) {
-      out += ch;
-    } else if (ch === " " || ch === "-" || ch === "_") {
-      out += "-";
-    }
+type View =
+  | { kind: "login" }
+  | { kind: "forgot" }
+  | { kind: "forgot-sent"; email: string }
+  | { kind: "reset"; token: string }
+  | { kind: "reset-done" };
+
+// resetTokenFromLocation reads the emailed deep link
+// (/reset-password?token=…): the SPA serves every path, and the
+// unauthenticated gate renders this screen wherever the link lands.
+function resetTokenFromLocation(): string | null {
+  if (typeof globalThis.location === "undefined") {
+    return null;
   }
-  return out.replace(/^-+/, "").replace(/-+$/, "");
+  if (!globalThis.location.pathname.endsWith("/reset-password")) {
+    return null;
+  }
+  return new URLSearchParams(globalThis.location.search).get("token");
 }
-
-const MIN_PASSWORD = 12;
-
-type Mode = "signup" | "login";
 
 export function AuthScreen({ onAuthed }: Readonly<{ onAuthed: () => void }>) {
   const t = useT();
-  const [mode, setMode] = useState<Mode>("signup");
+  const [view, setView] = useState<View>(() => {
+    const token = resetTokenFromLocation();
+    return token ? { kind: "reset", token } : { kind: "login" };
+  });
 
-  return (
-    <div className="auth-page">
-      <div className="auth-shell">
-        <div className="auth-hero">
-          <span className="ob-wordmark">
-            <span className="mk">M</span>
-            {t("auth.title")}
-          </span>
-          <h1>{t("auth.heroTitle")}</h1>
-          <p className="lede">{t("auth.heroSub")}</p>
-          <ul className="auth-bullets">
-            <li>
-              <span className="bi">
-                <FileCheck2 aria-hidden />
-              </span>
-              {t("auth.bulletEvidence")}
-            </li>
-            <li>
-              <span className="bi">
-                <ShieldCheck aria-hidden />
-              </span>
-              {t("auth.bulletConfirm")}
-            </li>
-            <li>
-              <span className="bi">
-                <Lock aria-hidden />
-              </span>
-              {t("auth.bulletOwn")}
-            </li>
-          </ul>
-        </div>
-
-        {mode === "signup" ? (
-          <SignupForm onAuthed={onAuthed} onToLogin={() => setMode("login")} />
-        ) : (
-          <LoginForm onAuthed={onAuthed} onToSignup={() => setMode("signup")} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SignupForm({
-  onAuthed,
-  onToLogin,
-}: Readonly<{
-  onAuthed: () => void;
-  onToLogin: () => void;
-}>) {
-  const t = useT();
-  const nameId = useId();
-  const displayId = useId();
-  const emailId = useId();
-  const passwordId = useId();
-  const [workspaceName, setWorkspaceName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  const signup = useMutation({
-    mutationFn: async () => {
-      const timezone =
-        Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      const { data, error } = await api.POST("/workspaces", {
-        body: {
-          workspace_name: workspaceName.trim(),
-          admin_email: email.trim(),
-          admin_password: password,
-          admin_display_name: displayName.trim(),
-          timezone,
-        },
-      });
+  // The anonymous capability probe drives what the screen offers — a dead
+  // "Forgot password?" link is a misleading affordance, so it renders only
+  // when the reset flow can complete end to end.
+  const capabilities = useQuery({
+    queryKey: ["auth-capabilities"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/auth/capabilities");
       if (error) {
         throw new Error(problemMessage(error));
       }
-      // The bootstrap ran unauthenticated (no slug yet); persist the slug it
-      // derived so every later /v1 call resolves this workspace in dev.
-      setWorkspaceSlug(deriveWorkspaceSlug(workspaceName));
       return data;
     },
-    onSuccess: () => {
-      onAuthed();
-      navigate({ screen: "onboarding" });
-    },
+    staleTime: 60_000,
+    retry: 1,
   });
-
-  const ready =
-    workspaceName.trim() !== "" &&
-    displayName.trim() !== "" &&
-    email.trim() !== "" &&
-    password.length >= MIN_PASSWORD;
+  const resetAvailable = capabilities.data?.password_reset === true;
 
   return (
-    <section className="auth-card">
-      <h2>{t("auth.signupTitle")}</h2>
-      <p className="card-sub">{t("auth.signupSub")}</p>
-      <div className="auth-fields">
-        <Field id={nameId} label={t("auth.workspaceName")}>
-          <input
-            id={nameId}
-            className="auth-input"
-            value={workspaceName}
-            onChange={(event) => setWorkspaceName(event.target.value)}
+    <div className="auth-page">
+      <main className="auth-column">
+        <span className="auth-wordmark">
+          <span className="mk">M</span>
+          {t("auth.title")}
+        </span>
+        {view.kind === "login" && (
+          <LoginForm
+            onAuthed={onAuthed}
+            resetAvailable={resetAvailable}
+            onForgot={() => setView({ kind: "forgot" })}
           />
-        </Field>
-        <Field id={displayId} label={t("auth.displayName")}>
-          <input
-            id={displayId}
-            className="auth-input"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
+        )}
+        {view.kind === "forgot" && (
+          <ForgotForm
+            onSent={(email) => setView({ kind: "forgot-sent", email })}
+            onBack={() => setView({ kind: "login" })}
           />
-        </Field>
-        <Field id={emailId} label={t("auth.email")}>
-          <input
-            id={emailId}
-            className="auth-input"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+        )}
+        {view.kind === "forgot-sent" && (
+          <Notice
+            title={t("auth.forgotSentTitle")}
+            body={t("auth.forgotSentBody")}
+            action={t("auth.backToLogin")}
+            onAction={() => setView({ kind: "login" })}
           />
-        </Field>
-        <Field
-          id={passwordId}
-          label={t("auth.password")}
-          hint={t("auth.passwordHint")}
-        >
-          <input
-            id={passwordId}
-            className="auth-input"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
+        )}
+        {view.kind === "reset" && (
+          <ResetForm
+            token={view.token}
+            onDone={() => setView({ kind: "reset-done" })}
+            onRestart={() => setView({ kind: "forgot" })}
           />
-        </Field>
-      </div>
-      {signup.isError && (
-        <ErrorNote
-          message={signup.error instanceof Error ? signup.error.message : null}
-        />
-      )}
-      <div className="auth-actions">
-        <Button
-          variant="primary"
-          disabled={!ready || signup.isPending}
-          onClick={() => signup.mutate()}
-        >
-          {t("auth.createWorkspace")}
-        </Button>
-        <button type="button" className="auth-switch" onClick={onToLogin}>
-          {t("auth.toLogin")}
-        </button>
-      </div>
-    </section>
+        )}
+        {view.kind === "reset-done" && (
+          <Notice
+            title={t("auth.resetDoneTitle")}
+            body={t("auth.resetDoneBody")}
+            action={t("auth.backToLogin")}
+            onAction={() => setView({ kind: "login" })}
+          />
+        )}
+      </main>
+    </div>
   );
 }
 
 function LoginForm({
   onAuthed,
-  onToSignup,
+  resetAvailable,
+  onForgot,
 }: Readonly<{
   onAuthed: () => void;
-  onToSignup: () => void;
+  resetAvailable: boolean;
+  onForgot: () => void;
 }>) {
   const t = useT();
-  const slugId = useId();
   const emailId = useId();
   const passwordId = useId();
-  const [slug, setSlug] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
 
   const login = useMutation({
     mutationFn: async () => {
-      // The workspace header must be set BEFORE the call — /auth/login is
-      // public but still resolves the workspace from the slug (dev) / subdomain.
-      setWorkspaceSlug(slug.trim());
       const { data, error } = await api.POST("/auth/login", {
         body: { email: email.trim(), password },
       });
@@ -233,40 +140,62 @@ function LoginForm({
     },
   });
 
-  const ready = slug.trim() !== "" && email.trim() !== "" && password !== "";
+  const ready = email.trim() !== "" && password !== "";
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (ready && !login.isPending) {
+      login.mutate();
+    }
+  };
 
   return (
-    <section className="auth-card">
-      <h2>{t("auth.loginTitle")}</h2>
-      <p className="card-sub">{t("auth.loginSub")}</p>
+    <form className="auth-card" onSubmit={submit}>
+      <h1>{t("auth.loginTitle")}</h1>
       <div className="auth-fields">
-        <Field id={slugId} label={t("auth.workspaceSlug")}>
-          <input
-            id={slugId}
-            className="auth-input"
-            value={slug}
-            onChange={(event) => setSlug(event.target.value)}
-          />
-        </Field>
         <Field id={emailId} label={t("auth.email")}>
           <input
             id={emailId}
             className="auth-input"
             type="email"
             autoComplete="email"
+            autoFocus
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
         </Field>
-        <Field id={passwordId} label={t("auth.password")}>
-          <input
-            id={passwordId}
-            className="auth-input"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+        <Field
+          id={passwordId}
+          label={t("auth.password")}
+          labelEnd={
+            resetAvailable ? (
+              <button type="button" className="auth-link" onClick={onForgot}>
+                {t("auth.forgotLink")}
+              </button>
+            ) : undefined
+          }
+          hint={capsLock ? t("auth.capsLock") : undefined}
+        >
+          <div className="auth-password-row">
+            <input
+              id={passwordId}
+              className="auth-input"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyUp={(event) =>
+                setCapsLock(event.getModifierState?.("CapsLock") ?? false)
+              }
+            />
+            <button
+              type="button"
+              className="auth-link"
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((v) => !v)}
+            >
+              {showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+            </button>
+          </div>
         </Field>
       </div>
       {login.isError && (
@@ -276,15 +205,177 @@ function LoginForm({
       )}
       <div className="auth-actions">
         <Button
+          type="submit"
           variant="primary"
           disabled={!ready || login.isPending}
-          onClick={() => login.mutate()}
         >
-          {t("auth.signIn")}
+          {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
         </Button>
-        <button type="button" className="auth-switch" onClick={onToSignup}>
-          {t("auth.toSignup")}
+      </div>
+    </form>
+  );
+}
+
+function ForgotForm({
+  onSent,
+  onBack,
+}: Readonly<{ onSent: (email: string) => void; onBack: () => void }>) {
+  const t = useT();
+  const emailId = useId();
+  const [email, setEmail] = useState("");
+
+  const request = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST("/auth/forgot-password", {
+        body: { email: email.trim() },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    onSuccess: () => onSent(email.trim()),
+  });
+
+  const ready = email.trim() !== "";
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (ready && !request.isPending) {
+      request.mutate();
+    }
+  };
+
+  return (
+    <form className="auth-card" onSubmit={submit}>
+      <h1>{t("auth.forgotTitle")}</h1>
+      <p className="card-sub">{t("auth.forgotSub")}</p>
+      <div className="auth-fields">
+        <Field id={emailId} label={t("auth.email")}>
+          <input
+            id={emailId}
+            className="auth-input"
+            type="email"
+            autoComplete="email"
+            autoFocus
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </Field>
+      </div>
+      {request.isError && (
+        <ErrorNote
+          message={
+            request.error instanceof Error ? request.error.message : null
+          }
+        />
+      )}
+      <div className="auth-actions">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!ready || request.isPending}
+        >
+          {t("auth.sendResetLink")}
+        </Button>
+        <button type="button" className="auth-link" onClick={onBack}>
+          {t("auth.backToLogin")}
         </button>
+      </div>
+    </form>
+  );
+}
+
+const MIN_PASSWORD = 12;
+
+function ResetForm({
+  token,
+  onDone,
+  onRestart,
+}: Readonly<{ token: string; onDone: () => void; onRestart: () => void }>) {
+  const t = useT();
+  const passwordId = useId();
+  const [password, setPassword] = useState("");
+
+  const reset = useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST("/auth/reset-password", {
+        body: { token, new_password: password },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    onSuccess: onDone,
+  });
+
+  const ready = password.length >= MIN_PASSWORD;
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (ready && !reset.isPending) {
+      reset.mutate();
+    }
+  };
+
+  return (
+    <form className="auth-card" onSubmit={submit}>
+      <h1>{t("auth.resetTitle")}</h1>
+      <p className="card-sub">{t("auth.resetSub")}</p>
+      <div className="auth-fields">
+        <Field
+          id={passwordId}
+          label={t("auth.newPassword")}
+          hint={t("auth.passwordHint")}
+        >
+          <input
+            id={passwordId}
+            className="auth-input"
+            type="password"
+            autoComplete="new-password"
+            autoFocus
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </Field>
+      </div>
+      {reset.isError && (
+        <div className="auth-error">
+          <p className="ae-t">{t("auth.resetFailed")}</p>
+          <button type="button" className="auth-link" onClick={onRestart}>
+            {t("auth.requestNewLink")}
+          </button>
+        </div>
+      )}
+      <div className="auth-actions">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!ready || reset.isPending}
+        >
+          {t("auth.setNewPassword")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function Notice({
+  title,
+  body,
+  action,
+  onAction,
+}: Readonly<{
+  title: string;
+  body: string;
+  action: string;
+  onAction: () => void;
+}>) {
+  return (
+    <section className="auth-card">
+      <h1>{title}</h1>
+      <p className="card-sub">{body}</p>
+      <div className="auth-actions">
+        <Button variant="primary" onClick={onAction}>
+          {action}
+        </Button>
       </div>
     </section>
   );
@@ -293,11 +384,13 @@ function LoginForm({
 function Field({
   id,
   label,
+  labelEnd,
   hint,
   children,
 }: Readonly<{
   id: string;
   label: string;
+  labelEnd?: ReactNode;
   hint?: string;
   children: ReactNode;
 }>) {
@@ -305,9 +398,16 @@ function Field({
   // exactly the label — the hint is a sibling below the input, not part of it.
   return (
     <div className="auth-field">
-      <label htmlFor={id}>{label}</label>
+      <div className="auth-label-row">
+        <label htmlFor={id}>{label}</label>
+        {labelEnd}
+      </div>
       {children}
-      {hint && <span className="auth-hint">{hint}</span>}
+      {hint && (
+        <span className="auth-hint" role="status">
+          {hint}
+        </span>
+      )}
     </div>
   );
 }
@@ -315,7 +415,7 @@ function Field({
 function ErrorNote({ message }: Readonly<{ message: string | null }>) {
   const t = useT();
   return (
-    <div className="auth-error">
+    <div className="auth-error" role="alert">
       <p className="ae-t">{t("auth.failed")}</p>
       {message && <p className="ae-m">{message}</p>}
     </div>
