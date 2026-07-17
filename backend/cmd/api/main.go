@@ -38,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -56,6 +57,7 @@ func main() {
 // apiConfig is the parsed boot configuration of the api process.
 type apiConfig struct {
 	dsn               string
+	configPath        string
 	schemaDSN         string
 	addr              string
 	redisAddr         string
@@ -77,6 +79,8 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs := flag.NewFlagSet("api", flag.ContinueOnError)
 	var cfg apiConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
+		"path to the deployment configuration file (A107/ADR-0061: bootstrap + auth); a missing file boots an existing installation but cannot bootstrap an empty database")
 	fs.StringVar(&cfg.schemaDSN, "schema-dsn", os.Getenv("MARGINCE_SCHEMA_DSN"),
 		"Postgres DSN (owner role) for the customfields runtime-DDL pool; unset = the two schema-change operations answer 501")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
@@ -120,6 +124,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer pool.Close()
+
+	// The boot state machine (A107/ADR-0061): bootstrap an empty database
+	// from the deployment file, bind an existing singleton, refuse a
+	// multi-workspace database. Runs before the listener opens — the API
+	// never serves an unbound installation.
+	deployCfg, err := deployconfig.Load(cfg.configPath)
+	if err != nil {
+		return err
+	}
+	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
+		return err
+	}
 
 	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, pool, stdout)
 	if err != nil {

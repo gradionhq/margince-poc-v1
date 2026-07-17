@@ -25,17 +25,7 @@ func setupRelationships(t *testing.T) *relEnv {
 	t.Helper()
 	e := setup(t)
 	e.slug = "rel-e2e"
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Rel E2E", "admin_email": "rel@fable.test",
-		"admin_display_name": "Rel Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "rel@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Rel E2E", "rel@fable.test")
 	var person, org struct {
 		ID string `json:"id"`
 	}

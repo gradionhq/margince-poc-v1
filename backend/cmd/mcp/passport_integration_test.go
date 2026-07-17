@@ -28,10 +28,31 @@ import (
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
-// passportEnv migrates a fresh schema and bootstraps one workspace,
+// passportEnv migrates a fresh schema and bootstraps the installation,
 // returning the service, the admin identity, and the owner connection
 // (tests use it to shift timestamps the app role may not touch).
 func passportEnv(t *testing.T) (*identity.Service, identity.Identity, *pgx.Conn) {
+	t.Helper()
+	svc, owner := emptyPassportEnv(t)
+	ctx := context.Background()
+	wsID, _, err := svc.BootstrapInstallation(ctx, &identity.InstallationBootstrap{
+		OrganizationName: "Passport Test",
+		AdminEmail:       "admin@passport.test", AdminName: "Admin",
+		AdminPassword: "correct-horse-battery",
+	}, nil)
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	admin, _, err := svc.Login(principal.WithWorkspaceID(ctx, wsID.UUID), "admin@passport.test", "correct-horse-battery")
+	if err != nil {
+		t.Fatalf("admin login: %v", err)
+	}
+	return svc, admin, owner
+}
+
+// emptyPassportEnv is passportEnv's schema half: migrated, no
+// organization yet — for the bootstrap state-machine assertions.
+func emptyPassportEnv(t *testing.T) (*identity.Service, *pgx.Conn) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
@@ -70,16 +91,7 @@ func passportEnv(t *testing.T) (*identity.Service, identity.Identity, *pgx.Conn)
 	}
 	t.Cleanup(pool.Close)
 
-	svc := identity.NewService(pool)
-	admin, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
-		WorkspaceName: "Passport Test", Slug: "passport-test",
-		AdminEmail: "admin@passport.test", AdminName: "Admin",
-		AdminPassword: "correct-horse-battery",
-	}, nil)
-	if err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	return svc, admin, owner
+	return identity.NewService(pool), owner
 }
 
 func wsCtx(id identity.Identity) context.Context {
@@ -138,34 +150,39 @@ func TestPassportLifecycle(t *testing.T) {
 }
 
 // C5: bootstrap is atomic across identity AND cross-module defaults. A
-// seed that fails must roll the whole tenant back — no workspace row, no
-// admin, nothing to collide with on retry.
+// seed that fails must roll the whole organization back — no workspace
+// row, no admin, nothing to collide with on retry.
 func TestBootstrapSeedFailureRollsBackTenant(t *testing.T) {
-	svc, _, _ := passportEnv(t)
+	svc, _ := emptyPassportEnv(t)
 	ctx := context.Background()
 
 	boom := errors.New("seed blew up")
-	_, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
-		WorkspaceName: "Atomic Test", Slug: "atomic-test",
-		AdminEmail: "admin@atomic.test", AdminName: "Admin",
+	create := &identity.InstallationBootstrap{
+		OrganizationName: "Atomic Test",
+		AdminEmail:       "admin@atomic.test", AdminName: "Admin",
 		AdminPassword: "correct-horse-battery",
-	}, func(_ context.Context, _ pgx.Tx) error { return boom })
+	}
+	_, _, err := svc.BootstrapInstallation(ctx, create, func(_ context.Context, _ pgx.Tx) error { return boom })
 	if !errors.Is(err, boom) {
 		t.Fatalf("bootstrap surfaced %v, want the seed error", err)
 	}
 
-	// The tenant must not exist: the failed seed rolled it back.
-	if _, err := svc.ResolveWorkspace(ctx, "atomic-test"); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("workspace survived a failed seed → %v, want ErrNotFound (partial provisioning)", err)
+	// The organization must not exist: the failed seed rolled it back.
+	if _, err := svc.InstallationWorkspace(ctx); !errors.Is(err, identity.ErrNotBootstrapped) {
+		t.Fatalf("organization survived a failed seed → %v, want ErrNotBootstrapped (partial provisioning)", err)
 	}
 
-	// And the slug is free — a retry with a working seed succeeds.
-	if _, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
-		WorkspaceName: "Atomic Test", Slug: "atomic-test",
-		AdminEmail: "admin@atomic.test", AdminName: "Admin",
-		AdminPassword: "correct-horse-battery",
-	}, nil); err != nil {
-		t.Fatalf("retry after rollback failed: %v", err)
+	// A retry with a working seed succeeds and creates.
+	wsID, created, err := svc.BootstrapInstallation(ctx, create, nil)
+	if err != nil || !created {
+		t.Fatalf("retry after rollback: created=%v err=%v", created, err)
+	}
+
+	// Restart semantics: a second boot with the same configuration binds
+	// to the existing organization — it never re-creates or resets.
+	again, createdAgain, err := svc.BootstrapInstallation(ctx, create, nil)
+	if err != nil || createdAgain || again != wsID {
+		t.Fatalf("re-boot: ws=%v created=%v err=%v, want bind to %v", again, createdAgain, err, wsID)
 	}
 }
 

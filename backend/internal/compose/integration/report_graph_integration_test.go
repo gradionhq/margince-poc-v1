@@ -96,17 +96,7 @@ func TestSchemaIntrospectionServesDescriptors(t *testing.T) {
 func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 	e := setup(t)
 	e.slug = "reports-e2e"
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Reports E2E", "admin_email": "rep@fable.test",
-		"admin_display_name": "Rep", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "rep@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Reports E2E", "rep@fable.test")
 
 	var org struct {
 		ID string `json:"id"`

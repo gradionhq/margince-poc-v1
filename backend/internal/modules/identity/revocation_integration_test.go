@@ -89,13 +89,29 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	// emails derived from it) uniquely so reruns never collide.
 	slug += "-" + ids.NewV7().String()[:8]
 
-	admin, _, err := svc.Bootstrap(ctx, BootstrapInput{
-		WorkspaceName: slug, Slug: slug,
-		AdminEmail: "admin@" + slug + ".test", AdminName: "Admin",
-		AdminPassword: "a bootstrap password!",
-	}, nil)
+	// createInstallation directly: the test database persists across
+	// binary runs and accumulates one workspace per env, so the
+	// boot-path singleton state machine (BootstrapInstallation) cannot
+	// run here — the atomic create is what this env needs.
+	adminEmail := "admin@" + slug + ".test"
+	var wsID ids.WorkspaceID
+	err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
+		var err error
+		wsID, err = createInstallation(ctx, tx, InstallationBootstrap{
+			OrganizationName: slug,
+			AdminEmail:       adminEmail, AdminName: "Admin",
+			AdminPassword: "a bootstrap password!",
+		}, nil)
+		return err
+	})
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
+	}
+	// Login resolves the admin's full Identity (roles, permissions) the
+	// way the HTTP surface would.
+	admin, _, err := svc.Login(principal.WithWorkspaceID(ctx, wsID.UUID), adminEmail, "a bootstrap password!")
+	if err != nil {
+		t.Fatalf("admin login: %v", err)
 	}
 
 	hash, err := password.Hash(memberPassword)

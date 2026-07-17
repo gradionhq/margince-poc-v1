@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
@@ -272,11 +271,11 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// newServer carries the full note): active cf_* deal columns ride
 	// deal payloads on both surfaces.
 	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
-	// On workspace bootstrap, deals seeds its per-workspace defaults
-	// (the default pipeline) — composed here so neither module imports
-	// the other.
+	// Bootstrap happens at boot from deployment configuration
+	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
+	// serves the already-bound singleton organization.
 	identitySvc := identity.NewService(pool)
-	authH := identity.NewHandlers(identitySvc, workspaceSeed(dealsH))
+	authH := identity.NewHandlers(identitySvc)
 
 	srv := newServer(pool, log, authH, dealsH)
 	for _, opt := range opts {
@@ -287,35 +286,6 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux := operationalMux(srv, pool, log, authH, api)
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
-}
-
-// workspaceSeed is the workspace-bootstrap hook identity runs: it seeds
-// every module's per-workspace defaults in ONE transaction (C5) — the
-// default pipeline and the consent purpose catalog stand or fall
-// together.
-func workspaceSeed(dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
-	return func(ctx context.Context, tx pgx.Tx) error {
-		if err := dealsH.SeedWorkspaceDefaultsTx(ctx, tx); err != nil {
-			return err
-		}
-		if err := consent.SeedDefaultPurposesTx(ctx, tx); err != nil {
-			return err
-		}
-		if err := consent.SeedDefaultRetentionTx(ctx, tx); err != nil {
-			return err
-		}
-		if err := automation.SeedStarterAutomationsTx(ctx, tx); err != nil {
-			return err
-		}
-		// The admin's public booking page: the workspace's only user at
-		// seed time IS the bootstrap admin (RLS scopes the read).
-		var adminID ids.UserID
-		if err := tx.QueryRow(ctx, `SELECT id FROM app_user ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
-			return err
-		}
-		_, err := activities.SeedBookingPageTx(ctx, tx, adminID)
-		return err
-	}
 }
 
 // newServer assembles the module handler sets. Every cross-module edge

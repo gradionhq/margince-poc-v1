@@ -29,17 +29,7 @@ func setupConsent(t *testing.T) *consentEnv {
 	t.Helper()
 	e := setup(t)
 	e.slug = "consent-e2e"
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Consent E2E", "admin_email": "dpo@fable.test",
-		"admin_display_name": "DPO", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "dpo@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Consent E2E", "dpo@fable.test")
 
 	var person struct {
 		ID string `json:"id"`
