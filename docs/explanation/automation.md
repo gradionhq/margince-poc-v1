@@ -65,7 +65,7 @@ stages for a human approval, `dynamic` resolves 🟢/🟡 from the firing's own 
 | `set_field` | 🟢 | update a field on the record that fired |
 | `add_to_list` | 🟢 | add the record to a static list |
 | `draft_email` | 🟢 | compose a draft email (records the draft; **never sends**) |
-| `notify` | 🟢 | notify a user (no transport wired here → honest `skipped`, §8) |
+| `notify` | 🟢 | notify a user (no transport wired here → honest `skipped`, §9) |
 | `assign_owner` | `dynamic` | set/reassign the owner — 🟢 single-entity, 🟡 at scale (ADR-0026 §3) |
 | `request_approval` | 🟡 | stage a human approval — confirm-first by its very nature |
 
@@ -131,7 +131,7 @@ firings a human needs to see. Each non-applied outcome carries a human-readable 
 | `Plan`/encode errors | `failed` |
 | owner gate blocks (§6) | `blocked`; a *transient* resolver error propagates so it retries |
 | claim conflicts (redelivery) | nothing — the first firing already won |
-| `Apply` runs | `applied` · 🟡 → `requires_approval` (§7) · no transport → `skipped` · error → `failed` |
+| `Apply` runs | `applied` · 🟡 → `requires_approval` (§8) · no transport → `skipped` · error → `failed` |
 
 The **claim** is the idempotency guard: `runOne` inserts the `workflow_run` row `ON CONFLICT DO
 NOTHING` **before** `Apply`, so an at-least-once redelivery of the same occurrence finds the row taken
@@ -194,7 +194,44 @@ human authority to re-check — so the gate exits immediately for a zero `OwnerI
 automation always carries an owner (stamped from the acting user, never a request body), so the only
 way to reach the gate with a `NULL` owner is the trusted system-seed path.
 
-## 7. The 🟡 staging path
+## 7. The actor & context boundary of a run
+
+Every firing runs under a **synthesized principal context** — there is no HTTP request or logged-in
+user behind it — and both entry paths build the same three-part boundary before `runOne` touches the
+database:
+
+| | Event trigger (`HandleEvent`, engine.go) | Clock trigger (`TimeScanner`, timescan.go) |
+|---|---|---|
+| **Tenant** | `WithWorkspaceID(env.WorkspaceID)` — from the bus envelope | `WithWorkspaceID(wsID)` — one per enumerated workspace |
+| **Actor** | `PrincipalSystem`, id `"system"` | `PrincipalSystem`, id `"system:time-scan"` |
+| **Correlation** | a fresh `ids.NewV7()` per event | a fresh `ids.NewV7()` per scan pass |
+| **Causation** | `WithCausationEvent(env.EventID)` — the triggering event is the parent edge | none — a clock pass has no source event |
+
+**The tenant boundary is RLS, not a filter.** The workspace on the context is bound as the
+`app.workspace_id` GUC by `database.WithWorkspaceTx` (see [write-backbone.md](write-backbone.md)), and
+every read and write a firing makes runs inside that transaction — so a run can only ever see and
+touch its own workspace's rows, `workflow_run` included (a FORCE-RLS table). The clock scan is the one
+place that reads across tenants (`enumerateWorkspaces`, a marked `rls-exempt` pool query over the
+non-tenant `workspace` table); it immediately re-enters a per-workspace context before any per-record
+work, so nothing downstream ever runs tenant-agnostic.
+
+**A firing acts _as the system_, authorized _as its owner_** — two different identities, and keeping
+them straight is the crux:
+
+- **Attribution** — every domain write a firing makes is stamped with the **system** actor and
+  `Source = "system"` (`systemSource`), through the normal `storekit.Audit`/`Emit` write shape. An
+  automation never impersonates the human who authored it; the audit trail says the system did it.
+- **Authorization** — the effect is nonetheless gated against the **owner's** live RBAC at match time
+  (§6), so a robot can never carry an action its owner could not perform by hand. The owner is the
+  authorization *subject* (read from the automation instance's `owner_id`), not the recorded actor.
+
+So "on behalf of the owner" is an *authorization* statement, not a provenance one: the owner bounds
+what may happen; the system principal is who it is attributed to. The actor and `captured_by` are
+server-derived from this synthesized principal — **never** from an event payload or request body (P5).
+A NULL-owner (system-seeded) automation and a human-authored one therefore differ only by the
+instance's `owner_id`, never by anything a caller can set.
+
+## 8. The 🟡 staging path
 
 A handler whose `Plan` emits a 🟡 executor kind (`request_approval`, `send_email`, `advance_deal`
 to won/lost), or `assign_owner` resolved at-scale, does **not** run the effect: `ApplyActions` stages
@@ -205,7 +242,7 @@ consumer flips the parked run to a terminal `blocked` (`engine_blocked.go`), mat
 on `detail->>'approval_id'` so a wording change can't break the link. This closes the dead end where a
 🟡 firing would otherwise park forever with no approval behind it.
 
-## 8. Current limitations
+## 9. Current limitations
 
 Documented honestly, not apologetically:
 
