@@ -291,3 +291,24 @@ func TestNormalizeSkipsAutomatedMail(t *testing.T) {
 		t.Fatalf("want 1 record gmail:keep@acme.com, got %+v", recs)
 	}
 }
+
+func TestAccountIDReturnsOwner(t *testing.T) {
+	c := New(nil, nil)
+	auth, err := json.Marshal(authState{RefreshToken: "r", Owner: "rep@ws.example", Scopes: []string{"read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.AccountID(auth)
+	if err != nil {
+		t.Fatalf("AccountID: %v", err)
+	}
+	if got != "rep@ws.example" {
+		t.Errorf("AccountID = %q, want rep@ws.example", got)
+	}
+}
+
+func TestAccountIDRejectsMalformedAuth(t *testing.T) {
+	if _, err := New(nil, nil).AccountID([]byte("not json")); err == nil {
+		t.Fatal("AccountID(malformed) = nil error, want an error")
+	}
+}

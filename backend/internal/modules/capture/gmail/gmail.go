@@ -52,8 +52,9 @@ type Connector struct {
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
 var (
-	_ connector.Connector = (*Connector)(nil)
-	_ connector.Watcher   = (*Connector)(nil)
+	_ connector.Connector         = (*Connector)(nil)
+	_ connector.Watcher           = (*Connector)(nil)
+	_ connector.AccountIdentifier = (*Connector)(nil)
 )
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
@@ -284,6 +285,17 @@ func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error 
 		return err
 	}
 	return nil
+}
+
+// AccountID returns the mailbox owner recorded in the sealed auth bundle —
+// the emailAddress a Gmail Pub/Sub push carries. Pure: it only reads the
+// already-resolved Auth, so the registry can stamp account_email at Connect.
+func (c *Connector) AccountID(auth connector.Auth) (string, error) {
+	var st authState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", fmt.Errorf("gmail: malformed auth state: %w", err)
+	}
+	return st.Owner, nil
 }
 
 // parseCursor reads the stored watermark. An empty cursor means a genuinely

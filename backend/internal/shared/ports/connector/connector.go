@@ -73,6 +73,19 @@ type WatchResult struct {
 	ExpiresAt time.Time
 }
 
+// AccountIdentifier is the OPTIONAL seam a connector implements when its
+// persisted Auth names a provider account (a mailbox address for mail
+// connectors) — the key an inbound provider push carries to say which
+// account changed. The registry type-asserts for it at Connect time and
+// stores the id in capture_connection.account_email (CAP-DDL-2), which the
+// Gmail Pub/Sub push resolves against. A connector that has no such account
+// (the one-shot IMAP puller) does not implement it.
+type AccountIdentifier interface {
+	// AccountID returns the provider account this Auth belongs to. It is pure
+	// (no I/O) — it reads only the already-resolved Auth bundle.
+	AccountID(auth Auth) (string, error)
+}
+
 // Descriptor — declared capabilities; ⊆ the granting human's scopes.
 type Descriptor struct {
 	Name     string // stable id: "gmail", "gcal", "hubspot", "coldstart-scrape"
