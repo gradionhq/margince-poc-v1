@@ -92,7 +92,7 @@ func (r *Registry) Connectors() []connector.Descriptor {
 // discovered at 3am mid-sync.
 //
 // note: the returned id (and the connectionID threaded through SyncOnce /
-// markError) names a connector_connection row, which the kernel does not
+// markError) names a capture_connection row, which the kernel does not
 // model as a first-class entity — no kind exists for it, so it stays
 // ids.UUID rather than inventing one.
 func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth) (ids.UUID, error) {
@@ -133,10 +133,10 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	var id ids.UUID
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			INSERT INTO connector_connection (workspace_id, connector, granted_by, scopes, credential_ref)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
-			ON CONFLICT (workspace_id, connector, granted_by)
-			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'active', last_error = NULL
+			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected')
+			ON CONFLICT (workspace_id, user_id, provider)
+			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL
 			RETURNING id`,
 			name, actor.UserID, scopes, string(ref)).Scan(&id)
 	})
@@ -148,7 +148,7 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 
 // RunTransient runs ONE sync of an already-authenticated connector under
 // the CALLING human's live authority, WITHOUT persisting a connection: no
-// connector_connection row, no stored credentials, no cursor. It is the
+// capture_connection row, no stored credentials, no cursor. It is the
 // one-shot pull path — the connector holds its live provider session and
 // its own credentials; the registry contributes the run-time connector
 // principal built from the human's LIVE RBAC. Authority is capped where every
@@ -189,8 +189,8 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	)
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT connector, granted_by, credential_ref, auth, cursor FROM connector_connection
-			WHERE id = $1 AND status = 'active'`, connectionID).
+			SELECT provider, user_id, credential_ref, auth, sync_cursor FROM capture_connection
+			WHERE id = $1 AND status = 'connected'`, connectionID).
 			Scan(&name, &grantedBy, &credentialRef, &authBytes, &cursor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -214,15 +214,21 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	}
 	next, syncErr := c.Sync(runCtx, auth, connector.Cursor(cursor), r.sink)
 	if syncErr != nil {
-		if markErr := r.markError(ctx, connectionID, syncErr); markErr != nil {
+		if markErr := r.markError(ctx, connectionID); markErr != nil {
 			return errors.Join(syncErr, markErr)
 		}
 		return syncErr
 	}
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		// sync_cursor is jsonb; the connector's watermark is already JSON. A
+		// connector that yields no cursor writes NULL, never an empty jsonb.
+		var cur []byte
+		if len(next) > 0 {
+			cur = []byte(next)
+		}
 		_, err := tx.Exec(ctx, `
-			UPDATE connector_connection SET cursor = $2, last_health_at = now(), last_error = NULL
-			WHERE id = $1`, connectionID, []byte(next))
+			UPDATE capture_connection SET sync_cursor = $2
+			WHERE id = $1`, connectionID, cur)
 		return err
 	})
 }
@@ -250,12 +256,12 @@ func (r *Registry) resolveCredential(ctx context.Context, credentialRef *string,
 	return connector.Auth(authBytes), nil
 }
 
-// BackfillCredentials migrates every legacy connector_connection row whose
+// BackfillCredentials migrates every legacy capture_connection row whose
 // credential still lives in the auth bytea column onto the vault: it seals the
 // bytes, records the credential_ref, and clears auth. It is idempotent — a row
 // that already carries a ref is skipped — so a re-run or a crash-retry is
 // safe, which is what lets it run on every boot. It walks every live workspace
-// under that workspace's own GUC, since connector_connection is RLS-scoped.
+// under that workspace's own GUC, since capture_connection is RLS-scoped.
 // One workspace's failure must not starve the rest of the fleet (the same
 // invariant retention and the close-date sweep hold): the walk continues past
 // a failing workspace and returns the count migrated plus the joined errors.
@@ -302,7 +308,7 @@ func (r *Registry) backfillWorkspace(ctx context.Context, ws ids.WorkspaceID) (i
 	var pending []legacyRow
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, auth FROM connector_connection
+			SELECT id, auth FROM capture_connection
 			WHERE credential_ref IS NULL AND auth IS NOT NULL`)
 		if err != nil {
 			return err
@@ -330,7 +336,7 @@ func (r *Registry) backfillWorkspace(ctx context.Context, ws ids.WorkspaceID) (i
 		var claimed bool
 		err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 			ct, err := tx.Exec(ctx, `
-				UPDATE connector_connection SET credential_ref = $2, auth = NULL
+				UPDATE capture_connection SET credential_ref = $2, auth = NULL
 				WHERE id = $1 AND credential_ref IS NULL`, l.id, string(ref))
 			if err != nil {
 				return err
@@ -380,11 +386,19 @@ func (r *Registry) connectorContext(ctx context.Context, name string, grantedBy 
 	return principal.WithCorrelationID(runCtx, ids.NewV7()), nil
 }
 
-func (r *Registry) markError(ctx context.Context, connectionID ids.UUID, syncErr error) error {
+// markError flips a connection to the 'error' status so the poller stops
+// selecting it (DueConnections filters on 'connected'). The failing sync's
+// error is returned to the caller by SyncOnce; capture_connection no longer
+// keeps a diagnostic column (CAP-DDL-2), so operational detail rides the
+// system_log ledger, not this row. The guard keeps a sync failure that races a
+// concurrent Disconnect from resurrecting the user's 'disconnected' choice into
+// 'error' — only a still-connected, live row transitions.
+func (r *Registry) markError(ctx context.Context, connectionID ids.UUID) error {
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			UPDATE connector_connection SET status = 'error', last_error = $2 WHERE id = $1`,
-			connectionID, syncErr.Error())
+			UPDATE capture_connection SET status = 'error'
+			WHERE id = $1 AND status = 'connected' AND archived_at IS NULL`,
+			connectionID)
 		return err
 	})
 }

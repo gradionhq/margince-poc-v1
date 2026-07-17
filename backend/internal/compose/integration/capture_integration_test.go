@@ -32,6 +32,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
+// fixedCaptureTime is the deterministic occurred-at the capture test fakes
+// stamp on their records — the suite never reads a real clock (repo test
+// guideline), and none of these tests assert on the timestamp itself.
+var fixedCaptureTime = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+
 // mailFake is the in-repo test connector: two records per sync — one
 // email activity linked to a person, one lead. The raw payload varies
 // per sync so replay tests can prove evidence immutability.
@@ -47,7 +52,11 @@ func (m *mailFake) Descriptor() connector.Descriptor {
 		scopes = []principal.Scope{principal.ScopeRead}
 	}
 	return connector.Descriptor{
-		Name: "mailfake", Version: "1.0.0",
+		// The descriptor name is persisted as capture_connection.provider and is
+		// also the connector principal id the Sink stamps as captured_by, so it
+		// must be a value in the CAP-DDL-2 CHECK set; 'graph' (Microsoft 365) is
+		// a standing OAuth mail provider.
+		Name: "graph", Version: "1.0.0",
 		Scopes:   scopes,
 		RiskTier: mcp.TierGreen,
 		Produces: []datasource.EntityType{datasource.EntityActivity, datasource.EntityLead},
@@ -63,17 +72,17 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 	records := []connector.NormalizedRecord{
 		{
 			EntityType: datasource.EntityActivity,
-			NaturalKey: connector.NaturalKey{SourceSystem: "mailfake", SourceID: "msg-1"},
-			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: time.Now().UTC(), Direction: "inbound"},
+			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-1"},
+			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: fixedCaptureTime, Direction: "inbound"},
 			Links:      []datasource.EntityRef{{Type: datasource.EntityPerson, ID: m.linkTo}},
-			Source:     "mailfake", CapturedBy: "connector:mailfake",
-			Raw: []byte(fmt.Sprintf(`{"provider":"mailfake","message_id":"msg-1","sync":%d}`, m.syncCount)),
+			Source:     "graph", CapturedBy: "connector:graph",
+			Raw: []byte(fmt.Sprintf(`{"provider":"graph","message_id":"msg-1","sync":%d}`, m.syncCount)),
 		},
 		{
 			EntityType: datasource.EntityLead,
-			NaturalKey: connector.NaturalKey{SourceSystem: "mailfake", SourceID: "sender-1"},
-			Fields:     capture.LeadFields{FullName: "Lead Sender", Email: "sender@mailfake.test", CompanyName: "Mailfake GmbH"},
-			Source:     "mailfake", CapturedBy: "connector:mailfake",
+			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "sender-1"},
+			Fields:     capture.LeadFields{FullName: "Lead Sender", Email: "sender@graph.test", CompanyName: "Mailfake GmbH"},
+			Source:     "graph", CapturedBy: "connector:graph",
 		},
 	}
 	for _, rec := range records {
@@ -81,7 +90,9 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 			return cursor, err
 		}
 	}
-	return connector.Cursor(fmt.Sprintf("sync-%d", m.syncCount)), nil
+	// sync_cursor is jsonb, so the watermark is JSON (like the real Gmail
+	// connector's {"history_id":…}).
+	return connector.Cursor(fmt.Sprintf(`{"n":%d}`, m.syncCount)), nil
 }
 
 func (m *mailFake) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
@@ -98,10 +109,10 @@ func readCaptureCounts(t *testing.T, e *searchEnv) captureCounts {
 	t.Helper()
 	var got captureCounts
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'mailfake'`).Scan(&got.activities); err != nil {
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'graph'`).Scan(&got.activities); err != nil {
 			return err
 		}
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM lead WHERE source_system = 'mailfake'`).Scan(&got.leads); err != nil {
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM lead WHERE source_system = 'graph'`).Scan(&got.leads); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM raw_capture`).Scan(&got.raws); err != nil {
@@ -124,7 +135,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "mailfake", connector.Auth("token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +177,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	var capturedBy string
 	var links int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(), `SELECT captured_by FROM activity WHERE source_system = 'mailfake'`).Scan(&capturedBy); err != nil {
+		if err := tx.QueryRow(context.Background(), `SELECT captured_by FROM activity WHERE source_system = 'graph'`).Scan(&capturedBy); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity_link WHERE person_id = $1`, personID).Scan(&links)
@@ -174,16 +185,16 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capturedBy != "connector:mailfake" || links != 1 {
+	if capturedBy != "connector:graph" || links != 1 {
 		t.Fatalf("provenance/link wrong: captured_by=%q links=%d", capturedBy, links)
 	}
-	// The cursor advanced.
-	var cursor []byte
+	// The jsonb cursor advanced to the second sync's watermark.
+	var syncN *string
 	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `SELECT cursor FROM connector_connection WHERE id = $1`, connID).Scan(&cursor)
+		return tx.QueryRow(context.Background(), `SELECT sync_cursor->>'n' FROM capture_connection WHERE id = $1`, connID).Scan(&syncN)
 	})
-	if err != nil || string(cursor) != "sync-2" {
-		t.Fatalf("cursor = %q err=%v, want sync-2", cursor, err)
+	if err != nil || syncN == nil || *syncN != "2" {
+		t.Fatalf("sync_cursor n = %v err=%v, want 2", syncN, err)
 	}
 }
 
@@ -193,16 +204,57 @@ func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 	registry.Register(&mailFake{scopes: []principal.Scope{principal.ScopeRead, principal.ScopeSend}})
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	_, err := registry.Connect(grantCtx, "mailfake", nil)
+	_, err := registry.Connect(grantCtx, "graph", nil)
 	if !errors.Is(err, apperrors.ErrScopeExceeded) {
 		t.Fatalf("over-scoped connector grant → %v, want ErrScopeExceeded", err)
 	}
 	var connections int
 	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `SELECT count(*) FROM connector_connection`).Scan(&connections)
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM capture_connection`).Scan(&connections)
 	})
 	if err != nil || connections != 0 {
 		t.Fatalf("refused grant persisted a connection: %d %v", connections, err)
+	}
+}
+
+func TestReconnectUnarchivesTheConnection(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(&mailFake{})
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Archive the row: the per-user unique key spans archived rows, so a
+	// reconnect must resurrect this exact row, not be blocked by it.
+	if err := database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE capture_connection SET archived_at = now() WHERE id = $1`, connID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if views, err := registry.Connections(grantCtx); err != nil || len(views) != 0 {
+		t.Fatalf("archived connection still listed: %+v err=%v", views, err)
+	}
+
+	// Reconnect the same provider for the same human.
+	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("token")); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	views, err := registry.Connections(grantCtx)
+	if err != nil || len(views) != 1 || views[0].Status != "connected" {
+		t.Fatalf("after reconnect Connections = %+v err=%v, want one connected (archived_at cleared)", views, err)
+	}
+	var archivedAt *time.Time
+	if err := database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT archived_at FROM capture_connection WHERE id = $1`, connID).Scan(&archivedAt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if archivedAt != nil {
+		t.Errorf("reconnect left archived_at set (%v); the row stays invisible to the poller", archivedAt)
 	}
 }
 
@@ -216,7 +268,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "mailfake", nil)
+	connID, err := registry.Connect(grantCtx, "graph", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +279,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	// The refused record left no activity behind (one tx per record).
 	var activities int
 	dbErr := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'mailfake'`).Scan(&activities)
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'graph'`).Scan(&activities)
 	})
 	if dbErr != nil || activities != 0 {
 		t.Fatalf("refused capture left rows: %d %v", activities, dbErr)

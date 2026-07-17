@@ -9,7 +9,7 @@
 // provider I/O and the pure RFC822→activity mapping, nothing about the write.
 //
 // It is a ONE-SHOT puller: credentials are supplied per call and never
-// persisted (no standing connector_connection row, no cursor). The
+// persisted (no standing capture_connection row, no cursor). The
 // compose layer builds a fresh Connector per request, so its per-run
 // counters carry no cross-request state.
 //
