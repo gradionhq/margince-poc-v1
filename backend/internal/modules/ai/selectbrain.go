@@ -47,19 +47,31 @@ const jsonSchemaFormatType = "json_schema"
 // tighten it where a caller has a real deadline.
 const requestTimeout = 120 * time.Second
 
+// Provider names — the vocabulary shared by the SelectBrain switch,
+// knownProviders, and the sovereign-eligible localProviders set. One spelling
+// each so a typo can't silently split "the switch accepts it" from "the config
+// enum offers it".
+const (
+	providerFake             = "fake"
+	providerAnthropic        = "anthropic"
+	providerOllama           = "ollama"
+	providerVLLM             = "vllm"
+	providerOpenAICompatible = "openai_compatible"
+)
+
 // knownProviders is the single source of truth for the provider names
 // SelectBrain accepts — read by the default error below and by the config
 // JSON-schema drift test. Add a provider here when you add its case.
-var knownProviders = []string{"fake", "anthropic", "ollama", "vllm", "openai_compatible"}
+var knownProviders = []string{providerFake, providerAnthropic, providerOllama, providerVLLM, providerOpenAICompatible}
 
 // SelectBrain turns one binding into a Client (interfaces.md §4):
 // "offline fake ↔ API key ↔ local, one line" — swapping providers is a
 // config change, never a code change.
 func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 	switch cfg.Provider {
-	case "fake":
+	case providerFake:
 		return NewFakeClient(), nil
-	case "anthropic":
+	case providerAnthropic:
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("ai: provider anthropic needs an api key (BYOK — we provide no inference)")
 		}
@@ -73,7 +85,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			apiKey:       cfg.APIKey,
 			defaultModel: cfg.Model,
 		}, nil
-	case "ollama":
+	case providerOllama:
 		baseURL := cfg.BaseURL
 		if baseURL == "" {
 			baseURL = defaultOllamaBaseURL
@@ -87,7 +99,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			baseURL:      baseURL,
 			defaultModel: defaultModel,
 		}, nil
-	case "vllm":
+	case providerVLLM:
 		baseURL := cfg.BaseURL
 		if baseURL == "" {
 			baseURL = defaultVLLMBaseURL
@@ -103,7 +115,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			localOnly:    true,
 			defaultModel: defaultModel,
 		}, nil
-	case "openai_compatible":
+	case providerOpenAICompatible:
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("ai: provider openai_compatible needs an api key (BYOK — we provide no inference)")
 		}

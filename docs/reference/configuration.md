@@ -160,3 +160,31 @@ Model credentials (BYOK cloud tiers) are configured in
 `make dev` copy it to a gitignored `config/ai-routing.yaml` — the
 per-engineer local config each engineer edits to bind their own models;
 delete it and re-run either target to reset.
+
+The providers a binding may name, and what each requires:
+
+| provider | `api_key` | `base_url` | notes |
+|---|---|---|---|
+| `fake` | — | — | offline deterministic stub (dev/test) |
+| `ollama` | — | optional (default `localhost:11434`) | local; sovereign-eligible |
+| `vllm` | — | optional (default `localhost:8000`) | local; sovereign-eligible |
+| `anthropic` | required | optional (default `api.anthropic.com`) | BYOK cloud |
+| `openai_compatible` | required | **required** | BYOK cloud, generic OpenAI wire (OpenAI, Mistral, DeepSeek, Groq, Together, OpenRouter, a Gemini `…/v1beta/openai/` layer, …) |
+| `openai` | required | optional (default `api.openai.com/v1`) | BYOK cloud, native Responses API |
+| `gemini` | required | optional (default `generativelanguage.googleapis.com/v1beta`) | BYOK cloud, native `generateContent` |
+
+A cloud binding is refused at startup under `profile: sovereign` (zero
+egress by construction). An editor with a YAML language server picks up
+[`config/ai-routing.schema.json`](../../config/ai-routing.schema.json)
+(referenced from the example's first line) for autocomplete, enum
+validation, and hover docs; the parser remains the sole runtime authority.
+
+Two operator gotchas, verified against current vendor docs:
+
+1. **`openai_compatible`'s embeddings lane 404s on OpenRouter, Groq, and
+   DeepSeek** — they serve chat only. Bind `embeddings:` to a vendor that
+   has the lane (OpenAI, Mistral, a Gemini-compat layer, Together) or a
+   local model (ollama `bge-m3`).
+2. **Vendor `-latest` model aliases drift and some are being deprecated**
+   (e.g. Mistral). Pin an explicit versioned id, or resolve via the
+   vendor's `/models` endpoint, rather than hardcoding an alias.

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margince.dev/schema/ai-routing.json",
+  "title": "Margince AI routing config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "tiers", "embeddings"],
+  "properties": {
+    "profile": {
+      "description": "Location ladder: eu_hosted (partner EU inference), sovereign (zero egress — cloud providers refused), cloud_frontier (BYOK cloud).",
+      "enum": ["eu_hosted", "sovereign", "cloud_frontier"]
+    },
+    "tiers": {
+      "description": "Capability tiers; bind each to one provider. An unbound tier is legal — the router degrades honestly.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "propertyNames": { "enum": ["local_small", "cheap_cloud", "premium", "local_large"] },
+      "patternProperties": { ".*": { "$ref": "#/$defs/binding" } }
+    },
+    "embeddings": {
+      "description": "The embedding lane, bound separately from chat (retrieval must survive a chat-budget exhaustion). Required.",
+      "$ref": "#/$defs/binding"
+    }
+  },
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "properties": {
+        "provider": {
+          "description": "fake | anthropic | ollama | vllm | openai_compatible. The only place vendor names appear.",
+          "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible"]
+        },
+        "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
+        "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor endpoint). Empty ⇒ provider default." },
+        "api_key":  { "type": "string", "description": "BYOK credential. REQUIRED for cloud providers (ADR-0020). Read literally, no env expansion." }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "provider": { "enum": ["anthropic", "openai_compatible"] } } },
+          "then": { "required": ["api_key"] }
+        },
+        {
+          "if":   { "properties": { "provider": { "const": "openai_compatible" } } },
+          "then": { "required": ["base_url"] }
+        }
+      ]
+    }
+  }
+}

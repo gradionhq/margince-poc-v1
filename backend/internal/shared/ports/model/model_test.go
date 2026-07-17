@@ -23,8 +23,10 @@ func TestRequestCarriesAdditiveProviderFields(t *testing.T) {
 }
 
 func TestResponseCarriesFlatTokenCountersAndMetadata(t *testing.T) {
-	resp := Response{InputTokens: 10, OutputTokens: 5, CachedTokens: 3, ReasoningTokens: 7,
-		ProviderMetadata: map[string]json.RawMessage{"openai": json.RawMessage(`{"response_id":"r1"}`)}}
+	resp := Response{
+		InputTokens: 10, OutputTokens: 5, CachedTokens: 3, ReasoningTokens: 7,
+		ProviderMetadata: map[string]json.RawMessage{"openai": json.RawMessage(`{"response_id":"r1"}`)},
+	}
 	if resp.CachedTokens != 3 || resp.ReasoningTokens != 7 || len(resp.ProviderMetadata) != 1 {
 		t.Fatalf("additive response fields not carried: %+v", resp)
 	}

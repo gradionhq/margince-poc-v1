@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=./ai-routing.schema.json
 # ai-routing.example.yaml — documented example of the per-deployment
 # tier→model binding (ai-operational-spec §1.4). Copy, adapt, then point the
 # binaries at it: `api --ai-routing <path>` / `worker --ai-routing <path>`
@@ -29,15 +30,19 @@ profile: eu_hosted
 
 # tiers — capability tiers (§1.1): local_small (L-S), cheap_cloud (C-C),
 # premium (P-F), local_large (L-L). Bind each to one provider:
-#   provider: fake | anthropic | ollama | vllm
+#   provider: fake | anthropic | ollama | vllm | openai_compatible | openai | gemini
 #   model:    provider-native model id (ollama/vllm default to a Gemma-class
 #             model when omitted — ADR-0012/A23: the unbound local path lands
 #             on a non-Chinese model; Mistral is the EU-origin alternative an
 #             operator picks explicitly)
 #   base_url: endpoint override; empty means the provider default
-#             (api.anthropic.com / localhost:11434 / localhost:8000)
-#   api_key:  BYOK credential — REQUIRED for anthropic (ADR-0020: we provide
-#             no inference). The value is read literally (no env expansion);
+#             (api.anthropic.com / localhost:11434 / localhost:8000).
+#             REQUIRED for openai_compatible — there is no one right endpoint;
+#             point it at the vendor (OpenAI, Mistral, DeepSeek, Groq, Together,
+#             OpenRouter, a Gemini …/v1beta/openai/ layer, LM Studio, …).
+#   api_key:  BYOK credential — REQUIRED for every cloud provider (anthropic,
+#             openai_compatible, openai, gemini; ADR-0020: we provide no
+#             inference). The value is read literally (no env expansion);
 #             `make dev` injects ANTHROPIC_API_KEY from .env.local into a
 #             scratch copy for dev, so no key ever lands in a committed file.
 tiers:
@@ -62,6 +67,15 @@ tiers:
   #   provider: vllm
   #   model: google/gemma-3-12b-it
   #   base_url: http://localhost:8000
+
+  # BYOK cloud via the generic OpenAI-wire adapter (any OpenAI-compatible
+  # vendor). REQUIRES both base_url and api_key — a keyless or base-url-less
+  # binding fails at startup:
+  # cheap_cloud:
+  #   provider: openai_compatible
+  #   model: mistral-small-2506       # pin an explicit version; -latest aliases drift
+  #   base_url: https://api.mistral.ai/v1
+  #   api_key: <customer BYOK key>
 
 # embeddings — the embedding lane, bound separately from the chat tiers
 # (retrieval must keep working when the chat budget is exhausted). Required.

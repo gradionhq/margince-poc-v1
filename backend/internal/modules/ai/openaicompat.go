@@ -93,6 +93,7 @@ func (c *openAICompatClient) Complete(ctx context.Context, req model.Request) (m
 	}, nil
 }
 
+//nolint:ireturn // model.Client.Stream returns the port's TokenStream interface by contract
 func (c *openAICompatClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
 	body, err := c.sendChat(ctx, req, true)
 	if err != nil {
