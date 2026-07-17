@@ -1,0 +1,400 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package ai
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
+)
+
+// openaiClient is the native OpenAI adapter (BYOK, ADR-0020) speaking the
+// Responses API (POST /v1/responses) rather than the generic
+// /v1/chat/completions the openai_compatible transport uses. The Responses
+// wire is what carries native reasoning (reasoning.effort), itemized usage
+// (cached + reasoning tokens), and typed image/file input parts — none of
+// which the chat-completions shape expresses. stdlib HTTP only, mirroring
+// anthropic.go; no vendor SDK.
+type openaiClient struct {
+	http         *http.Client
+	baseURL      string
+	apiKey       string
+	defaultModel string
+}
+
+// openaiMaxOutputDefault caps a request that didn't set MaxTokens, so a caller
+// bug can't turn into unbounded spend (mirrors the Anthropic default).
+const openaiMaxOutputDefault = 1024
+
+type openaiWire struct {
+	Model           string            `json:"model"`
+	Input           []openaiInputItem `json:"input"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	Text            *openaiText       `json:"text,omitempty"`
+	Reasoning       *openaiReasoning  `json:"reasoning,omitempty"`
+}
+
+type openaiInputItem struct {
+	Role    string            `json:"role"`
+	Content []openaiInputPart `json:"content"`
+}
+
+// openaiInputPart is one content part. Only the fields relevant to the part's
+// Type are populated; the rest are omitted so the wire stays minimal.
+type openaiInputPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+	FileData string `json:"file_data,omitempty"`
+	FileName string `json:"filename,omitempty"`
+	FileID   string `json:"file_id,omitempty"`
+}
+
+type openaiText struct {
+	Format openaiResponseFormat `json:"format"`
+}
+
+// openaiResponseFormat is the Responses API structured-output shape: the
+// json_schema descriptor sits directly under text.format (siblings, no
+// json_schema:{} wrapper). strict:true — OpenAI guarantees conformance, so
+// unlike the lenient openai_compatible strict:false, this enforces the schema.
+type openaiResponseFormat struct {
+	Type   string          `json:"type"`
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
+}
+
+type openaiReasoning struct {
+	Effort string `json:"effort"`
+}
+
+// openaiOptions is the vendor-only knob namespace read from
+// Request.ProviderOptions["openai"].
+type openaiOptions struct {
+	ReasoningEffort string `json:"reasoning_effort"`
+}
+
+type openaiResponse struct {
+	ID     string `json:"id"`
+	Output []struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Type    string `json:"type"`
+			Text    string `json:"text"`
+			Refusal string `json:"refusal"`
+		} `json:"content"`
+	} `json:"output"`
+	Usage struct {
+		InputTokens       int `json:"input_tokens"`
+		OutputTokens      int `json:"output_tokens"`
+		InputTokenDetails struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"input_tokens_details"`
+		OutputTokenDetails struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"output_tokens_details"`
+	} `json:"usage"`
+}
+
+func (c *openaiClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	body, err := c.post(ctx, "/v1/responses", req, false)
+	if err != nil {
+		return model.Response{}, err
+	}
+	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
+	defer func() { _ = body.Close() }()
+	var out openaiResponse
+	if err := json.NewDecoder(body).Decode(&out); err != nil {
+		return model.Response{}, fmt.Errorf("ai: openai: decode response: %w", err)
+	}
+	// Walk output[]: a type:"reasoning" item can precede the message, and a
+	// type:"refusal" part is a first-class outcome — never output[0].content[0].
+	var text strings.Builder
+	for _, item := range out.Output {
+		if item.Type != "message" {
+			continue
+		}
+		for _, part := range item.Content {
+			switch part.Type {
+			case "output_text":
+				text.WriteString(part.Text)
+			case "refusal":
+				return model.Response{}, fmt.Errorf("ai: openai: model refusal: %s", part.Refusal)
+			}
+		}
+	}
+	resp := model.Response{
+		Text:            text.String(),
+		InputTokens:     out.Usage.InputTokens,
+		OutputTokens:    out.Usage.OutputTokens,
+		CachedTokens:    out.Usage.InputTokenDetails.CachedTokens,
+		ReasoningTokens: out.Usage.OutputTokenDetails.ReasoningTokens,
+	}
+	if out.ID != "" {
+		meta, _ := json.Marshal(map[string]string{"response_id": out.ID})
+		resp.ProviderMetadata = map[string]json.RawMessage{"openai": meta}
+	}
+	return resp, nil
+}
+
+//nolint:ireturn // model.Client.Stream returns the port's TokenStream interface by contract
+func (c *openaiClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
+	body, err := c.post(ctx, "/v1/responses", req, true)
+	if err != nil {
+		return nil, err
+	}
+	return &openaiStream{body: body, scanner: bufio.NewScanner(body)}, nil
+}
+
+func (c *openaiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
+	embedModel := req.Model
+	if embedModel == "" {
+		embedModel = c.defaultModel
+	}
+	payload, _, err := sendablePayload(ctx, map[string]any{"model": embedModel, "input": req.Inputs}, nil)
+	if err != nil {
+		return model.Embeddings{}, err
+	}
+	body, err := c.postRaw(ctx, "/v1/embeddings", payload)
+	if err != nil {
+		return model.Embeddings{}, err
+	}
+	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
+	defer func() { _ = body.Close() }()
+	var out struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(body).Decode(&out); err != nil {
+		return model.Embeddings{}, fmt.Errorf("ai: openai: decode embeddings: %w", err)
+	}
+	vectors := make([][]float32, 0, len(out.Data))
+	for _, d := range out.Data {
+		vectors = append(vectors, d.Embedding)
+	}
+	dims := 0
+	if len(vectors) > 0 {
+		dims = len(vectors[0])
+	}
+	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
+}
+
+func (c *openaiClient) Caps() model.Capabilities {
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: false}
+}
+
+func (c *openaiClient) post(ctx context.Context, path string, req model.Request, stream bool) (io.ReadCloser, error) {
+	// OpenAI carries image and PDF/file parts natively; reject any other MIME
+	// rather than silently drop it (spec §3.8).
+	if err := attachmentUnsupported("openai", req.Attachments, func(m string) bool { return isImage(m) || m == "application/pdf" }); err != nil {
+		return nil, err
+	}
+	wire := openaiWire{Model: req.Model, MaxOutputTokens: req.MaxTokens}
+	if wire.Model == "" {
+		wire.Model = c.defaultModel
+	}
+	if wire.MaxOutputTokens <= 0 {
+		wire.MaxOutputTokens = openaiMaxOutputDefault
+	}
+	wire.Input = openaiInputMessages(req.System, req.Messages, req.Attachments)
+	if len(req.ResponseSchema) > 0 {
+		wire.Text = &openaiText{Format: openaiResponseFormat{
+			Type: jsonSchemaFormatType, Name: openAICompatSchemaName, Schema: req.ResponseSchema, Strict: true,
+		}}
+	}
+	if effort := openaiReasoningEffort(req.ProviderOptions); effort != "" {
+		wire.Reasoning = &openaiReasoning{Effort: effort}
+	}
+	// Marshal the typed wire, then splice the stream flag in as a raw map field
+	// so the typed struct stays a faithful record of the Responses request shape.
+	payload, _, err := sendablePayload(ctx, wire, req.SecretStripper)
+	if err != nil {
+		return nil, err
+	}
+	if stream {
+		payload, err = withStreamFlag(payload)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.postRaw(ctx, path, payload)
+}
+
+// openaiInputMessages builds the Responses `input` array: system as a leading
+// message, each turn's text as an input_text/output_text part, and every
+// attachment appended to the final user turn's content.
+func openaiInputMessages(system string, msgs []model.Message, atts []model.Attachment) []openaiInputItem {
+	items := make([]openaiInputItem, 0, len(msgs)+1)
+	if system != "" {
+		items = append(items, openaiInputItem{Role: "system", Content: []openaiInputPart{{Type: "input_text", Text: system}}})
+	}
+	for _, m := range msgs {
+		partType := "input_text"
+		if m.Role == "assistant" {
+			partType = "output_text"
+		}
+		items = append(items, openaiInputItem{Role: m.Role, Content: []openaiInputPart{{Type: partType, Text: m.Content}}})
+	}
+	if len(atts) > 0 {
+		items = attachToLastUserTurn(items, atts)
+	}
+	return items
+}
+
+// attachToLastUserTurn appends attachment parts to the last user-role item,
+// adding a user item if none exists — attachments belong to a user turn.
+func attachToLastUserTurn(items []openaiInputItem, atts []model.Attachment) []openaiInputItem {
+	idx := -1
+	for i := range items {
+		if items[i].Role == "user" {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		items = append(items, openaiInputItem{Role: "user"})
+		idx = len(items) - 1
+	}
+	for _, a := range atts {
+		items[idx].Content = append(items[idx].Content, openaiAttachmentPart(a))
+	}
+	return items
+}
+
+func openaiAttachmentPart(a model.Attachment) openaiInputPart {
+	if isImage(a.MIME) {
+		part := openaiInputPart{Type: "input_image"}
+		if a.URI != "" {
+			part.ImageURL = a.URI
+		} else {
+			part.ImageURL = dataURI(a.MIME, a.Bytes)
+		}
+		return part
+	}
+	// application/pdf (the only other allowed MIME, gated in post).
+	part := openaiInputPart{Type: "input_file", FileName: a.Name}
+	if a.URI != "" {
+		part.FileID = a.URI
+	} else {
+		part.FileData = dataURI(a.MIME, a.Bytes)
+	}
+	return part
+}
+
+func dataURI(mime string, raw []byte) string {
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
+}
+
+func openaiReasoningEffort(opts map[string]json.RawMessage) string {
+	raw, ok := opts["openai"]
+	if !ok {
+		return ""
+	}
+	var o openaiOptions
+	if err := json.Unmarshal(raw, &o); err != nil {
+		return ""
+	}
+	return o.ReasoningEffort
+}
+
+// withStreamFlag adds "stream":true to an already-marshaled request body. The
+// typed openaiWire omits it so the struct records only the request content;
+// the streaming toggle is a transport concern spliced in here.
+func withStreamFlag(payload []byte) ([]byte, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return nil, fmt.Errorf("ai: openai: splice stream flag: %w", err)
+	}
+	m["stream"] = json.RawMessage("true")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, fmt.Errorf("ai: openai: splice stream flag: %w", err)
+	}
+	return out, nil
+}
+
+func (c *openaiClient) postRaw(ctx context.Context, path string, payload []byte) (io.ReadCloser, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("ai: openai: build request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("ai: openai: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
+		defer func() { _ = resp.Body.Close() }()
+		return nil, openaiError(resp)
+	}
+	return resp.Body, nil
+}
+
+// openaiError surfaces the API's error type and message — and only those, so a
+// logged failure can never echo the request (or the key).
+func openaiError(resp *http.Response) error {
+	var apiErr struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
+		return fmt.Errorf("ai: openai: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
+	}
+	return fmt.Errorf("ai: openai: http %d", resp.StatusCode)
+}
+
+// openaiStream parses the Responses SSE stream, yielding text deltas from
+// response.output_text.delta events.
+type openaiStream struct {
+	body    io.ReadCloser
+	scanner *bufio.Scanner
+}
+
+func (s *openaiStream) Next(ctx context.Context) (string, bool, error) {
+	for s.scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return "", false, err
+		}
+		line := s.scanner.Text()
+		data, isData := strings.CutPrefix(line, "data: ")
+		if !isData {
+			continue
+		}
+		var ev struct {
+			Type  string `json:"type"`
+			Delta string `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			return "", false, fmt.Errorf("ai: openai: stream event: %w", err)
+		}
+		switch ev.Type {
+		case "response.output_text.delta":
+			if ev.Delta != "" {
+				return ev.Delta, true, nil
+			}
+		case "response.completed":
+			return "", false, nil
+		}
+	}
+	if err := s.scanner.Err(); err != nil {
+		return "", false, fmt.Errorf("ai: openai: stream: %w", err)
+	}
+	return "", false, nil
+}
+
+func (s *openaiStream) Close() error { return s.body.Close() }

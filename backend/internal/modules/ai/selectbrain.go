@@ -27,6 +27,7 @@ const (
 	defaultAnthropicBaseURL = "https://api.anthropic.com"
 	defaultOllamaBaseURL    = "http://localhost:11434"
 	defaultVLLMBaseURL      = "http://localhost:8000"
+	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
 )
 
 // Local default models are Gemma-class per ADR-0012/A23: the unbound
@@ -57,6 +58,7 @@ const (
 	providerOllama           = "ollama"
 	providerVLLM             = "vllm"
 	providerOpenAICompatible = "openai_compatible"
+	providerOpenAI           = "openai"
 )
 
 // knownProviders is the single source of truth for the provider names
@@ -129,6 +131,15 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			localOnly:    false,
 			defaultModel: cfg.Model,
 		}, nil
+	case providerOpenAI:
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("ai: provider openai needs an api key (BYOK — we provide no inference)")
+		}
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = defaultOpenAIBaseURL
+		}
+		return &openaiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: baseURL, apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
 	default:
