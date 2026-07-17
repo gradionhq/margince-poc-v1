@@ -1,4 +1,4 @@
--- 0082: the installation's OWN company — the spec's "anchor organization"
+-- 0083: the installation's OWN company — the spec's "anchor organization"
 -- (onboarding-and-coldstart §1). The cold-start read-back resolves its target
 -- by parsing a domain out of the source URL, which leaves the company the
 -- installation belongs to indistinguishable from any customer org. Naming the

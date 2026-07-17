@@ -1536,16 +1536,17 @@ export interface paths {
         };
         /**
          * The installation's own company (the anchor organization).
-         * @description The company this installation belongs to — the spec's anchor organization, named by
-         *     `workspace.anchor_organization_id` (0082). 404 until a human first saves the company form: that
-         *     404 IS the "this installation has not described itself yet" signal, and it is what onboarding
-         *     gates on. Distinct from GET /organizations/{id}, which reads the customer records.
+         * @description The company this installation belongs to — the spec's anchor organization, marked by
+         *     `organization.is_anchor` (0083; at most one live anchor per workspace). 404 until a human first
+         *     saves the company form: that 404 IS the "this installation has not described itself yet" signal,
+         *     and it is what onboarding gates on. Distinct from GET /organizations/{id}, which reads the
+         *     customer records.
          */
         get: operations["getCompany"];
         /**
          * Save the installation's own company — the human's confirm-first write.
-         * @description Creates the anchor organization on first save (setting `workspace.anchor_organization_id`) and
-         *     updates it on every later one. This is a HUMAN write: every field is stamped
+         * @description Creates the anchor organization on first save (marking it `is_anchor`) and updates it on every
+         *     later one. This is a HUMAN write: every field is stamped
          *     `captured_by=human:<user id>`, `source=manual`, whether it was typed from scratch or accepted
          *     from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
          *     theirs, and a later agent read-back will not overwrite it.

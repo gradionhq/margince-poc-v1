@@ -357,7 +357,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		},
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
 		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
-		// The installation's own company (the 0082 anchor). Its own store
+		// The installation's own company (the 0083 anchor). Its own store
 		// instance, like every other people-backed shadow here: the company
 		// form's write shape is people's, the transport is compose's.
 		companyHandlers: companyHandlers{store: people.NewStore(pool)},

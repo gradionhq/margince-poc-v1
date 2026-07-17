@@ -5,7 +5,7 @@
 
 package compose
 
-// The installation's own company: the anchor pointer (0082) is what makes
+// The installation's own company: the anchor pointer (0083) is what makes
 // "has this installation described itself yet?" answerable, the form's save is
 // the human's confirm-first write, and a value a human has saved is theirs —
 // a later agent read-back of the same site leaves it alone.

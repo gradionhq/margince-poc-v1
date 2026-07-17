@@ -4,7 +4,7 @@
 package people
 
 // The installation's OWN company — the anchor organization (organization
-// .is_anchor, 0082). It is an organization row like any other; the mark is what
+// .is_anchor, 0083). It is an organization row like any other; the mark is what
 // makes it findable, so "has this installation described itself yet?" is a
 // question the database can answer instead of a guess derived from a hostname.
 // At most one live anchor per workspace, enforced by uq_organization_anchor.

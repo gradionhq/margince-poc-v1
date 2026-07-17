@@ -332,6 +332,23 @@ export async function mockApi(target: Page): Promise<void> {
         teams: [],
       });
     }
+    // The installation's own company. A described installation is the state
+    // every AC below assumes: the shell gates on this, and a 404 would (rightly)
+    // redirect them all into onboarding. Onboarding's own AC reaches the wizard
+    // by route regardless. Shaped as the contract's CompanyProfile — the generic
+    // list fallthrough is not a company, and the form would read display_name
+    // off it and crash.
+    if (path === "/company") {
+      return json({
+        organization_id: "o-self",
+        display_name: "Brandt Automotive GmbH",
+        legal_name: "Brandt Automotive GmbH",
+        registered_address: "Werkstraße 4, 70435 Stuttgart",
+        register_vat: "DE811234567",
+        industry: "Automotive",
+        website: "brandt.example",
+      });
+    }
     if (path === "/people" && method === "GET") {
       return json(page([anna]));
     }
