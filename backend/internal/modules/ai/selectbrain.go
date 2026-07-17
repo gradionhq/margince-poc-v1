@@ -90,9 +90,11 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		if defaultModel == "" {
 			defaultModel = defaultVLLMModel
 		}
-		return &vllmClient{
+		return &openAICompatClient{
 			http:         &http.Client{Timeout: requestTimeout},
 			baseURL:      baseURL,
+			apiKey:       "", // local vLLM: no auth
+			localOnly:    true,
 			defaultModel: defaultModel,
 		}, nil
 	case "":

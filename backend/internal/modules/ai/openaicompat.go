@@ -3,6 +3,12 @@
 
 package ai
 
+// openAICompatClient is the shared OpenAI-wire transport (/v1/chat/completions,
+// /v1/embeddings, response_format json_schema, SSE). Reused by the local vLLM
+// binding (apiKey empty, localOnly true) and the cloud openai_compatible binding
+// (Bearer key, localOnly false). The trust posture is the caller's choice of
+// provider name, never a field on this struct (spec §3.2/§3.6).
+
 import (
 	"bufio"
 	"bytes"
@@ -16,22 +22,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// vllmClient is the second local/self-host adapter (B-EP06.3): a vLLM
-// server on the workspace's own infrastructure, spoken over vLLM's
-// OpenAI-compatible surface (/v1/chat/completions, /v1/embeddings).
-// LocalOnly=true makes it eligible for the sovereign zero-egress
-// profile, exactly like the Ollama adapter.
-type vllmClient struct {
+type openAICompatClient struct {
 	http         *http.Client
 	baseURL      string
+	apiKey       string // "" ⇒ send no Authorization header (local vLLM)
+	localOnly    bool   // Caps().LocalOnly — the sovereign-eligibility bit
 	defaultModel string
 }
 
-// vllmSchemaName labels the structured-output schema; OpenAI's
+// openAICompatSchemaName labels the structured-output schema; OpenAI's
 // response_format requires a name, and the value is otherwise opaque.
-const vllmSchemaName = "structured_output"
+const openAICompatSchemaName = "structured_output"
 
-type vllmChatWire struct {
+type openAICompatChatWire struct {
 	Model     string           `json:"model"`
 	Messages  []wireMessage    `json:"messages"`
 	Tools     []ollamaToolWire `json:"tools,omitempty"`
@@ -40,23 +43,24 @@ type vllmChatWire struct {
 	// ResponseFormat carries the OpenAI-compatible json_schema structured
 	// output (vLLM guided decoding); set only when the request asks for a
 	// schema, so ordinary free-text calls are unchanged.
-	ResponseFormat *vllmResponseFormat `json:"response_format,omitempty"`
+	ResponseFormat *openAICompatResponseFormat `json:"response_format,omitempty"`
 }
 
-// vllmResponseFormat / vllmJSONSchema mirror the OpenAI response_format
-// json_schema shape vLLM accepts to constrain decoding to a schema.
-type vllmResponseFormat struct {
-	Type       string         `json:"type"` // "json_schema"
-	JSONSchema vllmJSONSchema `json:"json_schema"`
+// openAICompatResponseFormat / openAICompatJSONSchema mirror the OpenAI
+// response_format json_schema shape the endpoint accepts to constrain decoding
+// to a schema.
+type openAICompatResponseFormat struct {
+	Type       string                 `json:"type"` // "json_schema"
+	JSONSchema openAICompatJSONSchema `json:"json_schema"`
 }
 
-type vllmJSONSchema struct {
+type openAICompatJSONSchema struct {
 	Name   string          `json:"name"`
 	Schema json.RawMessage `json:"schema"`
 	Strict bool            `json:"strict"`
 }
 
-type vllmChatResponse struct {
+type openAICompatChatResponse struct {
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -68,19 +72,19 @@ type vllmChatResponse struct {
 	} `json:"usage"`
 }
 
-func (c *vllmClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+func (c *openAICompatClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
 	body, err := c.sendChat(ctx, req, false)
 	if err != nil {
 		return model.Response{}, err
 	}
 	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
 	defer func() { _ = body.Close() }()
-	var out vllmChatResponse
+	var out openAICompatChatResponse
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
-		return model.Response{}, fmt.Errorf("ai: vllm: decode response: %w", err)
+		return model.Response{}, fmt.Errorf("ai: openai-compat: decode response: %w", err)
 	}
 	if len(out.Choices) == 0 {
-		return model.Response{}, fmt.Errorf("ai: vllm: response has no choices")
+		return model.Response{}, fmt.Errorf("ai: openai-compat: response has no choices")
 	}
 	return model.Response{
 		Text:         out.Choices[0].Message.Content,
@@ -89,15 +93,15 @@ func (c *vllmClient) Complete(ctx context.Context, req model.Request) (model.Res
 	}, nil
 }
 
-func (c *vllmClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
+func (c *openAICompatClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {
 	body, err := c.sendChat(ctx, req, true)
 	if err != nil {
 		return nil, err
 	}
-	return &vllmStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &openAICompatStream{body: body, scanner: bufio.NewScanner(body)}, nil
 }
 
-func (c *vllmClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
+func (c *openAICompatClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
 	embedModel := req.Model
 	if embedModel == "" {
 		embedModel = c.defaultModel
@@ -118,7 +122,7 @@ func (c *vllmClient) Embed(ctx context.Context, req model.EmbedRequest) (model.E
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
-		return model.Embeddings{}, fmt.Errorf("ai: vllm: decode embeddings: %w", err)
+		return model.Embeddings{}, fmt.Errorf("ai: openai-compat: decode embeddings: %w", err)
 	}
 	vectors := make([][]float32, 0, len(out.Data))
 	for _, d := range out.Data {
@@ -131,14 +135,16 @@ func (c *vllmClient) Embed(ctx context.Context, req model.EmbedRequest) (model.E
 	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
 }
 
-func (c *vllmClient) Caps() model.Capabilities {
+func (c *openAICompatClient) Caps() model.Capabilities {
 	// EmbedDims stays 0 (unknown): the width is a property of whichever
 	// model the deployment serves, discovered from the first Embed call.
-	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: true}
+	// LocalOnly is the provider's trust posture (vllm true, openai_compatible
+	// false), fixed at construction — never a wire-visible property.
+	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: c.localOnly}
 }
 
-func (c *vllmClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
-	wire := vllmChatWire{Model: req.Model, Stream: stream, MaxTokens: req.MaxTokens}
+func (c *openAICompatClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
+	wire := openAICompatChatWire{Model: req.Model, Stream: stream, MaxTokens: req.MaxTokens}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel
 	}
@@ -151,9 +157,9 @@ func (c *vllmClient) sendChat(ctx context.Context, req model.Request, stream boo
 		// needs additionalProperties:false + all-required) rejecting a schema
 		// the callers don't write that way. The parse→validate→retry policy
 		// and the evidence gate remain the real authority regardless.
-		wire.ResponseFormat = &vllmResponseFormat{
+		wire.ResponseFormat = &openAICompatResponseFormat{
 			Type:       jsonSchemaFormatType,
-			JSONSchema: vllmJSONSchema{Name: vllmSchemaName, Schema: req.ResponseSchema, Strict: false},
+			JSONSchema: openAICompatJSONSchema{Name: openAICompatSchemaName, Schema: req.ResponseSchema, Strict: false},
 		}
 	}
 	for _, tool := range req.Tools {
@@ -171,33 +177,36 @@ func (c *vllmClient) sendChat(ctx context.Context, req model.Request, stream boo
 	return c.post(ctx, "/v1/chat/completions", payload)
 }
 
-func (c *vllmClient) post(ctx context.Context, path string, payload []byte) (io.ReadCloser, error) {
+func (c *openAICompatClient) post(ctx context.Context, path string, payload []byte) (io.ReadCloser, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("ai: vllm: build request: %w", err)
+		return nil, fmt.Errorf("ai: openai-compat: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("ai: vllm: %w", err)
+		return nil, fmt.Errorf("ai: openai-compat: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("ai: vllm: http %d: %s", resp.StatusCode, bytes.TrimSpace(raw))
+		return nil, fmt.Errorf("ai: openai-compat: http %d: %s", resp.StatusCode, bytes.TrimSpace(raw))
 	}
 	return resp.Body, nil
 }
 
-// vllmStream reads the OpenAI-compatible SSE stream: `data: {...}`
+// openAICompatStream reads the OpenAI-compatible SSE stream: `data: {...}`
 // lines, terminated by `data: [DONE]`.
-type vllmStream struct {
+type openAICompatStream struct {
 	body    io.ReadCloser
 	scanner *bufio.Scanner
 }
 
-type vllmStreamEvent struct {
+type openAICompatStreamEvent struct {
 	Choices []struct {
 		Delta struct {
 			Content string `json:"content"`
@@ -205,7 +214,7 @@ type vllmStreamEvent struct {
 	} `json:"choices"`
 }
 
-func (s *vllmStream) Next(ctx context.Context) (string, bool, error) {
+func (s *openAICompatStream) Next(ctx context.Context) (string, bool, error) {
 	for s.scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return "", false, err
@@ -218,18 +227,18 @@ func (s *vllmStream) Next(ctx context.Context) (string, bool, error) {
 		if data == "[DONE]" {
 			return "", false, nil
 		}
-		var ev vllmStreamEvent
+		var ev openAICompatStreamEvent
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
-			return "", false, fmt.Errorf("ai: vllm: stream event: %w", err)
+			return "", false, fmt.Errorf("ai: openai-compat: stream event: %w", err)
 		}
 		if len(ev.Choices) > 0 && ev.Choices[0].Delta.Content != "" {
 			return ev.Choices[0].Delta.Content, true, nil
 		}
 	}
 	if err := s.scanner.Err(); err != nil {
-		return "", false, fmt.Errorf("ai: vllm: stream: %w", err)
+		return "", false, fmt.Errorf("ai: openai-compat: stream: %w", err)
 	}
 	return "", false, nil
 }
 
-func (s *vllmStream) Close() error { return s.body.Close() }
+func (s *openAICompatStream) Close() error { return s.body.Close() }
