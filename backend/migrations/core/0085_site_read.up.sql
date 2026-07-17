@@ -26,7 +26,11 @@ CREATE INDEX idx_site_read_org ON site_read (workspace_id, organization_id, crea
 
 -- At most one IN-FLIGHT read per organization: re-clicking "read the
 -- site" joins the running read instead of racing a second crawl.
-CREATE UNIQUE INDEX uq_site_read_inflight ON site_read (workspace_id, organization_id)
+-- At most one in-flight read per (organization, seed_url): re-requesting the
+-- SAME url joins the running read (idempotent), while a different url override
+-- is its own read — it must actually read the url the caller named, never
+-- silently join a crawl of a different page.
+CREATE UNIQUE INDEX uq_site_read_inflight ON site_read (workspace_id, organization_id, seed_url)
   WHERE status IN ('queued','running');
 
 ALTER TABLE site_read ENABLE ROW LEVEL SECURITY;

@@ -508,11 +508,21 @@ function SiteReadPanel({
           {t(SITE_READ_STATUS_LABELS[report.status])}
         </Badge>
         <span className="t-small">
-          {t("deepread.pagesSoFar", { count: report.pages.length })}
+          {t(
+            report.pages.length === 1
+              ? "deepread.pagesSoFar.one"
+              : "deepread.pagesSoFar.other",
+            { count: report.pages.length },
+          )}
         </span>
         {terminal && (
           <span className="t-small">
-            {t("deepread.factCount", { count: report.fact_count ?? 0 })}
+            {t(
+              (report.fact_count ?? 0) === 1
+                ? "deepread.factCount.one"
+                : "deepread.factCount.other",
+              { count: report.fact_count ?? 0 },
+            )}
           </span>
         )}
       </p>

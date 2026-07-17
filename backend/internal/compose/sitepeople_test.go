@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // teamPageText is the fixture team page: Anna with a printed email and
@@ -129,16 +130,28 @@ func TestMergeTeamPeopleDedupesAcrossPagesOnNormalizedName(t *testing.T) {
 	}
 }
 
-func TestSiteLeadSourceIDIsStableAcrossReReadsAndNameReflow(t *testing.T) {
-	a := siteLeadSourceID("https://acme.example/team", "Anna Muster")
-	b := siteLeadSourceID("https://acme.example/team", "  anna   MUSTER ")
-	if a != b {
-		t.Fatal("the lead natural key changed on a whitespace/case reflow of the same printed name")
+func TestSiteLeadSourceIDIsOrgStableAcrossPagesAndNameReflow(t *testing.T) {
+	org := ids.NewV7()
+	// The key is the ORG + name, not the page: the same person found on
+	// /team or /about, or after a re-crawl moved the page, is one lead.
+	teamPage := siteLeadSourceID(org, "Anna Muster", "")
+	aboutPage := siteLeadSourceID(org, "  anna   MUSTER ", "")
+	if teamPage != aboutPage {
+		t.Fatal("the lead natural key changed on a whitespace/case reflow, or across pages of the same site")
 	}
-	if a == siteLeadSourceID("https://acme.example/team", "Bernd Beispiel") {
+	// A different org is a different lead even for the same name.
+	if teamPage == siteLeadSourceID(ids.NewV7(), "Anna Muster", "") {
+		t.Fatal("the same name at two organizations collapsed to one lead key")
+	}
+	// Two distinct people who share a name stay distinct via published email.
+	if siteLeadSourceID(org, "Anna Muster", "anna1@acme.example") ==
+		siteLeadSourceID(org, "Anna Muster", "anna2@acme.example") {
+		t.Fatal("two people sharing a name but not an email share one key")
+	}
+	if teamPage == siteLeadSourceID(org, "Bernd Beispiel", "") {
 		t.Fatal("two different people share one lead natural key")
 	}
-	if strings.Contains(a, "@") || len(a) != 64 {
-		t.Fatalf("source id = %q, want a bare sha256 hex digest (no PII in the key)", a)
+	if strings.Contains(teamPage, "@") || len(teamPage) != 64 {
+		t.Fatalf("source id = %q, want a bare sha256 hex digest (no PII in the key)", teamPage)
 	}
 }

@@ -245,6 +245,13 @@ func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
 		return
 	}
 
+	r.fetchAndRecord(ctx, cand, candURL)
+}
+
+// fetchAndRecord is visit's tail once the candidate is admissible (same-site,
+// not a duplicate probe, not an XML index): fetch it, and either record a skip
+// with its reason or append the page and enqueue its links.
+func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, candURL string) {
 	page, err := r.crawler.fetchPaced(ctx, r.pacer, candURL)
 	switch {
 	case errors.Is(err, webread.ErrRobotsDisallowed):
@@ -268,6 +275,16 @@ func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
 		// An SPA catch-all serves the same document on every path; the
 		// duplicate carries zero new evidence and reporting it as a skip
 		// would flood the report with noise, so it vanishes silently.
+		return
+	}
+
+	// The pre-fetch stopReason bounds the crawl by the PREVIOUS total; this
+	// page, already fetched, must not push the aggregate past the advertised
+	// cap. Over-cap → record it as a byte_cap skip and stop, rather than
+	// silently exceeding the 8 MiB the report promises.
+	if r.totalBytes+page.Bytes > r.crawler.maxBytes {
+		r.skip(candURL, crmcontracts.ByteCap)
+		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonByteCap)
 		return
 	}
 

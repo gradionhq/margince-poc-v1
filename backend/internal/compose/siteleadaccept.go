@@ -71,7 +71,7 @@ func siteLeadAcceptEffect(svc *approvals.Service, sink connector.Sink) approvals
 			EntityType: datasource.EntityLead,
 			NaturalKey: connector.NaturalKey{
 				SourceSystem: "siteread",
-				SourceID:     siteLeadSourceID(proposal.SourceURL, proposal.Name),
+				SourceID:     siteLeadSourceID(proposal.OrganizationID, proposal.Name, proposal.PublishedEmail),
 			},
 			Fields: capture.LeadFields{
 				FullName: proposal.Name,

@@ -3,7 +3,7 @@
 
 package people
 
-// The accepted deep read (founder ratification R4): a human approval of a
+// The accepted deep read: a human approval of a
 // staged "deepread" proposal lands BOTH halves of the read in one
 // transaction — the cold-start profile fields through the same
 // fill-empty-plus-evidence machinery every other acceptance uses, and the
@@ -28,7 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// OrganizationFactFields is the closed category/field vocabulary (R4),
+// OrganizationFactFields is the closed category/field vocabulary,
 // mirroring the org_fact_field_vocab CHECK so a bad staged payload reads
 // as an actionable error, not a constraint 500. The 11 cold-start company
 // fields stay in organization_profile_field; this vocabulary is only the
@@ -128,8 +128,12 @@ func validDeepReadFact(f DeepReadFact) error {
 		return fmt.Errorf("people: %q is not a %s fact field", f.Field, f.Category)
 	}
 	if OrganizationFactMultiValue[f.Field] {
-		if f.ValueKey == "" {
-			return fmt.Errorf("people: multi-value fact %s carries no value_key", f.Field)
+		// The key must BE the canonical normalization of the value — a
+		// hand-supplied or stale key could bypass the dedupe unique index or
+		// collide with an unrelated fact, so it is recomputed and checked,
+		// never trusted.
+		if want := NormalizeFactValueKey(f.Value); f.ValueKey != want {
+			return fmt.Errorf("people: multi-value fact %s value_key %q is not the normalization of its value (want %q)", f.Field, f.ValueKey, want)
 		}
 	} else if f.ValueKey != "" {
 		return fmt.Errorf("people: single-value fact %s carries value_key %q, want ''", f.Field, f.ValueKey)

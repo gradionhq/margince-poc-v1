@@ -37,6 +37,15 @@ CREATE TABLE organization_fact (
     (category = 'company'  AND field IN ('founded_year','employee_range','phone','contact_email')) OR
     (category = 'offering' AND field IN ('service','product')) OR
     (category = 'signal'   AND field IN ('certification','partner','named_customer'))
+  ),
+  -- The value_key cardinality the uq_org_fact index depends on: single-value
+  -- company facts key on '' (one row per field), multi-value offering/signal
+  -- facts on a non-empty normalized key (one row per distinct value). Without
+  -- this a malformed write could duplicate a singleton or collapse two
+  -- distinct offerings — the DB enforces it, not just the store.
+  CONSTRAINT org_fact_value_key_cardinality CHECK (
+    (category = 'company' AND value_key = '') OR
+    (category IN ('offering','signal') AND value_key <> '')
   )
 );
 

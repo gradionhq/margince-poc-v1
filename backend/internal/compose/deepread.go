@@ -3,7 +3,7 @@
 
 package compose
 
-// The deep read end-to-end (R2/A102, category extraction per R4): a
+// The deep read end-to-end: a
 // human's start queues a durable crawl job and answers 202; the worker
 // role crawls the organization's site under the bounded siteCrawler and
 // extracts every page through the shared evidence gate — the 11
@@ -208,7 +208,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 // extractPage runs one page's model passes: the shared 11-field company
 // extraction, plus the page kind's ONE extra call when it has one — a
 // category call for the fact-bearing kinds, the people call for team
-// pages (R5). At most two calls per page, so a full 12-page crawl stays
+// pages. At most two calls per page, so a full 12-page crawl stays
 // within budget.
 func (w *siteDeepReadWorker) extractPage(ctx context.Context, page crawlPage) (pageFields, error) {
 	fields, err := w.extract.extractFields(ctx, "Page "+page.URL, page.Text, page.URL, coldStartFieldValid)
@@ -234,7 +234,7 @@ func (w *siteDeepReadWorker) extractPage(ctx context.Context, page crawlPage) (p
 
 // stageProposals stages everything the read evidenced: the ONE deepread
 // bundle first (when any field or fact survived), then one thin
-// site_lead per published person (R5) — the dossier's proposal_ids keep
+// site_lead per published person — the dossier's proposal_ids keep
 // that order.
 func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, mergedPeople []sitePerson, pagesRead int) ([]ids.UUID, error) {
 	var proposalIDs []ids.UUID
@@ -293,7 +293,7 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 }
 
 // stageSiteLead records ONE published person as a thin "site_lead"
-// proposal (R5): exactly what the site printed, nothing enriched. Each
+// proposal: exactly what the site printed, nothing enriched. Each
 // person is decided on their own — accepting the CTO does not accept the
 // whole roster.
 func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson) (ids.ApprovalID, error) {

@@ -3,7 +3,7 @@
 
 package compose
 
-// The deep read's person lane (founder ratification R5): a crawled team
+// The deep read's person lane: a crawled team
 // page spends its per-page category budget on PEOPLE — who the site
 // itself publishes, and nothing more. The gate is stricter than the fact
 // gate because this is the NEVER-8 boundary (thin, published-only): a
@@ -172,10 +172,13 @@ func gateTeamPeople(modelText, pageText, sourceURL string) []sitePerson {
 		if name == "" || role == "" || strings.TrimSpace(p.EvidenceSnippet) == "" {
 			continue
 		}
-		if !strings.Contains(pageText, name) || !strings.Contains(pageText, role) {
+		if !strings.Contains(pageText, p.EvidenceSnippet) {
 			continue
 		}
-		if !strings.Contains(pageText, p.EvidenceSnippet) {
+		// The snippet must ASSOCIATE this name with this role, not merely
+		// prove each appears somewhere on the page — otherwise one person's
+		// name pairs with another's role on a multi-person team page.
+		if !strings.Contains(p.EvidenceSnippet, name) || !strings.Contains(p.EvidenceSnippet, role) {
 			continue
 		}
 		if p.Confidence <= 0 || p.Confidence > 1 {
@@ -246,10 +249,16 @@ func mergeTeamPeople(pages []pageFields) []sitePerson {
 }
 
 // siteLeadSourceID is the lead's idempotency key under source_system
-// "siteread": the page that published the person plus their normalized
-// name. Accepting twice, or accepting the same person from a later
-// re-read of the same page, resolves to the same lead row.
-func siteLeadSourceID(sourceURL, name string) string {
-	digest := sha256.Sum256([]byte(sourceURL + "|" + normalizedPersonName(name)))
+// "siteread": the ORGANIZATION plus the normalized name (plus a published
+// email when the site prints one, so two distinct people who share a name
+// stay distinct). Keyed on the org, not the page URL, so the same person is
+// the same lead whether they were found on /team or /about, and whether a
+// later crawl's page layout moved — a page-URL key would duplicate them.
+func siteLeadSourceID(orgID ids.UUID, name, publishedEmail string) string {
+	key := orgID.String() + "|" + normalizedPersonName(name)
+	if e := strings.ToLower(strings.TrimSpace(publishedEmail)); e != "" {
+		key += "|" + e
+	}
+	digest := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(digest[:])
 }

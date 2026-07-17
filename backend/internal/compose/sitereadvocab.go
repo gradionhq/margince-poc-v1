@@ -3,8 +3,8 @@
 
 package compose
 
-// The deep read's per-page-kind category extraction (founder ratification
-// R4): beside the shared 11-field company extraction, each crawled page
+// The deep read's per-page-kind category extraction: beside the shared
+// 11-field company extraction, each crawled page
 // gets AT MOST ONE extra model call, chosen by what the page IS — legal
 // and contact pages yield company contact basics, services/products pages
 // yield offerings, home/about pages yield market signals. The closed
@@ -41,7 +41,7 @@ const (
 // factCategoryForPageKind picks the ONE extra extraction a page of this
 // kind is worth — the page kinds most likely to state facts of that
 // category. Team pages spend their extra call on the people lane instead
-// (sitepeople.go, R5); unclassified pages get no extra call. Either way a
+// (sitepeople.go); unclassified pages get no extra call. Either way a
 // full 12-page crawl stays at ≤ 24 model calls.
 func factCategoryForPageKind(kind crmcontracts.SiteReadPageKind) (string, bool) {
 	switch kind {

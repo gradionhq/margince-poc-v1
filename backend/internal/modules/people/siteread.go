@@ -98,7 +98,7 @@ func (s *Store) StartSiteRead(ctx context.Context, orgID ids.OrganizationID, see
 		inserted := tx.QueryRow(ctx, `
 			INSERT INTO site_read (id, workspace_id, organization_id, seed_url, requested_by)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (workspace_id, organization_id) WHERE status IN ('queued','running') DO NOTHING
+			ON CONFLICT (workspace_id, organization_id, seed_url) WHERE status IN ('queued','running') DO NOTHING
 			RETURNING `+siteReadColumns,
 			readID, workspaceID(ctx), orgID, seedURL, requestedBy)
 		var err error
