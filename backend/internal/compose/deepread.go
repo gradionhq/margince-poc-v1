@@ -144,8 +144,9 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	}
 	mergedFields := mergeCrawlFields(perPage)
 	mergedFacts := mergeCategoryFacts(perPage)
+	mergedPeople := mergeTeamPeople(perPage)
 	factCount := len(mergedFields) + len(mergedFacts)
-	if modelErr != nil && factCount == 0 {
+	if modelErr != nil && factCount == 0 && len(mergedPeople) == 0 {
 		// The model lane died before anything was evidenced: nothing honest
 		// to report but the failure itself.
 		return w.fail(ctx, args.SiteReadID, modelErr)
@@ -168,13 +169,9 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			"read", args.SiteReadID.String(), "err", modelErr)
 	}
 
-	var proposalIDs []ids.UUID
-	if factCount > 0 {
-		approvalID, err := w.stage(ctx, args.SiteReadID, claim, mergedFields, mergedFacts, len(readPages))
-		if err != nil {
-			return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: staging the proposal: %w", args.SiteReadID, err))
-		}
-		proposalIDs = []ids.UUID{approvalID.UUID}
+	proposalIDs, err := w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, mergedFacts, mergedPeople, len(readPages))
+	if err != nil {
+		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
 	// Zero surviving findings is an honest empty read — done, fact_count 0,
 	// no proposal — not an error: the site simply evidenced nothing.
@@ -182,8 +179,10 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 }
 
 // extractPage runs one page's model passes: the shared 11-field company
-// extraction, plus the page kind's category call when it has one — at
-// most two calls per page, so a full 12-page crawl stays within budget.
+// extraction, plus the page kind's ONE extra call when it has one — a
+// category call for the fact-bearing kinds, the people call for team
+// pages (R5). At most two calls per page, so a full 12-page crawl stays
+// within budget.
 func (w *siteDeepReadWorker) extractPage(ctx context.Context, page crawlPage) (pageFields, error) {
 	fields, err := w.extract.extractFields(ctx, "Page "+page.URL, page.Text, page.URL, coldStartFieldValid)
 	if err != nil {
@@ -196,7 +195,37 @@ func (w *siteDeepReadWorker) extractPage(ctx context.Context, page crawlPage) (p
 			return pageFields{}, err
 		}
 	}
-	return pageFields{kind: page.Kind, fields: fields, facts: facts}, nil
+	var published []sitePerson
+	if page.Kind == crmcontracts.SiteReadPageKindTeam {
+		published, err = w.extract.extractPeople(ctx, "Page "+page.URL, page.Text, page.URL)
+		if err != nil {
+			return pageFields{}, err
+		}
+	}
+	return pageFields{kind: page.Kind, fields: fields, facts: facts, people: published}, nil
+}
+
+// stageProposals stages everything the read evidenced: the ONE deepread
+// bundle first (when any field or fact survived), then one thin
+// site_lead per published person (R5) — the dossier's proposal_ids keep
+// that order.
+func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, mergedFields []evidencedField, mergedFacts []people.DeepReadFact, mergedPeople []sitePerson, pagesRead int) ([]ids.UUID, error) {
+	var proposalIDs []ids.UUID
+	if len(mergedFields)+len(mergedFacts) > 0 {
+		approvalID, err := w.stage(ctx, readID, claim, mergedFields, mergedFacts, pagesRead)
+		if err != nil {
+			return nil, fmt.Errorf("staging the proposal: %w", err)
+		}
+		proposalIDs = []ids.UUID{approvalID.UUID}
+	}
+	for _, person := range mergedPeople {
+		approvalID, err := w.stageSiteLead(ctx, readID, claim, person)
+		if err != nil {
+			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
+		}
+		proposalIDs = append(proposalIDs, approvalID.UUID)
+	}
+	return proposalIDs, nil
 }
 
 // stage records the merged findings as ONE "deepread" proposal carrying
@@ -233,6 +262,35 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		TargetType:     enrichTargetType,
 		TargetID:       claim.OrganizationID,
 		Summary:        fmt.Sprintf("Deep site read of %s: %d fields, %d facts from %d pages", claim.SeedURL, len(mergedFields), len(mergedFacts), pagesRead),
+	})
+}
+
+// stageSiteLead records ONE published person as a thin "site_lead"
+// proposal (R5): exactly what the site printed, nothing enriched. Each
+// person is decided on their own — accepting the CTO does not accept the
+// whole roster.
+func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson) (ids.ApprovalID, error) {
+	proposedChange, err := json.Marshal(siteLeadProposal{
+		OrganizationID:  claim.OrganizationID,
+		SiteReadID:      readID,
+		Name:            person.Name,
+		Role:            person.Role,
+		PublishedEmail:  person.PublishedEmail,
+		LinkedinURL:     person.LinkedinURL,
+		EvidenceSnippet: person.EvidenceSnippet,
+		SourceURL:       person.SourceURL,
+	})
+	if err != nil {
+		return ids.ApprovalID{}, err
+	}
+	digest := sha256.Sum256(proposedChange)
+	return w.approvals.Stage(ctx, approvals.StageInput{
+		Kind:           siteLeadProposalKind,
+		ProposedChange: proposedChange,
+		DiffHash:       hex.EncodeToString(digest[:]),
+		TargetType:     enrichTargetType,
+		TargetID:       claim.OrganizationID,
+		Summary:        fmt.Sprintf("Lead from %s: %s — %s", claim.SeedURL, person.Name, person.Role),
 	})
 }
 
@@ -278,11 +336,13 @@ func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause er
 const deepReadProposalKind = "deepread"
 
 // pageFields pairs one crawled page's kind with its gate-surviving
-// findings: the shared company fields plus the page kind's category facts.
+// findings: the shared company fields, the page kind's category facts,
+// and — on team pages — the published people.
 type pageFields struct {
 	kind   crmcontracts.SiteReadPageKind
 	fields []evidencedField
 	facts  []people.DeepReadFact
+	people []sitePerson
 }
 
 // mergeCrawlFields folds the per-page extractions into one answer per

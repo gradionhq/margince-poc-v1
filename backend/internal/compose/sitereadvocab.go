@@ -30,15 +30,19 @@ import (
 // spellings the company-fact extraction (enrichextract.go) uses, named so
 // the schema builder and the request can share them.
 const (
-	extractionEnvelopeKey = "fields"
-	extractionFieldKey    = "field"
-	chatRoleUser          = "user"
+	extractionEnvelopeKey   = "fields"
+	extractionFieldKey      = "field"
+	extractionValueKey      = "value"
+	extractionEvidenceKey   = "evidence_snippet"
+	extractionConfidenceKey = "confidence"
+	chatRoleUser            = "user"
 )
 
 // factCategoryForPageKind picks the ONE extra extraction a page of this
 // kind is worth — the page kinds most likely to state facts of that
-// category. Team and unclassified pages get no category call, keeping a
-// full 12-page crawl at ≤ 24 model calls.
+// category. Team pages spend their extra call on the people lane instead
+// (sitepeople.go, R5); unclassified pages get no extra call. Either way a
+// full 12-page crawl stays at ≤ 24 model calls.
 func factCategoryForPageKind(kind crmcontracts.SiteReadPageKind) (string, bool) {
 	switch kind {
 	case crmcontracts.SiteReadPageKindImpressum, crmcontracts.SiteReadPageKindContact:
@@ -87,12 +91,12 @@ func categoryFactsSchema(category string) json.RawMessage {
 		map[string]schema.Node{
 			extractionEnvelopeKey: schema.Array(schema.Object(
 				map[string]schema.Node{
-					extractionFieldKey: schema.Enum(people.OrganizationFactFields[category]...).Describe("Which fact this is."),
-					"value":            schema.String().Describe("The extracted value of the fact."),
-					"evidence_snippet": schema.String().Describe("Text copied VERBATIM from the page that supports the value."),
-					"confidence":       schema.Number().Describe("How confident the value is correct, from 0 to 1."),
+					extractionFieldKey:      schema.Enum(people.OrganizationFactFields[category]...).Describe("Which fact this is."),
+					extractionValueKey:      schema.String().Describe("The extracted value of the fact."),
+					extractionEvidenceKey:   schema.String().Describe("Text copied VERBATIM from the page that supports the value."),
+					extractionConfidenceKey: schema.Number().Describe("How confident the value is correct, from 0 to 1."),
 				},
-				extractionFieldKey, "value", "evidence_snippet", "confidence",
+				extractionFieldKey, extractionValueKey, extractionEvidenceKey, extractionConfidenceKey,
 			)),
 		},
 		extractionEnvelopeKey,

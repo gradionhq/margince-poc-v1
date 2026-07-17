@@ -53,6 +53,10 @@ var decisionGrants = map[string][]struct {
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{"organization", principal.ActionUpdate}},
+	// Accepting a site_lead proposal (a published person from a deep read's
+	// team page) captures them as a LEAD through the capture sink — the
+	// effect is a lead create, so deciding it needs that grant.
+	"site_lead": {{"lead", principal.ActionCreate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{"deal", principal.ActionUpdate}},
