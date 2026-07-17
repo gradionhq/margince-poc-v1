@@ -6,19 +6,23 @@ package ai
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// ProviderConfig is one tier→provider binding from ai-routing.yaml —
-// the only place vendor names appear.
+// ProviderConfig is one tier→provider binding from ai-routing.yaml — the only
+// place vendor names appear. It carries NO secret: a cloud provider's BYOK key
+// is read at boot from the provider's conventional environment variable (see
+// cloudKeyEnv), so secrets live in the environment, never a config file. The
+// parser rejects unknown keys, so a stray `api_key:` here is a loud error that
+// points the operator at the env var (ADR-0020: BYOK, we provide no inference).
 type ProviderConfig struct {
 	Provider string `yaml:"provider"` // one of knownProviders
 	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
 	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
-	APIKey   string `yaml:"api_key"`  // BYOK credential for cloud providers (ADR-0020)
 }
 
 // Provider defaults. The Anthropic URL is the vendor's public API; a
@@ -84,13 +88,14 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 	case providerFake:
 		return NewFakeClient(), nil
 	case providerAnthropic:
-		if cfg.APIKey == "" {
+		key := cloudKey(providerAnthropic)
+		if key == "" {
 			return nil, byokKeyRequired(providerAnthropic)
 		}
 		return &anthropicClient{
 			http:         &http.Client{Timeout: requestTimeout},
 			baseURL:      defaulted(cfg.BaseURL, defaultAnthropicBaseURL),
-			apiKey:       cfg.APIKey,
+			apiKey:       key,
 			defaultModel: cfg.Model,
 		}, nil
 	case providerOllama:
@@ -108,7 +113,8 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			defaultModel: defaulted(cfg.Model, defaultVLLMModel),
 		}, nil
 	case providerOpenAICompatible:
-		if cfg.APIKey == "" {
+		key := cloudKey(providerOpenAICompatible)
+		if key == "" {
 			return nil, byokKeyRequired(providerOpenAICompatible)
 		}
 		if cfg.BaseURL == "" {
@@ -117,28 +123,30 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		return &openAICompatClient{
 			http:         &http.Client{Timeout: requestTimeout},
 			baseURL:      cfg.BaseURL,
-			apiKey:       cfg.APIKey,
+			apiKey:       key,
 			localOnly:    false,
 			defaultModel: cfg.Model,
 		}, nil
 	case providerOpenAI:
-		if cfg.APIKey == "" {
+		key := cloudKey(providerOpenAI)
+		if key == "" {
 			return nil, byokKeyRequired(providerOpenAI)
 		}
 		return &openaiClient{
 			http:         &http.Client{Timeout: requestTimeout},
 			baseURL:      defaulted(cfg.BaseURL, defaultOpenAIBaseURL),
-			apiKey:       cfg.APIKey,
+			apiKey:       key,
 			defaultModel: cfg.Model,
 		}, nil
 	case providerGemini:
-		if cfg.APIKey == "" {
+		key := cloudKey(providerGemini)
+		if key == "" {
 			return nil, byokKeyRequired(providerGemini)
 		}
 		return &geminiClient{
 			http:         &http.Client{Timeout: requestTimeout},
 			baseURL:      defaulted(cfg.BaseURL, defaultGeminiBaseURL),
-			apiKey:       cfg.APIKey,
+			apiKey:       key,
 			defaultModel: cfg.Model,
 		}, nil
 	case "":
@@ -157,8 +165,33 @@ func defaulted(val, fallback string) string {
 	return val
 }
 
+// cloudKeyEnv maps a cloud provider to the environment variable its BYOK key is
+// read from. Secrets live in the environment; the routing file names only the
+// provider (12-factor). The names match the vendor SDK conventions so an
+// operator who already exports OPENAI_API_KEY / GEMINI_API_KEY needs no extra
+// wiring. openai_compatible has no vendor convention, so it gets a namespaced one.
+var cloudKeyEnv = map[string]string{
+	providerAnthropic:        "ANTHROPIC_API_KEY",
+	providerOpenAI:           "OPENAI_API_KEY",
+	providerGemini:           "GEMINI_API_KEY",
+	providerOpenAICompatible: "OPENAI_COMPATIBLE_API_KEY",
+}
+
+// cloudKey returns the BYOK key for a cloud provider from its conventional
+// environment variable, or "" when unset (the caller fails closed).
+func cloudKey(provider string) string {
+	if env := cloudKeyEnv[provider]; env != "" {
+		return os.Getenv(env)
+	}
+	return ""
+}
+
 // byokKeyRequired is the fail-closed error for a cloud provider bound without a
-// key: Margince provides no inference, so the customer's key is mandatory (ADR-0020).
+// key in the environment: Margince provides no inference, so the customer's key
+// is mandatory (ADR-0020). It names the env var to set so the fix is obvious.
 func byokKeyRequired(provider string) error {
+	if env := cloudKeyEnv[provider]; env != "" {
+		return fmt.Errorf("ai: provider %s needs an api key — set %s in the environment (BYOK — we provide no inference)", provider, env)
+	}
 	return fmt.Errorf("ai: provider %s needs an api key (BYOK — we provide no inference)", provider)
 }

@@ -11,10 +11,11 @@
 # and FE send. localhost is a browser secure-context, so the Secure session
 # cookie survives over plain http — no TLS front door needed.
 #
-# BYOK: if .env.local sets ANTHROPIC_API_KEY it is injected as a literal api_key
-# onto the anthropic tiers of a scratch ai-routing copy (the routing parser does
-# NOT expand ${ENV}), so the cold-start read-back runs the real model; otherwise
-# the offline fake (--ai-fake) drives it.
+# BYOK: if .env.local sets a cloud key (GEMINI_API_KEY / OPENAI_API_KEY /
+# ANTHROPIC_API_KEY / OPENAI_COMPATIBLE_API_KEY), sourcing it exports the var and
+# the api/worker inherit it — SelectBrain reads the key from the environment at
+# boot (the routing file holds only providers), so the cold-start read-back runs
+# the real model; otherwise the offline fake (--ai-fake) drives it.
 #
 # Credentials are NOT hardcoded: the connection URLs derive from OWNER_DSN /
 # APP_DSN (this repo's dev role DSNs; overridable), so this script carries no
@@ -23,8 +24,8 @@
 #   scripts/dev.sh up   [slug]            # spin infra + db + api + FE
 #   scripts/dev.sh stop [slug] [--drop]   # stop servers; --drop also drops the db
 set -euo pipefail
-# Runtime state under .tmp/dev/ includes the scratch ai-routing.yaml with the
-# injected BYOK key — keep everything this script writes owner-only.
+# Runtime state under .tmp/dev/ (logs, pids) — keep everything this script
+# writes owner-only.
 umask 077
 
 cmd="${1:-}"
@@ -84,7 +85,6 @@ psql_owner() { # db [psql args…] — SQL via args or stdin
 rundir=".tmp/dev/${slug:-_base}"
 log="${rundir}/dev.log"
 state="${rundir}/env"
-routing="${rundir}/ai-routing.yaml"
 
 wait_ready() { # url timeout_s — only a 2xx counts as ready (a 401/500/503 is not).
   local url="$1" timeout="$2"
@@ -137,51 +137,27 @@ up)
     echo "dev: seeded $routing_src from config/ai-routing.example.yaml — edit it to bind local models"
   fi
 
-  # BYOK: real model powers the /coldstart read-back when a key is present; the
-  # offline fake otherwise. The routing parser reads api_key literally (no ${ENV}
-  # expansion), so the key is injected into a scratch copy under the rundir.
-  # Seed .env.local from the tracked template on first run, so a fresh clone
-  # has a documented place for BYOK / Gmail / vault keys. Everything in the
-  # template is commented, so nothing is enabled until you uncomment it.
+  # BYOK: the real model powers the /coldstart read-back when a cloud key is in
+  # the environment, the offline fake otherwise. Secrets ride the ENVIRONMENT —
+  # the api resolves each provider's key from its conventional env var
+  # (GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_COMPATIBLE_API_KEY)
+  # at boot; the routing file names only providers, never a key. Sourcing
+  # .env.local exports those vars, and the api/worker started below inherit them —
+  # no key ever lands in a config file. Seed .env.local from the tracked template
+  # on first run so a fresh clone has a documented place for these keys.
   if [[ ! -f .env.local && -f .env.template ]]; then
     cp .env.template .env.local
-    echo "dev: seeded .env.local from .env.template — edit it to set keys (ANTHROPIC_API_KEY, MARGINCE_GMAIL_*, …)"
+    echo "dev: seeded .env.local from .env.template — edit it to set keys (GEMINI_API_KEY, MARGINCE_GMAIL_*, …)"
   fi
   ai_flag=(--ai-fake)
   if [[ -f .env.local ]]; then
     set -a; . ./.env.local; set +a
   fi
-  if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GEMINI_API_KEY:-}" ]]; then
-    if grep -qE '^[[:space:]]*api_key:' "$routing_src"; then
-      # The engineer bound their own literal keys — their file wins verbatim
-      # (injecting on top would duplicate the api_key mapping key).
-      cp "$routing_src" "$routing"
-    else
-      # Stamp each cloud key under its own provider's tier model line, at the
-      # tier's indentation (the block-style shape ai-routing.example.yaml ships).
-      # A native provider's key rides env so it never lands in a config file,
-      # exactly like ANTHROPIC_API_KEY. openai_compatible needs a base_url too,
-      # so it is bound literally in the config, not injected here.
-      awk -v anthropic_key="${ANTHROPIC_API_KEY:-}" \
-          -v openai_key="${OPENAI_API_KEY:-}" \
-          -v gemini_key="${GEMINI_API_KEY:-}" '
-        { print }
-        /^[[:space:]]*provider:[[:space:]]*anthropic[[:space:]]*$/ { prov = "anthropic" }
-        /^[[:space:]]*provider:[[:space:]]*openai[[:space:]]*$/    { prov = "openai" }
-        /^[[:space:]]*provider:[[:space:]]*gemini[[:space:]]*$/    { prov = "gemini" }
-        prov != "" && /^[[:space:]]*model:/ {
-          key = (prov == "anthropic") ? anthropic_key : (prov == "openai") ? openai_key : gemini_key
-          if (key != "") {
-            print substr($0, 1, index($0, "model:") - 1) "api_key: " key
-          }
-          prov = ""
-        }
-      ' "$routing_src" > "$routing"
-    fi
-    ai_flag=(--ai-routing "$routing")
-    echo "dev: using a real cloud model for the cold-start read-back (key from .env.local)"
+  if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GEMINI_API_KEY:-}${OPENAI_COMPATIBLE_API_KEY:-}" ]]; then
+    ai_flag=(--ai-routing "$routing_src")
+    echo "dev: using a real cloud model for the cold-start read-back (BYOK key from .env.local env)"
   else
-    echo "dev: no cloud API key in .env.local (GEMINI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY) — cold-start runs on the offline fake"
+    echo "dev: no cloud API key in .env.local (GEMINI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY/OPENAI_COMPATIBLE_API_KEY) — cold-start runs on the offline fake"
   fi
 
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass
@@ -271,8 +247,8 @@ EOF_CFG
   # sweeps AND the automation time-scan (the ONLY cg:workflows consumer + the
   # clock-trigger scheduler — without the worker, `make dev` fires no
   # automations at all, event- or clock-triggered). It gets the SAME config
-  # surface as the api — the same $ai_flag (real Anthropic model when
-  # .env.local set ANTHROPIC_API_KEY, else the offline fake, so its runner
+  # surface as the api — the same $ai_flag (real cloud model when
+  # .env.local set a BYOK key, else the offline fake, so its runner
   # matches the api), the same blobstore endpoint, and the .env.local keys
   # already exported into this shell (vault + Gmail secrets travel via the
   # environment, never CLI flags). Gmail adds a short sync poll only when the

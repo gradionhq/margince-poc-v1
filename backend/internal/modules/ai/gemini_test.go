@@ -171,7 +171,8 @@ func TestGeminiEmbedReturnsVectors(t *testing.T) {
 }
 
 func TestGeminiReportsNotLocalOnly(t *testing.T) {
-	client, err := SelectBrain(ProviderConfig{Provider: "gemini", APIKey: "k", Model: "gemini-x"})
+	t.Setenv("GEMINI_API_KEY", "k")
+	client, err := SelectBrain(ProviderConfig{Provider: "gemini", Model: "gemini-x"})
 	if err != nil {
 		t.Fatal(err)
 	}

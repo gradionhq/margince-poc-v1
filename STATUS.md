@@ -310,6 +310,16 @@ different principle).
 - **#10 — no code.** Cite "contract-first / spec wins" (the `architecture.md`
   invariant) by name, not the bare "P3", in commits/comments — `product/principles.md`
   P3 is a different principle.
+- **#11 — BYOK key sourced from the environment, not the routing file (reconcile
+  upstream).** ADR-0020 / `interfaces.md §4` model the customer key as an
+  `api_key` in `ai-routing.yaml`. This build instead reads each cloud provider's
+  key from its conventional environment variable (`GEMINI_API_KEY`,
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`) at boot and
+  fails closed (naming the var) if missing; the config carries no `api_key` field
+  (a stray one is a parse error). This is a deliberate security-posture decision —
+  secrets in the environment, config names only providers (12-factor) — to
+  reconcile with ADR-0020's wording. The `Client` seam and the no-inference
+  invariant are unchanged.
 
 Implementation follow-ups deferred from this change (honest floors shipped now):
 

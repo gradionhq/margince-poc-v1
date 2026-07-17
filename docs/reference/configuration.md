@@ -163,17 +163,19 @@ Model credentials (BYOK cloud tiers) are configured in
 per-engineer local config each engineer edits to bind their own models;
 delete it and re-run either target to reset.
 
-The providers a binding may name, and what each requires:
+The providers a binding may name, and what each requires. A cloud provider's
+BYOK key is **read from an environment variable** at boot — the routing file
+names only the provider (a stray `api_key:` there is a startup error):
 
-| provider | `api_key` | `base_url` | notes |
+| provider | key env var | `base_url` | notes |
 |---|---|---|---|
 | `fake` | — | — | offline deterministic stub (dev/test) |
 | `ollama` | — | optional (default `localhost:11434`) | local; sovereign-eligible |
 | `vllm` | — | optional (default `localhost:8000`) | local; sovereign-eligible |
-| `anthropic` | required | optional (default `api.anthropic.com`) | BYOK cloud |
-| `openai_compatible` | required | **required** | BYOK cloud, generic OpenAI wire (OpenAI, Mistral, DeepSeek, Groq, Together, OpenRouter, …) |
-| `openai` | required | optional (default `api.openai.com`) | BYOK cloud, native Responses API |
-| `gemini` | required | optional (default `generativelanguage.googleapis.com/v1beta`) | BYOK cloud, native `generateContent` |
+| `anthropic` | `ANTHROPIC_API_KEY` | optional (default `api.anthropic.com`) | BYOK cloud |
+| `openai_compatible` | `OPENAI_COMPATIBLE_API_KEY` | **required** | BYOK cloud, generic OpenAI wire (OpenAI, Mistral, DeepSeek, Groq, Together, OpenRouter, …) |
+| `openai` | `OPENAI_API_KEY` | optional (default `api.openai.com`) | BYOK cloud, native Responses API |
+| `gemini` | `GEMINI_API_KEY` | optional (default `generativelanguage.googleapis.com/v1beta`) | BYOK cloud, native `generateContent` |
 
 `base_url` for the OpenAI-wire providers (`openai_compatible`, `openai`, and
 `vllm`) is the vendor **host root with no version segment** — the adapter

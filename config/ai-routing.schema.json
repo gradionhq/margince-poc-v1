@@ -34,14 +34,9 @@
           "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible", "openai", "gemini"]
         },
         "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
-        "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor endpoint). Empty ⇒ provider default." },
-        "api_key":  { "type": "string", "description": "BYOK credential. REQUIRED for cloud providers (ADR-0020). Read literally, no env expansion." }
+        "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor host root, NO /v1). Empty ⇒ provider default." }
       },
       "allOf": [
-        {
-          "if":   { "properties": { "provider": { "enum": ["anthropic", "openai_compatible", "openai", "gemini"] } } },
-          "then": { "required": ["api_key"] }
-        },
         {
           "if":   { "properties": { "provider": { "const": "openai_compatible" } } },
           "then": { "required": ["base_url"] }

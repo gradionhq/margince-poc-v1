@@ -11,12 +11,16 @@ for the full provider matrix. For the no-cloud path, see
 
 ## 1. Pick a provider
 
-| `provider` | Use it for | Auth | `base_url` |
+| `provider` | Use it for | Key env var | `base_url` |
 |---|---|---|---|
-| `anthropic` | Claude (native Messages API) | `api_key` | optional (default `api.anthropic.com`) |
-| `openai` | GPT (native Responses API — reasoning effort, prompt-cache + reasoning token usage, image/PDF input) | `api_key` | optional (default `api.openai.com`) |
-| `gemini` | Gemini (native `generateContent` — thinking level, thought-signature continuity, image/PDF input) | `api_key` | optional (default `…/v1beta`) |
-| `openai_compatible` | the OpenAI-wire long tail — Mistral, DeepSeek, Groq, Together, OpenRouter, a self-hosted gateway, … | `api_key` | **required** |
+| `anthropic` | Claude (native Messages API) | `ANTHROPIC_API_KEY` | optional (default `api.anthropic.com`) |
+| `openai` | GPT (native Responses API — reasoning effort, prompt-cache + reasoning token usage, image/PDF input) | `OPENAI_API_KEY` | optional (default `api.openai.com`) |
+| `gemini` | Gemini (native `generateContent` — thinking level, thought-signature continuity, image/PDF input) | `GEMINI_API_KEY` | optional (default `…/v1beta`) |
+| `openai_compatible` | the OpenAI-wire long tail — Mistral, DeepSeek, Groq, Together, OpenRouter, a self-hosted gateway, … | `OPENAI_COMPATIBLE_API_KEY` | **required** |
+
+The routing file names only the provider — **the BYOK key lives in the
+environment**, read from the var above at boot (12-factor; a stray `api_key:` in
+the config is a startup error). Secrets never touch a config file.
 
 Reach for a **native** adapter (`openai`/`gemini`) when you want that vendor's
 reasoning/thinking knobs, document attachments, or itemized usage. Reach for
@@ -27,27 +31,23 @@ Anthropic, OpenAI, or Gemini.
 ## 2. Bind a tier
 
 Edit your local `config/ai-routing.yaml` (seeded from the template by
-`make install` / `make dev`). Bind a capability tier to the provider. The
-shipped default binds **gemini** on `cheap_cloud` + `premium`. For a native
-provider (anthropic / openai / gemini) leave `api_key` **out** of the file — set
-it in `.env.local` (step 4) and `make dev` injects it at boot, so the key never
-lands in a config file:
+`make install` / `make dev`). Bind a capability tier to the provider — **no key
+in the file** (the key comes from the env var in step 4). The shipped default
+binds **gemini** on `cheap_cloud` + `premium`:
 
 ```yaml
-# Native adapters — no key in the file; make dev injects it from .env.local:
+# Native adapters — the key is read from GEMINI_API_KEY / OPENAI_API_KEY at boot:
 tiers:
   cheap_cloud: { provider: gemini, model: gemini-2.5-flash }
   premium:     { provider: gemini, model: gemini-2.5-pro }
 
-# …or any OpenAI-compatible vendor via the generic adapter. It needs a base_url,
-# so bind it (and its key) literally here — the api_key is read verbatim, the
-# parser does not expand ${ENV}:
+# …or any OpenAI-compatible vendor via the generic adapter. It needs a base_url
+# (the key comes from OPENAI_COMPATIBLE_API_KEY):
 tiers:
   cheap_cloud:
     provider: openai_compatible
     model: mistral-small-2506        # pin an explicit version — -latest aliases drift
     base_url: https://api.mistral.ai # host root, NO /v1 (see the caveat below)
-    api_key: …
 ```
 
 > **`base_url` for the OpenAI-wire providers (`openai_compatible`, `openai`,
@@ -79,22 +79,20 @@ embeddings: { provider: ollama, model: bge-m3 }   # a local embedder always work
 ## 4. Start the stack
 
 Set the key for your bound provider in `.env.local` — `GEMINI_API_KEY`,
-`OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`. `make dev` reads it, flips from the
-offline fake into real routing, and injects it as `api_key` onto that provider's
-tiers in a throwaway scratch config (the key never touches a committed or local
-config file):
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENAI_COMPATIBLE_API_KEY`. `make dev`
+sources `.env.local`, so the api/worker inherit the var and read the key from the
+environment at boot; the routing file stays keyless:
 
 ```sh
 # .env.local:  GEMINI_API_KEY=…
 make dev
 ```
 
-`openai_compatible` needs a `base_url`, so bind it (with its key) literally in
-`config/ai-routing.yaml` (step 2) instead — `make dev` uses your file verbatim
-when it already carries an `api_key`. To run without `make dev`:
+To run without `make dev`, export the var yourself (production does the same via
+its process manager):
 
 ```sh
-cd backend && go run ./cmd/api --ai-routing ../config/ai-routing.yaml   # keys literal in the file
+cd backend && GEMINI_API_KEY=… go run ./cmd/api --ai-routing ../config/ai-routing.yaml
 ```
 
 The api comes up on `:8080`. Exercise a lane that ladders to your tier — e.g.
@@ -116,7 +114,8 @@ cloud binding.
 |---|---|
 | `http 404` on `…/v1/v1/chat/completions` or `…/v1/v1/responses` | `base_url` includes a `/v1` segment — drop it (§2 caveat); the adapter adds it. |
 | Boot error *"profile sovereign forbids cloud provider …"* | A cloud provider is bound under `profile: sovereign`. Switch to `eu_hosted`/`cloud_frontier`, or bind that tier to `ollama`/`vllm`. |
-| Boot error *"needs an api key (BYOK …)"* | A cloud provider has no `api_key`. Margince provides no inference — add the key (literally, no `${ENV}`). |
+| Boot error *"needs an api key — set X_API_KEY …"* | The bound cloud provider's key env var is unset. Export the one the error names (e.g. `GEMINI_API_KEY`). |
+| Boot error *"field api_key not found"* | You put an `api_key:` in the routing file — remove it; the key comes from the env var (see the table above). |
 | Boot error *"needs a base_url …"* | `openai_compatible` has no `base_url`. Add the vendor host root (no `/v1`). |
 | `http 404` on `/embeddings` | The `openai_compatible` vendor is chat-only. Rebind `embeddings:` to a lane-serving vendor or a local `bge-m3` (§3). |
 | Model 404 / *"model not found"* | A drifting `-latest` alias or a wrong id. Pin an explicit versioned model, or resolve it from the vendor's `/models` endpoint. |

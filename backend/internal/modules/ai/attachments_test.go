@@ -15,6 +15,7 @@ import (
 )
 
 func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
+	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k") // openai_compatible reads its key from env
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
 	}))
@@ -24,7 +25,7 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	// and an image must be rejected — accepting an image the wire can't carry
 	// would be a silent drop (the failure this test exists to prevent).
 	cannotCarryAttachments := map[string]ProviderConfig{
-		"openai_compatible": {Provider: "openai_compatible", APIKey: "k", BaseURL: srv.URL, Model: "m"},
+		"openai_compatible": {Provider: "openai_compatible", BaseURL: srv.URL, Model: "m"},
 		"ollama":            {Provider: "ollama", Model: "m", BaseURL: srv.URL},
 		"vllm":              {Provider: "vllm", Model: "m", BaseURL: srv.URL},
 	}
@@ -54,6 +55,8 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 // the rejection fitness test above so "who can ingest this document" stays an
 // honest, tested routing input (spec §3.8).
 func TestNativeCloudProvidersCarryPDFAttachments(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "k")
+	t.Setenv("GEMINI_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, ":generateContent") {
 			_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
@@ -65,8 +68,8 @@ func TestNativeCloudProvidersCarryPDFAttachments(t *testing.T) {
 
 	pdf := model.Attachment{MIME: "application/pdf", Bytes: []byte("%PDF")}
 	canCarryPDF := map[string]ProviderConfig{
-		"openai": {Provider: "openai", APIKey: "k", BaseURL: srv.URL, Model: "m"},
-		"gemini": {Provider: "gemini", APIKey: "k", BaseURL: srv.URL, Model: "m"},
+		"openai": {Provider: "openai", BaseURL: srv.URL, Model: "m"},
+		"gemini": {Provider: "gemini", BaseURL: srv.URL, Model: "m"},
 	}
 	for name, cfg := range canCarryPDF {
 		t.Run(name, func(t *testing.T) {

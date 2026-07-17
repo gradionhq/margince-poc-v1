@@ -158,7 +158,8 @@ func TestOpenAIEmbedReturnsVectors(t *testing.T) {
 }
 
 func TestOpenAIReportsNotLocalOnly(t *testing.T) {
-	client, err := SelectBrain(ProviderConfig{Provider: "openai", APIKey: "k", Model: "gpt-x"})
+	t.Setenv("OPENAI_API_KEY", "k")
+	client, err := SelectBrain(ProviderConfig{Provider: "openai", Model: "gpt-x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +169,7 @@ func TestOpenAIReportsNotLocalOnly(t *testing.T) {
 }
 
 func TestOpenAIFailsClosedWithoutKey(t *testing.T) {
+	clearCloudKeyEnv(t)
 	if _, err := SelectBrain(ProviderConfig{Provider: "openai"}); err == nil || !strings.Contains(err.Error(), "api key") {
 		t.Fatalf("openai without a key must fail closed, got %v", err)
 	}
