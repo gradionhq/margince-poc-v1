@@ -72,6 +72,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/agents/runner:EnqueueJob":              "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:ClaimDueJobs":            "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:FinishJob":               "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
+	"internal/modules/people:BeginSiteRead":                  "worker-loop status transition (queued→running) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
+	"internal/modules/people:FinishSiteRead":                 "worker-loop status transition (running→terminal) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
 	"internal/modules/approvals:WithEffect":                  "composition-root wiring (registers the confirm effect); no data access",
 	"internal/modules/activities:WithBlobstore":              "composition-root wiring (injects the object store the attachment handlers use); no data access",
 	"internal/modules/approvals:Stage":                       "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",

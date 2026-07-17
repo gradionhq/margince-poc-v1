@@ -118,46 +118,44 @@ func newFetcher(transport http.RoundTripper) *Fetcher {
 // Fetch retrieves one page as whitespace-normalized text, refusing what the
 // site's robots.txt disallows for this bot.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" {
-		return "", fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
-	}
-	allowed, err := f.pathAllowed(ctx, parsed)
+	page, err := f.FetchPage(ctx, rawURL)
 	if err != nil {
 		return "", err
 	}
-	if !allowed {
-		return "", fmt.Errorf("%w: %s", ErrRobotsDisallowed, parsed.Path)
-	}
-
-	body, err := f.get(ctx, rawURL)
-	if err != nil {
-		return "", err
-	}
-	return StripTags(body), nil
+	return page.Text, nil
 }
 
-// get is the raw capped GET both page and robots fetches share.
+// get is the capped GET treating anything but a 200 as failure — the page
+// fetch's reading. Sitemap and robots lookups read statuses themselves.
 func (f *Fetcher) get(ctx context.Context, rawURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	body, status, err := f.getRaw(ctx, rawURL)
 	if err != nil {
 		return "", err
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("webread: page answered %d", status)
+	}
+	return body, nil
+}
+
+// getRaw is the network-level capped GET: body and status, no status policy.
+func (f *Fetcher) getRaw(ctx context.Context, rawURL string) (string, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", 0, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for the fetch result
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("webread: page answered %d", resp.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return string(body), nil
+	return string(body), resp.StatusCode, nil
 }
 
 // pathAllowed resolves the host's robots policy (cached per host) and asks it

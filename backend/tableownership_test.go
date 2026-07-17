@@ -65,6 +65,7 @@ var tableOwners = map[string]string{
 	"partner":                    "internal/modules/people",
 	"lead":                       "internal/modules/people",
 	"organization_profile_field": "internal/modules/people",
+	"site_read":                  "internal/modules/people",
 	// deals (incl. the E03 offer engine: rate-card + versioned offers)
 	"deal":               "internal/modules/deals",
 	"pipeline":           "internal/modules/deals",
