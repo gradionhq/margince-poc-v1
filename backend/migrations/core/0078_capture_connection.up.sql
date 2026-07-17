@@ -1,4 +1,4 @@
--- 0077: reconcile the improvised connector_connection into capture_connection
+-- 0078: reconcile the improvised connector_connection into capture_connection
 -- (capture.md CAP-DDL-2). Rename-in-place preserves every row, the vault
 -- credential_ref, and the legacy auth bytea through the additive transition.
 -- The watch-renewal column + its partial index land here so the Gmail Pub/Sub

@@ -1,4 +1,4 @@
--- Reverse 0077: capture_connection → connector_connection, mirror order.
+-- Reverse 0078: capture_connection → connector_connection, mirror order.
 
 ALTER POLICY capture_connection_tenant_isolation ON capture_connection
   RENAME TO connector_connection_tenant_isolation;

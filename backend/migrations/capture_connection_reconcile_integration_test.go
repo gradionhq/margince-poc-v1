@@ -5,7 +5,7 @@
 
 package migrations
 
-// 0077's data transforms proven directly (CAP-DDL-2): a database that held
+// 0078's data transforms proven directly (CAP-DDL-2): a database that held
 // improvised connector_connection rows migrates to capture_connection with the
 // status vocabulary remapped (active→connected, revoked→disconnected,
 // error→error) and the bytea cursor re-typed to jsonb without losing its
@@ -43,7 +43,7 @@ func TestCaptureConnectionReconcile(t *testing.T) {
 	gcal := seedLegacyConnection(t, conn, ws, userID, "gcal", "error", nil)
 
 	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
-		t.Fatalf("re-applying 0077 over old-shape rows: %v", err)
+		t.Fatalf("re-applying 0078 over old-shape rows: %v", err)
 	}
 
 	// Status remapped, and the gmail cursor survived the bytea→jsonb re-type.
@@ -55,7 +55,7 @@ func TestCaptureConnectionReconcile(t *testing.T) {
 }
 
 // rewindToBeforeReconcile migrates fully, then reverses back to just before
-// 0077 so seeded rows land in the OLD (connector_connection) schema — exactly
+// 0078 so seeded rows land in the OLD (connector_connection) schema — exactly
 // like a production database that improvised the table before the spec ratified
 // it. Returns the loaded core namespace for the re-apply.
 func rewindToBeforeReconcile(t *testing.T, conn *pgx.Conn) dbmigrate.Namespace {
@@ -70,16 +70,16 @@ func rewindToBeforeReconcile(t *testing.T, conn *pgx.Conn) dbmigrate.Namespace {
 	}
 	idx := -1
 	for i, m := range core.Migrations {
-		if m.Version == "0077" {
+		if m.Version == "0078" {
 			idx = i
 			break
 		}
 	}
 	if idx < 0 {
-		t.Fatal("core migrations contain no 0077 — the capture_connection reconcile migration is missing")
+		t.Fatal("core migrations contain no 0078 — the capture_connection reconcile migration is missing")
 	}
 	if _, err := dbmigrate.Down(ctx, conn, core, len(core.Migrations)-idx); err != nil {
-		t.Fatalf("down to pre-0077: %v", err)
+		t.Fatalf("down to pre-0078: %v", err)
 	}
 	return core
 }
