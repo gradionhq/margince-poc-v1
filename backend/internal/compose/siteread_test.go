@@ -16,6 +16,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
 // hostPages serves a distinct fixture per URL — the multi-page twin of
@@ -134,5 +135,41 @@ func TestExtractOffersDisplayNameToTheModel(t *testing.T) {
 	}
 	if !strings.Contains(string(brain.Calls()[0].Payload), "display_name") {
 		t.Fatal("the extraction prompt never offered display_name to the model")
+	}
+}
+
+// failsAfter yields scripted responses, then errors: the legal-page extraction
+// failing must surface, not silently reduce the read to one page.
+type failsAfter struct {
+	inner *ai.FakeClient
+	calls int
+	limit int
+}
+
+func (f *failsAfter) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	f.calls++
+	if f.calls > f.limit {
+		return model.Response{}, errors.New("model lane down")
+	}
+	return f.inner.Complete(ctx, req)
+}
+
+func TestExtractSurfacesALegalPageModelFailure(t *testing.T) {
+	home := strings.Repeat("Acme builds robots. ", 10)
+	impressum := strings.Repeat("Impressum. ", 10) + "Acme Robotics GmbH."
+	fetch := hostPages{
+		"https://acme.example":           home,
+		"https://acme.example/impressum": impressum,
+	}
+	brain := &failsAfter{
+		inner: ai.NewFakeClient().Script(
+			`{"fields":[{"field":"icp","value":"x","evidence_snippet":"Acme builds robots.","confidence":0.8}]}`,
+		),
+		limit: 1,
+	}
+
+	x := evidenceExtractor{fetch: fetch, brain: brain}
+	if _, err := x.extract(context.Background(), "https://acme.example", coldStartFieldValid); err == nil {
+		t.Fatal("a failed legal-page extraction was silently swallowed — the read reported success on half its input")
 	}
 }

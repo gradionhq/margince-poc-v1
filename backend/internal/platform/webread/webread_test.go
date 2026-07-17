@@ -161,3 +161,25 @@ func TestRobotsPolicyIsCachedPerHost(t *testing.T) {
 		t.Fatalf("robots.txt fetched %d times for one host within the TTL, want 1", robotsHits)
 	}
 }
+
+func TestProductionFetcherRefusesPrivateAddresses(t *testing.T) {
+	// The REAL constructor, guard included: an httptest server lives on
+	// loopback, which is exactly the address class a tenant-supplied URL must
+	// never reach. The refusal fires on the very first dial — the robots
+	// lookup — so nothing is ever fetched from the private address at all.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("the SSRF guard let a request through to a loopback address")
+	}))
+	defer srv.Close()
+
+	_, err := New().Fetch(context.Background(), srv.URL+"/page")
+	if err == nil || !strings.Contains(err.Error(), "refusing non-public address") {
+		t.Fatalf("fetch of a loopback URL → %v, want the SSRF refusal", err)
+	}
+}
+
+func TestFetchRefusesAnUnfetchableURL(t *testing.T) {
+	if _, err := testFetcher().Fetch(context.Background(), "not-a-url"); err == nil {
+		t.Fatal("fetch accepted a URL with no host")
+	}
+}
