@@ -11,9 +11,14 @@ package integration
 // can drive SyncOnce (CAP-DDL-2, CAP-WIRE-N-4, ADR-0062).
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -190,5 +195,47 @@ func TestGmailPushJobSyncsAndRedeliveryIsNoop(t *testing.T) {
 	awaitWatchKindCompleted(waitCtx2, t, sub, compose.GmailPushArgs{}.Kind())
 	if got := countActivities(t, e); got != after {
 		t.Fatalf("redelivery changed activity count: before=%d after=%d (want no-op)", after, got)
+	}
+}
+
+// pushBodyInt builds the Pub/Sub push envelope body. It is a local copy of
+// compose's unexported pushBody helper (gmailpush_test.go) — that helper
+// lives in package compose and isn't visible from this integration package.
+func pushBodyInt(t *testing.T, email string) []byte {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"emailAddress": email})
+	if err != nil {
+		t.Fatalf("marshal push payload: %v", err)
+	}
+	env := map[string]any{
+		"message":      map[string]any{"data": base64.StdEncoding.EncodeToString(data)},
+		"subscription": "projects/p/subscriptions/s",
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal push envelope: %v", err)
+	}
+	return b
+}
+
+// TestPushRouteMountedReturns501WhenUnconfigured proves the route survives
+// the real mux (session middleware, panic recovery, secure headers) and
+// still answers the repo's standard 501 when the server is built with no
+// push config — the wired verify→enqueue→sync path is covered by Task 7's
+// job test and Task 8's handler unit tests (CAP-WIRE-N-4, ADR-0062).
+func TestPushRouteMountedReturns501WhenUnconfigured(t *testing.T) {
+	e := setupSearch(t)
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := compose.New(e.Pool, quiet) // no compose.WithGmailPush option: unconfigured.
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/hooks/gmail/push", "application/json", bytes.NewReader(pushBodyInt(t, "rep@ws.example")))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotImplemented)
 	}
 }
