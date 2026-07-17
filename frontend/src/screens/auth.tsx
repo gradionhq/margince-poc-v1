@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Eye, EyeOff } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -352,7 +353,7 @@ function LoginForm({
           <div className="auth-password-row">
             <input
               id={passwordId}
-              className="auth-input"
+              className="auth-input auth-input-reveal"
               type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               value={password}
@@ -363,11 +364,17 @@ function LoginForm({
             />
             <button
               type="button"
-              className="auth-link"
+              className="auth-reveal"
               aria-pressed={showPassword}
+              aria-label={
+                showPassword ? t("auth.hidePassword") : t("auth.showPassword")
+              }
+              title={
+                showPassword ? t("auth.hidePassword") : t("auth.showPassword")
+              }
               onClick={() => setShowPassword((v) => !v)}
             >
-              {showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+              {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
             </button>
           </div>
         </Field>

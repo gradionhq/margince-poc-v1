@@ -114,12 +114,38 @@
   box-shadow: 0 0 0 4px var(--accentLight);
 }
 .auth-password-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  position: relative;
 }
-.auth-password-row .auth-input {
-  flex: 1;
+.auth-input-reveal {
+  /* room for the in-field reveal button, so email and password fields
+     keep the exact same outer width */
+  padding-right: 44px;
+}
+.auth-reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--textTertiary);
+  border-radius: var(--r-sm);
+}
+.auth-reveal svg {
+  width: 18px;
+  height: 18px;
+}
+.auth-reveal:hover,
+.auth-reveal[aria-pressed="true"] {
+  color: var(--textPrimary);
+}
+.auth-reveal:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
 }
 .auth-actions {
   margin-top: 22px;
