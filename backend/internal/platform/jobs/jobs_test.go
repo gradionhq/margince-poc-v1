@@ -118,3 +118,38 @@ func TestRunnerStartsAndStopsCleanlyAsAppRole(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 }
+
+// TestInserterInsertsAJobRow proves the insert-only client (the api role's
+// shape: no queues, no workers, never Started) can still durably enqueue a
+// row the worker's client would pick up by Kind. migratedAppPool applies the
+// River schema and grants first; a second app-role pool is opened here to
+// drive the inserter and to read back the row without widening Runner's API
+// with a Client() accessor.
+func TestInserterInsertsAJobRow(t *testing.T) {
+	migratedAppPool(t) // migrates schema + grants on the test DB as a side effect
+	ctx := t.Context()
+
+	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
+	appPool, err := database.NewPool(ctx, appDSN)
+	if err != nil {
+		t.Fatalf("opening app pool: %v", err)
+	}
+	t.Cleanup(appPool.Close)
+
+	ins, err := jobs.NewInserter(appPool, quietLogger())
+	if err != nil {
+		t.Fatalf("NewInserter: %v", err)
+	}
+	if err := ins.Insert(ctx, noopArgs{}, nil); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	var n int
+	if err := appPool.QueryRow(ctx,
+		`SELECT count(*) FROM river_job WHERE kind = 'noop'`).Scan(&n); err != nil {
+		t.Fatalf("counting river_job: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("river_job noop count = %d, want 1", n)
+	}
+}
