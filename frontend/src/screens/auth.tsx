@@ -9,9 +9,9 @@ import {
   useState,
 } from "react";
 import { api } from "../api/client";
+import { navigate } from "../app/router";
 import wordmarkDark from "../assets/wordmark-dark.png";
 import wordmarkWhite from "../assets/wordmark-white.png";
-import { navigate } from "../app/router";
 import { Button } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -190,7 +190,12 @@ function Wordmark({ alt }: Readonly<{ alt: string }>) {
   return (
     <span className="auth-wordmark">
       <img className="auth-wordmark-light" src={wordmarkDark} alt={alt} />
-      <img className="auth-wordmark-dark" src={wordmarkWhite} alt="" aria-hidden />
+      <img
+        className="auth-wordmark-dark"
+        src={wordmarkWhite}
+        alt=""
+        aria-hidden
+      />
     </span>
   );
 }
