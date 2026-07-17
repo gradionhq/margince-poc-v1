@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 import { api } from "../api/client";
+import wordmarkDark from "../assets/wordmark-dark.png";
+import wordmarkWhite from "../assets/wordmark-white.png";
 import { navigate } from "../app/router";
 import { Button } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
@@ -87,10 +89,7 @@ export function AuthScreen({
   return (
     <div className="auth-page">
       <main className="auth-column">
-        <span className="auth-wordmark">
-          <span className="mk">M</span>
-          {t("auth.title")}
-        </span>
+        <Wordmark alt={t("auth.title")} />
         {view.kind === "login" && (
           <>
             {notice && (
@@ -157,10 +156,7 @@ export function AvailabilityScreen({
   return (
     <div className="auth-page">
       <main className="auth-column">
-        <span className="auth-wordmark">
-          <span className="mk">M</span>
-          {t("auth.title")}
-        </span>
+        <Wordmark alt={t("auth.title")} />
         <section className="auth-card" role="alert">
           <h1>
             {t(
@@ -184,6 +180,18 @@ export function AvailabilityScreen({
         </section>
       </main>
     </div>
+  );
+}
+
+// Wordmark renders the current Margince logo, prominent above the card.
+// Two source images (dark ink for the light theme, white for dark) swap
+// via CSS on the data-theme toggle — no JS theme read needed.
+function Wordmark({ alt }: Readonly<{ alt: string }>) {
+  return (
+    <span className="auth-wordmark">
+      <img className="auth-wordmark-light" src={wordmarkDark} alt={alt} />
+      <img className="auth-wordmark-dark" src={wordmarkWhite} alt="" aria-hidden />
+    </span>
   );
 }
 

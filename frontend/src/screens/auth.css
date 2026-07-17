@@ -29,24 +29,23 @@
 }
 .auth-wordmark {
   align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--f-display);
-  font-weight: 600;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  color: var(--textPrimary);
-}
-.auth-wordmark .mk {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  color: var(--bgElevated);
   display: grid;
   place-items: center;
-  font-size: 14px;
+  margin-bottom: 6px;
+}
+.auth-wordmark img {
+  width: 232px;
+  max-width: 70vw;
+  height: auto;
+}
+.auth-wordmark-dark {
+  display: none;
+}
+[data-theme="dark"] .auth-wordmark-light {
+  display: none;
+}
+[data-theme="dark"] .auth-wordmark-dark {
+  display: block;
 }
 
 .auth-card {
