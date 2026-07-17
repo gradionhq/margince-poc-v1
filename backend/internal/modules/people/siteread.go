@@ -59,11 +59,13 @@ type SiteRead struct {
 
 // siteReadColumns is the ONE column list every dossier read scans —
 // scanSiteRead pairs with it positionally.
-// siteReadOrgKey is the audit payload's org reference.
-const siteReadOrgKey = "organization_id"
-
 const siteReadColumns = `id, organization_id, seed_url, status, pages, skipped,
 	stopped_reason, fact_count, proposal_ids, requested_by, created_at, started_at, finished_at`
+
+// siteReadOrgKey names the audit payload's org reference once (the goconst
+// pin): the same string in relationship.go is that file's column vocabulary —
+// a different concept, deliberately not shared.
+const siteReadOrgKey = "organization_id"
 
 // finishedSiteReadStatuses are the terminal states a worker may report;
 // anything else is a programming error caught before the row's CHECK.
