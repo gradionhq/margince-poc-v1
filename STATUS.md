@@ -251,6 +251,13 @@ against the spec.
 
 ## Cloud providers — upstream discrepancies to reconcile
 
+Filed upstream as `gradionhq/margince-foundation` **#1073** (contract
+reconciliation: interfaces.md §4 additive fields, ADR-0020 env-key posture,
+`provider: local` naming gap, Mistral alias, richer `model.Message`) and
+**#1074** (model-capability catalog incl. embedding dimensionality, = §7 #6).
+Per-provider AIUC conformance (§7 #9) and the eval-binding matrix (§7 #4) are
+already tracked in foundation #974 / #975 / #976.
+
 Raised by the cloud BYOK model-providers change (generic `openai_compatible`
 plus native `openai`/`gemini` adapters). Paths use the **live** foundation
 layout (verified against `gradionhq/margince-foundation@main`, 2026-07-17 — the
@@ -341,7 +348,8 @@ Implementation follow-ups deferred from this change (honest floors shipped now):
   design (store the dimension — and ideally the model — alongside each embedding
   row so the lane can change without a full re-embed, or make the column width
   configurable) is a separate PR. Until then, switching the embed binding means
-  wiping the store (as the module comment already notes).
+  wiping the store (as the module comment already notes). Filed upstream as
+  foundation #1074.
 - **Native tool-use mapping for `openai`/`gemini`.** The tasks run in JSON mode
   today, so no caller sets `req.Tools`; the native adapters currently **reject**
   a non-empty `Tools` (loud, not a silent drop) rather than map it. Mapping to
