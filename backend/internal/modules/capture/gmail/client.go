@@ -23,14 +23,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 )
-
-// httpTimeout bounds every Google call so a stalled OAuth/Gmail request can't
-// pin an API callback or the fleet-wide sync poller (http.DefaultClient has no
-// timeout).
-const httpTimeout = 30 * time.Second
-
-func boundedHTTPClient() *http.Client { return &http.Client{Timeout: httpTimeout} }
 
 // Default Google endpoints; overridable via OAuthConfig / NewAPI for tests.
 const (
@@ -41,27 +36,21 @@ const (
 	paramClientID = "client_id"
 )
 
-// ErrAuthRejected marks an OAuth failure Google reported (bad/expired code,
-// revoked refresh). The transport maps it to a 422 without echoing the raw
-// provider error.
-var ErrAuthRejected = errors.New("gmail: the authorization was rejected")
-
-// ErrUnreachable marks a transport-level failure reaching Google (DNS, TCP,
-// TLS, timeout, 5xx). The transport maps it to a 502.
-var ErrUnreachable = errors.New("gmail: could not reach Google")
+// ErrAuthRejected and ErrUnreachable are the shared Google transport sentinels,
+// re-exported so this package's callers and tests keep a single gmail-local name.
+var (
+	ErrAuthRejected = googleconn.ErrAuthRejected
+	ErrUnreachable  = googleconn.ErrUnreachable
+)
 
 // ErrHistoryGone marks a startHistoryId Gmail no longer has (it expires
 // after ~a week); Sync falls back to a bounded re-list rather than failing.
 var ErrHistoryGone = errors.New("gmail: history cursor too old")
 
-// OAuth is the OAuth2 handshake surface: build the consent URL, exchange the
-// authorization code for a refresh token, and mint a fresh access token from
-// a stored refresh token.
-type OAuth interface {
-	AuthCodeURL(state, redirectURI string) string
-	Exchange(ctx context.Context, code, redirectURI string) (refreshToken string, err error)
-	AccessToken(ctx context.Context, refreshToken string) (accessToken string, err error)
-}
+// OAuth is the OAuth2 handshake surface — the shared Google shape
+// (googleconn.OAuth): build the consent URL, exchange the authorization code for
+// a refresh token, and mint a fresh access token from a stored refresh token.
+type OAuth = googleconn.OAuth
 
 // API is the read-only Gmail surface the connector uses. All calls take a
 // short-lived access token (minted from the refresh token per Sync).
@@ -108,7 +97,7 @@ func NewOAuth(cfg OAuthConfig) OAuth {
 	if cfg.TokenURL == "" {
 		cfg.TokenURL = googleTokenURL
 	}
-	return &httpOAuth{client: boundedHTTPClient(), cfg: cfg}
+	return &httpOAuth{client: googleconn.BoundedClient(), cfg: cfg}
 }
 
 func (o *httpOAuth) AuthCodeURL(state, redirectURI string) string {
@@ -206,7 +195,7 @@ type httpAPI struct {
 //nolint:ireturn // returns the API seam by design — the connector holds it as an interface so tests substitute a stub
 func NewAPI(client *http.Client, base string) API {
 	if client == nil {
-		client = boundedHTTPClient()
+		client = googleconn.BoundedClient()
 	}
 	if base == "" {
 		base = gmailAPIBase
@@ -219,7 +208,7 @@ func (a *httpAPI) Profile(ctx context.Context, accessToken string) (string, stri
 		EmailAddress string `json:"emailAddress"` //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 		HistoryID    string `json:"historyId"`    //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 	}
-	if _, err := a.get(ctx, accessToken, "/profile", nil, &out); err != nil {
+	if _, err := googleconn.Get(ctx, a.client, a.base, accessToken, "/profile", nil, &out); err != nil {
 		return "", "", err
 	}
 	return out.EmailAddress, out.HistoryID, nil
@@ -232,7 +221,7 @@ func (a *httpAPI) ListRecent(ctx context.Context, accessToken string, maxResults
 		} `json:"messages"`
 	}
 	q := url.Values{"maxResults": {strconv.Itoa(maxResults)}}
-	if _, err := a.get(ctx, accessToken, "/messages", q, &out); err != nil {
+	if _, err := googleconn.Get(ctx, a.client, a.base, accessToken, "/messages", q, &out); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(out.Messages))
@@ -268,7 +257,7 @@ func (a *httpAPI) History(ctx context.Context, accessToken, startHistoryID strin
 			q.Set("pageToken", pageToken)
 		}
 		var page historyPage
-		status, err := a.get(ctx, accessToken, "/history", q, &page)
+		status, err := googleconn.Get(ctx, a.client, a.base, accessToken, "/history", q, &page)
 		if err != nil {
 			if status == http.StatusNotFound {
 				return nil, "", ErrHistoryGone
@@ -298,7 +287,7 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 		Raw string `json:"raw"`
 	}
 	q := url.Values{"format": {"RAW"}}
-	if _, err := a.get(ctx, accessToken, "/messages/"+url.PathEscape(msgID), q, &out); err != nil {
+	if _, err := googleconn.Get(ctx, a.client, a.base, accessToken, "/messages/"+url.PathEscape(msgID), q, &out); err != nil {
 		return nil, err
 	}
 	// Gmail encodes the RFC822 as web-safe (URL) base64, padding-optional.
@@ -351,39 +340,4 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 		return "", time.Time{}, fmt.Errorf("gmail: unparseable watch expiration %q: %w", out.Expiration, ErrUnreachable)
 	}
 	return out.HistoryID, time.UnixMilli(ms), nil
-}
-
-// get performs an authorized GET and JSON-decodes into out. It returns the
-// HTTP status (so History can special-case 404) and maps a 401/403 to
-// ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable.
-// Google's raw body is never surfaced to the caller.
-//
-//craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
-func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any) (int, error) {
-	u := a.base + path
-	if len(q) > 0 {
-		u += "?" + q.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return 0, fmt.Errorf("gmail: building request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("gmail: %s: %w", path, ErrUnreachable)
-	}
-	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, ErrAuthRejected
-	}
-	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, ErrUnreachable
-	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return resp.StatusCode, fmt.Errorf("gmail: decoding %s: %w", path, ErrUnreachable)
-	}
-	return resp.StatusCode, nil
 }

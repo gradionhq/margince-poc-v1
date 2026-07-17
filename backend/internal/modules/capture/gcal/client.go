@@ -2,13 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // This file is the Google Calendar provider I/O: the read-only Calendar v3
-// REST calls the connector needs, hand-rolled over net/http so capture takes
-// on no new module dependency. The OAuth2 handshake is Google's — identical to
-// Gmail's — so it is NOT re-implemented here: compose builds the shared Google
-// OAuth client (with the calendar-readonly scope) and injects it as the OAuth
-// seam. Both OAuth and API are interfaces so the connector's Sync/Authenticate
-// are unit tested against a stub, and non-2xx responses map to sentinels the
-// transport turns into clean 422/502 without echoing Google's raw text.
+// REST calls the connector needs. The authorized-GET transport and the OAuth2
+// handshake are the SHARED Google plumbing (capture/googleconn) — this file
+// owns only the Calendar-specific endpoints (primary-calendar owner, the
+// events.list sync-token paging) and the one Calendar-specific sentinel
+// (ErrSyncTokenGone). Both OAuth and API are interfaces so the connector's
+// Sync/Authenticate are unit tested against a stub.
 
 package gcal
 
@@ -16,20 +15,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 )
-
-// httpTimeout bounds every Google call so a stalled Calendar request can't pin
-// an API callback or the fleet-wide sync poller (http.DefaultClient has no
-// timeout).
-const httpTimeout = 30 * time.Second
-
-func boundedHTTPClient() *http.Client { return &http.Client{Timeout: httpTimeout} }
 
 // calendarAPIBase is Google's Calendar v3 root; overridable via NewAPI for
 // tests. The connector reads the "primary" calendar only.
@@ -49,29 +41,22 @@ const pageSize = 250
 // query params (singleEvents/showDeleted).
 const qTrue = "true"
 
-// ErrAuthRejected marks an OAuth/authorization failure Google reported (revoked
-// grant, missing scope). The transport maps it to a 422 without echoing the raw
-// provider error.
-var ErrAuthRejected = errors.New("gcal: the authorization was rejected")
-
-// ErrUnreachable marks a transport-level failure reaching Google (DNS, TCP,
-// TLS, timeout, 5xx). The transport maps it to a 502.
-var ErrUnreachable = errors.New("gcal: could not reach Google")
+// ErrAuthRejected and ErrUnreachable are the shared Google transport sentinels,
+// re-exported so this package's callers and tests keep a single gcal-local name.
+var (
+	ErrAuthRejected = googleconn.ErrAuthRejected
+	ErrUnreachable  = googleconn.ErrUnreachable
+)
 
 // ErrSyncTokenGone marks a syncToken Google no longer honors (it expires); Sync
 // falls back to a bounded re-list rather than failing — the calendar analogue
 // of Gmail's ErrHistoryGone.
 var ErrSyncTokenGone = errors.New("gcal: sync token expired")
 
-// OAuth is the OAuth2 handshake surface the connector consumes. It is the same
-// three-method Google OAuth2 shape the Gmail connector uses; compose builds one
-// concrete client per Google scope and injects it here, so this package owns no
-// duplicate token plumbing.
-type OAuth interface {
-	AuthCodeURL(state, redirectURI string) string
-	Exchange(ctx context.Context, code, redirectURI string) (refreshToken string, err error)
-	AccessToken(ctx context.Context, refreshToken string) (accessToken string, err error)
-}
+// OAuth is the OAuth2 handshake surface the connector consumes — the shared
+// Google shape (googleconn.OAuth). compose builds one concrete client per Google
+// scope and injects it here, so this package owns no duplicate token plumbing.
+type OAuth = googleconn.OAuth
 
 // API is the read-only Google Calendar surface the connector uses. All calls
 // take a short-lived access token (minted from the refresh token per Sync).
@@ -101,7 +86,7 @@ type httpAPI struct {
 //nolint:ireturn // returns the API seam by design — the connector holds it as an interface so tests substitute a stub
 func NewAPI(client *http.Client, base string) API {
 	if client == nil {
-		client = boundedHTTPClient()
+		client = googleconn.BoundedClient()
 	}
 	if base == "" {
 		base = calendarAPIBase
@@ -113,7 +98,7 @@ func (a *httpAPI) PrimaryOwner(ctx context.Context, accessToken string) (string,
 	var out struct {
 		ID string `json:"id"`
 	}
-	if _, err := a.get(ctx, accessToken, "/calendars/primary", nil, &out); err != nil {
+	if _, err := googleconn.Get(ctx, a.client, a.base, accessToken, "/calendars/primary", nil, &out); err != nil {
 		return "", err
 	}
 	return out.ID, nil
@@ -165,7 +150,7 @@ func (a *httpAPI) listPages(ctx context.Context, accessToken string, base url.Va
 			q.Set("pageToken", pageToken)
 		}
 		var page eventsPage
-		status, err := a.get(ctx, accessToken, "/calendars/primary/events", q, &page)
+		status, err := googleconn.Get(ctx, a.client, a.base, accessToken, "/calendars/primary/events", q, &page)
 		if err != nil {
 			if status == http.StatusGone {
 				return nil, "", ErrSyncTokenGone
@@ -184,41 +169,6 @@ func (a *httpAPI) listPages(ctx context.Context, accessToken string, base url.Va
 		pageToken = page.NextPageToken
 	}
 	return events, syncToken, nil
-}
-
-// get performs an authorized GET and JSON-decodes into out. It returns the HTTP
-// status (so listPages can special-case 410) and maps a 401/403 to
-// ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable.
-// Google's raw body is never surfaced to the caller.
-//
-//craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
-func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any) (int, error) {
-	u := a.base + path
-	if len(q) > 0 {
-		u += "?" + q.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return 0, fmt.Errorf("gcal: building request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("gcal: %s: %w", path, ErrUnreachable)
-	}
-	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, ErrAuthRejected
-	}
-	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, ErrUnreachable
-	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return resp.StatusCode, fmt.Errorf("gcal: decoding %s: %w", path, ErrUnreachable)
-	}
-	return resp.StatusCode, nil
 }
 
 // cloneValues copies a url.Values so a per-page pageToken never mutates the

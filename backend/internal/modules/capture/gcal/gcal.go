@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -48,36 +49,17 @@ func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api:
 
 var _ connector.Connector = (*Connector)(nil)
 
-// authState is the persisted credential bundle (the opaque connector.Auth). The
-// refresh token is the durable secret; the short-lived access token is re-minted
-// from it each Sync and never stored. Owner is the primary-calendar address —
-// the internal-vs-external anchor the pure mapper reads.
-type authState struct {
-	RefreshToken string   `json:"refresh_token"`
-	Owner        string   `json:"owner_email"`
-	Scopes       []string `json:"scopes"`
-}
-
 // cursorState is the persisted incremental watermark: Calendar's syncToken.
 type cursorState struct {
 	SyncToken string `json:"sync_token"`
 }
 
-// authPayload is the connect request the transport hands to Authenticate: the
-// OAuth authorization code and the redirect URI it was issued against.
-type authPayload struct {
-	Code        string `json:"code"`
-	RedirectURI string `json:"redirect_uri"`
-}
-
 // AuthRequestFrom packages an OAuth callback's code into the opaque connector
-// AuthRequest the callback handler passes to Authenticate.
+// AuthRequest the callback handler passes to Authenticate. It is the shared
+// Google handshake — the calendar owner is resolved from the primary calendar
+// during Authenticate (googleconn.OwnerResolver).
 func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
-	payload, err := json.Marshal(authPayload{Code: code, RedirectURI: redirectURI})
-	if err != nil {
-		return connector.AuthRequest{}, fmt.Errorf("gcal: encoding auth payload: %w", err)
-	}
-	return connector.AuthRequest{Payload: payload}, nil
+	return googleconn.AuthRequestFrom(code, redirectURI)
 }
 
 // Descriptor is the connector's static metadata: name "gcal", read-only
@@ -93,35 +75,11 @@ func (c *Connector) Descriptor() connector.Descriptor {
 }
 
 // Authenticate exchanges the authorization code for a refresh token, resolves
-// the calendar owner, and returns the opaque Auth the registry seals into the
-// vault. The access token is discarded — only the refresh token persists.
+// the calendar owner (the primary calendar's address), and returns the opaque
+// Auth the registry seals into the vault. The shared Google handshake does the
+// work; the only calendar-specific step is resolving the owner.
 func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest) (connector.Auth, error) {
-	var p authPayload
-	if err := json.Unmarshal(req.Payload, &p); err != nil {
-		return nil, fmt.Errorf("gcal: malformed auth payload: %w", err)
-	}
-	if p.Code == "" {
-		return nil, fmt.Errorf("gcal: authorization code required: %w", ErrAuthRejected)
-	}
-	refresh, err := c.oauth.Exchange(ctx, p.Code, p.RedirectURI)
-	if err != nil {
-		return nil, err
-	}
-	access, err := c.oauth.AccessToken(ctx, refresh)
-	if err != nil {
-		return nil, err
-	}
-	owner, err := c.api.PrimaryOwner(ctx, access)
-	if err != nil {
-		return nil, err
-	}
-	state := authState{RefreshToken: refresh, Owner: owner, Scopes: scopeStrings(c.Descriptor().Scopes)}
-	//nolint:gosec // G117: sealing the connector's own refresh token into the opaque Auth bundle IS the intended path — the registry stores it encrypted in the vault, never logged or returned
-	auth, err := json.Marshal(state)
-	if err != nil {
-		return nil, fmt.Errorf("gcal: encoding auth state: %w", err)
-	}
-	return auth, nil
+	return googleconn.Authenticate(ctx, c.oauth, req, c.Descriptor().Scopes, c.api.PrimaryOwner)
 }
 
 // Sync mints a fresh access token, then pulls incrementally: with no cursor it
@@ -131,7 +89,7 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 // The advanced syncToken is returned as the new cursor; the registry persists
 // it only on a fully-successful Sync.
 func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
-	var st authState
+	var st googleconn.AuthState
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return nil, fmt.Errorf("gcal: malformed auth state: %w", err)
 	}
@@ -223,7 +181,7 @@ func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]con
 // HealthCheck confirms the stored credential still mints a token and the
 // calendar answers. An outage degrades capture but never blocks core CRM.
 func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error {
-	var st authState
+	var st googleconn.AuthState
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return fmt.Errorf("gcal: malformed auth state: %w", err)
 	}
@@ -256,12 +214,4 @@ func marshalCursor(syncToken string) connector.Cursor {
 	// cursorState has only a string field, so Marshal cannot fail here.
 	b, _ := json.Marshal(cursorState{SyncToken: syncToken}) //nolint:errchkjson // string-only struct never errors
 	return b
-}
-
-func scopeStrings(scopes []principal.Scope) []string {
-	out := make([]string, 0, len(scopes))
-	for _, s := range scopes {
-		out = append(out, string(s))
-	}
-	return out
 }

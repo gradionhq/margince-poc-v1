@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -140,12 +141,12 @@ func TestAuthenticateBindsRefreshTokenAndOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	var st authState
+	var st googleconn.AuthState
 	if err := json.Unmarshal(auth, &st); err != nil {
-		t.Fatalf("auth is not authState json: %v", err)
+		t.Fatalf("auth is not AuthState json: %v", err)
 	}
 	if st.RefreshToken != "refresh-1" || st.Owner != owner {
-		t.Errorf("authState = %+v, want refresh-1 / %s", st, owner)
+		t.Errorf("AuthState = %+v, want refresh-1 / %s", st, owner)
 	}
 }
 

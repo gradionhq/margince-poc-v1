@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -56,35 +57,16 @@ var (
 	_ connector.Watcher   = (*Connector)(nil)
 )
 
-// authState is the persisted credential bundle (the opaque connector.Auth).
-// The refresh token is the durable secret; the short-lived access token is
-// re-minted from it each Sync and never stored.
-type authState struct {
-	RefreshToken string   `json:"refresh_token"`
-	Owner        string   `json:"owner_email"`
-	Scopes       []string `json:"scopes"`
-}
-
 // cursorState is the persisted incremental watermark: Gmail's historyId.
 type cursorState struct {
 	HistoryID string `json:"history_id"`
 }
 
-// authPayload is the connect request the transport hands to Authenticate:
-// the OAuth authorization code and the redirect URI it was issued against.
-type authPayload struct {
-	Code        string `json:"code"`
-	RedirectURI string `json:"redirect_uri"`
-}
-
-// AuthRequestFrom packages an OAuth callback's code into the opaque
-// connector AuthRequest the callback handler passes to Authenticate.
+// AuthRequestFrom packages an OAuth callback's code into the opaque connector
+// AuthRequest the callback handler passes to Authenticate — the shared Google
+// handshake (googleconn); the mailbox owner is resolved during Authenticate.
 func AuthRequestFrom(code, redirectURI string) (connector.AuthRequest, error) {
-	payload, err := json.Marshal(authPayload{Code: code, RedirectURI: redirectURI})
-	if err != nil {
-		return connector.AuthRequest{}, fmt.Errorf("gmail: encoding auth payload: %w", err)
-	}
-	return connector.AuthRequest{Payload: payload}, nil
+	return googleconn.AuthRequestFrom(code, redirectURI)
 }
 
 // Descriptor is the connector's static metadata: name "gmail", read-only
@@ -101,34 +83,14 @@ func (c *Connector) Descriptor() connector.Descriptor {
 
 // Authenticate exchanges the authorization code for a refresh token, resolves
 // the mailbox owner, and returns the opaque Auth the registry seals into the
-// vault. The access token is discarded — only the refresh token persists.
+// vault. The shared Google handshake does the work; the only Gmail-specific step
+// is resolving the owner from the mailbox profile.
 func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest) (connector.Auth, error) {
-	var p authPayload
-	if err := json.Unmarshal(req.Payload, &p); err != nil {
-		return nil, fmt.Errorf("gmail: malformed auth payload: %w", err)
-	}
-	if p.Code == "" {
-		return nil, fmt.Errorf("gmail: authorization code required: %w", ErrAuthRejected)
-	}
-	refresh, err := c.oauth.Exchange(ctx, p.Code, p.RedirectURI)
-	if err != nil {
-		return nil, err
-	}
-	access, err := c.oauth.AccessToken(ctx, refresh)
-	if err != nil {
-		return nil, err
-	}
-	owner, _, err := c.api.Profile(ctx, access)
-	if err != nil {
-		return nil, err
-	}
-	state := authState{RefreshToken: refresh, Owner: owner, Scopes: scopeStrings(c.Descriptor().Scopes)}
-	//nolint:gosec // G117: sealing the connector's own refresh token into the opaque Auth bundle IS the intended path — the registry stores it encrypted in the vault, never logged or returned
-	auth, err := json.Marshal(state)
-	if err != nil {
-		return nil, fmt.Errorf("gmail: encoding auth state: %w", err)
-	}
-	return auth, nil
+	return googleconn.Authenticate(ctx, c.oauth, req, c.Descriptor().Scopes,
+		func(ctx context.Context, access string) (string, error) {
+			owner, _, err := c.api.Profile(ctx, access)
+			return owner, err
+		})
 }
 
 // Sync mints a fresh access token, then pulls incrementally: with no cursor
@@ -138,7 +100,7 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 // re-list rather than a full re-scan. The advanced historyId is returned as
 // the new cursor; the registry persists it only on a fully-successful Sync.
 func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
-	var st authState
+	var st googleconn.AuthState
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return nil, fmt.Errorf("gmail: malformed auth state: %w", err)
 	}
@@ -254,7 +216,7 @@ func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]con
 // the stored refresh token; it never touches the CRM or the connection row —
 // the registry persists the expiration into capture_connection.watch_expires_at.
 func (c *Connector) Watch(ctx context.Context, auth connector.Auth, topic string) (connector.WatchResult, error) {
-	var st authState
+	var st googleconn.AuthState
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return connector.WatchResult{}, fmt.Errorf("gmail: malformed auth state: %w", err)
 	}
@@ -272,7 +234,7 @@ func (c *Connector) Watch(ctx context.Context, auth connector.Auth, topic string
 // HealthCheck confirms the stored credential still mints a token and the
 // mailbox answers. An outage degrades capture but never blocks core CRM.
 func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error {
-	var st authState
+	var st googleconn.AuthState
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return fmt.Errorf("gmail: malformed auth state: %w", err)
 	}
@@ -305,12 +267,4 @@ func marshalCursor(historyID string) connector.Cursor {
 	// cursorState has only string fields, so Marshal cannot fail here.
 	b, _ := json.Marshal(cursorState{HistoryID: historyID}) //nolint:errchkjson // string-only struct never errors
 	return b
-}
-
-func scopeStrings(scopes []principal.Scope) []string {
-	out := make([]string, 0, len(scopes))
-	for _, s := range scopes {
-		out = append(out, string(s))
-	}
-	return out
 }
