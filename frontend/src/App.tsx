@@ -1,4 +1,10 @@
-import { type ReactNode, useCallback, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { AskFab } from "./app/fab";
 import {
   CommandPalette,
@@ -9,11 +15,15 @@ import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { AskAiScreen } from "./screens/ai";
-import { AuthScreen } from "./screens/auth";
+import {
+  type AuthNotice,
+  AuthScreen,
+  AvailabilityScreen,
+} from "./screens/auth";
 import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
 import { ClientSurfaceScreen } from "./screens/client";
-import { useMe } from "./screens/common";
+import { AuthProbeError, consumeAuthExitNotice, useMe } from "./screens/common";
 import { CustomFieldsScreen } from "./screens/customfields";
 import { DealScreen, DealsScreen } from "./screens/deals";
 import { DesignScreen } from "./screens/design";
@@ -159,14 +169,41 @@ export function App() {
   return <AuthedApp route={route} />;
 }
 
-// AuthGate: everything behind the session probes GET /v1/me. A first-time user
-// has no session (and maybe no workspace slug) — either way /me is not 200, so
-// we show the signup/login screen. On success the screen refetches and the app
-// renders. No redirect races: the gate owns the authenticated/not decision.
+// AuthGate: everything behind the session probes GET /v1/me, and the
+// boundary branches on the TYPED failure (§4 of the login spec):
+// 401 → login, network/5xx → connection problem, 503 → installation
+// unavailable. Authentication and availability are different product
+// states — a server outage must never read as "wrong password". On login
+// success the screen refetches and the app renders at the route the user
+// originally asked for. No redirect races: the gate owns the decision.
 function AuthedApp({
   route,
 }: Readonly<{ route: ReturnType<typeof useRoute> }>) {
   const me = useMe();
+  // A 401 after a previously live session is an expiry (or a deliberate
+  // sign-out, which useLogout marks); a 401 on first load is just "not
+  // signed in" and carries no notice.
+  const hadSession = useRef(false);
+  const [notice, setNotice] = useState<AuthNotice>(null);
+  useEffect(() => {
+    if (me.data) {
+      hadSession.current = true;
+      setNotice(null);
+      return;
+    }
+    if (
+      me.error instanceof AuthProbeError &&
+      me.error.kind === "unauthorized"
+    ) {
+      const exit = consumeAuthExitNotice();
+      if (exit) {
+        setNotice(exit);
+      } else if (hadSession.current) {
+        setNotice("session-expired");
+      }
+      hadSession.current = false;
+    }
+  }, [me.data, me.error]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commands = useBuiltinCommands();
@@ -180,9 +217,18 @@ function AuthedApp({
     );
   }
   if (me.isError) {
+    const kind =
+      me.error instanceof AuthProbeError ? me.error.kind : "connection";
+    if (kind !== "unauthorized") {
+      return (
+        <RaillessFrame>
+          <AvailabilityScreen kind={kind} onRetry={() => me.refetch()} />
+        </RaillessFrame>
+      );
+    }
     return (
       <RaillessFrame>
-        <AuthScreen onAuthed={() => me.refetch()} />
+        <AuthScreen onAuthed={() => me.refetch()} notice={notice} />
       </RaillessFrame>
     );
   }

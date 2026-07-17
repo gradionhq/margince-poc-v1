@@ -1,9 +1,17 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, type ReactNode, useId, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import { navigate } from "../app/router";
 import { Button } from "../design-system/atoms";
-import { useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./auth.css";
 
@@ -14,6 +22,11 @@ import "./auth.css";
 // and only the authentication methods the capabilities probe reports as
 // operational: the forgot-password flow renders exactly when the server can
 // complete it.
+
+// AuthNotice is the boundary's transient context for the login screen: a
+// deliberate sign-out or an expired session — informational, never danger
+// styling (§9.5: the user has nothing to correct).
+export type AuthNotice = "signed-out" | "session-expired" | null;
 
 type View =
   | { kind: "login" }
@@ -42,12 +55,16 @@ function resetTokenFromLocation(): string | null {
   return token;
 }
 
-export function AuthScreen({ onAuthed }: Readonly<{ onAuthed: () => void }>) {
+export function AuthScreen({
+  onAuthed,
+  notice = null,
+}: Readonly<{ onAuthed: () => void; notice?: AuthNotice }>) {
   const t = useT();
   const [view, setView] = useState<View>(() => {
     const token = resetTokenFromLocation();
     return token ? { kind: "reset", token } : { kind: "login" };
   });
+  usePageTitle(t("auth.pageTitle"));
 
   // The anonymous capability probe drives what the screen offers — a dead
   // "Forgot password?" link is a misleading affordance, so it renders only
@@ -74,11 +91,22 @@ export function AuthScreen({ onAuthed }: Readonly<{ onAuthed: () => void }>) {
           {t("auth.title")}
         </span>
         {view.kind === "login" && (
-          <LoginForm
-            onAuthed={onAuthed}
-            resetAvailable={resetAvailable}
-            onForgot={() => setView({ kind: "forgot" })}
-          />
+          <>
+            {notice && (
+              <p className="auth-notice" role="status">
+                {t(
+                  notice === "signed-out"
+                    ? "auth.noticeSignedOut"
+                    : "auth.noticeSessionExpired",
+                )}
+              </p>
+            )}
+            <LoginForm
+              onAuthed={onAuthed}
+              resetAvailable={resetAvailable}
+              onForgot={() => setView({ kind: "forgot" })}
+            />
+          </>
         )}
         {view.kind === "forgot" && (
           <ForgotForm
@@ -109,9 +137,116 @@ export function AuthScreen({ onAuthed }: Readonly<{ onAuthed: () => void }>) {
             onAction={() => setView({ kind: "login" })}
           />
         )}
+        <LocaleFooter />
       </main>
     </div>
   );
+}
+
+// AvailabilityScreen is the boundary's non-authentication half (§4): the
+// API cannot be reached (network / 5xx) or the installation is not ready
+// (503 — pre-bootstrap, or a violated singleton invariant). A server
+// outage must never read as "wrong password".
+export function AvailabilityScreen({
+  kind,
+  onRetry,
+}: Readonly<{ kind: "connection" | "installation"; onRetry: () => void }>) {
+  const t = useT();
+  usePageTitle(t("auth.pageTitle"));
+  return (
+    <div className="auth-page">
+      <main className="auth-column">
+        <span className="auth-wordmark">
+          <span className="mk">M</span>
+          {t("auth.title")}
+        </span>
+        <section className="auth-card" role="alert">
+          <h1>
+            {t(
+              kind === "connection"
+                ? "auth.connectionTitle"
+                : "auth.unavailableTitle",
+            )}
+          </h1>
+          <p className="card-sub">
+            {t(
+              kind === "connection"
+                ? "auth.connectionBody"
+                : "auth.unavailableBody",
+            )}
+          </p>
+          <div className="auth-actions">
+            <Button variant="primary" onClick={onRetry}>
+              {t("auth.retry")}
+            </Button>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+// usePageTitle stamps the document title for the unauthenticated surface
+// (§7.1) and restores the product name on unmount.
+function usePageTitle(title: string) {
+  useEffect(() => {
+    const previous = document.title;
+    document.title = title;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
+}
+
+// LocaleFooter is the one footer utility that actually works today (§3.3
+// honesty: no Privacy/Help links exist yet, so none render). Language
+// names are proper nouns, deliberately not translated.
+function LocaleFooter() {
+  const t = useT();
+  const { locale, setLocale } = useLocale();
+  return (
+    <div className="auth-footer">
+      <button
+        type="button"
+        className="auth-link"
+        aria-pressed={locale === "de"}
+        onClick={() => setLocale("de")}
+      >
+        {t("auth.langDeutsch")}
+      </button>
+      <span aria-hidden>·</span>
+      <button
+        type="button"
+        className="auth-link"
+        aria-pressed={locale === "en"}
+        onClick={() => setLocale("en")}
+      >
+        {t("auth.langEnglish")}
+      </button>
+    </div>
+  );
+}
+
+// loginFailureKind maps the login response status onto its UX state (§9):
+// one non-enumerating message for bad credentials, an actionable one for
+// rate limiting, and connectivity presented as connectivity — never parsed
+// from human-readable detail strings.
+type LoginFailure = "credentials" | "rate-limited" | "unreachable";
+
+class LoginError extends Error {
+  readonly failure: LoginFailure;
+  constructor(failure: LoginFailure) {
+    super(failure);
+    this.name = "LoginError";
+    this.failure = failure;
+  }
+}
+
+function loginErrorKey(error: unknown): MessageKey {
+  const failure = error instanceof LoginError ? error.failure : "unreachable";
+  if (failure === "credentials") return "auth.errCredentials";
+  if (failure === "rate-limited") return "auth.errRateLimited";
+  return "auth.errUnreachable";
 }
 
 function LoginForm({
@@ -130,20 +265,51 @@ function LoginForm({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  // Focus lands on email at render (§8.2) — programmatic rather than the
+  // autoFocus attribute, so the a11y lint's blanket rule stays intact and
+  // the login page keeps the one justified exception.
+  useEffect(() => {
+    emailRef.current?.focus();
+  }, []);
 
   const login = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/auth/login", {
-        body: { email: email.trim(), password },
-      });
+      const result = await api
+        .POST("/auth/login", { body: { email: email.trim(), password } })
+        .catch(() => null);
+      if (!result) {
+        throw new LoginError("unreachable");
+      }
+      const { data, error, response } = result;
       if (error) {
+        if (response.status === 401) throw new LoginError("credentials");
+        if (response.status === 429) throw new LoginError("rate-limited");
+        if (response.status >= 500) throw new LoginError("unreachable");
         throw new Error(problemMessage(error));
       }
       return data;
     },
     onSuccess: () => {
       onAuthed();
-      navigate({ screen: "home" });
+      // Restore the originally requested route (§8.5): a deep link the
+      // user followed stays; only a bare entry lands on home.
+      const hash = globalThis.location?.hash ?? "";
+      if (!hash || hash === "#" || hash === "#/") {
+        navigate({ screen: "home" });
+      }
+    },
+    onError: (error) => {
+      if (error instanceof LoginError && error.failure === "credentials") {
+        // A rejected credential clears the password (§9.2); the email
+        // stays for the retry.
+        setPassword("");
+      }
+      // The error summary is announced and receives focus; tab order then
+      // leads back into the fields.
+      requestAnimationFrame(() => errorRef.current?.focus());
     },
   });
 
@@ -162,9 +328,11 @@ function LoginForm({
         <Field id={emailId} label={t("auth.email")}>
           <input
             id={emailId}
+            ref={emailRef}
             className="auth-input"
             type="email"
-            autoComplete="email"
+            autoComplete="username"
+            placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
@@ -205,9 +373,9 @@ function LoginForm({
         </Field>
       </div>
       {login.isError && (
-        <ErrorNote
-          message={login.error instanceof Error ? login.error.message : null}
-        />
+        <div className="auth-error" role="alert" tabIndex={-1} ref={errorRef}>
+          <p className="ae-t">{t(loginErrorKey(login.error))}</p>
+        </div>
       )}
       <div className="auth-actions">
         <Button
@@ -260,7 +428,8 @@ function ForgotForm({
             id={emailId}
             className="auth-input"
             type="email"
-            autoComplete="email"
+            autoComplete="username"
+            placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />

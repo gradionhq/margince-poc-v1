@@ -22,6 +22,28 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Single-organization installation (ADR-0061/A107, PR #90)** — the
+ratified single-org concept, end to end. One installation serves one
+organization: bootstrap moved off the public wire into a strict
+`margince.yaml` deployment file (`platform/deployconfig`) consumed at
+API boot under a pg advisory lock — organization + first admin + system
+roles + configurable seeds (pipeline stages, consent purposes, starter
+automations, booking page) in one transaction; 0 workspaces → create,
+1 → bind, >1 → refuse for an operator-led migration (boot-enforced,
+deliberately NOT a schema constraint so the cross-tenant RLS suites keep
+proving isolation). `POST /workspaces`, the `{workspace}` subdomain
+template, and every tenant selector (`X-Workspace-Slug`, MCP
+`--workspace`) are gone; pre-bootstrap requests answer 503
+(availability, never auth). The A74 account-recovery pair is live:
+`auth_token` (0081), a STARTTLS-required SMTP mailer behind the
+`email:` config section, enumeration-resistant forgot/reset (the whole
+account-dependent path runs off-request), and `migrate reset-password`
+as the operator recovery. Anonymous `GET /auth/capabilities` drives the
+login UI, which is now a login-first single column (no signup mode, no
+hero, no slug field) with capability-gated forgot/reset screens.
+Spec-side: margince-foundation ADR-0061 + DECISIONS A107 + ADR-0043
+Amendment 2 (merged there first, contract-first).
+
 **Craft gate de-vendored** — `cli/craft` is now a first-class, locally-owned
 part of this repo rather than a hash-pinned vendored copy: the
 `craft-manifest.sha256` hash pin, the `craft-drift`/`craft-sync` targets,

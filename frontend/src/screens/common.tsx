@@ -10,6 +10,43 @@ import type { MessageKey } from "../i18n/en";
 // state matrix), the captured_by → provenance mapping every list reuses, and
 // the ONE /me query the auth gate and every role-aware surface share.
 
+// Authentication and availability are different product states: a failed
+// session probe is typed so the auth boundary can render login (401), the
+// connection-problem screen (network/5xx), or the installation-unavailable
+// screen (503 — pre-bootstrap or a violated singleton invariant) instead of
+// collapsing every error into login.
+export type AuthProbeKind = "unauthorized" | "connection" | "installation";
+
+export class AuthProbeError extends Error {
+  readonly kind: AuthProbeKind;
+  constructor(kind: AuthProbeKind, message: string) {
+    super(message);
+    this.name = "AuthProbeError";
+    this.kind = kind;
+  }
+}
+
+// probeKindFor maps a /me response status onto the boundary state. 503 is
+// the middleware's installation-not-ready answer; any other 5xx (or a
+// rejected fetch) is a connectivity problem; everything else reads as "no
+// session" — the login screen.
+function probeKindFor(status: number): AuthProbeKind {
+  if (status === 503) return "installation";
+  if (status >= 500) return "connection";
+  return "unauthorized";
+}
+
+// authExitNotice marks a DELIBERATE sign-out so the boundary's next 401
+// reads as "signed out", not "session expired". Module-scoped: exactly one
+// boundary consumes it.
+let authExitNotice: "signed-out" | null = null;
+
+export function consumeAuthExitNotice(): "signed-out" | null {
+  const notice = authExitNotice;
+  authExitNotice = null;
+  return notice;
+}
+
 // The session principal (GET /v1/me): identity + effective role keys. One
 // spelling, one ["me"] cache entry — the App auth gate, the settings identity
 // card, and role-aware affordances all read the same probe. The server binds
@@ -20,14 +57,23 @@ export function useMe() {
     queryKey: ["me"],
     retry: false,
     queryFn: async () => {
-      const { data, error } = await api.GET("/me");
+      const result = await api.GET("/me").catch(() => null);
+      if (!result) {
+        throw new AuthProbeError("connection", "the API could not be reached");
+      }
+      const { data, error, response } = result;
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new AuthProbeError(
+          probeKindFor(response.status),
+          problemMessage(error),
+        );
       }
       if (!data?.user) {
         // The contract makes user required on MeResponse — a payload
-        // without it is not a session, whatever the status code said.
-        throw new Error("malformed /me response");
+        // without it is not a session, whatever the status code said; a
+        // server answering garbage is an availability problem, not a
+        // credentials one.
+        throw new AuthProbeError("connection", "malformed /me response");
       }
       return data;
     },
@@ -54,6 +100,9 @@ export function useLogout() {
       if (error) throw new Error(problemMessage(error));
     },
     onSuccess: async () => {
+      // The next 401 at the boundary is this deliberate exit, not an
+      // expired session — the login screen greets it accordingly.
+      authExitNotice = "signed-out";
       queryClient.removeQueries({
         predicate: (query) => query.queryKey[0] !== "me",
       });
