@@ -60,15 +60,14 @@ type eventActor struct {
 // (formulas §20, owner-domain subset: the multi-domain workspace_email_domain
 // registry, CAP-DDL-1, is a separate slice).
 type meeting struct {
-	id             string
-	subject        string
-	body           string
-	occurredAt     time.Time
-	cancelled      bool
-	organizerEmail string
-	organizerDom   string
-	attendeeDoms   []string // lowercased, de-duped attendee domains — for the RC-2 gate
-	externalCount  int      // attendees whose domain differs from the owner's
+	id           string
+	subject      string
+	body         string
+	occurredAt   time.Time
+	cancelled    bool
+	organizerDom string
+	attendeeDoms []string // lowercased, de-duped attendee domains — for the RC-2 gate
+	hasExternal  bool     // any party (organizer or attendee) outside the owner's domain
 }
 
 // parseEvent reads one raw Calendar event resource and classifies it against
@@ -82,18 +81,27 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 
 	ownerDom := domainOf(owner)
 	attendeeDoms, attendeeEmails, external := classifyAttendees(ev.Attendees, ownerDom)
+	organizerDom := domainOf(ev.Organizer.Email)
 
 	return meeting{
-		id:             strings.TrimSpace(ev.ID),
-		subject:        strings.TrimSpace(ev.Summary),
-		body:           buildBody(ev, attendeeEmails),
-		occurredAt:     parseStart(ev.Start),
-		cancelled:      strings.EqualFold(strings.TrimSpace(ev.Status), "cancelled"),
-		organizerEmail: strings.TrimSpace(ev.Organizer.Email),
-		organizerDom:   domainOf(ev.Organizer.Email),
-		attendeeDoms:   attendeeDoms,
-		externalCount:  external,
+		id:           strings.TrimSpace(ev.ID),
+		subject:      strings.TrimSpace(ev.Summary),
+		body:         buildBody(ev, attendeeEmails),
+		occurredAt:   parseStart(ev.Start),
+		cancelled:    strings.EqualFold(strings.TrimSpace(ev.Status), "cancelled"),
+		organizerDom: organizerDom,
+		attendeeDoms: attendeeDoms,
+		// An externally-organized meeting is a customer touch even if the owner
+		// is the only listed attendee — fold the organizer into the signal.
+		hasExternal: external > 0 || isExternalDomain(organizerDom, ownerDom),
 	}, nil
+}
+
+// isExternalDomain reports whether dom is a real domain outside the owner's —
+// the atom behind both the attendee and organizer external checks. An empty
+// domain (unparseable/absent) is not counted as external on its own.
+func isExternalDomain(dom, ownerDom string) bool {
+	return dom != "" && dom != ownerDom
 }
 
 // SkipReason names why a meeting is intentionally dropped, or reports that it
@@ -108,7 +116,7 @@ func (m meeting) SkipReason() (string, bool) {
 	if m.cancelled {
 		return "cancelled", true
 	}
-	if m.externalCount == 0 {
+	if !m.hasExternal {
 		return "all-internal attendees", true
 	}
 	return "", false

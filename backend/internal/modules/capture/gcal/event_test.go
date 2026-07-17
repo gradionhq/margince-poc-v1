@@ -132,6 +132,17 @@ func TestExternallyOrganizedMeetingIsCaptured(t *testing.T) {
 	}
 }
 
+func TestExternalOrganizerWithOnlyOwnerAttendeeIsCaptured(t *testing.T) {
+	// An external party organizes and only the owner is listed as an attendee.
+	// The external organizer alone makes it a customer touch → captured, not
+	// dropped as all-internal.
+	raw := eventJSON(t, "evt-org-only", "confirmed", "Client-hosted call", "2026-07-16T15:00:00Z",
+		"host@acme.com", gcalOwner)
+	if reason, skip := mustParse(t, raw).SkipReason(); skip {
+		t.Fatalf("external organizer with only the owner attending must be captured, got skip %q", reason)
+	}
+}
+
 func TestSkipReasonMixedInternalExternalKeeps(t *testing.T) {
 	// One external attendee among colleagues is a customer touch → keep.
 	raw := eventJSON(t, "evt-6", "confirmed", "Demo", "2026-07-16T11:00:00Z",
@@ -170,7 +181,11 @@ func TestParseEventBodyFoldsParticipants(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	rec := mustRecord(t, raw)
-	body := rec.Fields.(capture.ActivityFields).Body
+	fields, ok := rec.Fields.(capture.ActivityFields)
+	if !ok {
+		t.Fatalf("Fields is %T, want capture.ActivityFields", rec.Fields)
+	}
+	body := fields.Body
 	for _, want := range []string{"Organizer: " + gcalOwner, "Attendees: client@acme.com", "Quarterly review agenda"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q:\n%s", want, body)

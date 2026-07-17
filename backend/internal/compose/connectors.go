@@ -61,10 +61,15 @@ type googleOAuth interface {
 	AccessToken(ctx context.Context, refreshToken string) (accessToken string, err error)
 }
 
-// oauthCSRFCookie carries the per-flow nonce (SameSite=Lax so it rides the
-// top-level redirect back from Google) that must match the nonce in the
-// signed state — the account-linking-CSRF defence.
+// oauthCSRFCookie is the base name of the per-flow nonce cookie (SameSite=Lax so
+// it rides the top-level redirect back from Google) that must match the nonce in
+// the signed state — the account-linking-CSRF defence.
 const oauthCSRFCookie = "oauth_csrf"
+
+// csrfCookieName namespaces the CSRF nonce cookie per provider, so a Gmail and a
+// Calendar connect flow running concurrently keep independent nonces instead of
+// clobbering each other's (which would reject the first valid callback).
+func csrfCookieName(provider string) string { return oauthCSRFCookie + "_" + provider }
 
 type connectorHandlers struct {
 	registry  *capture.Registry
@@ -197,7 +202,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 	// attacker-initiated flow (account-linking CSRF).
 	nonce := rand.Text()
 	http.SetCookie(w, &http.Cookie{
-		Name:     oauthCSRFCookie,
+		Name:     csrfCookieName(prov),
 		Value:    nonce,
 		Path:     "/v1/connectors",
 		MaxAge:   int(connectStateTTL / time.Second),
@@ -240,7 +245,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// started it. Without this, an attacker could trick a victim into
 	// completing the attacker's flow and link the victim's mailbox to the
 	// attacker's account (account-linking CSRF).
-	csrf, cerr := r.Cookie(oauthCSRFCookie)
+	csrf, cerr := r.Cookie(csrfCookieName(prov))
 	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
 		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", prov)
 		http.Redirect(w, r, h.landingURL("error"), http.StatusFound)
@@ -249,7 +254,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// One-shot: clear the CSRF cookie now that it's been consumed (same secure
 	// attributes as when it was set, so the delete is honored).
 	http.SetCookie(w, &http.Cookie{
-		Name: oauthCSRFCookie, Path: "/v1/connectors", MaxAge: -1,
+		Name: csrfCookieName(prov), Path: "/v1/connectors", MaxAge: -1,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 

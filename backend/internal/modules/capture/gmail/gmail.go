@@ -51,7 +51,10 @@ type Connector struct {
 // New returns a Gmail connector over the given OAuth + API surfaces.
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
-var _ connector.Connector = (*Connector)(nil)
+var (
+	_ connector.Connector = (*Connector)(nil)
+	_ connector.Watcher   = (*Connector)(nil)
+)
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
 // The refresh token is the durable secret; the short-lived access token is
@@ -242,6 +245,28 @@ func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]con
 		return nil, fmt.Errorf("gmail: dropping %s (%s): %w", msg.ID(), reason, connector.ErrSkip)
 	}
 	return []connector.NormalizedRecord{msg.ToRecord(connectorName, raw)}, nil
+}
+
+// Watch registers a Gmail users.watch against the Pub/Sub topic so Gmail
+// publishes change notifications for the mailbox, returning the mailbox's
+// historyId at watch time and when the watch expires (Gmail caps it at 7 days).
+// Re-calling it renews the watch. Like Sync, it mints a fresh access token from
+// the stored refresh token; it never touches the CRM or the connection row —
+// the registry persists the expiration into capture_connection.watch_expires_at.
+func (c *Connector) Watch(ctx context.Context, auth connector.Auth, topic string) (connector.WatchResult, error) {
+	var st authState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return connector.WatchResult{}, fmt.Errorf("gmail: malformed auth state: %w", err)
+	}
+	access, err := c.oauth.AccessToken(ctx, st.RefreshToken)
+	if err != nil {
+		return connector.WatchResult{}, err
+	}
+	historyID, expiration, err := c.api.Watch(ctx, access, topic)
+	if err != nil {
+		return connector.WatchResult{}, err
+	}
+	return connector.WatchResult{HistoryID: historyID, ExpiresAt: expiration}, nil
 }
 
 // HealthCheck confirms the stored credential still mints a token and the

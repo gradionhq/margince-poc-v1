@@ -109,9 +109,12 @@ func TestConnectConnectorReturnsSignedAuthorizeURLForGcal(t *testing.T) {
 	if got := u.Query().Get("redirect_uri"); got != "https://api.test/v1/connectors/gcal/callback" {
 		t.Errorf("redirect_uri = %q, want the gcal callback", got)
 	}
-	// The calendar consent scope must be requested (not the mail scope).
+	// The calendar consent scope must be requested — and ONLY it, never the mail
+	// scope (least privilege: a calendar connect must not silently grant mail).
 	if got := u.Query().Get("scope"); !strings.Contains(got, "calendar.readonly") {
 		t.Errorf("scope = %q, want the calendar.readonly consent", got)
+	} else if strings.Contains(got, "gmail.readonly") {
+		t.Errorf("scope = %q, must not request the gmail.readonly scope", got)
 	}
 	st, err := h.signer.verify(u.Query().Get("state"), time.Now())
 	if err != nil {

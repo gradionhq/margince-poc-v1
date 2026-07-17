@@ -123,9 +123,13 @@ func (a *httpAPI) ListInitial(ctx context.Context, accessToken string) ([][]byte
 	timeMin := a.now().UTC().AddDate(0, 0, -initialBackfillDays).Format(time.RFC3339)
 	q := url.Values{
 		"singleEvents": {qTrue}, // expand recurrences → each instance is its own keyable event
-		"showDeleted":  {"false"},
-		"maxResults":   {strconv.Itoa(pageSize)},
-		"timeMin":      {timeMin},
+		// showDeleted stays true across the whole sync lifecycle: Google rejects
+		// showDeleted=false alongside a syncToken, so the initial full sync must
+		// use the SAME parameter set the incremental sync will. Cancelled events
+		// are dropped by the mapper, not the query.
+		"showDeleted": {qTrue},
+		"maxResults":  {strconv.Itoa(pageSize)},
+		"timeMin":     {timeMin},
 	}
 	return a.listPages(ctx, accessToken, q)
 }

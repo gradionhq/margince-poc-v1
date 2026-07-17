@@ -58,6 +58,16 @@ func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowU
 	return w.reconciler.Reconcile(ctx)
 }
 
+// GmailWatchConfig configures the Gmail push-watch maintenance pass. Topic is
+// the Pub/Sub topic Gmail publishes change notifications to (empty disables the
+// pass entirely — capture stays on the poll); Interval is the scan cadence; and
+// RenewWithin is how far ahead of a watch's expiry it is re-registered.
+type GmailWatchConfig struct {
+	Topic       string
+	Interval    time.Duration
+	RenewWithin time.Duration
+}
+
 // GmailSyncArgs schedules one incremental-sync pass over every active Gmail
 // connection (capture.md CAP-WIRE-N-1: capture rides provider delta, driven
 // here by a poll rather than a push watch in this slice).
@@ -117,6 +127,42 @@ func (w *gcalSyncWorker) Work(ctx context.Context, _ *river.Job[GcalSyncArgs]) e
 	return enumErr
 }
 
+// GmailWatchArgs schedules one push-watch maintenance pass: register a Gmail
+// users.watch for every active connection that has none yet and renew any
+// nearing its 7-day expiry (capture.md CAP-DDL-2). Scheduled only when a
+// Pub/Sub topic is configured; without one, no watch job runs and capture stays
+// on the poll (GmailSyncArgs).
+type GmailWatchArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (GmailWatchArgs) Kind() string { return "gmail_watch_renew" }
+
+// gmailWatchWorker walks the fleet's active Gmail connections whose watch is
+// missing or nearing expiry and registers/renews each against the configured
+// Pub/Sub topic, advancing watch_expires_at. One connection's failure is logged
+// and skipped (a revoked mailbox must not force the whole pass to retry); only a
+// fleet-enumeration failure is returned (so River retries the tick). It mirrors
+// gmailSyncWorker — the same DueConnections-shaped walk, keyed on the renewal
+// deadline instead of the sync cursor.
+type gmailWatchWorker struct {
+	river.WorkerDefaults[GmailWatchArgs]
+	registry    *capture.Registry
+	topic       string
+	renewWithin time.Duration
+	log         *slog.Logger
+}
+
+func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs]) error {
+	due, enumErr := w.registry.DueWatches(ctx, "gmail", w.renewWithin)
+	for _, d := range due {
+		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
+		if err := w.registry.RenewWatch(wsCtx, d.ID, w.topic); err != nil {
+			w.log.WarnContext(ctx, "gmail watch renewal failed", "connection", d.ID.String(), "err", err)
+		}
+	}
+	return enumErr
+}
+
 // activeSweepStates is the uniqueness window for the periodic passes: a new
 // tick is suppressed only while a prior run is still in flight (available,
 // pending, running, scheduled, retryable) — reproducing the old ticker's
@@ -144,8 +190,11 @@ func sweepInsertOpts() *river.InsertOpts {
 //
 // When gmailReg is non-nil (the deployment configured the Gmail OAuth app),
 // a Gmail incremental-sync poll is added on gmailInterval — leader-elected
-// like the sweeps, so replicas never double-poll.
-func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval time.Duration, gmailReg *capture.Registry, gmailInterval time.Duration) (*jobs.Runner, error) {
+// like the sweeps, so replicas never double-poll. When a Pub/Sub topic is also
+// configured (watch.Topic != ""), a push-watch maintenance pass is added on
+// watch.Interval that registers/renews Gmail watches nearing expiry; without a
+// topic the watch job is absent by omission and capture stays on the poll.
+func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval time.Duration, gmailReg *capture.Registry, gmailInterval time.Duration, watch GmailWatchConfig) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
@@ -179,6 +228,16 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, recon
 			func() (river.JobArgs, *river.InsertOpts) { return GcalSyncArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
+		if watch.Topic != "" {
+			river.AddWorker(workers, &gmailWatchWorker{
+				registry: gmailReg, topic: watch.Topic, renewWithin: watch.RenewWithin, log: log,
+			})
+			periodic = append(periodic, river.NewPeriodicJob(
+				river.PeriodicInterval(watch.Interval),
+				func() (river.JobArgs, *river.InsertOpts) { return GmailWatchArgs{}, sweepInsertOpts() },
+				&river.PeriodicJobOpts{RunOnStart: true},
+			))
+		}
 	}
 
 	return jobs.New(pool, jobs.Config{

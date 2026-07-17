@@ -36,8 +36,10 @@ func gcalStub(t *testing.T, owner string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		//craft:ignore swallowed-errors test stub; ParseForm on the recorded request can't fail
-		_ = r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		body := map[string]any{"access_token": "access-tok", "expires_in": 3599}
 		if r.Form.Get("grant_type") == "authorization_code" {
 			body["refresh_token"] = "refresh-tok"
@@ -169,7 +171,11 @@ func assertGcalConnectionSurface(grantCtx context.Context, t *testing.T, registr
 	if err := registry.Disconnect(grantCtx, "gcal"); err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}
-	if due2, _ := registry.DueConnections(context.Background(), "gcal"); len(due2) != 0 {
+	due2, err := registry.DueConnections(context.Background(), "gcal")
+	if err != nil {
+		t.Fatalf("DueConnections after disconnect: %v", err)
+	}
+	if len(due2) != 0 {
 		t.Fatalf("DueConnections after disconnect = %+v, want empty (poller skips revoked)", due2)
 	}
 }
