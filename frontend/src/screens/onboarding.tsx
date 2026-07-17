@@ -114,8 +114,8 @@ const REQUIRED_FIELDS = [
   "industry",
 ] as const satisfies readonly CompanyFieldName[];
 
-// The read-back can only ground the contract's ColdStartField names — website
-// and display_name are always the human's to give.
+// The read-back can only ground the contract's ColdStartField names —
+// website is always the human's to give.
 type Grounded = Partial<Record<ColdField["field"], ColdField>>;
 
 // One state object, because the three parts move together: typing a value
