@@ -18,7 +18,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -46,6 +48,12 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 	})
 	mux.HandleFunc("/messages", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"messages": []map[string]string{{"id": "m1"}}})
+	})
+	mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
+		// A watch that expires 7 days out (Gmail's cap), as the ms-since-epoch
+		// string Gmail returns — so a renewed connection is no longer "due".
+		exp := time.Now().Add(7 * 24 * time.Hour).UnixMilli()
+		writeJSON(w, map[string]any{"historyId": "1001", "expiration": strconv.FormatInt(exp, 10)})
 	})
 	mux.HandleFunc("/messages/m1", func(w http.ResponseWriter, _ *http.Request) {
 		rfc822 := "From: Alice <alice@acme.com>\r\n" +

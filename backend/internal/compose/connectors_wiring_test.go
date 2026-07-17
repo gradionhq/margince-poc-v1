@@ -53,6 +53,9 @@ func (stubGmailAPI) History(context.Context, string, string) ([]string, string, 
 	return nil, "1", nil
 }
 func (stubGmailAPI) GetRaw(context.Context, string, string) ([]byte, error) { return nil, nil }
+func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, error) {
+	return "1", time.Time{}, nil
+}
 
 // The account-linking-CSRF defence: the callback must have the oauth_csrf
 // cookie matching the nonce in the signed state before it exchanges the code.
