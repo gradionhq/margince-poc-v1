@@ -22,6 +22,18 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Cloud-provider review remediation (PR #102)** — the top-10 correctness
+findings from the post-merge review of the cloud model providers (#96):
+streams surface failure/truncation terminals instead of clean EOF (openai
+`response.failed`/`incomplete`/`error`, gemini mid-stream error objects +
+abnormal `finishReason`, applied to `Complete` too), one shared SSE
+scanner with a 4MiB line cap, cache keys cover model override + response
+schema, `OutputTokens` is reasoning-inclusive on every adapter (gemini
+normalized), Responses API `store:false` pinned, `dimensions` omitted on
+the generic OpenAI wire, canonical `models/…` ids accepted, vLLM
+top-level errors decoded, and `make dev` enables real routing only when
+every bound cloud provider's key is present.
+
 **Single-organization installation (ADR-0061/A107, PR #90)** — the
 ratified single-org concept, end to end. One installation serves one
 organization: bootstrap moved off the public wire into a strict
@@ -349,7 +361,10 @@ Implementation follow-ups deferred from this change (honest floors shipped now):
   row so the lane can change without a full re-embed, or make the column width
   configurable) is a separate PR. Until then, switching the embed binding means
   wiping the store (as the module comment already notes). Filed upstream as
-  foundation #1074.
+  foundation #1074. Truncation applies to native `openai`/`gemini` only:
+  the generic `openai_compatible`/`vllm` wire omits the `dimensions` knob
+  entirely (vLLM rejects it on non-matryoshka models), so a model bound
+  there must natively emit the store's width.
 - **Native tool-use mapping for `openai`/`gemini`.** The tasks run in JSON mode
   today, so no caller sets `req.Tools`; the native adapters currently **reject**
   a non-empty `Tools` (loud, not a silent drop) rather than map it. Mapping to

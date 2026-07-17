@@ -99,10 +99,15 @@ func (c *openAICompatClient) Stream(ctx context.Context, req model.Request) (mod
 	if err != nil {
 		return nil, err
 	}
-	return &openAICompatStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &openAICompatStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *openAICompatClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
+	// `dimensions` is OpenAI's matryoshka-truncation knob; the generic wire
+	// gives no way to know whether the server honors it, and vLLM rejects it
+	// outright on models that aren't MRL-trained (a 400 on every embed call).
+	// Omit it — the store's width check catches a genuinely mismatched model.
+	req.Dimensions = 0
 	return openAIWireEmbed(ctx, c.post, c.defaultModel, req)
 }
 
@@ -201,20 +206,29 @@ func (c *openAICompatClient) post(ctx context.Context, path string, payload []by
 	return resp.Body, nil
 }
 
-// openAICompatError surfaces the vendor's structured error type/message only —
+// openAICompatError surfaces the vendor's structured error message only —
 // never the raw response body, which may be unstructured HTML/text — so a logged
 // failure can't echo the request or leak provider internals (the anthropic /
-// openai pattern). The read error on this already-failed path is not actionable.
+// openai pattern). Two structured shapes exist on this generic wire: OpenAI's
+// nested {"error":{type,message}} and vLLM's top-level {"object":"error",
+// type, message}; a body that can't be read falls back to the HTTP status.
 func openAICompatError(resp *http.Response) error {
 	var apiErr struct {
-		Error struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+		Error   struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Message != "" {
-		return fmt.Errorf("ai: openai-compat: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil {
+		if apiErr.Error.Message != "" {
+			return fmt.Errorf("ai: openai-compat: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
+		}
+		if apiErr.Message != "" {
+			return fmt.Errorf("ai: openai-compat: %s: %s (http %d)", apiErr.Type, apiErr.Message, resp.StatusCode)
+		}
 	}
 	return fmt.Errorf("ai: openai-compat: http %d", resp.StatusCode)
 }

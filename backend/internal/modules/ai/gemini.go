@@ -102,7 +102,17 @@ type geminiOptions struct {
 type geminiResponse struct {
 	Candidates []struct {
 		Content geminiContent `json:"content"`
+		// FinishReason names why generation stopped; "STOP" is the only clean
+		// finish. SAFETY / MAX_TOKENS / RECITATION / … must surface as errors —
+		// a filtered or truncated answer must never read as a complete one.
+		FinishReason string `json:"finishReason"` //nolint:tagliatelle // Google's wire format (camelCase)
 	} `json:"candidates"`
+	// Error is Google's mid-stream/in-body error object (a 200 stream can
+	// still deliver {"error":{…}} as a chunk).
+	Error struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	} `json:"error"`
 	UsageMetadata struct {
 		PromptTokenCount        int `json:"promptTokenCount"`        //nolint:tagliatelle // Google's wire format (camelCase)
 		CandidatesTokenCount    int `json:"candidatesTokenCount"`    //nolint:tagliatelle // Google's wire format (camelCase)
@@ -122,6 +132,15 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
 		return model.Response{}, fmt.Errorf("ai: gemini: decode response: %w", err)
 	}
+	if err := geminiResponseError(out); err != nil {
+		return model.Response{}, err
+	}
+	// A non-stream response is terminal by definition, so it must say STOP —
+	// a candidate with no finishReason is a truncated or non-Responses body,
+	// not a complete answer.
+	if !geminiSawStop(out) {
+		return model.Response{}, fmt.Errorf("ai: gemini: response carries no terminal STOP")
+	}
 	var text strings.Builder
 	var signatures []string
 	for _, cand := range out.Candidates {
@@ -133,9 +152,12 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 		}
 	}
 	resp := model.Response{
-		Text:            text.String(),
-		InputTokens:     out.UsageMetadata.PromptTokenCount,
-		OutputTokens:    out.UsageMetadata.CandidatesTokenCount,
+		Text:        text.String(),
+		InputTokens: out.UsageMetadata.PromptTokenCount,
+		// candidatesTokenCount EXCLUDES thinking tokens, but the port's
+		// OutputTokens invariant is reasoning-inclusive (model.Response) so the
+		// budget meter charges true spend on every provider — add them here.
+		OutputTokens:    out.UsageMetadata.CandidatesTokenCount + out.UsageMetadata.ThoughtsTokenCount,
 		CachedTokens:    out.UsageMetadata.CachedContentTokenCount,
 		ReasoningTokens: out.UsageMetadata.ThoughtsTokenCount,
 	}
@@ -153,11 +175,14 @@ func (c *geminiClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &geminiStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &geminiStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
-	embedModel := req.Model
+	// Accept both the bare id and Google's canonical "models/…" form — the
+	// path and wire body add the prefix themselves, so a canonical id would
+	// otherwise double it (/models/models/… → 404).
+	embedModel := strings.TrimPrefix(req.Model, "models/")
 	if embedModel == "" {
 		embedModel = geminiEmbedModel
 	}
@@ -219,9 +244,11 @@ func (c *geminiClient) generate(ctx context.Context, req model.Request, stream b
 	if len(req.Tools) > 0 {
 		return nil, fmt.Errorf("ai: gemini: native tool-use is not implemented yet (request set %d tool(s))", len(req.Tools))
 	}
-	genModel := req.Model
+	// Same id normalization as Embed: the ":generateContent" path adds the
+	// "models/" prefix, so trim a canonical "models/…" id.
+	genModel := strings.TrimPrefix(req.Model, "models/")
 	if genModel == "" {
-		genModel = c.defaultModel
+		genModel = strings.TrimPrefix(c.defaultModel, "models/")
 	}
 	opts, err := geminiReadOptions(req.ProviderOptions)
 	if err != nil {
@@ -344,6 +371,34 @@ func (c *geminiClient) post(ctx context.Context, path string, payload []byte) (i
 	return resp.Body, nil
 }
 
+// geminiResponseError maps an in-body error object or an abnormal
+// finishReason to an error. STOP (and absent — a non-final stream chunk) is
+// the only clean state; SAFETY, MAX_TOKENS, RECITATION, … otherwise pass for
+// a complete answer because Gemini delivers them inside a 200 body.
+func geminiResponseError(out geminiResponse) error {
+	if out.Error.Message != "" || out.Error.Status != "" {
+		return fmt.Errorf("ai: gemini: %s: %s", out.Error.Status, out.Error.Message)
+	}
+	for _, cand := range out.Candidates {
+		if cand.FinishReason != "" && cand.FinishReason != "STOP" {
+			return fmt.Errorf("ai: gemini: generation stopped: %s", cand.FinishReason)
+		}
+	}
+	return nil
+}
+
+// geminiSawStop reports whether any candidate finished with the clean STOP
+// terminal. Intermediate stream chunks legitimately carry no finishReason —
+// only the final chunk (and every non-stream response) does.
+func geminiSawStop(out geminiResponse) bool {
+	for _, cand := range out.Candidates {
+		if cand.FinishReason == "STOP" {
+			return true
+		}
+	}
+	return false
+}
+
 // geminiError surfaces the API's error status and message only, so a logged
 // failure can never echo the request (or the key).
 func geminiError(resp *http.Response) error {
@@ -353,19 +408,22 @@ func geminiError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Status != "" {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Status != "" {
 		return fmt.Errorf("ai: gemini: %s: %s (http %d)", apiErr.Error.Status, apiErr.Error.Message, resp.StatusCode)
 	}
 	return fmt.Errorf("ai: gemini: http %d", resp.StatusCode)
 }
 
 // geminiStream reads the :streamGenerateContent?alt=sse stream. There is no
-// [DONE] sentinel — the stream simply closes; text arrives at
-// candidates[0].content.parts[].text on each chunk.
+// [DONE] sentinel — the final chunk carries finishReason STOP and then the
+// stream closes; text arrives at candidates[0].content.parts[].text on each
+// chunk. sawStop remembers the terminal so an EOF without one (a connection
+// dropped mid-generation) surfaces as an error, not a complete answer.
 type geminiStream struct {
 	body    io.ReadCloser
 	scanner *bufio.Scanner
+	sawStop bool
 }
 
 func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
@@ -382,6 +440,15 @@ func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			return "", false, fmt.Errorf("ai: gemini: stream event: %w", err)
 		}
+		// A mid-stream error object or an abnormal finishReason (SAFETY,
+		// MAX_TOKENS, …) arrives inside a 200 chunk — surface it instead of
+		// letting a zero-text chunk fall through to a clean-looking EOF.
+		if err := geminiResponseError(ev); err != nil {
+			return "", false, err
+		}
+		if geminiSawStop(ev) {
+			s.sawStop = true
+		}
 		var chunk strings.Builder
 		for _, cand := range ev.Candidates {
 			for _, part := range cand.Content.Parts {
@@ -394,6 +461,10 @@ func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
 	}
 	if err := s.scanner.Err(); err != nil {
 		return "", false, fmt.Errorf("ai: gemini: stream: %w", err)
+	}
+	if !s.sawStop {
+		// EOF before the STOP terminal: the connection dropped mid-generation.
+		return "", false, fmt.Errorf("ai: gemini: stream ended without a terminal STOP")
 	}
 	return "", false, nil
 }

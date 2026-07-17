@@ -113,7 +113,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req model.Request) (model.
 	if err != nil {
 		return nil, err
 	}
-	return &anthropicStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &anthropicStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 // Embed is a different lane, not a chat-tier capability: Anthropic
@@ -222,8 +222,8 @@ func anthropicError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
 		return fmt.Errorf("ai: anthropic: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
 	}
 	return fmt.Errorf("ai: anthropic: http %d", resp.StatusCode)

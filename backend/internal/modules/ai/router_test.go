@@ -294,3 +294,29 @@ func TestRouterRequiresWorkspaceContext(t *testing.T) {
 		t.Fatalf("workspace-less call must fail, got %v", err)
 	}
 }
+
+// Two calls differing only in the explicit model override or the response
+// schema shape different completions — serving one from the other's cache
+// entry hands the caller an answer shaped by the wrong schema/model.
+func TestRouterCacheKeyDistinguishesModelAndResponseSchema(t *testing.T) {
+	base := model.Request{Messages: []model.Message{{Role: "user", Content: "same prompt"}}}
+	withModel := base
+	withModel.Model = "other-model"
+	withSchema := base
+	withSchema.ResponseSchema = []byte(`{"type":"object"}`)
+
+	wsID := ids.New[ids.WorkspaceKind]()
+	baseKey, err := cacheKey(wsID, TaskSummarize, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, req := range map[string]model.Request{"model override": withModel, "response schema": withSchema} {
+		key, err := cacheKey(wsID, TaskSummarize, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if key == baseKey {
+			t.Fatalf("%s must change the cache key", name)
+		}
+	}
+}

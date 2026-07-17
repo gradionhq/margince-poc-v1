@@ -34,7 +34,7 @@ func TestOpenAICompleteMapsResponsesAPIUsageAndReasoning(t *testing.T) {
 		}
 		body = readBody(t, r.Body)
 		// Leading reasoning item BEFORE the message — the parser must walk output[].
-		_, _ = w.Write([]byte(`{"id":"resp_1","output":[
+		_, _ = w.Write([]byte(`{"id":"resp_1","status":"completed","output":[
 			{"type":"reasoning","summary":[]},
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],
 			"usage":{"input_tokens":10,"output_tokens":5,
@@ -68,7 +68,7 @@ func TestOpenAISendsStrictJSONSchemaUnderTextFormat(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:       []model.Message{{Role: "user", Content: "hi"}},
@@ -101,7 +101,7 @@ func TestOpenAIStripsSecretsFromWire(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:       []model.Message{{Role: "user", Content: "with password=verysecretpw inside"}},
@@ -118,7 +118,7 @@ func TestOpenAIMapsPDFAttachmentToInputFilePart(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:    []model.Message{{Role: "user", Content: "read this"}},
@@ -135,7 +135,7 @@ func TestOpenAIRoutesHTTPSPdfURIToFileURL(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:    []model.Message{{Role: "user", Content: "read"}},
@@ -150,7 +150,7 @@ func TestOpenAIRoutesHTTPSPdfURIToFileURL(t *testing.T) {
 
 func TestOpenAIMalformedProviderOptionsError(t *testing.T) {
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"r","output":[]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[]}`))
 	})
 	_, err := client.Complete(context.Background(), model.Request{
 		Messages:        []model.Message{{Role: "user", Content: "x"}},
@@ -163,7 +163,7 @@ func TestOpenAIMalformedProviderOptionsError(t *testing.T) {
 
 func TestOpenAIRefusalIsAnError(t *testing.T) {
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"refusal","refusal":"cannot help"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"cannot help"}]}]}`))
 	})
 	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}})
 	if err == nil || !strings.Contains(err.Error(), "refus") {
@@ -254,7 +254,7 @@ func TestOpenAIMapsAttachmentsByURIToFileIDAndImageURL(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages: []model.Message{{Role: "user", Content: "look"}},
@@ -281,5 +281,133 @@ func TestOpenAIWireBaseDefaultsAreVersionless(t *testing.T) {
 		if strings.HasSuffix(base, "/v1") {
 			t.Fatalf("%s default base %q must not end in /v1 — the transport adds it", name, base)
 		}
+	}
+}
+
+// The Responses API defaults to store:true — vendor-side retention of CRM
+// record content. The wire must pin store:false on every request.
+func TestOpenAIWirePinsStoreFalse(t *testing.T) {
+	var body []byte
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body = readBody(t, r.Body)
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+	})
+	if _, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "q"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"store":false`)) {
+		t.Fatalf("store:false missing from the wire — the vendor would retain the prompt: %s", body)
+	}
+}
+
+// A failed or incomplete terminal status must never read as a clean answer —
+// the caller would treat a content-filter abort or a max-token truncation as
+// the model's full reply.
+func TestOpenAICompleteNonCompletedStatusIsAnError(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"failed":     {`{"id":"r","status":"failed","error":{"code":"server_error","message":"boom"}}`, "server_error"},
+		"incomplete": {`{"id":"r","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}`, "max_output_tokens"},
+		"missing":    {`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`, "no terminal status"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.body))
+			})
+			_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "q"}}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want error naming %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// Mid-stream failure events must surface as errors, not fall through the event
+// switch into a clean-looking EOF.
+func TestOpenAIStreamSurfacesFailureEvents(t *testing.T) {
+	cases := map[string]struct {
+		event string
+		want  string
+	}{
+		"failed":     {`data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"boom"}}}`, "server_error"},
+		"incomplete": {`data: {"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"content_filter"}}}`, "content_filter"},
+		"error":      {`data: {"type":"error","code":"rate_limit_exceeded","message":"slow down"}`, "rate_limit_exceeded"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","delta":"partial"}`+"\n\n")
+				_, _ = io.WriteString(w, tc.event+"\n\n")
+			})
+			stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := stream.Close(); err != nil {
+					t.Errorf("closing stream: %v", err)
+				}
+			}()
+			if chunk, ok, err := stream.Next(context.Background()); err != nil || !ok || chunk != "partial" {
+				t.Fatalf("first delta: %q %v %v", chunk, ok, err)
+			}
+			_, _, err = stream.Next(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want error naming %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// A connection that drops before response.completed is a failed call: EOF
+// without a terminal event must not read as a finished answer.
+func TestOpenAIStreamEOFWithoutTerminalEventIsAnError(t *testing.T) {
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","delta":"partial"}`+"\n\n")
+	})
+	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
+	if chunk, ok, err := stream.Next(context.Background()); err != nil || !ok || chunk != "partial" {
+		t.Fatalf("first delta: %q %v %v", chunk, ok, err)
+	}
+	if _, _, err := stream.Next(context.Background()); err == nil || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("EOF without response.completed must be an error, got %v", err)
+	}
+}
+
+// One SSE data line can far exceed bufio.Scanner's 64KB default (a structured
+// output echoed as a single delta) — the shared scanner must deliver it, not
+// abort with ErrTooLong after the tokens were paid for.
+func TestOpenAIStreamCarriesOversizedSSELines(t *testing.T) {
+	big := strings.Repeat("x", 300*1024)
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","delta":"`+big+`"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.completed"}`+"\n\n")
+	})
+	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
+	chunk, ok, err := stream.Next(context.Background())
+	if err != nil || !ok || len(chunk) != len(big) {
+		t.Fatalf("oversized delta not delivered: len=%d ok=%v err=%v", len(chunk), ok, err)
+	}
+	if _, ok, err := stream.Next(context.Background()); ok || err != nil {
+		t.Fatalf("expected clean completion after the big delta: %v %v", ok, err)
 	}
 }

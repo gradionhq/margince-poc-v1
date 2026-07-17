@@ -153,11 +153,34 @@ up)
   if [[ -f .env.local ]]; then
     set -a; . ./.env.local; set +a
   fi
-  if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GEMINI_API_KEY:-}${OPENAI_COMPATIBLE_API_KEY:-}" ]]; then
+  # Real routing needs the key for EVERY cloud provider the routing file
+  # actually binds — SelectBrain fails closed at boot on the first bound
+  # provider whose env key is missing, so "any key present" is not enough
+  # (e.g. an anthropic-only .env.local against the gemini-bound template
+  # would refuse to start). Comments are stripped before scanning so the
+  # template's commented alternatives don't count as bindings.
+  bound_providers=$(sed 's/#.*//' "$routing_src" | grep -Eo 'provider:[[:space:]]*[a-z_]+' | awk -F': *' '{print $2}' | sort -u || true)
+  missing_keys=""
+  for _p in $bound_providers; do
+    _env=""
+    case "$_p" in
+      anthropic)         _env="ANTHROPIC_API_KEY" ;;
+      openai)            _env="OPENAI_API_KEY" ;;
+      gemini)            _env="GEMINI_API_KEY" ;;
+      openai_compatible) _env="OPENAI_COMPATIBLE_API_KEY" ;;
+    esac
+    if [[ -n "$_env" && -z "${!_env:-}" ]]; then
+      missing_keys="$missing_keys $_env"
+    fi
+  done
+  # Real routing whenever every bound provider is satisfied — cloud providers
+  # need their key; local ones (ollama/vllm/fake) need none, so a local-only
+  # routing file gets --ai-routing without any key in the environment.
+  if [[ -z "$missing_keys" ]]; then
     ai_flag=(--ai-routing "$routing_src")
-    echo "dev: using a real cloud model for the cold-start read-back (BYOK key from .env.local env)"
+    echo "dev: using $routing_src for the cold-start read-back (bound providers: $(echo $bound_providers | tr '\n' ' '))"
   else
-    echo "dev: no cloud API key in .env.local (GEMINI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY/OPENAI_COMPATIBLE_API_KEY) — cold-start runs on the offline fake"
+    echo "dev: $routing_src binds provider(s) whose key is not set (${missing_keys# }) — cold-start runs on the offline fake; set the key(s) in .env.local or rebind the provider in $routing_src"
   fi
 
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass

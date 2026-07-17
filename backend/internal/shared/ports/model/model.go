@@ -102,12 +102,18 @@ type ToolDef struct {
 }
 
 type Response struct {
-	Text         string
-	InputTokens  int
+	Text        string
+	InputTokens int
+	// OutputTokens is the TOTAL billed output, reasoning/thinking tokens
+	// INCLUDED — every adapter must normalize to this (Gemini reports them
+	// separately; its adapter adds them back), so tokens_in+tokens_out is
+	// true spend on every provider and the budget bands can't be leaked past
+	// by thinking-heavy calls.
 	OutputTokens int
 	// CachedTokens / ReasoningTokens are the itemized usage a native provider
-	// returns (prompt-cache reads, reasoning/thinking tokens). Flat, alongside
-	// InputTokens/OutputTokens; an adapter with no such figure leaves them 0.
+	// returns (prompt-cache reads, reasoning/thinking tokens). ReasoningTokens
+	// is a breakdown WITHIN OutputTokens, never additive to it; an adapter
+	// with no such figure leaves them 0.
 	CachedTokens    int
 	ReasoningTokens int
 	// ProviderMetadata carries vendor-only outputs namespaced by provider key
