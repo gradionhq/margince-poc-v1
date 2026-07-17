@@ -143,7 +143,29 @@ func (c *openAICompatClient) Caps() model.Capabilities {
 	return model.Capabilities{Streaming: true, EmbedDims: 0, LocalOnly: c.localOnly}
 }
 
+// attachmentUnsupported returns ErrAttachmentUnsupported (provider-tagged) if
+// any attachment's MIME fails allow; nil otherwise. The map-or-reject invariant
+// (spec §3.8): no adapter may silently drop an attachment.
+func attachmentUnsupported(provider string, atts []model.Attachment, allow func(mime string) bool) error {
+	for _, a := range atts {
+		if !allow(a.MIME) {
+			return fmt.Errorf("ai: %s: %s: %w", provider, a.MIME, model.ErrAttachmentUnsupported)
+		}
+	}
+	return nil
+}
+
+func isImage(mime string) bool { return strings.HasPrefix(mime, "image/") }
+
 func (c *openAICompatClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
+	// The generic OpenAI endpoint reaches images best-effort but not documents;
+	// reject anything non-image rather than silently drop it (spec §3.8). Image
+	// mapping to `image_url` content parts is deferred — the generic endpoint's
+	// multimodal support is model-dependent, so Phase-1 passes images through as
+	// today (text-only wire) and only holds the reject-guard invariant.
+	if err := attachmentUnsupported("openai-compat", req.Attachments, isImage); err != nil {
+		return nil, err
+	}
 	wire := openAICompatChatWire{Model: req.Model, Stream: stream, MaxTokens: req.MaxTokens}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel
