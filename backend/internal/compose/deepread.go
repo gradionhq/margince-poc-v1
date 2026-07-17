@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -54,11 +55,23 @@ type SiteDeepReadArgs struct {
 // Kind is the stable job identifier River persists in river_job.
 func (SiteDeepReadArgs) Kind() string { return "site_deep_read" }
 
-// siteDeepReadInsertOpts deduplicates by args: the dossier id is unique
-// per read, so a re-submitted enqueue of the SAME read collapses while a
-// fresh read (new dossier) always queues.
+// deepReadQueue isolates deep reads from the default queue: a crawl holds a
+// worker for minutes (crawl wall + model calls), so a burst of them on the
+// shared queue would starve the short maintenance jobs. Its own bounded pool
+// (deepReadMaxWorkers) caps how much of the fleet crawling can occupy.
+const (
+	deepReadQueue      = "deep_read"
+	deepReadMaxWorkers = 2
+)
+
+// siteDeepReadInsertOpts routes the job to its own queue and deduplicates by
+// args: the dossier id is unique per read, so a re-submitted enqueue of the
+// SAME read collapses while a fresh read (new dossier) always queues.
 func siteDeepReadInsertOpts() *river.InsertOpts {
-	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}}
+	return &river.InsertOpts{
+		Queue:      deepReadQueue,
+		UniqueOpts: river.UniqueOpts{ByArgs: true},
+	}
 }
 
 // siteDeepReadWorker runs one queued deep read: claim the dossier, crawl,
@@ -90,6 +103,14 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain runner.Brain, log *slog.Log
 	}
 }
 
+// Timeout overrides River's 1-minute default, which cannot hold a deep read:
+// the crawl wall (≤90s) plus up to 24 model calls (12 pages × 2 category
+// calls) at a slow tier plus the staging write. Eight minutes is that budget
+// with headroom.
+func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
+	return 8 * time.Minute
+}
+
 func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) error {
 	return w.run(ctx, job.Args)
 }
@@ -100,7 +121,9 @@ func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepRe
 // retry — including one after a recorded failure — CAS-misses and
 // no-ops. One honest outcome per dossier, no zombie re-crawls; reading
 // the site again is a human's next start, never an automatic retry.
-func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
+// deepReadWorkerCtx attaches the worker's principal, workspace and correlation
+// onto the job context — the values every store write (and terminalCtx) needs.
+func deepReadWorkerCtx(ctx context.Context, args SiteDeepReadArgs) context.Context {
 	requester := requestedByUserID(args.RequestedBy)
 	ctx = principal.WithWorkspaceID(ctx, args.WorkspaceID)
 	ctx = principal.WithActor(ctx, principal.Principal{
@@ -109,7 +132,11 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		UserID:     requester,
 		OnBehalfOf: requester,
 	})
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithCorrelationID(ctx, ids.NewV7())
+}
+
+func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
+	ctx = deepReadWorkerCtx(ctx, args)
 
 	claim, err := w.people.BeginSiteRead(ctx, args.SiteReadID)
 	if err != nil {
@@ -295,6 +322,17 @@ func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID,
 }
 
 // finish records the crawl report on the dossier in one terminal write.
+// terminalCtx derives the context for a terminal dossier write: the work
+// context's VALUES (principal, workspace — WithWorkspaceTx reads the tenant
+// GUC from them) with a fresh deadline of its own, NEVER the work context's
+// deadline or cancellation. Closing the dossier must not be starved by the
+// crawl+extract work it reports on — otherwise a read whose model calls
+// exhausted the job budget is left running forever, squatting the org's one
+// in-flight slot. Fifteen seconds bounds the single FinishSiteRead tx.
+func terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+}
+
 func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status string, readPages []crawlPage, crawl siteCrawl, factCount int, proposalIDs []ids.UUID) error {
 	in := people.FinishSiteReadInput{
 		Status:      status,
@@ -313,7 +351,9 @@ func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status
 		reason := string(*crawl.Stopped)
 		in.StoppedReason = &reason
 	}
-	if err := w.people.FinishSiteRead(ctx, readID, in); err != nil {
+	tctx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if err := w.people.FinishSiteRead(tctx, readID, in); err != nil {
 		return fmt.Errorf("site deep read %s: finish: %w", readID, err)
 	}
 	return nil
@@ -323,7 +363,9 @@ func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status
 // so River logs it on the job. A retry after a recorded failure is safe
 // by construction — BeginSiteRead CAS-misses and the attempt no-ops.
 func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause error) error {
-	if err := w.people.FinishSiteRead(ctx, readID, people.FinishSiteReadInput{Status: "failed"}); err != nil {
+	tctx, cancel := terminalCtx(ctx)
+	defer cancel()
+	if err := w.people.FinishSiteRead(tctx, readID, people.FinishSiteReadInput{Status: "failed"}); err != nil {
 		return errors.Join(cause, fmt.Errorf("recording the failure on the dossier: %w", err))
 	}
 	return cause

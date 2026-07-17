@@ -604,3 +604,35 @@ func TestDeepReadStartClosesTheDossierWhenTheEnqueueFails(t *testing.T) {
 		t.Fatalf("retry after a closed enqueue failure → %d %+v, want a fresh 202 queued", rec2.Code, retried)
 	}
 }
+
+// The terminal dossier write must survive the work context's death: a deep
+// read whose crawl+extract exhausted the job deadline still has to CLOSE its
+// dossier, or the read is left running forever and squats the org's one
+// in-flight slot. terminalCtx (WithoutCancel + a fresh deadline) is what makes
+// that hold; this pins it against a refactor that re-threads the dead ctx.
+func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), ai.NewFakeClient())
+	read, args := startDeepRead(t, e, org)
+
+	// The dossier is picked up (queued → running), then the work context dies
+	// — exactly the shape the live incident hit mid-extraction.
+	workCtx, cancel := context.WithCancel(deepReadWorkerCtx(context.Background(), args))
+	if _, err := worker.people.BeginSiteRead(workCtx, read.ID); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	cancel()
+
+	if err := worker.finish(workCtx, read.ID, "partial", nil, siteCrawl{}, 0, nil); err != nil {
+		t.Fatalf("finish under a cancelled work context: %v", err)
+	}
+
+	got, err := e.People.GetSiteRead(e.As(e.Rep1, nil, integration.AdminPerms), orgIDOf(org), read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "partial" {
+		t.Fatalf("dossier status = %q, want partial — the terminal write was starved by the dead work context", got.Status)
+	}
+}

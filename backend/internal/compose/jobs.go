@@ -256,7 +256,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	return jobs.New(pool, jobs.Config{
-		Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 5}},
+		Queues: map[string]river.QueueConfig{
+			river.QueueDefault: {MaxWorkers: 5},
+			// Deep reads run on their own bounded pool so long crawls cannot
+			// evict the short maintenance jobs from the default queue.
+			deepReadQueue: {MaxWorkers: deepReadMaxWorkers},
+		},
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	}, log)
