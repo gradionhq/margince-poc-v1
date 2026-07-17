@@ -741,11 +741,8 @@ export const de = {
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
 
-  "ob.title": "Willkommen bei Margince",
-  "ob.sub":
-    "erst der Nutzen — dein Postfach verbindest du zuletzt, nicht zuerst",
-  "ob.read": "Einlesen",
-  "ob.confirm": "Bestätigen",
+  "ob.title": "Margince einrichten",
+  "ob.company": "Firma",
   "ob.voice": "Stimme",
   "ob.results": "Ergebnisse",
   "ob.connect": "Verbinden",
@@ -754,35 +751,32 @@ export const de = {
   "ob.back": "Zurück",
   "ob.finish": "In den Workspace",
   "ob.skipStep": "Schritt überspringen",
-  "ob.skipSetup": "Einrichtung überspringen",
-  "ob.skipSetupHint":
-    "Direkt in ein leeres CRM — die Einrichtung kannst du jederzeit in den Einstellungen nachholen",
 
-  "ob.s1.kick": "Schritt 1 von 5 · dauert 2 Minuten",
-  "ob.s1.title": "Lass uns dein CRM einrichten.",
-  "ob.s1.titleEm": "Beginne mit deiner Website.",
+  "ob.s1.kick": "Schritt 1 von 4",
+  "ob.s1.title": "Deine Firma",
   "ob.s1.sub":
-    "Füg deine Firmen-URL ein und wir lesen dir dein Geschäft zurück — was du verkaufst, an wen, und warum du gewinnst. Kein Konto, kein Postfach, noch nichts verbunden.",
+    "Trag das hier ein, oder füg deine Website ein — dann füllen wir aus, was wir von dort zitieren können. Gespeichert wird erst, wenn du weitergehst.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
-  "ob.readGo": "Mein Geschäft einlesen",
+  "ob.s1.identityLabel": "Firmendaten",
+  "ob.s1.positioningLabel": "Was du verkaufst — und an wen",
+  "ob.s1.fieldRequired": "Pflichtfeld.",
+  "ob.s1.requiredMissing": "Diese Felder fehlen noch: {fields}",
+  "ob.s1.saving": "Wird gespeichert…",
+  "ob.s1.saveFailed": "Deine Firma konnte nicht gespeichert werden",
+  "ob.s1.savedNote":
+    "In deinem Workspace gespeichert. Ändere hier etwas und geh weiter — dann wird erneut gespeichert.",
+  "ob.s1.omitLabel": "Nichts erfunden",
+  "ob.s1.omitBody":
+    "Wir haben nur gefüllt, was wir von deiner Seite zitieren können. Den Rest schreibst du.",
+  "ob.readGo": "Meine Website einlesen",
   "ob.reading": "Wird gelesen…",
   "ob.readAgain": "Erneut einlesen",
   "ob.trustPublic":
     "Wir lesen nur deine öffentliche Website. Kein Login nötig.",
-  "ob.trustAI":
-    "Läuft auf der eingebauten KI von Margince — kein API-Key, kein Modell-Setup.",
   "ob.urlWillRead": "Wir lesen {host}",
   "ob.urlInvalid":
     "Das sieht nicht nach einer Web-Adresse aus — versuch z. B. {example}",
-  "ob.migrateLead":
-    "Nutzt du schon ein anderes CRM? Importier stattdessen deine Daten — Kontakte, Firmen und offene Deals kommen mit.",
-  "ob.fromHubspot": "Aus HubSpot",
-  "ob.fromSalesforce": "Aus Salesforce",
-  "ob.readbackFrom": "{host} · das haben wir zurückgelesen",
   "ob.readFromSite": "von der Website gelesen",
-  "ob.omitLabel": "Wer kauft das",
-  "ob.omitBody":
-    "Das haben wir auf deiner Seite nicht gefunden — also raten wir nicht. Du ergänzt es im nächsten Schritt.",
   "ob.failTitle": "Von dieser Seite ließ sich nicht genug lesen",
   "ob.failBody":
     "Wir haben die Seite erreicht, aber zu wenig öffentliche Inhalte gefunden, um ein Profil zu belegen — also raten wir nicht. Es wurde nichts gespeichert.",
@@ -792,48 +786,33 @@ export const de = {
     "Es kann eine Login-Wand, eine Platzhalterseite oder ein robots.txt-Verbot sein",
   "ob.failWhy3": "Oder es ist schlicht zu wenig Text vorhanden",
   "ob.tryAnother": "Andere URL versuchen",
-  "ob.fillByHand": "Stattdessen von Hand ausfüllen",
 
+  "ob.field.display_name": "Firmenname",
   "ob.field.icp": "Idealkunde",
   "ob.field.buying_center": "Wer kauft",
   "ob.field.value_proposition": "Nutzenversprechen",
   "ob.field.usp": "Was dich unterscheidet",
   "ob.field.buying_intents": "Kaufanlässe",
-  "ob.field.legal_name": "Firmenname",
+  "ob.field.legal_name": "Eingetragener Firmenname",
   "ob.field.registered_address": "Anschrift",
   "ob.field.register_vat": "Register / USt-ID",
   "ob.field.industry": "Branche",
   "ob.field.history": "Firmengeschichte",
 
-  "ob.s2.kick": "Schritt 2 von 5",
-  "ob.s2.title": "Haben wir's richtig verstanden?",
+  "ob.s2.kick": "Schritt 2 von 4 · optional",
+  "ob.s2.title": "Jetzt lernen wir,",
+  "ob.s2.titleEm": "wie du wirklich schreibst.",
   "ob.s2.sub":
-    "Korrigier unten, was nicht stimmt — mit Weiter wird das hier als von dir bestätigt in deinem Workspace gespeichert. Wer bei dir kauft, haben wir leer gelassen statt zu raten — sag's uns.",
-  "ob.s2.saving": "Wird gespeichert…",
-  "ob.s2.saveFailed": "Dein Profil konnte nicht gespeichert werden",
-  "ob.s2.savedNote":
-    "In deinem Workspace gespeichert. Spätere Änderungen machst du auf deiner Firmenseite — dieser Schritt speichert nicht erneut.",
-  "ob.s2.buyerLabel": "Wer kauft das?",
-  "ob.s2.buyerHint": "das konnten wir nicht lesen — jetzt du",
-  "ob.s2.buyerPlaceholder":
-    "z. B. Betriebsleiter, Werkleiter, Vertriebsleitung",
-  "ob.s2.nothingRead":
-    "Noch nichts eingelesen — geh zurück und lies deine Seite ein, oder füll es von Hand aus.",
-
-  "ob.s3.kick": "Schritt 3 von 5 · optional",
-  "ob.s3.title": "Jetzt lernen wir,",
-  "ob.s3.titleEm": "wie du wirklich schreibst.",
-  "ob.s3.sub":
     "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren, wie du wirklich klingst: dein Rhythmus, deine typischen Wendungen, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
-  "ob.s3.optinTitle": "Warum jetzt — und warum optional.",
-  "ob.s3.optinBody":
-    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 4). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
-  "ob.s3.optinYes": "Ja, jetzt meine Stimme bauen",
-  "ob.s3.optinSkip": "Überspringen — später in den Einstellungen",
-  "ob.s3.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
-  "ob.s3.dropFmt":
+  "ob.s2.optinTitle": "Warum jetzt — und warum optional.",
+  "ob.s2.optinBody":
+    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 3). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
+  "ob.s2.optinYes": "Ja, jetzt meine Stimme bauen",
+  "ob.s2.optinSkip": "Überspringen — später in den Einstellungen",
+  "ob.s2.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
+  "ob.s2.dropFmt":
     ".txt .md .vtt .srt .json · nur Text · wir behalten nur deine Redeanteile",
-  "ob.s3.dropSkipped":
+  "ob.s2.dropSkipped":
     "{files} übersprungen — kein Textformat. Als .txt/.md konvertieren oder den Text direkt einfügen.",
   "ob.reg.spoken": "gesprochen",
   "ob.reg.written": "geschrieben",
@@ -852,109 +831,112 @@ export const de = {
   "ob.src.chatHint": "Nachrichten, die du gesendet hast",
   "ob.src.memos": "Sprachmemos",
   "ob.src.memosHint": "Sprich 2 Minuten frei — wird transkribiert",
-  "ob.s3.lockedWords": "+{count} Wörter, wenn verbunden",
-  "ob.s3.addedWords": "+{count} Wörter",
-  "ob.s3.words": "{count} / {target} Wörter",
-  "ob.s3.qualStart": "füg ein paar Quellen hinzu",
-  "ob.s3.qualThin": "dünn — leg ein, zwei Transkripte nach",
-  "ob.s3.qualGood": "gut — fast da",
-  "ob.s3.qualRich": "dicht — eine eigene Stimme nimmt Form an",
-  "ob.s3.qualSharp": "scharf — unverkennbar du",
-  "ob.s3.mix":
+  "ob.s2.lockedWords": "+{count} Wörter, wenn verbunden",
+  "ob.s2.addedWords": "+{count} Wörter",
+  "ob.s2.words": "{count} / {target} Wörter",
+  "ob.s2.qualStart": "füg ein paar Quellen hinzu",
+  "ob.s2.qualThin": "dünn — leg ein, zwei Transkripte nach",
+  "ob.s2.qualGood": "gut — fast da",
+  "ob.s2.qualRich": "dicht — eine eigene Stimme nimmt Form an",
+  "ob.s2.qualSharp": "scharf — unverkennbar du",
+  "ob.s2.mix":
     "gesprochen {spoken}% · geschrieben {written}% · {sources} Quellen",
-  "ob.s3.spokenHint":
+  "ob.s2.spokenHint":
     "Eine Handvoll Gesprächstranskripte schlägt 30 LinkedIn-Posts — Gesprochenes trägt deinen echten Rhythmus. Bei Transkripten behalten wir nur deine Redeanteile.",
-  "ob.s3.emailCallout":
+  "ob.s2.emailCallout":
     "Deine gesendeten E-Mails sind deine reichste Stimmquelle. Diese Ausgangsstimme wird deutlich schärfer, sobald du dein Postfach verbindest (der letzte Schritt), und lernt dann aus jeder E-Mail weiter, die du sendest.",
-  "ob.s3.build": "Mein Stimmprofil bauen",
-  "ob.s3.modelling": "Modelliere deine Stimme aus {count} Wörtern…",
-  "ob.s3.starterVoice": "deine erste Stimme",
-  "ob.s3.vpMeta": "{count} Wörter · {sources} Quellen · gut",
-  "ob.s3.vpLead": "Direkt, warm, aus der Praxis.",
-  "ob.s3.vpRest":
+  "ob.s2.build": "Mein Stimmprofil bauen",
+  "ob.s2.modelling": "Modelliere deine Stimme aus {count} Wörtern…",
+  "ob.s2.starterVoice": "deine erste Stimme",
+  "ob.s2.vpMeta": "{count} Wörter · {sources} Quellen · gut",
+  "ob.s2.vpLead": "Direkt, warm, aus der Praxis.",
+  "ob.s2.vpRest":
     "Kurze Aussagesätze mit gelegentlichem langen Anlauf. Belegt Meinungen mit konkreten Zahlen und Namen statt Abstraktionen. Kaum Floskeln.",
-  "ob.s3.movesLabel": "Deine Handschrift",
-  "ob.s3.move1": "Eröffnet mit einer klaren Aussage oder einer harten Zahl",
-  "ob.s3.move2":
+  "ob.s2.movesLabel": "Deine Handschrift",
+  "ob.s2.move1": "Eröffnet mit einer klaren Aussage oder einer harten Zahl",
+  "ob.s2.move2":
     "Belegt sie mit einem konkreten, erlebten Beispiel — Namen, Zahlen",
-  "ob.s3.move3": "Endet mit einem direkten nächsten Schritt oder einer Frage",
-  "ob.s3.moveNever":
+  "ob.s2.move3": "Endet mit einem direkten nächsten Schritt oder einer Frage",
+  "ob.s2.moveNever":
     'Nie: Floskeln, Weichspülen, "ich hoffe, es geht Ihnen gut"',
-  "ob.s3.sampleLabel": "Beispiel-Entwurf in deiner Stimme",
-  "ob.s3.vpFootnote":
+  "ob.s2.sampleLabel": "Beispiel-Entwurf in deiner Stimme",
+  "ob.s2.vpFootnote":
     "Ein Anfang aus {count} Wörtern. Verbinde als Nächstes dein Postfach, und deine gesendete Post hebt das von gut → scharf — dann lernt es aus jeder E-Mail weiter.",
 
-  "ob.s4.kick": "Schritt 4 von 5",
-  "ob.s4.title": "Sieh, was du gebaut hast —",
-  "ob.s4.titleEm": "ganz ohne Anbindung.",
-  "ob.s4.sub":
+  "ob.s3.kick": "Schritt 3 von 4",
+  "ob.s3.title": "Sieh, was du gebaut hast —",
+  "ob.s3.titleEm": "ganz ohne Anbindung.",
+  "ob.s3.sub":
     "Dein Workspace kennt schon dein Geschäft und deine Stimme. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
-  "ob.s4.cardProfile": "Geschäftsprofil",
-  "ob.s4.cardProfileBody":
-    "Was wir von deiner Seite gelesen haben, ist bestätigt und auf deiner Firmenseite gespeichert — jedes Feld mit Quelle.",
-  "ob.s4.cardProfileSkippedBody":
+  "ob.s3.subNoVoice":
+    "Dein Workspace kennt schon dein Geschäft. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
+  "ob.s3.cardProfile": "Geschäftsprofil",
+  "ob.s3.cardProfileBody":
+    "Bestätigt und auf deiner Firmenseite gespeichert. Von deiner Seite gelesene Felder behalten ihre Quelle; der Rest steht in deinen eigenen Worten.",
+  "ob.s3.cardProfileSkippedBody":
     "Von deiner Seite gelesen, aber noch nicht gespeichert — du hast den Bestätigen-Schritt übersprungen. Geh zurück und bestätige, dann landet es auf deiner Firmenseite.",
-  "ob.s4.cardVoice": "Deine Schreibstimme",
-  "ob.s4.cardVoiceBody":
+  "ob.s3.cardVoice": "Deine Schreibstimme",
+  "ob.s3.cardVoiceBody":
     "Gebaut aus dem Korpus, den du uns gerade gegeben hast. Entwürfe klingen ab Tag eins nach dir.",
-  "ob.s4.cardVoiceSkippedBody":
+  "ob.s3.cardVoiceSkippedBody":
     "Du hast den Stimme-Schritt übersprungen — Entwürfe starten in einer neutralen Ausgangsstimme, bis du deine baust. Zwei Minuten, jederzeit, in den Einstellungen.",
-  "ob.s4.cardPipeline": "Vertriebs-Pipeline",
-  "ob.s4.cardPipelineBody":
+  "ob.s3.cardPipeline": "Vertriebs-Pipeline",
+  "ob.s3.cardPipelineBody":
     "Die Standard-B2B-Vorlage mit 7 Stufen, auf deine Branche vorgestimmt. Leer, bis du verbindest — dann füllen sich Deals aus deiner Post.",
-  "ob.s4.cardDraft": "Ein Beispiel-Entwurf, in deiner Stimme",
-  "ob.s4.cardDraftExample": "Ein Beispiel-Entwurf",
-  "ob.s4.cardDraftBody": "Sieh ihn unten.",
-  "ob.s4.exampleTag":
+  "ob.s3.cardDraft": "Ein Beispiel-Entwurf, in deiner Stimme",
+  "ob.s3.cardDraftExample": "Ein Beispiel-Entwurf",
+  "ob.s3.cardDraftBody": "Sieh ihn unten.",
+  "ob.s3.exampleTag":
     "Illustratives Beispiel — noch nicht aus deinen Daten geschrieben",
-  "ob.s4.draftSample":
+  "ob.s3.exampleProspect": "Nordwind Robotics",
+  "ob.s3.draftSample":
     "Betreff: Kurze Frage zu eurer Montagelinie\n\nHallo {{name}} — gesehen, dass {company} diskrete Montage im großen Stil fährt. Wir bringen Teams wie euch in 6 Wochen eine laufende Roboterzelle, ohne eure bestehenden SPS rauszureißen. 15 Minuten wert? Beste Grüße, Lars",
-  "ob.s4.originLabel": "Woher diese Pipeline kommt",
-  "ob.s4.originBody":
+  "ob.s3.originLabel": "Woher diese Pipeline kommt",
+  "ob.s3.originBody":
     "Keine Magie — es ist die Standard-B2B-Stufenvorlage, aus dem Schritt-1-Read auf deine Branche gestimmt. Sie ist gerade leer. Wenn du dein Postfach verbindest, liest Capture deine gesendete Post und Meetings und schlägt Deals in diese Stufen vor — jeder belegt und umkehrbar. Du gibst frei, was ein Deal wird.",
-  "ob.s4.stillNothing":
+  "ob.s3.stillNothing":
     "Noch immer nichts verbunden. Du bestimmst, wann sich das ändert.",
-  "ob.s4.cta": "Postfach verbinden",
+  "ob.s3.cta": "Postfach verbinden",
 
-  "ob.s5.kick": "Schritt 5 von 5 · der letzte Schritt",
-  "ob.s5.title": "Bereit,",
-  "ob.s5.titleEm": "es zum Leben zu erwecken?",
-  "ob.s5.sub":
+  "ob.s4.kick": "Schritt 4 von 4 · der letzte Schritt",
+  "ob.s4.title": "Bereit,",
+  "ob.s4.titleEm": "es zum Leben zu erwecken?",
+  "ob.s4.sub":
     "Das Hirn steht. Verbinde dein Postfach, und dein CRM füllt sich selbst — Menschen, Firmen und Deals werden automatisch erfasst, du tippst sie nie.",
-  "ob.s5.provGoogle": "Google",
-  "ob.s5.provMicrosoft": "Microsoft",
-  "ob.s5.provImap": "Beliebiges Postfach (IMAP)",
-  "ob.s5.googleBtn": "Mit Google fortfahren",
-  "ob.s5.msBtn": "Mit Microsoft fortfahren",
-  "ob.s5.oauthSoon":
+  "ob.s4.provGoogle": "Google",
+  "ob.s4.provMicrosoft": "Microsoft",
+  "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
+  "ob.s4.googleBtn": "Mit Google fortfahren",
+  "ob.s4.msBtn": "Mit Microsoft fortfahren",
+  "ob.s4.oauthSoon":
     "Ein-Klick-Anmeldung für Google & Microsoft kommt. Verbinde jetzt jedes Postfach über IMAP — eine echte, live Erfassung.",
-  "ob.s5.imapHost": "IMAP-Host",
-  "ob.s5.imapHostPlaceholder": "imap.gmail.com",
-  "ob.s5.imapEmail": "E-Mail",
-  "ob.s5.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
-  "ob.s5.imapMailbox": "Postfach",
-  "ob.s5.imapMax": "Wie viele aktuelle E-Mails",
-  "ob.s5.imapHint":
+  "ob.s4.imapHost": "IMAP-Host",
+  "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapEmail": "E-Mail",
+  "ob.s4.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
+  "ob.s4.imapMailbox": "Postfach",
+  "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
+  "ob.s4.imapHint":
     "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir holen deine aktuelle Post einmalig, erfassen sie als Aktivitäten und speichern dein Passwort nie.",
-  "ob.s5.imapConnect": "Verbinden & erfassen",
-  "ob.s5.connecting": "Sichere Verbindung…",
-  "ob.s5.scope1Lead": "Wir lesen — wir müllen nichts voll.",
-  "ob.s5.scope1Rest":
+  "ob.s4.imapConnect": "Verbinden & erfassen",
+  "ob.s4.connecting": "Sichere Verbindung…",
+  "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
+  "ob.s4.scope1Rest":
     "Deine Post wird automatisch zu Kontakten, Firmen und Aktivitäten.",
-  "ob.s5.scope2Lead": "Wir senden nie etwas ohne deine Freigabe.",
-  "ob.s5.scope2Rest": "Entwürfe warten in deinem Freigabe-Eingang.",
-  "ob.s5.scope3Lead": "Deine Daten bleiben in deinem Workspace.",
-  "ob.s5.scope3Rest":
+  "ob.s4.scope2Lead": "Wir senden nie etwas ohne deine Freigabe.",
+  "ob.s4.scope2Rest": "Entwürfe warten in deinem Freigabe-Eingang.",
+  "ob.s4.scope3Lead": "Deine Daten bleiben in deinem Workspace.",
+  "ob.s4.scope3Rest":
     "Own-your-data — jederzeit alles exportieren oder löschen.",
-  "ob.s5.scope4Lead": "Trennung mit einem Klick.",
-  "ob.s5.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
-  "ob.s5.capturedTitle": "Dein Postfach ist live in deinem CRM",
-  "ob.s5.statCaptured": "erfasst",
-  "ob.s5.statContacts": "Kontakte",
-  "ob.s5.statSkipped": "übersprungen",
-  "ob.s5.enterCrm": "Ins CRM",
-  "ob.s5.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
-  "ob.s5.skipLater": "Erstmal überspringen — später verbinden",
+  "ob.s4.scope4Lead": "Trennung mit einem Klick.",
+  "ob.s4.scope4Rest": "Das CRM läuft weiter; es hört nur auf zu erfassen.",
+  "ob.s4.capturedTitle": "Dein Postfach ist live in deinem CRM",
+  "ob.s4.statCaptured": "erfasst",
+  "ob.s4.statContacts": "Kontakte",
+  "ob.s4.statSkipped": "übersprungen",
+  "ob.s4.enterCrm": "Ins CRM",
+  "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
+  "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

@@ -204,14 +204,15 @@ func applyEvidenceFields(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, o
 		// since claimed.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (workspace_id, organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
+			              source = EXCLUDED.source,
 			              captured_by = EXCLUDED.captured_by, captured_at = now()
 			WHERE organization_profile_field.captured_by NOT LIKE 'human:%'`,
-			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, by); err != nil {
+			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, source, by); err != nil {
 			return nil, fmt.Errorf("upsert profile field %s: %w", f.Field, err)
 		}
 	}

@@ -66,6 +66,7 @@ type Server struct {
 	reportHandlers
 	briefs.Handlers
 	coldstartHandlers
+	companyHandlers
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers
@@ -356,6 +357,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		},
 		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
 		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
+		// The installation's own company (the 0083 anchor). Its own store
+		// instance, like every other people-backed shadow here: the company
+		// form's write shape is people's, the transport is compose's.
+		companyHandlers: companyHandlers{store: people.NewStore(pool)},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.

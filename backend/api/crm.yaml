@@ -2856,6 +2856,121 @@ paths:
                     detail: Couldn't read enough from this page. Retry or paste text.
                     details: { populated_fields: 0 }
 
+  /coldstart/preview:
+    post:
+      tags: [AI]
+      operationId: coldStartPreview
+      summary: Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
+      description: |
+        The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
+        for a human to check and correct in the company form, and NOTHING is written or queued. Confirm-first
+        (🟡) is honoured by the form itself — the unsaved form IS the staged state, and PUT /company is the
+        human's confirmation. This is the read-back onboarding uses; POST /coldstart's approval-inbox
+        staging remains for callers that propose asynchronously, with no human at the screen.
+
+        Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
+        non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
+        is returned as an omission for the human to fill in by hand, never as a guess.
+      x-mcp-tool: { verb: read, tier: green }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ColdStartRequest' }
+            examples:
+              url:
+                value: { url: 'https://acme.com' }
+      responses:
+        '200':
+          description: The evidenced fields, for the form to pre-fill. Nothing written, nothing staged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ColdStartReadback' }
+              examples:
+                readback:
+                  value:
+                    fields:
+                      - field: value_proposition
+                        value: Cuts onboarding time by 80%.
+                        evidence_snippet: '"Onboard your team in minutes, not weeks."'
+                        source_kind: url
+                        source_url: 'https://acme.com/#hero'
+                        confidence: 0.86
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: URL unfetchable / read too little — honest degradation, zero fabricated fields.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ----------------------------- /company -----------------------------------
+  /company:
+    get:
+      tags: [Organizations]
+      operationId: getCompany
+      summary: The installation's own company (the anchor organization).
+      description: |
+        The company this installation belongs to — the spec's anchor organization, marked by
+        `organization.is_anchor` (0083; at most one live anchor per workspace). 404 until a human first
+        saves the company form: that 404 IS the "this installation has not described itself yet" signal,
+        and it is what onboarding gates on. Distinct from GET /organizations/{id}, which reads the
+        customer records.
+      responses:
+        '200':
+          description: The anchor organization's profile.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No company saved yet — onboarding has not been completed.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    put:
+      tags: [Organizations]
+      operationId: putCompany
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      # This save IS the 🟡 confirmation of a read-back: an agent may PROPOSE the company
+      # (POST /coldstart/preview) but never make it true, exactly as it may stage an approval
+      # and never approve it.
+      x-agent-access: human-only
+      summary: Save the installation's own company — the human's confirm-first write.
+      description: |
+        Creates the anchor organization on first save (marking it `is_anchor`) and updates it on every
+        later one. This is a HUMAN write: every field is stamped
+        `captured_by=human:<user id>`, `source=manual`, whether it was typed from scratch or accepted
+        from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
+        theirs, and a later agent read-back will not overwrite it.
+
+        Unlike the cold-start accept path this never resolves a target by domain: the workspace names its
+        own anchor, so a company saved from pasted text or typed by hand works exactly like one read from
+        a website. Fields omitted from the body are left untouched; fields sent empty are cleared.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompanyProfileInput' }
+            examples:
+              typed:
+                summary: Typed by hand — no website read at all
+                value:
+                  display_name: Acme GmbH
+                  legal_name: Acme Gesellschaft mit beschränkter Haftung
+                  register_vat: DE123456789
+                  registered_address: Torstraße 1, 10119 Berlin
+                  industry: B2B SaaS
+                  icp: Mid-market RevOps teams.
+      responses:
+        '200':
+          description: The saved company.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # -------------------------- /connectors/imap ------------------------------
   /connectors/imap/connect:
     post:
@@ -7955,6 +8070,64 @@ components:
           type: array
           items: { $ref: '#/components/schemas/ColdStartField' }
         created_at: { type: string, format: date-time }
+
+    ColdStartReadback:
+      type: object
+      description: |
+        An un-staged read-back: the evidenced fields only, for a human to check in the company form.
+        There is no proposal_id because there is no proposal — nothing was written or queued.
+      required: [fields]
+      properties:
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/ColdStartField' }
+
+    CompanyProfile:
+      type: object
+      description: |
+        The installation's own company. `display_name` is the only field the form requires — a company
+        that will not say its VAT ID is still a company. Every other field is nullable and stays null
+        until someone fills it, by hand or from a read-back.
+      required: [organization_id, display_name]
+      properties:
+        organization_id: { type: string, format: uuid, description: The anchor organization this profile belongs to. }
+        display_name: { type: string, minLength: 1, description: What the company is called day to day. }
+        website: { type: [string, 'null'], description: 'The company''s own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain.' }
+        legal_name: { type: [string, 'null'], description: The registered legal entity, when it differs from display_name. }
+        registered_address: { type: [string, 'null'], description: The registered address as one formatted line. }
+        register_vat: { type: [string, 'null'], description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
+        industry: { type: [string, 'null'] }
+        icp: { type: [string, 'null'], description: Ideal customer profile — who this company sells to. }
+        value_proposition: { type: [string, 'null'] }
+        usp: { type: [string, 'null'] }
+        buying_center: { type: [string, 'null'], description: The roles that decide on a purchase. }
+        buying_intents: { type: [string, 'null'] }
+        history: { type: [string, 'null'], description: Company background. }
+        updated_at: { type: string, format: date-time }
+
+    CompanyProfileInput:
+      type: object
+      description: |
+        The company form's body. The identity block is REQUIRED — an installation that will not say who
+        it legally is cannot invoice, cannot meet its GoBD retention duties, and leaves every downstream
+        feature guessing. A read-back fills what it can quote; whatever it cannot, the human types. The
+        positioning fields are optional: they can be discovered later, the legal facts cannot.
+
+        Among the optional fields, an omitted one is left as it was and one sent empty is cleared.
+      required: [display_name, legal_name, registered_address, register_vat, industry]
+      properties:
+        display_name: { type: string, minLength: 1 }
+        legal_name: { type: string, minLength: 1, description: The registered legal entity. }
+        registered_address: { type: string, minLength: 1, description: The registered address as one formatted line. }
+        register_vat: { type: string, minLength: 1, description: 'VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).' }
+        industry: { type: string, minLength: 1 }
+        website: { type: [string, 'null'], description: 'The company''s own domain or full URL; stored as the bare domain.' }
+        icp: { type: [string, 'null'] }
+        value_proposition: { type: [string, 'null'] }
+        usp: { type: [string, 'null'] }
+        buying_center: { type: [string, 'null'] }
+        buying_intents: { type: [string, 'null'] }
+        history: { type: [string, 'null'] }
 
     EnrichCompanyRequest:
       type: object
