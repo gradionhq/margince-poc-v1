@@ -65,6 +65,7 @@ type workerConfig struct {
 	retentionInterval  time.Duration
 	closeDateInterval  time.Duration
 	reconcileInterval  time.Duration
+	timeScanInterval   time.Duration
 	gmailClientID      string
 	gmailClientSecret  string
 	gmailSyncInterval  time.Duration
@@ -89,6 +90,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
+	fs.DurationVar(&cfg.timeScanInterval, "time-scan-interval", time.Hour, "clock-trigger scan interval (no_activity_reminder et al., Task 14)")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
 	fs.DurationVar(&cfg.gmailSyncInterval, "gmail-sync-interval", 2*time.Minute, "Gmail incremental-sync poll interval")
@@ -247,7 +249,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	if gmailReg != nil {
 		watchCfg.Topic = cfg.gmailPubsubTopic
 	}
-	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval, gmailReg, cfg.gmailSyncInterval, watchCfg)
+	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		CloseDateInterval: cfg.closeDateInterval,
+		ReconcileInterval: cfg.reconcileInterval,
+		TimeScanInterval:  cfg.timeScanInterval,
+		GmailRegistry:     gmailReg,
+		GmailInterval:     cfg.gmailSyncInterval,
+		GmailWatch:        watchCfg,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +270,8 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	case gmailReg != nil:
 		gmailNote = fmt.Sprintf("gmail sync every %s (watch off: no pubsub topic)", cfg.gmailSyncInterval)
 	}
-	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval, gmailNote)
+	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s)\n",
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailNote)
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.

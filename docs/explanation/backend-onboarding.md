@@ -125,7 +125,8 @@ Four process roles, all assembled through `internal/compose`. Flags/env are tabl
   outbox to Redis in-process, so **one `cmd/api` is a complete install** for dev and small self-hosted
   deployments.
 - **`cmd/worker`** — background consumer (the standalone relay, the River periodic jobs, retention,
-  the Surface-B runner). Only needed for **split deployments**: run `cmd/api --inline-relay=false`
+  the automation trigger runtime — event dispatch off `cg:workflows` plus the clock time-scan — the
+  Surface-B runner). Only needed for **split deployments**: run `cmd/api --inline-relay=false`
   alongside one or more workers. River gives leader election, so worker replicas never double-run a
   job.
 - **`cmd/migrate`** — `up`/`down`, connects with the **owner** role (the app role never owns schema).
@@ -208,6 +209,7 @@ codegen, and the store shape above into one checklist:
 - **Add or change an API endpoint** → [how-to/add-an-endpoint.md](../how-to/add-an-endpoint.md)
 - **Add a new module or a cross-module edge** → [how-to/add-a-module.md](../how-to/add-a-module.md)
 - **Add a database migration** → [how-to/apply-migrations.md](../how-to/apply-migrations.md)
+- **Create an automation workflow** → [how-to/create-a-workflow.md](../how-to/create-a-workflow.md)
 
 ---
 

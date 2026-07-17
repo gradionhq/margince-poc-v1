@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -32,15 +32,34 @@ import (
 func seedStarterAutomations(t *testing.T, e *searchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return agents.SeedStarterAutomationsTx(context.Background(), tx)
+		return automation.SeedStarterAutomationsTx(context.Background(), tx)
 	})
 	if err != nil {
 		t.Fatalf("seeding starter automations: %v", err)
 	}
 }
 
-// enableLeadRouting inserts an ENABLED route_lead instance with the
-// given routing params — the configured state seedStarterAutomations
+// enableStageChangeCreateTask inserts an ENABLED stage_change_create_task
+// instance — authorable but NOT one of the six seedStarterAutomations
+// enrolls (automations_catalog.go's Catalog doc), so a suite exercising
+// its own Match semantic must enable it explicitly.
+func enableStageChangeCreateTask(t *testing.T, e *searchEnv) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        'stage_change_create_task', 'Follow up on stage changes',
+			        '{"event_type":"deal.stage_changed"}', '{"kind":"create_task"}', '{}'::jsonb, true)`)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// enableLeadRouting inserts an ENABLED assign_lead_owner instance with
+// the given routing params — the configured state seedStarterAutomations
 // leaves for an admin to fill in (an unconfigured pool routes nobody).
 func enableLeadRouting(t *testing.T, e *searchEnv, params map[string]any) ids.UUID {
 	t.Helper()
@@ -53,7 +72,7 @@ func enableLeadRouting(t *testing.T, e *searchEnv, params map[string]any) ids.UU
 		return tx.QueryRow(context.Background(), `
 			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'route_lead', 'Route new leads', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
+			        'assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
 			        $1, true)
 			RETURNING id`, paramsJSON).Scan(&automationID)
 	})
@@ -95,13 +114,13 @@ func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*), max(applied::text)::bytea FROM workflow_run WHERE handler = 'route_lead'`).Scan(&runs, &applied)
+			`SELECT count(*), max(applied::text)::bytea FROM workflow_run WHERE handler = 'assign_lead_owner'`).Scan(&runs, &applied)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if owner == nil || *owner != e.Rep1 || runs != 1 {
-		t.Fatalf("route_lead left owner=%v over %d runs, want rep1 exactly once", owner, runs)
+		t.Fatalf("assign_lead_owner left owner=%v over %d runs, want rep1 exactly once", owner, runs)
 	}
 	var appliedActions []map[string]any
 	if err := json.Unmarshal(applied, &appliedActions); err != nil || len(appliedActions) != 1 {
@@ -174,7 +193,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 		return tx.QueryRow(context.Background(), `
 			INSERT INTO automation (workspace_id, key, name, trigger, action, params, enabled)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'route_lead', 'Route new leads', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
+			        'assign_lead_owner', 'Assign new leads an owner', '{"event_type":"lead.created"}', '{"kind":"assign_owner"}',
 			        $1, false)
 			RETURNING id`, fmt.Sprintf(`{"owners": [%q]}`, e.Rep3.String())).Scan(&automationID)
 	})
@@ -205,7 +224,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	var runs int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM workflow_run WHERE handler = 'route_lead'`).Scan(&runs)
+			`SELECT count(*) FROM workflow_run WHERE handler = 'assign_lead_owner'`).Scan(&runs)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -218,6 +237,11 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	e := setupSearch(t)
 	seedStarterAutomations(t, e)
+	// stage_change_create_task is authorable but not one of the six
+	// seeded templates (automations_catalog.go's Catalog doc) — this
+	// suite exercises its own Match semantic, so it enables the instance
+	// itself rather than relying on the bootstrap floor.
+	enableStageChangeCreateTask(t, e)
 	e.seedDealFixtures(t, 1, nil)
 	var dealID ids.UUID
 	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
@@ -225,7 +249,7 @@ func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	}
 	engine := compose.NewWorkflowEngine(e.Pool)
 
-	closedPayload, _ := json.Marshal(map[string]string{"to_semantic": "won"})
+	closedPayload, _ := json.Marshal(map[string]string{"to_status": "won"})
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
 		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
 		OccurredAt: time.Now().UTC(),
@@ -234,7 +258,7 @@ func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	openPayload, _ := json.Marshal(map[string]string{"to_semantic": "open"})
+	openPayload, _ := json.Marshal(map[string]string{"to_status": "open"})
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
 		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
 		OccurredAt: time.Now().UTC(),

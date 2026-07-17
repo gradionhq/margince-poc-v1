@@ -16,6 +16,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -27,6 +28,12 @@ type commsAdapter struct {
 }
 
 var _ agents.Comms = commsAdapter{}
+
+// commsAdapter also structurally satisfies automation.Comms (the same
+// DraftEmail signature, seams.go) — the deterministic draft_email
+// workflow action reuses this ONE adapter rather than wrapping it a
+// second time.
+var _ automation.Comms = commsAdapter{}
 
 func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (string, string, error) {
 	// The deterministic draft over the anchor's own context — the same

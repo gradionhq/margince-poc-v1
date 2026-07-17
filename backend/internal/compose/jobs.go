@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -97,6 +98,27 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 	return enumErr
 }
 
+// TimeScanArgs schedules one clock-trigger scan pass (Task 14a): the
+// coarse ActivityScan pre-filter converging every CLOCK-triggered
+// automation instance (no_activity_reminder today) onto runOne — the
+// same dispatch path event triggers use.
+type TimeScanArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (TimeScanArgs) Kind() string { return "time_scan" }
+
+// timeScanWorker delegates a River job to the automation module's
+// TimeScanner — River-agnostic by construction (this file's own doc: the
+// adapters are the only code that knows about River).
+type timeScanWorker struct {
+	river.WorkerDefaults[TimeScanArgs]
+	scanner *automation.TimeScanner
+}
+
+func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
+	return w.scanner.Scan(ctx)
+}
+
 // GmailWatchArgs schedules one push-watch maintenance pass: register a Gmail
 // users.watch for every active connection that has none yet and renew any
 // nearing its 7-day expiry (capture.md CAP-DDL-2). Scheduled only when a
@@ -153,48 +175,70 @@ func sweepInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByState: activeSweepStates}}
 }
 
-// NewJobRunner wires the deals correctors into River periodic jobs for the
-// worker process role. The intervals keep the operator-facing
-// --close-date-interval / --reconcile-interval flags as the schedule source;
-// RunOnStart preserves the old ticker's boot-time first pass.
+// JobRunnerConfig is NewJobRunner's boot configuration: the three
+// always-on periodic passes' intervals, the optional Gmail poll (added
+// only when GmailRegistry is non-nil), and the optional Gmail push-watch
+// maintenance pass (added only when GmailRegistry is non-nil AND
+// GmailWatch.Topic is set).
+type JobRunnerConfig struct {
+	CloseDateInterval time.Duration
+	ReconcileInterval time.Duration
+	TimeScanInterval  time.Duration
+	GmailRegistry     *capture.Registry
+	GmailInterval     time.Duration
+	GmailWatch        GmailWatchConfig
+}
+
+// NewJobRunner wires the deals correctors and the automation time-scan
+// into River periodic jobs for the worker process role. The intervals
+// keep the operator-facing --close-date-interval / --reconcile-interval /
+// --time-scan-interval flags as the schedule source; RunOnStart preserves
+// the old ticker's boot-time first pass.
 //
-// When gmailReg is non-nil (the deployment configured the Gmail OAuth app),
-// a Gmail incremental-sync poll is added on gmailInterval — leader-elected
-// like the sweeps, so replicas never double-poll. When a Pub/Sub topic is also
-// configured (watch.Topic != ""), a push-watch maintenance pass is added on
-// watch.Interval that registers/renews Gmail watches nearing expiry; without a
-// topic the watch job is absent by omission and capture stays on the poll.
-func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, reconcileInterval time.Duration, gmailReg *capture.Registry, gmailInterval time.Duration, watch GmailWatchConfig) (*jobs.Runner, error) {
+// When cfg.GmailRegistry is non-nil (the deployment configured the Gmail
+// OAuth app), a Gmail incremental-sync poll is added on cfg.GmailInterval —
+// leader-elected like the sweeps, so replicas never double-poll. When a
+// Pub/Sub topic is also configured (cfg.GmailWatch.Topic != ""), a push-watch
+// maintenance pass is added on cfg.GmailWatch.Interval that registers/renews
+// Gmail watches nearing expiry; without a topic the watch job is absent by
+// omission and capture stays on the poll.
+func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
+	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
-			river.PeriodicInterval(closeDateInterval),
+			river.PeriodicInterval(cfg.CloseDateInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return CloseDateSweepArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
 		river.NewPeriodicJob(
-			river.PeriodicInterval(reconcileInterval),
+			river.PeriodicInterval(cfg.ReconcileInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return FollowUpReconcileArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		river.NewPeriodicJob(
+			river.PeriodicInterval(cfg.TimeScanInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
 	}
 
-	if gmailReg != nil {
-		river.AddWorker(workers, &gmailSyncWorker{registry: gmailReg, log: log})
+	if cfg.GmailRegistry != nil {
+		river.AddWorker(workers, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
 		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(gmailInterval),
+			river.PeriodicInterval(cfg.GmailInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
-		if watch.Topic != "" {
+		if cfg.GmailWatch.Topic != "" {
 			river.AddWorker(workers, &gmailWatchWorker{
-				registry: gmailReg, topic: watch.Topic, renewWithin: watch.RenewWithin, log: log,
+				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
 			})
 			periodic = append(periodic, river.NewPeriodicJob(
-				river.PeriodicInterval(watch.Interval),
+				river.PeriodicInterval(cfg.GmailWatch.Interval),
 				func() (river.JobArgs, *river.InsertOpts) { return GmailWatchArgs{}, sweepInsertOpts() },
 				&river.PeriodicJobOpts{RunOnStart: true},
 			))

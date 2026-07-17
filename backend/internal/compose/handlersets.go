@@ -5,9 +5,9 @@ package compose
 
 import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -33,7 +33,7 @@ type (
 	collectionsHandlers  = collections.Handlers
 	signalsHandlers      = signals.Handlers
 	privacyHandlers      = privacy.Handlers
-	agentsHandlers       = agents.Handlers
+	automationHandlers   = automation.Handlers
 	voiceHandlers        = ai.Handlers
 	customfieldsHandlers = customfields.Handlers
 	quotasHandlers       = quotas.Handlers

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The designer's dry-run (A72/ADR-0035 Am.1): which records does this
 // automation's When/If match RIGHT NOW, and how often would it have
@@ -58,7 +58,9 @@ type AutomationPreviewResult struct {
 
 // previewDef is one catalog type's dry-run definition: the record table
 // its When/If ranges over, the closed field vocabulary + predicate that
-// IS the match, and the trailing-window firing count.
+// IS the match, and the trailing-window firing count. unsupported marks
+// a DOCUMENTED gap instead (see its own doc) — exactly one of
+// (table+fields+match+firedCount) or unsupported is set.
 type previewDef struct {
 	table     string
 	baseWhere string
@@ -68,26 +70,66 @@ type previewDef struct {
 	// workspace-level (RLS-bounded), an estimate of event volume rather
 	// than a per-row visibility question.
 	firedCount func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error)
+	// unsupported names why this catalog key has no preview YET, when
+	// non-empty: a documented, tested gap (see previewNotYetSupported's
+	// doc), not a missing map entry — Preview answers a clean 422 naming
+	// this reason instead of crashing or fabricating a wrong scope/match.
+	unsupported string
+}
+
+// previewNotYetSupported builds a previewDef that documents a gap
+// rather than fabricating one: previewDef's match is a STATIC
+// storekit.Predicate over ONE table with ONE RBAC-scoped resource, and
+// three catalog entries genuinely do not fit that shape yet —
+// no_activity_reminder and check_in_cadence's candidate set spans every
+// linked entity type (activities/lasttouch.go's LastTouchBefore
+// coalesces person/organization/deal/lead) with no single RBAC resource
+// to scope a row-visibility clause against, and BOTH their own "if" is
+// relative to "now minus the instance's own N days" — a runtime value
+// this registry's static map cannot parameterize on. renewal_reminder
+// has no candidate source wired at all yet (handlers_clock.go's
+// own extensive doc on that gap: no seam reaches an arbitrary cf_*
+// column's value). Fabricating any of the three risks a wrong or
+// over-wide RBAC scope on a preview endpoint — a security-sensitive
+// surface — which is worse than an honest "not yet".
+func previewNotYetSupported(reason string) previewDef {
+	return previewDef{unsupported: reason}
 }
 
 // previewDefs maps every catalog key to its dry-run definition; the
-// catalog is closed, so a key without a preview is a programming error a
-// fitness test catches, never a silent empty preview.
+// catalog is closed, so a key without ANY entry here is a programming
+// error a fitness test catches, never a silent empty preview
+// (TestEveryCatalogKeyHasAPreviewDefinition). Merged from smaller,
+// per-table builders rather than one long literal.
 func previewDefs() map[string]previewDef {
+	defs := map[string]previewDef{}
+	for _, group := range []map[string]previewDef{
+		leadPreviewDefs(), dealPreviewDefs(), activityPreviewDefs(), unsupportedPreviewDefs(),
+	} {
+		for key, def := range group {
+			defs[key] = def
+		}
+	}
+	return defs
+}
+
+// leadPreviewDefs are the catalog entries whose When/If ranges over the
+// lead table.
+func leadPreviewDefs() map[string]previewDef {
 	return map[string]previewDef{
-		"route_lead": {
+		assignLeadOwnerName: {
 			table:     "lead",
 			baseWhere: "t.archived_at IS NULL",
 			fields: map[string]storekit.Field{
 				"status":   {Expr: "t.status", Type: storekit.FieldPicklist},
-				"owner_id": {Expr: "t.owner_id", Type: storekit.FieldID},
+				keyOwnerID: {Expr: "t.owner_id", Type: storekit.FieldID},
 			},
 			// When: lead.created. If: the router only assigns where no
 			// owner is set — so the blast radius now is the open, unrouted
 			// lead pool.
 			match: storekit.Predicate{And: []storekit.Predicate{
 				{Field: "status", Op: storekit.OpIn, Value: []any{"new", "working"}},
-				{Field: "owner_id", Op: storekit.OpExists, Value: false},
+				{Field: keyOwnerID, Op: storekit.OpExists, Value: false},
 			}},
 			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 				// Every lead created in the window was one firing —
@@ -98,7 +140,31 @@ func previewDefs() map[string]previewDef {
 				return n, err
 			},
 		},
-		"stage_change_create_task": {
+		routeLeadName: {
+			table:     "lead",
+			baseWhere: "t.archived_at IS NULL",
+			fields: map[string]storekit.Field{
+				// No "if" narrows this starter — every new lead gets the
+				// follow-up task; "id exists" is the always-true leaf
+				// previewDef's Predicate shape needs (a zero-value
+				// Predicate has no defined meaning, storekit's groupShape).
+				"id": {Expr: "t.id", Type: storekit.FieldID},
+			},
+			match: storekit.Predicate{Field: "id", Op: storekit.OpExists, Value: true},
+			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
+				var n int
+				err := tx.QueryRow(ctx, `SELECT count(*) FROM lead WHERE created_at >= $1`, since).Scan(&n)
+				return n, err
+			},
+		},
+	}
+}
+
+// dealPreviewDefs are the catalog entries whose When/If ranges over the
+// deal table.
+func dealPreviewDefs() map[string]previewDef {
+	return map[string]previewDef{
+		stageChangeCreateTaskName: {
 			table:     "deal",
 			baseWhere: "t.archived_at IS NULL",
 			fields: map[string]storekit.Field{
@@ -106,16 +172,72 @@ func previewDefs() map[string]previewDef {
 			},
 			// When: deal.stage_changed. If: only OPEN destinations mint a
 			// follow-up — so the records in range now are the open deals.
-			match: storekit.Predicate{Field: "status", Op: storekit.OpEq, Value: "open"},
+			// dealStatusOpen is the SAME value the runtime Match tests
+			// (handlers_event.go), so the dry-run and the firing agree.
+			match: storekit.Predicate{Field: "status", Op: storekit.OpEq, Value: dealStatusOpen},
 			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 				var n int
 				err := tx.QueryRow(ctx, `
 					SELECT count(*) FROM deal_stage_history h
 					JOIN stage s ON s.id = h.to_stage_id
-					WHERE h.changed_at >= $1 AND s.semantic = 'open'`, since).Scan(&n)
+					WHERE h.changed_at >= $1 AND s.semantic = $2`, since, dealStatusOpen).Scan(&n)
 				return n, err
 			},
 		},
+		stageChangeNotifyName: {
+			table:     "deal",
+			baseWhere: "t.archived_at IS NULL",
+			fields: map[string]storekit.Field{
+				// No "if" narrows this starter (it notifies on every move,
+				// won/lost included) — same always-true leaf as route_lead's.
+				"id": {Expr: "t.id", Type: storekit.FieldID},
+			},
+			match: storekit.Predicate{Field: "id", Op: storekit.OpExists, Value: true},
+			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
+				var n int
+				err := tx.QueryRow(ctx,
+					`SELECT count(*) FROM deal_stage_history WHERE changed_at >= $1`, since).Scan(&n)
+				return n, err
+			},
+		},
+	}
+}
+
+// activityPreviewDefs are the catalog entries whose When/If ranges over
+// the activity table.
+func activityPreviewDefs() map[string]previewDef {
+	return map[string]previewDef{
+		postMeetingRecapName: {
+			table:     "activity",
+			baseWhere: "t.archived_at IS NULL",
+			fields: map[string]storekit.Field{
+				"kind": {Expr: "t.kind", Type: storekit.FieldPicklist},
+			},
+			// When: activity.captured. If: kind = meeting — the records in
+			// range now are every captured meeting activity.
+			match: storekit.Predicate{Field: "kind", Op: storekit.OpEq, Value: activityKindMeeting},
+			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
+				var n int
+				err := tx.QueryRow(ctx,
+					`SELECT count(*) FROM activity WHERE occurred_at >= $1 AND kind = $2`,
+					since, activityKindMeeting).Scan(&n)
+				return n, err
+			},
+		},
+	}
+}
+
+// unsupportedPreviewDefs are the catalog entries previewNotYetSupported
+// documents (its own doc explains why each cannot fit previewDef's
+// static, single-table shape yet).
+func unsupportedPreviewDefs() map[string]previewDef {
+	return map[string]previewDef{
+		noActivityReminderName: previewNotYetSupported(
+			"preview is not yet supported for no_activity_reminder: its candidate set spans every linked entity type with no single row-scoped resource to preview against"),
+		checkInCadenceName: previewNotYetSupported(
+			"preview is not yet supported for check_in_cadence: its candidate set spans every linked entity type with no single row-scoped resource to preview against"),
+		renewalReminderName: previewNotYetSupported(
+			"preview is not yet supported for renewal_reminder: no candidate source is wired for a custom renewal-date field yet"),
 	}
 }
 
@@ -178,7 +300,24 @@ func resolvePreviewRecipe(stored Automation, in AutomationPreviewInput) (preview
 	if !ok {
 		return previewDef{}, 0, fmt.Errorf("crmagents: catalog key %q has no preview definition", key)
 	}
+	if def.unsupported != "" {
+		return previewDef{}, 0, &ParamError{Field: "key", Reason: def.unsupported}
+	}
 	return def, window, nil
+}
+
+// scopeClause resolves the RIGHT row-visibility clause for def.table:
+// activity carries no owner_id (auth.ScopeClauseFor's ownerScopedTables
+// does not — and must not — include it), its visibility instead
+// inheriting from whatever it links to (auth.ActivityScopeClause's own
+// doc) — the SAME link-walk rule the activities timeline and people's
+// promotion-evidence check both enforce (ADR-0054 §8: one spelling).
+// Every other previewed table is a plain owner-scoped resource.
+func (def previewDef) scopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	if def.table == "activity" {
+		return auth.ActivityScopeClause(ctx, alias, arg)
+	}
+	return auth.ScopeClauseFor(ctx, def.table, alias, arg)
 }
 
 // measure computes the blast radius inside the caller's workspace-bound
@@ -206,7 +345,7 @@ func (def previewDef) measure(ctx context.Context, tx pgx.Tx, since time.Time, r
 	if err != nil {
 		return err
 	}
-	scope, err := auth.ScopeClauseFor(ctx, def.table, "t", registerArg(&args))
+	scope, err := def.scopeClause(ctx, "t", registerArg(&args))
 	if err != nil {
 		return err
 	}

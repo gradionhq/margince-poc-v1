@@ -16,6 +16,9 @@ func TestJobKindsAreStable(t *testing.T) {
 	if got := (FollowUpReconcileArgs{}).Kind(); got != "follow_up_reconcile" {
 		t.Errorf("FollowUpReconcileArgs.Kind() = %q, want follow_up_reconcile", got)
 	}
+	if got := (TimeScanArgs{}).Kind(); got != "time_scan" {
+		t.Errorf("TimeScanArgs.Kind() = %q, want time_scan", got)
+	}
 }
 
 // TestUniquenessWindowExcludesCompleted is the load-bearing invariant: the

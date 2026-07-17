@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // Invoker is the runner's ONLY path to an action: the governed tool
@@ -226,7 +226,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		}
 
 		out, err := r.tools.Invoke(ctx, step.Tool, step.Args)
-		var staged *agents.StagedApprovalError
+		var staged *workflow.StagedApprovalError
 		switch {
 		case errors.As(err, &staged):
 			// 🟡 mid-loop: the proposal is durably staged; suspend, never

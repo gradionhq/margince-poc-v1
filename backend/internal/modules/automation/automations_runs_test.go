@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The run-history vocabulary as specs: the wire outcome set, the
 // workflow_run.status set (migration 0061's CHECK), and the two maps
@@ -51,6 +51,9 @@ func TestEveryCatalogKeyHasAPreviewDefinition(t *testing.T) {
 		if !ok {
 			t.Errorf("catalog key %q has no preview definition — POST /automations/{id}/preview would 500", entry.Key)
 			continue
+		}
+		if def.unsupported != "" {
+			continue // a documented gap (previewNotYetSupported's own reason), not a missing definition
 		}
 		if def.table == "" || def.firedCount == nil || len(def.fields) == 0 {
 			t.Errorf("preview definition for %q is incomplete: table=%q fields=%d firedCount set=%v",

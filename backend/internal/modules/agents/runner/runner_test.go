@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // scriptedBrain returns queued texts; when empty it keeps proposing the
@@ -132,7 +133,7 @@ func TestRefusalFedBackAsObservation(t *testing.T) {
 func TestYellowStagingSuspendsRun(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
 	surface := &fakeSurface{errs: map[string]error{
-		"send_email": &agents.StagedApprovalError{ApprovalID: approvalID},
+		"send_email": &workflow.StagedApprovalError{ApprovalID: approvalID},
 	}}
 	brain := &scriptedBrain{texts: []string{`{"tool":"send_email","args":{"to":"a@b.c"}}`}}
 	res, err := New(surface, brain).Run(context.Background(), Job{Goal: "follow up"})

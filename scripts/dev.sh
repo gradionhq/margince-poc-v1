@@ -199,14 +199,18 @@ up)
 
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
-  # kill. Redis is the ONE shared instance.
+  # kill. Redis is the ONE shared instance. The api keeps its default inline
+  # relay: it coexists with the worker's standalone relay (started below) —
+  # outbox rows are claimed FOR UPDATE SKIP LOCKED, so two relays never
+  # double-ship.
   MARGINCE_ENV=dev \
     MARGINCE_BLOBSTORE_ENDPOINT="localhost:${MINIO_PORT}" \
     MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" \
-    --redis "localhost:${REDIS_PORT}" "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
+    --redis "localhost:${REDIS_PORT}" \
+    "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
   be_pid=$!
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
@@ -235,12 +239,22 @@ up)
   # dev: the standalone outbox relay (coexists with the api's inline relay —
   # rows are claimed FOR UPDATE SKIP LOCKED, so two relays never double-ship),
   # the Surface-B runner scheduler, and the retention / close-date / reconcile
-  # sweeps. It gets the SAME config surface as the api — the same $ai_flag
-  # (real Anthropic model when .env.local set ANTHROPIC_API_KEY, else the
-  # offline fake, so its runner matches the api), the same blobstore endpoint,
-  # and the .env.local keys already exported into this shell (vault + Gmail
-  # secrets travel via the environment, never CLI flags). Gmail adds a short
-  # sync poll only when the connector is configured.
+  # sweeps AND the automation time-scan (the ONLY cg:workflows consumer + the
+  # clock-trigger scheduler — without the worker, `make dev` fires no
+  # automations at all, event- or clock-triggered). It gets the SAME config
+  # surface as the api — the same $ai_flag (real Anthropic model when
+  # .env.local set ANTHROPIC_API_KEY, else the offline fake, so its runner
+  # matches the api), the same blobstore endpoint, and the .env.local keys
+  # already exported into this shell (vault + Gmail secrets travel via the
+  # environment, never CLI flags). Gmail adds a short sync poll only when the
+  # connector is configured.
+  #
+  # --retention-interval 720h: the worker runs the nightly GDPR
+  # retention/erasure pass unconditionally. River's RunOnStart still fires one
+  # evaluation immediately at boot (inherent, not gated by this flag) — but it
+  # only ERASES data past its jurisdiction floor, so on fresh seeded demo data
+  # it is a no-op. The long interval just stops it recurring during a dev
+  # session.
   ( cd backend && go build -o ../bin/worker ./cmd/worker ) >>"$log" 2>&1
   worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then
@@ -253,12 +267,13 @@ up)
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
+    --retention-interval 720h \
     "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
   worker_pid=$!
   if [[ "$gmail_enabled" == "1" ]]; then
-    echo "  worker   background relay + Surface-B runner + Gmail sync (poll every 30s)"
+    echo "  worker   background relay + Surface-B runner + time-scan + Gmail sync (poll every 30s)"
   else
-    echo "  worker   background relay + Surface-B runner running"
+    echo "  worker   background relay + Surface-B runner + automation time-scan running"
   fi
 
   # The FE's /v1 proxy follows the api via BACKEND_PORT (see vite.config.ts).
