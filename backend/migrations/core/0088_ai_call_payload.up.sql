@@ -9,11 +9,17 @@
 CREATE TABLE ai_call_payload (
   id               uuid        NOT NULL DEFAULT uuidv7(),
   workspace_id     uuid        NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
-  ai_call_id       uuid        NOT NULL REFERENCES ai_call(id) ON DELETE CASCADE,
+  ai_call_id       uuid        NOT NULL,
   request_payload  jsonb       NOT NULL,
   response_payload jsonb       NOT NULL,
   occurred_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  -- Composite tenant-local FK: (workspace_id, ai_call_id) must match one
+  -- ai_call in the SAME workspace, so the database rejects a cross-tenant
+  -- target (schema-fitness invariant). CASCADE so a purged call takes its
+  -- payload with it.
+  CONSTRAINT ai_call_payload_ai_call_fkey FOREIGN KEY (workspace_id, ai_call_id)
+    REFERENCES ai_call (workspace_id, id) ON DELETE CASCADE
 );
 
 CREATE INDEX ai_call_payload_ws_time ON ai_call_payload (workspace_id, occurred_at);

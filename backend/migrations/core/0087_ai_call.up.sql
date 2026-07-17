@@ -24,7 +24,11 @@ CREATE TABLE ai_call (
   error_sentinel      text,                      -- short stable code on the failure path; NULL on success
   agent_run_id        uuid,                      -- set when the call originates inside a runner step
   occurred_at         timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  -- Composite unique so tenant-local FKs (ai_call_payload) can target
+  -- (workspace_id, id) and the database itself rejects a cross-workspace
+  -- reference (the schema-fitness composite-tenant-FK invariant).
+  CONSTRAINT uq_ai_call_ws_id UNIQUE (workspace_id, id)
 );
 
 CREATE INDEX ai_call_ws_time      ON ai_call (workspace_id, occurred_at DESC);
