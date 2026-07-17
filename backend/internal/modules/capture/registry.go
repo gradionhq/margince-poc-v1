@@ -136,7 +136,7 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected')
 			ON CONFLICT (workspace_id, user_id, provider)
-			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected'
+			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL
 			RETURNING id`,
 			name, actor.UserID, scopes, string(ref)).Scan(&id)
 	})
@@ -390,11 +390,14 @@ func (r *Registry) connectorContext(ctx context.Context, name string, grantedBy 
 // selecting it (DueConnections filters on 'connected'). The failing sync's
 // error is returned to the caller by SyncOnce; capture_connection no longer
 // keeps a diagnostic column (CAP-DDL-2), so operational detail rides the
-// system_log ledger, not this row.
+// system_log ledger, not this row. The guard keeps a sync failure that races a
+// concurrent Disconnect from resurrecting the user's 'disconnected' choice into
+// 'error' — only a still-connected, live row transitions.
 func (r *Registry) markError(ctx context.Context, connectionID ids.UUID) error {
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			UPDATE capture_connection SET status = 'error' WHERE id = $1`,
+			UPDATE capture_connection SET status = 'error'
+			WHERE id = $1 AND status = 'connected' AND archived_at IS NULL`,
 			connectionID)
 		return err
 	})

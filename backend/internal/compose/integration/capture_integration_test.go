@@ -32,6 +32,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
+// fixedCaptureTime is the deterministic occurred-at the capture test fakes
+// stamp on their records — the suite never reads a real clock (repo test
+// guideline), and none of these tests assert on the timestamp itself.
+var fixedCaptureTime = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+
 // mailFake is the in-repo test connector: two records per sync — one
 // email activity linked to a person, one lead. The raw payload varies
 // per sync so replay tests can prove evidence immutability.
@@ -68,7 +73,7 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 		{
 			EntityType: datasource.EntityActivity,
 			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-1"},
-			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: time.Now().UTC(), Direction: "inbound"},
+			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", Body: "please send pricing", OccurredAt: fixedCaptureTime, Direction: "inbound"},
 			Links:      []datasource.EntityRef{{Type: datasource.EntityPerson, ID: m.linkTo}},
 			Source:     "graph", CapturedBy: "connector:graph",
 			Raw: []byte(fmt.Sprintf(`{"provider":"graph","message_id":"msg-1","sync":%d}`, m.syncCount)),
@@ -209,6 +214,47 @@ func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 	})
 	if err != nil || connections != 0 {
 		t.Fatalf("refused grant persisted a connection: %d %v", connections, err)
+	}
+}
+
+func TestReconnectUnarchivesTheConnection(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(&mailFake{})
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Archive the row: the per-user unique key spans archived rows, so a
+	// reconnect must resurrect this exact row, not be blocked by it.
+	if err := database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE capture_connection SET archived_at = now() WHERE id = $1`, connID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if views, err := registry.Connections(grantCtx); err != nil || len(views) != 0 {
+		t.Fatalf("archived connection still listed: %+v err=%v", views, err)
+	}
+
+	// Reconnect the same provider for the same human.
+	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("token")); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	views, err := registry.Connections(grantCtx)
+	if err != nil || len(views) != 1 || views[0].Status != "connected" {
+		t.Fatalf("after reconnect Connections = %+v err=%v, want one connected (archived_at cleared)", views, err)
+	}
+	var archivedAt *time.Time
+	if err := database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT archived_at FROM capture_connection WHERE id = $1`, connID).Scan(&archivedAt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if archivedAt != nil {
+		t.Errorf("reconnect left archived_at set (%v); the row stays invisible to the poller", archivedAt)
 	}
 }
 

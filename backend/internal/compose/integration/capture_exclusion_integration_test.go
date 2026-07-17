@@ -16,7 +16,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -55,7 +54,7 @@ func (m *exclusionFake) Sync(ctx context.Context, _ connector.Auth, cursor conne
 		{
 			EntityType: datasource.EntityActivity,
 			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-personal"},
-			Fields:     capture.ActivityFields{Kind: "email", Subject: "Dinner Sunday?", OccurredAt: time.Now().UTC(), Direction: "inbound"},
+			Fields:     capture.ActivityFields{Kind: "email", Subject: "Dinner Sunday?", OccurredAt: fixedCaptureTime, Direction: "inbound"},
 			Source:     "graph", CapturedBy: "connector:graph",
 			Raw:   []byte(`{"provider":"graph","message_id":"msg-personal"}`),
 			Match: connector.ExclusionAttrs{SenderDomain: "personal-family.example", RecipientDomains: []string{"myco.test"}},
@@ -63,7 +62,7 @@ func (m *exclusionFake) Sync(ctx context.Context, _ connector.Auth, cursor conne
 		{
 			EntityType: datasource.EntityActivity,
 			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-work"},
-			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", OccurredAt: time.Now().UTC(), Direction: "inbound"},
+			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", OccurredAt: fixedCaptureTime, Direction: "inbound"},
 			Source:     "graph", CapturedBy: "connector:graph",
 			Raw:   []byte(`{"provider":"graph","message_id":"msg-work"}`),
 			Match: connector.ExclusionAttrs{SenderDomain: "acme.test", RecipientDomains: []string{"myco.test"}},
