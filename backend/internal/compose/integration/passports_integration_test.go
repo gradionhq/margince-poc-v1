@@ -21,10 +21,9 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
 type passportsEnv struct {
@@ -52,18 +51,10 @@ func setupPassports(t *testing.T) *passportsEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	if _, err := owner.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO margince_app`); err != nil {
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatal(err)
-	}
-	custom, err := migrations.Custom()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
+	if err := testdb.Truncate(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
 
