@@ -42,6 +42,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
@@ -123,6 +124,17 @@ var _ crmcontracts.ServerInterface = Server{}
 // Option customizes the wiring for one process role; everything not
 // optioned keeps its safe default.
 type Option func(*Server, *pgxpool.Pool)
+
+// WithPasswordReset wires the A74 forgot-password flow onto the identity
+// surface: the operator's transactional mailer plus the public base URL
+// the emailed link points at. Without it the reset endpoints answer
+// their explicit 501 and the capabilities probe reports
+// password_reset=false (A107 — the login UI renders only what works).
+func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
+	}
+}
 
 // WithBusReady adds the event-bus probe to /readyz. The api role passes
 // it when it runs the inline relay: a process that must ship events is

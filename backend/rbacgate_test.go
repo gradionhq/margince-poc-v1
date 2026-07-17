@@ -42,6 +42,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/identity:AuthenticateAgentByID": "pre-principal: the by-id half of passport verification, same admission seam",
 	"internal/modules/identity:InstallationWorkspace": "singleton-organization resolution (A107/ADR-0061), bound by the middleware before any principal exists",
 	"internal/modules/identity:BootstrapInstallation": "boot-time provisioning under the system principal (A107/ADR-0061); no human principal can exist before it",
+	"internal/modules/identity:CreatePasswordReset":   "pre-principal by design (A74): the caller is locked out; enumeration-resistant token mint, authority is control of the mailbox",
+	"internal/modules/identity:RedeemPasswordReset":   "pre-principal by design (A74): possession of the single-use emailed token IS the authority being verified",
 	"internal/modules/identity:EffectiveRBAC":         "this LOADS the merged role policy the auth gate enforces — gating it on itself would recurse",
 	"internal/modules/identity:SeatType":              "seat-tier lookup feeding the auth gate (scope ∧ tier); same layer as EffectiveRBAC, not above it",
 	"internal/modules/identity:IssuePassport":         "gated by the explicit Identity parameter (the authenticated session): a passport is minted for that identity only, capped by validScopes",

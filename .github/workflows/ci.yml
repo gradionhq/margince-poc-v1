@@ -137,6 +137,10 @@ jobs:
         env:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
+          # Deliberate spec re-sync (A107/ADR-0061): POST /workspaces and the
+          # tenant-selection surface leave the contract. Advisory for THIS
+          # change only — revert to the default (stable) right after merge.
+          CONTRACT_STABILITY: "pre-live"
         run: make check-backend
 
   # The code-craftsmanship gate (ADR-0045) runs only after the deterministic

@@ -42,6 +42,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 )
 
 func main() {
@@ -142,6 +143,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer closeSchemaPool()
+
+	resetOpts, err := passwordResetOptions(deployCfg, cfg.publicBaseURL, stdout)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, resetOpts...)
 
 	stopRelay := func() {
 		// No inline relay to stop unless --inline-relay wires one below.
@@ -253,6 +260,33 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, 
 	opts = append(opts, schemaOpts...)
 
 	return opts, closeSchemaPool, nil
+}
+
+// passwordResetOptions wires the A74 forgot-password flow when the
+// deployment file configures outbound email. The emailed link needs a
+// canonical external base — with email enabled, a missing
+// --public-base-url is a boot error, never a link derived from a
+// request Host.
+func passwordResetOptions(deployCfg deployconfig.Config, publicBaseURL string, stdout io.Writer) ([]compose.Option, error) {
+	if !deployCfg.Email.Enabled {
+		return nil, nil
+	}
+	if publicBaseURL == "" {
+		return nil, errors.New("api: email.enabled requires --public-base-url/MARGINCE_PUBLIC_BASE_URL (the reset link's canonical base)")
+	}
+	smtpPassword, err := deployCfg.Email.SMTPPassword()
+	if err != nil {
+		return nil, err
+	}
+	m := mailer.SMTP{
+		Host:        deployCfg.Email.SMTP.Host,
+		Port:        deployCfg.Email.SMTP.Port,
+		Username:    deployCfg.Email.SMTP.Username,
+		Password:    smtpPassword,
+		FromAddress: deployCfg.Email.FromAddress,
+	}
+	_, _ = fmt.Fprintln(stdout, "api password reset enabled (outbound email configured)")
+	return []compose.Option{compose.WithPasswordReset(m, publicBaseURL)}, nil
 }
 
 // blobstoreOptions wires the attachment endpoints (and their /readyz probe +

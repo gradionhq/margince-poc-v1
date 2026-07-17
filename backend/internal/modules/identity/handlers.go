@@ -16,6 +16,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -28,17 +29,21 @@ const sessionCookie = "crm_session"
 // the contract plus the middleware that authenticates everything else.
 type Handlers struct {
 	svc *Service
-	// passwordResetAvailable reports whether the forgot-password flow can
-	// complete end to end (the A74 outbound-email channel is configured);
-	// nil means no — capabilities never advertise a flow that cannot
-	// finish (A107).
-	passwordResetAvailable func() bool
+	// resetMailer + resetBaseURL wire the A74 forgot-password flow; nil
+	// mailer means the flow is absent — the endpoints answer 501 and the
+	// capabilities probe reports password_reset=false, so the login UI
+	// never renders a link this surface cannot honor (A107).
+	resetMailer  mailer.Mailer
+	resetBaseURL string
 
 	// The unauthenticated endpoints carry their own throttles: login
-	// attempts cost a full Argon2 verification each. Fixed windows,
-	// in-process (single-binary scope; see platform/ratelimit).
+	// attempts cost a full Argon2 verification each and reset requests
+	// cost the operator an outbound mail. Fixed windows, in-process
+	// (single-binary scope; see platform/ratelimit).
 	loginFailures *ratelimit.Limiter // 10 failures/min per (email, IP)
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
+	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
+	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
 }
 
 // NewHandlers builds the identity transport surface over its service.
@@ -47,14 +52,18 @@ func NewHandlers(svc *Service) Handlers {
 		svc:           svc,
 		loginFailures: ratelimit.New(10, time.Minute),
 		loginPerIP:    ratelimit.New(30, time.Minute),
+		resetPerEmail: ratelimit.New(3, time.Hour),
+		resetPerIP:    ratelimit.New(30, time.Hour),
 	}
 }
 
-// WithPasswordReset marks the reset flow operational — wired by the
-// composition root when (and only when) the outbound-email transport
-// exists.
-func (h Handlers) WithPasswordReset(available func() bool) Handlers {
-	h.passwordResetAvailable = available
+// WithPasswordReset wires the forgot-password flow: the outbound-email
+// transport and the public base the emailed link points at. Wired by
+// the composition root when (and only when) the operator configured
+// email — absent it the flow stays its explicit 501.
+func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handlers {
+	h.resetMailer = m
+	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
 }
 
@@ -79,7 +88,7 @@ func clientIP(r *http.Request) string {
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
 		Password:      true,
-		PasswordReset: h.passwordResetAvailable != nil && h.passwordResetAvailable(),
+		PasswordReset: h.resetMailer != nil,
 	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
