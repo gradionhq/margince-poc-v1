@@ -109,7 +109,11 @@ func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
 	if err := registry.Disconnect(grantCtx, "gmail"); err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}
-	if d, _ := registry.DueWatches(context.Background(), "gmail", 365*24*time.Hour); len(d) != 0 {
+	d, err := registry.DueWatches(context.Background(), "gmail", 365*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DueWatches after disconnect: %v", err)
+	}
+	if len(d) != 0 {
 		t.Fatalf("DueWatches after disconnect = %+v, want empty", d)
 	}
 }
