@@ -41,7 +41,7 @@ export function useBuiltinCommands(): Command[] {
         id: "action:read-company",
         label: t("action.readCompany"),
         type: "action",
-        route: { screen: "onboarding", id: "read" },
+        route: { screen: "onboarding", id: "company" },
       },
       {
         id: "action:booking",

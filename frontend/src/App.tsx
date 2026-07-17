@@ -11,6 +11,7 @@ import {
   useBuiltinCommands,
   usePaletteHotkey,
 } from "./app/palette";
+import { navigate } from "./app/router";
 import { Shell, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
@@ -32,7 +33,7 @@ import { InboxScreen } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { OfferScreen } from "./screens/offers";
 import { OfferTemplatesScreen } from "./screens/offertemplates";
-import { OnboardingScreen } from "./screens/onboarding";
+import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { CompaniesScreen, CompanyScreen } from "./screens/organizations";
 import { PartnersScreen } from "./screens/partners";
 import { ContactsScreen, PersonScreen } from "./screens/people";
@@ -205,6 +206,18 @@ function AuthedApp({
     }
   }, [me.data, me.error]);
 
+  // Probed only once the session is known good: an unauthenticated /company
+  // would 401 and say nothing about onboarding.
+  const authed = !me.isPending && !me.isError;
+  const company = useCompany(authed);
+  const described = company.data !== null && company.data !== undefined;
+
+  useEffect(() => {
+    if (authed && company.isSuccess && !described) {
+      navigate({ screen: "onboarding", id: "company" });
+    }
+  }, [authed, company.isSuccess, described]);
+
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commands = useBuiltinCommands();
   usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
@@ -229,6 +242,18 @@ function AuthedApp({
     return (
       <RaillessFrame>
         <AuthScreen onAuthed={() => me.refetch()} notice={notice} />
+      </RaillessFrame>
+    );
+  }
+
+  // An installation that has not described itself has nothing for any other
+  // screen to show. The gate lives here rather than on the login path because
+  // a live session never passes through login — a reload would otherwise walk
+  // straight past onboarding into a company that does not exist.
+  if (company.isPending) {
+    return (
+      <RaillessFrame>
+        <AuthSplash />
       </RaillessFrame>
     );
   }

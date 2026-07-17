@@ -150,6 +150,28 @@ function formFromProfile(p: CompanyProfile): CompanyForm {
   };
 }
 
+// useCompany reads the installation's own company, or null when it has not
+// saved one yet: GET /company 404s until a human does, and that 404 IS the
+// onboarding signal — there is no separate "onboarded" flag that could drift
+// from the records it claims to describe. The app shell's gate and this form
+// share it, so one cache entry answers both and they cannot disagree.
+export function useCompany(enabled: boolean) {
+  return useQuery({
+    queryKey: ["company"],
+    enabled,
+    queryFn: async (): Promise<CompanyProfile | null> => {
+      const { data, error, response } = await api.GET("/company");
+      if (error) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+}
+
 // Pre-fill FILLS — it never clobbers. A field the human already typed into
 // keeps their text and its "typed by you" provenance; a field the read-back
 // didn't ground stays empty for manual entry (the no-guess gate).
@@ -250,22 +272,8 @@ export function OnboardingScreen() {
   const company =
     draft.values.display_name.trim() || (norm.ok ? deriveName(norm.host) : "");
 
-  // A returning admin edits rather than retypes. 404 is the normal first-run
-  // state — this installation has not saved its company yet, which is an empty
-  // form, not an error.
-  const existing = useQuery({
-    queryKey: ["company"],
-    queryFn: async (): Promise<CompanyProfile | null> => {
-      const { data, error, response } = await api.GET("/company");
-      if (error) {
-        if (response.status === 404) {
-          return null;
-        }
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
+  // A returning admin edits rather than retypes.
+  const existing = useCompany(true);
 
   // Seed once: after the first paint of the loaded profile the form belongs to
   // the human, and a re-render must not overwrite their typing.

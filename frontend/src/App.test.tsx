@@ -217,3 +217,79 @@ describe("auth boundary states (login spec §4)", () => {
     ).toBeTruthy();
   });
 });
+
+// The onboarding gate (A107/ADR-0061 + the 0082 anchor): an installation that
+// has not saved its own company has nothing for any other screen to show, so
+// the shell sends the human to the company form. GET /company 404s until a
+// human saves it — that 404 IS the signal, which is why the gate lives here
+// rather than on the login path: a live session never passes through login, so
+// a reload would otherwise walk straight past onboarding.
+describe("onboarding gate", () => {
+  const mount = () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+  };
+
+  // Every call the shell makes resolves; only /company's status varies, so the
+  // gate is the single thing under test.
+  const stubCompany = (status: number) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(
+            JSON.stringify({ user: { id: "u1" }, roles: ["admin"], teams: [] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.endsWith("/v1/company")) {
+          return status === 200
+            ? new Response(
+                JSON.stringify({
+                  organization_id: "o1",
+                  display_name: "Acme GmbH",
+                }),
+                {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                },
+              )
+            : new Response(JSON.stringify({ code: "not_found" }), {
+                status,
+                headers: { "Content-Type": "application/problem+json" },
+              });
+        }
+        return new Response(JSON.stringify({ data: [], page: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+  it("sends an installation that has not described itself to the company form", async () => {
+    stubCompany(404);
+    mount();
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#/onboarding/company"),
+    );
+  });
+
+  it("leaves a described installation on the route it asked for", async () => {
+    window.location.hash = "#/contacts";
+    stubCompany(200);
+    mount();
+    // The company resolves before this settles, so a gate that redirected
+    // would have replaced the hash by now.
+    await screen.findByRole("navigation");
+    expect(window.location.hash).toBe("#/contacts");
+  });
+});
