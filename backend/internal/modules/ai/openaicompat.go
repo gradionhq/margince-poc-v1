@@ -103,37 +103,7 @@ func (c *openAICompatClient) Stream(ctx context.Context, req model.Request) (mod
 }
 
 func (c *openAICompatClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
-	embedModel := req.Model
-	if embedModel == "" {
-		embedModel = c.defaultModel
-	}
-	payload, _, err := sendablePayload(ctx, map[string]any{"model": embedModel, "input": req.Inputs}, nil)
-	if err != nil {
-		return model.Embeddings{}, err
-	}
-	body, err := c.post(ctx, "/v1/embeddings", payload)
-	if err != nil {
-		return model.Embeddings{}, err
-	}
-	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
-	defer func() { _ = body.Close() }()
-	var out struct {
-		Data []struct {
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(body).Decode(&out); err != nil {
-		return model.Embeddings{}, fmt.Errorf("ai: openai-compat: decode embeddings: %w", err)
-	}
-	vectors := make([][]float32, 0, len(out.Data))
-	for _, d := range out.Data {
-		vectors = append(vectors, d.Embedding)
-	}
-	dims := 0
-	if len(vectors) > 0 {
-		dims = len(vectors[0])
-	}
-	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
+	return openAIWireEmbed(ctx, c.post, c.defaultModel, req)
 }
 
 func (c *openAICompatClient) Caps() model.Capabilities {

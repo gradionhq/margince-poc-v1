@@ -90,7 +90,7 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	if embedModel == "" {
 		embedModel = c.defaultModel
 	}
-	payload, _, err := sendablePayload(ctx, map[string]any{"model": embedModel, "input": req.Inputs}, nil)
+	payload, _, err := sendablePayload(ctx, embedWire{Model: embedModel, Input: req.Inputs}, nil)
 	if err != nil {
 		return model.Embeddings{}, err
 	}

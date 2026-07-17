@@ -28,6 +28,7 @@ const (
 	defaultOllamaBaseURL    = "http://localhost:11434"
 	defaultVLLMBaseURL      = "http://localhost:8000"
 	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
+	defaultGeminiBaseURL    = "https://generativelanguage.googleapis.com/v1beta"
 )
 
 // Local default models are Gemma-class per ADR-0012/A23: the unbound
@@ -59,6 +60,7 @@ const (
 	providerVLLM             = "vllm"
 	providerOpenAICompatible = "openai_compatible"
 	providerOpenAI           = "openai"
+	providerGemini           = "gemini"
 )
 
 // knownProviders is the single source of truth for the provider names
@@ -140,6 +142,15 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			baseURL = defaultOpenAIBaseURL
 		}
 		return &openaiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: baseURL, apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
+	case providerGemini:
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("ai: provider gemini needs an api key (BYOK — we provide no inference)")
+		}
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = defaultGeminiBaseURL
+		}
+		return &geminiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: baseURL, apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
 	default:

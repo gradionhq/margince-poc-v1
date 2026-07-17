@@ -157,37 +157,7 @@ func (c *openaiClient) Stream(ctx context.Context, req model.Request) (model.Tok
 }
 
 func (c *openaiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
-	embedModel := req.Model
-	if embedModel == "" {
-		embedModel = c.defaultModel
-	}
-	payload, _, err := sendablePayload(ctx, map[string]any{"model": embedModel, "input": req.Inputs}, nil)
-	if err != nil {
-		return model.Embeddings{}, err
-	}
-	body, err := c.postRaw(ctx, "/v1/embeddings", payload)
-	if err != nil {
-		return model.Embeddings{}, err
-	}
-	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
-	defer func() { _ = body.Close() }()
-	var out struct {
-		Data []struct {
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(body).Decode(&out); err != nil {
-		return model.Embeddings{}, fmt.Errorf("ai: openai: decode embeddings: %w", err)
-	}
-	vectors := make([][]float32, 0, len(out.Data))
-	for _, d := range out.Data {
-		vectors = append(vectors, d.Embedding)
-	}
-	dims := 0
-	if len(vectors) > 0 {
-		dims = len(vectors[0])
-	}
-	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
+	return openAIWireEmbed(ctx, c.postRaw, c.defaultModel, req)
 }
 
 func (c *openaiClient) Caps() model.Capabilities {
@@ -237,11 +207,11 @@ func (c *openaiClient) post(ctx context.Context, path string, req model.Request,
 func openaiInputMessages(system string, msgs []model.Message, atts []model.Attachment) []openaiInputItem {
 	items := make([]openaiInputItem, 0, len(msgs)+1)
 	if system != "" {
-		items = append(items, openaiInputItem{Role: "system", Content: []openaiInputPart{{Type: "input_text", Text: system}}})
+		items = append(items, openaiInputItem{Role: roleSystem, Content: []openaiInputPart{{Type: "input_text", Text: system}}})
 	}
 	for _, m := range msgs {
 		partType := "input_text"
-		if m.Role == "assistant" {
+		if m.Role == roleAssistant {
 			partType = "output_text"
 		}
 		items = append(items, openaiInputItem{Role: m.Role, Content: []openaiInputPart{{Type: partType, Text: m.Content}}})
@@ -257,12 +227,12 @@ func openaiInputMessages(system string, msgs []model.Message, atts []model.Attac
 func attachToLastUserTurn(items []openaiInputItem, atts []model.Attachment) []openaiInputItem {
 	idx := -1
 	for i := range items {
-		if items[i].Role == "user" {
+		if items[i].Role == roleUser {
 			idx = i
 		}
 	}
 	if idx == -1 {
-		items = append(items, openaiInputItem{Role: "user"})
+		items = append(items, openaiInputItem{Role: roleUser})
 		idx = len(items) - 1
 	}
 	for _, a := range atts {
