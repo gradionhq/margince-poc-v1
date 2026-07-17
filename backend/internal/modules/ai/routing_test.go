@@ -69,6 +69,8 @@ func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
 		"ollama":            {Provider: "ollama", Model: "m"},
 		"vllm":              {Provider: "vllm", Model: "m"},
 		"openai_compatible": {Provider: "openai_compatible", APIKey: "k", BaseURL: "https://x", Model: "m"},
+		"openai":            {Provider: "openai", APIKey: "k", Model: "m"},
+		"gemini":            {Provider: "gemini", APIKey: "k", Model: "m"},
 	}
 	for _, name := range knownProviders {
 		cfg, ok := built[name]

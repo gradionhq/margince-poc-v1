@@ -24,6 +24,10 @@ func TestSelectBrainOneLinePerProvider(t *testing.T) {
 		{name: "openai-compat cloud byok", cfg: ProviderConfig{Provider: "openai_compatible", APIKey: "k", BaseURL: "https://api.mistral.ai/v1", Model: "mistral-small-latest"}, localOnly: false},
 		{name: "openai-compat without key fails closed", cfg: ProviderConfig{Provider: "openai_compatible", BaseURL: "https://x"}, wantErr: "api key"},
 		{name: "openai-compat without base_url fails closed", cfg: ProviderConfig{Provider: "openai_compatible", APIKey: "k"}, wantErr: "base_url"},
+		{name: "openai native byok", cfg: ProviderConfig{Provider: "openai", APIKey: "k", Model: "gpt-x"}, localOnly: false},
+		{name: "openai without key fails closed", cfg: ProviderConfig{Provider: "openai"}, wantErr: "api key"},
+		{name: "gemini native byok", cfg: ProviderConfig{Provider: "gemini", APIKey: "k", Model: "gemini-x"}, localOnly: false},
+		{name: "gemini without key fails closed", cfg: ProviderConfig{Provider: "gemini"}, wantErr: "api key"},
 		{name: "empty provider", cfg: ProviderConfig{}, wantErr: "no provider"},
 		{name: "unknown provider", cfg: ProviderConfig{Provider: "clippy"}, wantErr: "unknown provider"},
 	}
@@ -43,5 +47,19 @@ func TestSelectBrainOneLinePerProvider(t *testing.T) {
 				t.Fatalf("LocalOnly = %v, want %v", got, tc.localOnly)
 			}
 		})
+	}
+}
+
+// The unknown-provider error names every provider SelectBrain accepts, so an
+// operator who fat-fingers a name sees the full menu.
+func TestUnknownProviderErrorListsEverySupportedProvider(t *testing.T) {
+	_, err := SelectBrain(ProviderConfig{Provider: "clippy"})
+	if err == nil {
+		t.Fatal("unknown provider must error")
+	}
+	for _, want := range []string{"fake", "anthropic", "ollama", "vllm", "openai_compatible", "openai", "gemini"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("unknown-provider error %q omits %q", err.Error(), want)
+		}
 	}
 }

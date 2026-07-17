@@ -77,6 +77,18 @@ tiers:
   #   base_url: https://api.mistral.ai/v1
   #   api_key: <customer BYOK key>
 
+  # BYOK cloud via the native adapters — reasoning/thinking, prompt caching,
+  # document attachments, itemized usage. base_url defaults to the vendor's;
+  # api_key is required:
+  # cheap_cloud:
+  #   provider: openai
+  #   model: gpt-5-mini
+  #   api_key: <customer BYOK key>
+  # premium:
+  #   provider: gemini
+  #   model: gemini-2.5-pro
+  #   api_key: <customer BYOK key>
+
 # embeddings — the embedding lane, bound separately from the chat tiers
 # (retrieval must keep working when the chat budget is exhausted). Required.
 embeddings:

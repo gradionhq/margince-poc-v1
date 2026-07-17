@@ -66,7 +66,7 @@ const (
 // knownProviders is the single source of truth for the provider names
 // SelectBrain accepts — read by the default error below and by the config
 // JSON-schema drift test. Add a provider here when you add its case.
-var knownProviders = []string{providerFake, providerAnthropic, providerOllama, providerVLLM, providerOpenAICompatible}
+var knownProviders = []string{providerFake, providerAnthropic, providerOllama, providerVLLM, providerOpenAICompatible, providerOpenAI, providerGemini}
 
 // SelectBrain turns one binding into a Client (interfaces.md §4):
 // "offline fake ↔ API key ↔ local, one line" — swapping providers is a

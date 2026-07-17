@@ -30,8 +30,8 @@
       "required": ["provider"],
       "properties": {
         "provider": {
-          "description": "fake | anthropic | ollama | vllm | openai_compatible. The only place vendor names appear.",
-          "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible"]
+          "description": "fake | anthropic | ollama | vllm | openai_compatible | openai | gemini. The only place vendor names appear.",
+          "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible", "openai", "gemini"]
         },
         "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
         "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor endpoint). Empty ⇒ provider default." },
@@ -39,7 +39,7 @@
       },
       "allOf": [
         {
-          "if":   { "properties": { "provider": { "enum": ["anthropic", "openai_compatible"] } } },
+          "if":   { "properties": { "provider": { "enum": ["anthropic", "openai_compatible", "openai", "gemini"] } } },
           "then": { "required": ["api_key"] }
         },
         {
