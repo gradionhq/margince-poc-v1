@@ -68,6 +68,7 @@ type Server struct {
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers
+	gmailPush gmailPushHandler
 	captureExclusionHandlers
 	filteredExportHandlers
 	orgRollupHandlers
@@ -429,6 +430,10 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal))
+	// The Gmail Pub/Sub push webhook (CAP-WIRE-N-4): a session-less machine
+	// edge outside /v1 — it self-verifies Google's OIDC token. Unwired, the
+	// handler answers 501 (declared-but-absent by omission).
+	mux.Handle("/hooks/gmail/push", srv.gmailPush)
 	// The anonymous public edges sit between the session middleware (which
 	// lets /v1/public/ through without session or workspace) and the
 	// router: each resolves its own token/slug → tenant, throttles, and
