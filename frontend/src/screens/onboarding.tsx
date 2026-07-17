@@ -38,7 +38,7 @@ import {
 } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { navigate } from "../app/router";
+import { navigate, useRoute } from "../app/router";
 import { Button, TextInput } from "../design-system/atoms";
 import {
   ConfidenceMeter,
@@ -269,7 +269,14 @@ function corpusQuality(total: number): { cls: string; key: MessageKey } {
 export function OnboardingScreen() {
   const t = useT();
   const queryClient = useQueryClient();
-  const [step, setStep] = useState(0);
+  const route = useRoute();
+  // The OAuth-return deep link (#/onboarding/connect/{outcome}) resumes the
+  // wizard on the connect step — no client state survives the redirect, and
+  // none needs to: earlier-step completion is server-derived below (the
+  // company query seeds step 1, the voice flag step 2).
+  const [step, setStep] = useState(route.id === "connect" ? 3 : 0);
+  const connectOutcome =
+    route.id === "connect" && route.id2 ? route.id2 : undefined;
   const [voiceBuilt, setVoiceBuilt] = useState(false);
   // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
@@ -429,7 +436,7 @@ export function OnboardingScreen() {
         {step === 2 && (
           <ResultsStep voiceBuilt={voiceBuilt} profileSaved={companySaved} />
         )}
-        {step === 3 && <ConnectStep />}
+        {step === 3 && <ConnectStep outcome={connectOutcome} />}
 
         <Footer
           step={step}
@@ -1316,11 +1323,225 @@ type ConnectResult = {
   contacts: number;
 };
 
-function ConnectStep() {
+function ConnectStep({ outcome }: { outcome?: string }) {
   const t = useT();
+  // Returning from the Google consent lands here with an outcome in the
+  // route; the Google tab is then the one that explains what happened.
   const [provider, setProvider] = useState<"imap" | "google" | "microsoft">(
-    "imap",
+    "google",
   );
+
+  const scopes: { lead: MessageKey; rest: MessageKey }[] = [
+    { lead: "ob.s4.scope1Lead", rest: "ob.s4.scope1Rest" },
+    { lead: "ob.s4.scope2Lead", rest: "ob.s4.scope2Rest" },
+    { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
+    { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
+  ];
+
+  return (
+    <section className="ob-panel">
+      <div className="kick">{t("ob.s4.kick")}</div>
+      <h1 className="ttl">
+        {t("ob.s4.title")} <span className="em">{t("ob.s4.titleEm")}</span>
+      </h1>
+      <p className="ob-sub">{t("ob.s4.sub")}</p>
+
+      <div className="consent">
+        <div className="provider-tabs">
+          <button
+            type="button"
+            className={`provtab ${provider === "google" ? "sel" : ""}`}
+            onClick={() => setProvider("google")}
+          >
+            {t("ob.s4.provGoogle")}
+          </button>
+          <button
+            type="button"
+            className={`provtab ${provider === "microsoft" ? "sel" : ""}`}
+            onClick={() => setProvider("microsoft")}
+          >
+            {t("ob.s4.provMicrosoft")}
+          </button>
+          <button
+            type="button"
+            className={`provtab ${provider === "imap" ? "sel" : ""}`}
+            onClick={() => setProvider("imap")}
+          >
+            {t("ob.s4.provImap")}
+          </button>
+        </div>
+
+        {provider === "google" && <GoogleConnectPanel outcome={outcome} />}
+        {provider === "microsoft" && <MicrosoftConnectPanel />}
+        {provider === "imap" && <ImapConnectPanel />}
+
+        <div className="scopes">
+          {scopes.map((s) => (
+            <div key={s.lead} className="scope">
+              <span className="si">
+                <Check aria-hidden />
+              </span>
+              <div>
+                <b>{t(s.lead)}</b> {t(s.rest)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// The honest-failure banner the connect panels share.
+function ConnectWarn({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="readfail warn" style={{ maxWidth: 460, margin: "0 auto" }}>
+      <span className="rfi">
+        <Circle aria-hidden />
+      </span>
+      <div>
+        <div className="rft">{title}</div>
+        <p className="rfp">{body}</p>
+      </div>
+    </div>
+  );
+}
+
+// Google: the server mints the consent URL (and the signed state + CSRF
+// cookie that guard the callback); the browser just goes. The return deep
+// link lands back here with the outcome in the route.
+function GoogleConnectPanel({ outcome }: { outcome?: string }) {
+  const t = useT();
+  const google = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/connectors/{provider}/connect", {
+        params: { path: { provider: "gmail" } },
+        body: {},
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.authorize_url) {
+        globalThis.location.assign(data.authorize_url);
+      }
+    },
+  });
+
+  // After a successful return, show the live connection rather than a
+  // static claim — the row IS the proof (never a fake-populated screen).
+  const connections = useQuery({
+    queryKey: ["connectors"],
+    enabled: outcome === "ok",
+    queryFn: async () => {
+      const { data, error } = await api.GET("/connectors");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const gmailConnected =
+    connections.data?.data.some(
+      (c) => c.provider === "gmail" && c.status === "connected",
+    ) ?? false;
+
+  if (outcome === "ok") {
+    return (
+      <div className="connect-result">
+        <div className="cr-h">
+          <CheckCircle2 aria-hidden /> {t("ob.s4.googleOkTitle")}
+        </div>
+        <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
+          {t("ob.s4.googleOkBody")}
+        </p>
+        {gmailConnected && (
+          <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
+            <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
+          </span>
+        )}
+        <Button
+          variant="primary"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => navigate({ screen: "home" })}
+        >
+          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {outcome === "denied" && (
+        <ConnectWarn
+          title={t("ob.s4.googleDenied")}
+          body={t("ob.s4.googleRetry")}
+        />
+      )}
+      {outcome === "error" && (
+        <ConnectWarn
+          title={t("ob.s4.googleFailed")}
+          body={t("ob.s4.googleRetry")}
+        />
+      )}
+      {google.isError && (
+        <ConnectWarn
+          title={t("ob.s4.googleFailed")}
+          body={google.error.message}
+        />
+      )}
+      <p
+        className="spoken-hint"
+        style={{ maxWidth: 460, margin: "4px auto 0" }}
+      >
+        <ShieldCheck aria-hidden /> {t("ob.s4.googleHint")}
+      </p>
+      <div className="connect-acts">
+        <Button
+          variant="primary"
+          disabled={google.isPending}
+          onClick={() => google.mutate()}
+        >
+          {google.isPending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s4.connecting")}
+            </>
+          ) : (
+            <>
+              <Mail aria-hidden /> {t("ob.s4.googleBtn")}
+            </>
+          )}
+        </Button>
+        <Button onClick={() => navigate({ screen: "home" })}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function MicrosoftConnectPanel() {
+  const t = useT();
+  return (
+    <>
+      <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
+        {t("ob.s4.oauthSoon")}
+      </p>
+      <div className="connect-acts">
+        <Button onClick={() => navigate({ screen: "home" })}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// IMAP: the one-shot pull, exactly as before — the form is the consent.
+function ImapConnectPanel() {
+  const t = useT();
   const [host, setHostVal] = useState("imap.gmail.com");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1363,188 +1584,126 @@ function ConnectStep() {
     },
   });
 
-  const scopes: { lead: MessageKey; rest: MessageKey }[] = [
-    { lead: "ob.s4.scope1Lead", rest: "ob.s4.scope1Rest" },
-    { lead: "ob.s4.scope2Lead", rest: "ob.s4.scope2Rest" },
-    { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
-    { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
-  ];
-
   const ready = host.trim() !== "" && email.trim() !== "" && password !== "";
 
+  if (connect.data) {
+    return (
+      <div className="connect-result">
+        <div className="cr-h">
+          <CheckCircle2 aria-hidden /> {t("ob.s4.capturedTitle")}
+        </div>
+        <div className="cr-stats">
+          <div className="cr-stat">
+            <b>{connect.data.captured}</b>
+            <span>{t("ob.s4.statCaptured")}</span>
+          </div>
+          <div className="cr-stat">
+            <b>{connect.data.contacts}</b>
+            <span>{t("ob.s4.statContacts")}</span>
+          </div>
+          <div className="cr-stat">
+            <b>{connect.data.skipped}</b>
+            <span>{t("ob.s4.statSkipped")}</span>
+          </div>
+        </div>
+        <Button
+          variant="primary"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => navigate({ screen: "home" })}
+        >
+          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s4.kick")}</div>
-      <h1 className="ttl">
-        {t("ob.s4.title")} <span className="em">{t("ob.s4.titleEm")}</span>
-      </h1>
-      <p className="ob-sub">{t("ob.s4.sub")}</p>
+    <>
+      <div className="imap-form">
+        <label className="field full">
+          {t("ob.s4.imapHost")}
+          <input
+            className="input"
+            value={host}
+            placeholder={t("ob.s4.imapHostPlaceholder")}
+            onChange={(e) => setHostVal(e.target.value)}
+          />
+        </label>
+        <label className="field full">
+          {t("ob.s4.imapEmail")}
+          <input
+            className="input"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+        <label className="field full">
+          {t("ob.s4.imapPassword")}
+          <input
+            className="input"
+            type="password"
+            autoComplete="off"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          {t("ob.s4.imapMailbox")}
+          <input
+            className="input"
+            value={mailbox}
+            onChange={(e) => setMailbox(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          {t("ob.s4.imapMax")}
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={200}
+            value={max}
+            onChange={(e) => setMax(e.target.value)}
+          />
+        </label>
+      </div>
 
-      {connect.data ? (
-        <div className="connect-result">
-          <div className="cr-h">
-            <CheckCircle2 aria-hidden /> {t("ob.s4.capturedTitle")}
-          </div>
-          <div className="cr-stats">
-            <div className="cr-stat">
-              <b>{connect.data.captured}</b>
-              <span>{t("ob.s4.statCaptured")}</span>
-            </div>
-            <div className="cr-stat">
-              <b>{connect.data.contacts}</b>
-              <span>{t("ob.s4.statContacts")}</span>
-            </div>
-            <div className="cr-stat">
-              <b>{connect.data.skipped}</b>
-              <span>{t("ob.s4.statSkipped")}</span>
-            </div>
-          </div>
-          <Button
-            variant="primary"
-            style={{ marginTop: 16 }}
-            onClick={() => navigate({ screen: "home" })}
-          >
-            {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
-          </Button>
-        </div>
-      ) : (
-        <div className="consent">
-          <div className="provider-tabs">
-            <button
-              type="button"
-              className={`provtab ${provider === "google" ? "sel" : ""}`}
-              onClick={() => setProvider("google")}
-            >
-              {t("ob.s4.provGoogle")}
-            </button>
-            <button
-              type="button"
-              className={`provtab ${provider === "microsoft" ? "sel" : ""}`}
-              onClick={() => setProvider("microsoft")}
-            >
-              {t("ob.s4.provMicrosoft")}
-            </button>
-            <button
-              type="button"
-              className={`provtab ${provider === "imap" ? "sel" : ""}`}
-              onClick={() => setProvider("imap")}
-            >
-              {t("ob.s4.provImap")}
-            </button>
-          </div>
+      <p
+        className="spoken-hint"
+        style={{ maxWidth: 460, margin: "12px auto 0" }}
+      >
+        <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
+      </p>
 
-          <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
-            {t("ob.s4.oauthSoon")}
-          </p>
-
-          <div className="imap-form">
-            <label className="field full">
-              {t("ob.s4.imapHost")}
-              <input
-                className="input"
-                value={host}
-                placeholder={t("ob.s4.imapHostPlaceholder")}
-                onChange={(e) => setHostVal(e.target.value)}
-              />
-            </label>
-            <label className="field full">
-              {t("ob.s4.imapEmail")}
-              <input
-                className="input"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-            <label className="field full">
-              {t("ob.s4.imapPassword")}
-              <input
-                className="input"
-                type="password"
-                autoComplete="off"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
-            <label className="field">
-              {t("ob.s4.imapMailbox")}
-              <input
-                className="input"
-                value={mailbox}
-                onChange={(e) => setMailbox(e.target.value)}
-              />
-            </label>
-            <label className="field">
-              {t("ob.s4.imapMax")}
-              <input
-                className="input"
-                type="number"
-                min={1}
-                max={200}
-                value={max}
-                onChange={(e) => setMax(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <p
-            className="spoken-hint"
-            style={{ maxWidth: 460, margin: "12px auto 0" }}
-          >
-            <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
-          </p>
-
-          {connect.isError && (
-            <div
-              className="readfail warn"
-              style={{ maxWidth: 460, margin: "16px auto 0" }}
-            >
-              <span className="rfi">
-                <Circle aria-hidden />
-              </span>
-              <div>
-                <div className="rft">{t("ob.s4.connectFailed")}</div>
-                <p className="rfp">{connect.error.message}</p>
-              </div>
-            </div>
-          )}
-
-          <div className="connect-acts">
-            <Button
-              variant="primary"
-              disabled={!ready || connect.isPending}
-              onClick={() => connect.mutate()}
-            >
-              {connect.isPending ? (
-                <>
-                  <span className="ob-spinner" /> {t("ob.s4.connecting")}
-                </>
-              ) : (
-                <>
-                  <Mail aria-hidden /> {t("ob.s4.imapConnect")}
-                </>
-              )}
-            </Button>
-            <Button onClick={() => navigate({ screen: "home" })}>
-              <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-            </Button>
-          </div>
-
-          <div className="scopes">
-            {scopes.map((s) => (
-              <div key={s.lead} className="scope">
-                <span className="si">
-                  <Check aria-hidden />
-                </span>
-                <div>
-                  <b>{t(s.lead)}</b> {t(s.rest)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {connect.isError && (
+        <ConnectWarn
+          title={t("ob.s4.connectFailed")}
+          body={connect.error.message}
+        />
       )}
-    </section>
+
+      <div className="connect-acts">
+        <Button
+          variant="primary"
+          disabled={!ready || connect.isPending}
+          onClick={() => connect.mutate()}
+        >
+          {connect.isPending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s4.connecting")}
+            </>
+          ) : (
+            <>
+              <Mail aria-hidden /> {t("ob.s4.imapConnect")}
+            </>
+          )}
+        </Button>
+        <Button onClick={() => navigate({ screen: "home" })}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
   );
 }

@@ -947,8 +947,18 @@ export const de = {
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
   "ob.s4.googleBtn": "Mit Google fortfahren",
   "ob.s4.msBtn": "Mit Microsoft fortfahren",
+  "ob.s4.googleHint":
+    "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und ein Klick hier trennt die Verbindung wieder.",
+  "ob.s4.googleOkTitle": "Gmail verbunden",
+  "ob.s4.googleOkBody":
+    "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
+  "ob.s4.googleLive": "Verbindung bestätigt — Hintergrund-Erfassung läuft",
+  "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
+  "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
+  "ob.s4.googleRetry":
+    "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
   "ob.s4.oauthSoon":
-    "Ein-Klick-Anmeldung für Google & Microsoft kommt. Verbinde jetzt jedes Postfach über IMAP — eine echte, live Erfassung.",
+    "Ein-Klick-Anmeldung für Microsoft kommt. Verbinde oben Google oder jedes Postfach über IMAP — beides ist echte, live Erfassung.",
   "ob.s4.imapHost": "IMAP-Host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapEmail": "E-Mail",
