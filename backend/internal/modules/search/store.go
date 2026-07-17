@@ -179,13 +179,18 @@ func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(a
 			continue
 		}
 		// Name entities parse the query 'simple' (unaccented — Muller
-		// finds Müller); the activity branch additionally ORs the
-		// German/English stemmed parses so "Vertrag" reaches rows whose
-		// tsvector stemmed "Verträge" under their captured language.
-		tsquery := fmt.Sprintf(`websearch_to_tsquery('simple', f_unaccent($%d))`, qPos)
+		// finds Müller), OR-ed with the apostrophe-collapsed parse so
+		// "o'reilly" also reaches a row stored as "OReilly" (the index
+		// side carries the collapsed tokens, migration 0077); the
+		// activity branch additionally ORs the German/English stemmed
+		// parses so "Vertrag" reaches rows whose tsvector stemmed
+		// "Verträge" under their captured language.
+		tsquery := fmt.Sprintf(
+			`(websearch_to_tsquery('simple', f_unaccent($%[1]d)) || websearch_to_tsquery('simple', f_fold_apostrophes($%[1]d)))`,
+			qPos)
 		if branch.entity == "activity" {
 			tsquery = fmt.Sprintf(
-				`(websearch_to_tsquery('simple', f_unaccent($%[1]d)) || websearch_to_tsquery('german', f_unaccent($%[1]d)) || websearch_to_tsquery('english', f_unaccent($%[1]d)))`,
+				`(websearch_to_tsquery('simple', f_unaccent($%[1]d)) || websearch_to_tsquery('simple', f_fold_apostrophes($%[1]d)) || websearch_to_tsquery('german', f_unaccent($%[1]d)) || websearch_to_tsquery('english', f_unaccent($%[1]d)))`,
 				qPos)
 		}
 		sql := fmt.Sprintf(

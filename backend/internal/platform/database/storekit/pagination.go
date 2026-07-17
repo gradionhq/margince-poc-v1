@@ -96,10 +96,13 @@ func ClampLimit(limit *int) int {
 // (websearch syntax, accent-folded) OR a trigram contains-match on the
 // entity's name expression — the as-you-type quick-find ("Rech" finds
 // "Rechnung GmbH", "Muller" finds "Müller") that token-based tsquery
-// cannot serve. nameExpr must mirror the expression of the entity's
-// *_name_trgm index so the LIKE stays indexed; the query text is a bind
-// parameter (LIKE metacharacters at worst widen the caller's own match).
+// cannot serve. The contains-match folds apostrophes on both sides
+// ("oreilly" finds "Tim O'Reilly"; f_unaccent maps the typographic ’
+// to ' first, so every spelling collapses the same way). nameExpr must
+// mirror the expression of the entity's *_name_trgm index so the LIKE
+// stays indexed; the query text is a bind parameter (LIKE
+// metacharacters at worst widen the caller's own match).
 func QuickFindClause(pos int, nameExpr string) string {
 	return fmt.Sprintf(`(search_tsv @@ websearch_to_tsquery('simple', f_unaccent($%[1]d))
-	   OR f_unaccent(lower(%[2]s)) LIKE '%%' || f_unaccent(lower($%[1]d)) || '%%')`, pos, nameExpr)
+	   OR f_fold_apostrophes(lower(%[2]s)) LIKE '%%' || f_fold_apostrophes(lower($%[1]d)) || '%%')`, pos, nameExpr)
 }

@@ -1,20 +1,20 @@
-# CodeRabbit review scope. Mirrors sonar-project.properties: keep the AI review
-# on hand-written product code and skip what we do not hand-write or own —
-# generated contract types, append-only DDL, dev tooling, build config, and
-# the design-system story/UAT fixtures the fe-uat gate renders.
+# CodeRabbit review scope: keep the AI review on hand-written code and skip
+# what we do not hand-write — generated contract types, build config, and the
+# design-system story/UAT fixtures the fe-uat gate renders. Deliberately wider
+# than sonar-project.properties: migrations (hand-written SQL incl. the RLS
+# policies) and the frontend gate scripts stay reviewed here even though Sonar
+# skips them.
 language: en-US
 reviews:
   # Negated globs exclude; everything else is reviewed as normal.
   path_filters:
     - "!backend/internal/contracts/**"
     - "!**/*_gen.go"
-    - "!backend/migrations/**"
     - "!cli/craft/**"
     - "!.claude/**"
     - "!dev/**"
     - "!frontend/src/api/schema.d.ts"
     - "!frontend/.storybook/**"
-    - "!frontend/scripts/**"
     - "!frontend/src/**/*.stories.tsx"
     - "!**/pnpm-lock.yaml"
     - "!**/go.sum"

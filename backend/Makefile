@@ -35,7 +35,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -217,6 +217,9 @@ run: ## Run the api on :8080 (no db-up/migrate) — go run ./cmd/api
 
 psql: ## Open a psql shell on the dev database (owner role)
 	$(COMPOSE) exec postgres psql -U margince_owner -d $(DB_NAME)
+
+redis-cli: ## Open a redis-cli shell on the dev Redis
+	$(COMPOSE) exec redis redis-cli
 
 tidy: ## Sync module deps (go mod tidy)
 	$(GO) mod tidy

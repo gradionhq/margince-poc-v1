@@ -71,7 +71,15 @@ owner_prefix="${OWNER_DSN%/*}"          # scheme://user:pass@host:port
 app_prefix="${APP_DSN%/*}"
 dev_owner_url="${owner_prefix}/${db}"
 dev_app_url="${app_prefix}/${db}"
-admin_url="${owner_prefix}/postgres"
+
+# psql is NOT a host requirement (hosts need Go + Docker only): every ad-hoc
+# SQL statement runs inside the compose postgres container, the same way
+# `make db-init` applies scripts/db-init.sql.
+psql_owner() { # db [psql args…] — SQL via args or stdin
+  local db="$1"; shift
+  docker compose -f infra/docker-compose.dev.yml exec -T postgres \
+    psql -U margince_owner -d "$db" "$@"
+}
 
 rundir=".tmp/dev/${slug:-_base}"
 log="${rundir}/dev.log"
@@ -113,7 +121,7 @@ up)
     make db-up
     # The base `margince` db already exists (db-up + db-init); only a slugged
     # env needs its own database created.
-    [[ -n "$slug" ]] && psql "$admin_url" -c "CREATE DATABASE \"${db}\"" 2>&1 || true
+    [[ -n "$slug" ]] && psql_owner postgres -c "CREATE DATABASE \"${db}\"" 2>&1 || true
     ( cd backend && go run ./cmd/migrate up --dsn "$dev_owner_url" )
     echo "=== build api (once, before the readiness poll) ==="
     ( cd backend && go build -o ../bin/api ./cmd/api )
@@ -144,8 +152,22 @@ up)
     set -a; . ./.env.local; set +a
   fi
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    sed "s#provider: anthropic, model: \([^ }]*\)#provider: anthropic, model: \1, api_key: ${ANTHROPIC_API_KEY}#g" \
-      "$routing_src" > "$routing"
+    if grep -qE '^[[:space:]]*api_key:' "$routing_src"; then
+      # The engineer bound their own literal keys — their file wins verbatim
+      # (injecting on top would duplicate the api_key mapping key).
+      cp "$routing_src" "$routing"
+    else
+      # Stamp the key under each anthropic tier's model line, at the tier's own
+      # indentation (the block-style shape config/ai-routing.example.yaml ships).
+      awk -v key="${ANTHROPIC_API_KEY}" '
+        { print }
+        /^[[:space:]]*provider:[[:space:]]*anthropic[[:space:]]*$/ { anthropic = 1 }
+        anthropic && /^[[:space:]]*model:/ {
+          print substr($0, 1, index($0, "model:") - 1) "api_key: " key
+          anthropic = 0
+        }
+      ' "$routing_src" > "$routing"
+    fi
     ai_flag=(--ai-routing "$routing")
     echo "dev: using real Anthropic model for the cold-start read-back (key from .env.local)"
   else
@@ -207,7 +229,7 @@ up)
   # Dev DB seed for API-less demo data (FX rates today; see scripts/seed-dev.sql).
   # Applied here too so a plain `make dev` pre-fills everything — e.g. winning a
   # non-EUR deal shows the frozen FX line with no manual step.
-  if ! psql "$dev_owner_url" -v ON_ERROR_STOP=1 -f scripts/seed-dev.sql >>"$log" 2>&1; then
+  if ! psql_owner "$db" -v ON_ERROR_STOP=1 <scripts/seed-dev.sql >>"$log" 2>&1; then
     echo "FAIL: $label dev DB seed failed — see ${log}" >&2
     kill "$be_pid" 2>/dev/null || true
     exit 1
@@ -310,7 +332,7 @@ stop)
     else
       # WITH (FORCE) (PG13+) terminates any lingering connection so the drop
       # doesn't fail on a slow-to-close api/vite child.
-      psql "$admin_url" -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" >/dev/null 2>&1 || true
+      psql_owner postgres -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)" >/dev/null 2>&1 || true
       echo "dropped ${db}"
     fi
   fi
