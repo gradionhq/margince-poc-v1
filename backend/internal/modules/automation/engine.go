@@ -70,7 +70,7 @@ func (e *WorkflowEngine) RegisterWorkflow(h workflow.Handler) {
 		panic(fmt.Sprintf("crmagents: workflow %s declares no trigger", spec.Name))
 	}
 	if spec.Trigger.EventType != "" && spec.Trigger.Schedule != "" {
-		// isClockTrigger (workflows_run.go) and runOne's dispatch both
+		// isClockTrigger (engine_run.go) and runOne's dispatch both
 		// assume EventType/Schedule are mutually exclusive: a handler
 		// setting both would have its non-matches silently swallowed as a
 		// clock trigger's (runOne never records a clock non-match) even

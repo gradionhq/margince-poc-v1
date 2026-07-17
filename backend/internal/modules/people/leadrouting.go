@@ -278,7 +278,7 @@ func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UserID) (act
 // under. Named "assign_lead_owner" — NOT "route_lead" — per AUTO-NOTE-2
 // (§3.5): this handler ASSIGNS AN OWNER, a different act from "route a
 // new lead to a task" (the automation module's own route_lead starter,
-// workflows_starter.go), which the spec's user-reachable vocabulary
+// handlers_event.go), which the spec's user-reachable vocabulary
 // (AUTO-PARAM-5) reserves for the create_task reading of those words.
 // Duplicated as a bare literal in automation's own catalog entry
 // (automations_catalog.go) rather than imported: a module never

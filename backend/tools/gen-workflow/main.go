@@ -78,8 +78,8 @@ func generate(dir, name string) (handlerPath, testPath string, err error) {
 	structName := camelCase(name)
 	titleName := strings.ToUpper(structName[:1]) + structName[1:]
 
-	handlerPath = filepath.Join(dir, "workflows_"+name+".go")
-	testPath = filepath.Join(dir, "workflows_"+name+"_test.go")
+	handlerPath = filepath.Join(dir, "handlers_"+name+".go")
+	testPath = filepath.Join(dir, "handlers_"+name+"_test.go")
 
 	for _, p := range []string{handlerPath, testPath} {
 		switch _, statErr := os.Stat(p); {
@@ -115,7 +115,7 @@ func generate(dir, name string) (handlerPath, testPath string, err error) {
 
 // camelCase turns a snake_case handler name into the unexported struct
 // name every starter handler uses (stage_change_create_task ->
-// stageChangeCreateTask in workflows_starter.go).
+// stageChangeCreateTask in handlers_event.go).
 func camelCase(snake string) string {
 	var b strings.Builder
 	for i, part := range strings.Split(snake, "_") {
@@ -135,19 +135,19 @@ func camelCase(snake string) string {
 // HandleEvent never dispatches to — a silent no-op, not an error.
 func nextSteps(name string) string {
 	return fmt.Sprintf(`Next steps:
-  1. Fill in Match's condition and Plan's effect in workflows_%[1]s.go.
+  1. Fill in Match's condition and Plan's effect in handlers_%[1]s.go.
   2. Add a Catalog() entry in automations_catalog.go whose Key equals
      %[1]q exactly — it must match this handler's Spec().Name
      character for character. A mismatched key registers an orphan:
      the catalog entry exists but no run ever dispatches to it, and
      nothing errors to tell you so.
-  3. Register the handler in StarterWorkflows() (workflows_starter.go);
+  3. Register the handler in StarterWorkflows() (handlers_event.go);
      compose/workflows.go already ranges over that slice, so nothing
      else needs to change to wire it into the running engine.
 `, name)
 }
 
-// handlerTemplate is the emitted workflows_<name>.go. It compiles as
+// handlerTemplate is the emitted handlers_<name>.go. It compiles as
 // emitted: Match defaults to always-fire and Plan to a no-op Effect, and
 // the trigger/tier are declared (never blank) so RegisterWorkflow's
 // name/trigger assertions hold from the first commit — verb %[1]s is
@@ -181,13 +181,13 @@ func (%[2]s) Spec() workflow.Spec {
 			// Set EventType (a bus event, e.g. "deal.stage_changed") XOR
 			// Schedule — never both. Schedule is NOT a cron expression: it
 			// is a clock:<name> marker string this engine never parses
-			// (workflows_clock_handlers.go's noActivityScheduleMarker doc);
+			// (handlers_clock.go's noActivityScheduleMarker doc);
 			// the real cadence comes from the River periodic job's own
 			// interval. A clock handler also needs its own candidate
 			// source wired at the time-scan (timescan.go's
 			// activityScanHandlers, today's only wired source) — without
 			// one it registers and compiles fine but is never evaluated
-			// (see workflows_clock_handlers.go's renewalReminder for the
+			// (see handlers_clock.go's renewalReminder for the
 			// honestly-documented example of a handler still waiting on
 			// one). This placeholder only keeps the trigger non-empty;
 			// replace it before this handler goes anywhere near
@@ -208,7 +208,7 @@ func (%[2]s) Match(_ context.Context, _ workflow.Event) (bool, error) {
 
 func (%[2]s) Plan(_ context.Context, _ workflow.Event) (workflow.Effect, error) {
 	// Replace with the real effect: build one or more workflow.Action
-	// values (see ApplyActions in workflows.go for the closed action set).
+	// values (see ApplyActions in engine.go for the closed action set).
 	return workflow.Effect{}, nil
 }
 
@@ -222,7 +222,7 @@ func (%[2]s) IdempotencyKey(ev workflow.Event) string {
 }
 `
 
-// testTemplate is the emitted workflows_<name>_test.go: the AC-W1
+// testTemplate is the emitted handlers_<name>_test.go: the AC-W1
 // "declares trigger + risk tier" property, checked against the actual
 // zero-value handler so it fails the moment a hand edit blanks out the
 // name or the trigger. %[1]s is the struct name, %[2]s its Title-cased

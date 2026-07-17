@@ -4,9 +4,9 @@
 package automation
 
 // The CLOCK-trigger entry point (Task 14): event triggers reach runOne
-// off the bus (workflows.go's HandleEvent); a clock trigger has no event
+// off the bus (engine.go's HandleEvent); a clock trigger has no event
 // to arrive, so TimeScanner enumerates candidates itself and converges
-// them onto the SAME runOne (workflows_run.go) — the Task-12 occurrence
+// them onto the SAME runOne (engine_run.go) — the Task-12 occurrence
 // key and the Task-13 match-time owner gate (gate.go) apply automatically,
 // because nothing downstream of runOne can tell a synthesized clock pass
 // from a bus delivery. River-agnostic by construction: this file never
@@ -40,7 +40,7 @@ import (
 const clockScanBatchLimit = 200
 
 // activityScanHandlers maps each ActivityScan-driven clock handler's
-// catalog name to its own days-knob reader (workflows_clock_handlers.go):
+// catalog name to its own days-knob reader (handlers_clock.go):
 // no_activity_reminder and check_in_cadence share the IDENTICAL
 // LastTouchBefore candidate source and differ only in which params key
 // names their own cadence. scanWorkspace looks a handler's enumerator up
@@ -50,7 +50,7 @@ const clockScanBatchLimit = 200
 // A handler with no entry here — renewal_reminder, today — rides a
 // different anchor entirely (a custom field's value, not a last-touch
 // timestamp) and has no candidate source wired at all; see its own doc
-// in workflows_clock_handlers.go for why. scanWorkspace below skips it
+// in handlers_clock.go for why. scanWorkspace below skips it
 // honestly rather than mishandling it as an ActivityScan consumer it
 // is not.
 var activityScanHandlers = map[string]clockDaysExtractor{
@@ -87,7 +87,7 @@ func NewTimeScanner(engine *WorkflowEngine, scan ActivityScan, log *slog.Logger)
 
 // Scan is one pass over every live workspace, converging every clock
 // automation instance's stale candidates onto runOne. Re-entrant, not
-// exactly-once: the occurrence key (IdempotencyKey, workflows_clock_handlers.go)
+// exactly-once: the occurrence key (IdempotencyKey, handlers_clock.go)
 // is what makes a redelivered or overlapping pass over the SAME anchor a
 // no-op, not this method's own bookkeeping.
 func (s *TimeScanner) Scan(ctx context.Context) error {
@@ -197,9 +197,9 @@ func scanInstanceCandidates(
 // candidate fires with — the occurrence-key contract (Task 12,
 // occurrence_test.go), shared by both ActivityScan-driven handlers: ID is
 // a FRESH ids.NewV7() every call (trigger_event is NOT NULL and is pure
-// per-pass provenance, workflows_run.go's claimRun doc — never the
+// per-pass provenance, engine_run.go's claimRun doc — never the
 // dedupe key), while the anchor rides Payload so the handler's own
-// IdempotencyKey (workflows_clock_handlers.go's anchorIdempotencyKey)
+// IdempotencyKey (handlers_clock.go's anchorIdempotencyKey)
 // can derive the REAL dedupe key from it instead.
 func buildActivityAnchorEvent(wsID ids.UUID, now time.Time, inst automationInstance, cand EntityAnchor) (workflow.Event, error) {
 	payload, err := json.Marshal(touchAnchorPayload{LastActivityAt: cand.Anchor})

@@ -37,7 +37,7 @@ func (f *fakeApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalI
 // regression: before the Approvals seam was wired in, a 🟡 action returned
 // a bare apperrors.ErrRequiresApproval with no approval row ever created —
 // runOne parked the run with nothing in detail for MarkRunBlocked to find
-// (workflows_blocked.go), so it stayed parked forever. ApplyActions must
+// (engine_blocked.go), so it stayed parked forever. ApplyActions must
 // call Stage and hand back the real id via StagedApprovalError so runOne
 // can record it (rundetail.go's stagedApprovalDetail).
 func TestApplyActionsStagesAYellowActionInsteadOfDeadEnding(t *testing.T) {

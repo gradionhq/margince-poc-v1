@@ -16,7 +16,7 @@ maps the codebase and links everything below.
 ### How-to — accomplish a task
 - [add-an-endpoint.md](how-to/add-an-endpoint.md) — add or change an API operation (contract → gen → handler).
 - [add-a-module.md](how-to/add-a-module.md) — add a new capability (module) or a cross-module edge, wired into compose.
-- [add-an-automation-trigger-or-action.md](how-to/add-an-automation-trigger-or-action.md) — scaffold and wire a new automation starter workflow into the closed catalog.
+- [create-a-workflow.md](how-to/create-a-workflow.md) — scaffold and wire a new automation starter workflow into the closed catalog.
 - [apply-migrations.md](how-to/apply-migrations.md) — write and apply a database migration.
 - [mint-a-passport.md](how-to/mint-a-passport.md) — issue an agent passport token.
 - [run-the-mcp-server.md](how-to/run-the-mcp-server.md) — serve the governed MCP tool surface.

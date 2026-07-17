@@ -118,7 +118,7 @@ var validateDueInDays = validateSingleIntParam("due_in_days", 30)
 
 // noActivityReminderSchema is no_activity_reminder's one-knob shape,
 // keyed "no_activity_days" — the exact property name
-// workflows_clock_handlers.go's noActivityDays reads off an instance's
+// handlers_clock.go's noActivityDays reads off an instance's
 // params, so the editor's schema and the handler's reader can never
 // drift onto two different knob names for the same automation.
 func noActivityReminderSchema() map[string]any {
@@ -130,7 +130,7 @@ func noActivityReminderSchema() map[string]any {
 var validateNoActivityReminderParams = validateSingleIntParam("no_activity_days", 365)
 
 // checkInCadenceSchema is check_in_cadence's own one-knob shape, keyed
-// "check_in_days" — checkInCadenceDays' (workflows_clock_handlers.go)
+// "check_in_days" — checkInCadenceDays' (handlers_clock.go)
 // own reader, distinct from no_activity_reminder's key so a workspace
 // may enable both with independent cadences.
 func checkInCadenceSchema() map[string]any {
@@ -142,7 +142,7 @@ func checkInCadenceSchema() map[string]any {
 var validateCheckInCadenceParams = validateSingleIntParam("check_in_days", 365)
 
 // renewalReminderSchema is renewal_reminder's one-knob shape, keyed
-// "days_before" — renewalDaysBefore's (workflows_clock_handlers.go) own
+// "days_before" — renewalDaysBefore's (handlers_clock.go) own
 // reader.
 func renewalReminderSchema() map[string]any {
 	return singleIntParamSchema("days_before", defaultRenewalDaysBefore, 365,

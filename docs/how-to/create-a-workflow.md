@@ -1,22 +1,24 @@
-# Add an automation trigger or action
+# Create an automation workflow
 
-The automation catalog (`internal/modules/automation`) is closed by design — seven trigger kinds,
-seven action types, both directions pinned by a fitness test (`ADR-0035`). Adding a new *catalog*
-member, or a new starter automation over the existing ones, is a code-and-test change that touches a
-handful of files in a fixed order. For the *why* behind the closure and the two permission gates
-every firing passes through, see [explanation/automation.md](../explanation/automation.md).
+A task checklist for adding a new automation — a "when X happens, do Y" template a workspace can
+enable — to the closed catalog (`internal/modules/automation`). Like the API, automation is
+code-and-test, never data: you scaffold a handler, fill in its `Match`/`Plan`, register it, and let
+the closure tests prove the wiring. For *why* it works this way — the closure, the one firing path,
+and the two permission gates every firing passes through — see
+[explanation/automation.md](../explanation/automation.md).
 
-This recipe covers the common case: **adding a new starter workflow handler** (a new automation
-template over the existing trigger/action vocabulary). Adding an eighth *trigger kind* or *action
-type* to the vocabulary itself is a larger, spec-level change — extend
+This recipe covers the common case: **adding a new starter workflow handler** over the existing
+seven-trigger × seven-action vocabulary. Adding an eighth *trigger kind* or *action type* to the
+vocabulary itself is a larger, spec-level change — extend
 `catalog_triggers.go`/`catalog_actions.go` and `catalog_closure_test.go`'s pinned lists together, and
-expect to touch the match-time gate's permission table (`catalog_actions.go`'s `actionDefs`) too.
+expect to touch the match-time gate's permission table (`catalog_actions.go`'s `actionDefs`) too
+(step 6 covers the permission side).
 
 ## Steps
 
 1. **Scaffold the handler**: `make gen-workflow NAME=<snake_case_name>` (from `backend/`, or
    `go run ./tools/gen-workflow <snake_case_name>` directly). This writes
-   `internal/modules/automation/workflows_<name>.go` and its test stub — a handler that compiles,
+   `internal/modules/automation/handlers_<name>.go` and its test stub — a handler that compiles,
    registers, and declares a placeholder trigger + tier, both carrying the BUSL SPDX header. It is
    **write-once**: it refuses if either file already exists, so re-running it never clobbers your
    edits.
@@ -24,11 +26,11 @@ expect to touch the match-time gate's permission table (`catalog_actions.go`'s `
 2. **Fill in `Match` and `Plan`** in the scaffolded handler:
    - `Match` decides whether this firing's event/candidate satisfies the automation's condition.
      Read the automation's own params off `ev.Params` (see any existing starter's own knob reader,
-     e.g. `noActivityDays` in `workflows_clock_handlers.go`, for the one-reader-per-knob pattern
+     e.g. `noActivityDays` in `handlers_clock.go`, for the one-reader-per-knob pattern
      that keeps a coarse pre-filter and the precise recheck from drifting apart).
    - `Plan` builds the `workflow.Effect` — one or more typed `workflow.Action` values from the
      **executor** vocabulary (`ports/workflow.ActionKind`), not the catalog's `automation.ActionType`
-     — see `ApplyActions`' switch in `workflows.go` for the full closed set.
+     — see `ApplyActions`' switch in `engine.go` for the full closed set.
    - Set `Spec().Trigger` to **either** `EventType` (a bus event, e.g. `"deal.stage_changed"`) **or**
      `Schedule` (a non-empty marker string — see `noActivityScheduleMarker`'s doc for why it documents
      intent only and is never parsed as a cron expression) — never both;
@@ -52,7 +54,7 @@ expect to touch the match-time gate's permission table (`catalog_actions.go`'s `
    enrolls (step 5) — most new catalog entries are **authorable-only** (`Seeded: false`): fully
    instantiable through the API, never auto-enrolled.
 
-4. **Register the handler** in `StarterWorkflows()` (`workflows_starter.go`). `compose/workflows.go`
+4. **Register the handler** in `StarterWorkflows()` (`handlers_event.go`). `compose/workflows.go`
    already ranges over that slice when it builds the engine, so nothing else needs to change to wire
    a new starter into the running binary. (A handler whose engine needs a *sibling module's* store —
    the way `assign_lead_owner`'s routing logic lives in `people`, not `automation` — is registered

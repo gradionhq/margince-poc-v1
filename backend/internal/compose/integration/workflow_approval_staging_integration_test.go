@@ -8,7 +8,7 @@ package integration
 // The 🟡 staging path (AUTO-T05): before this fix, ApplyActions returned
 // a bare apperrors.ErrRequiresApproval for a 🟡 action — no approval row
 // was ever created, so the run parked at requires_approval forever with
-// nothing in `detail` for a human's rejection to find (workflows_blocked.go's
+// nothing in `detail` for a human's rejection to find (engine_blocked.go's
 // MarkRunBlocked matches on detail->>'approval_id'). This suite proves the
 // whole loop end to end over a real migrated Postgres: a 🟡 firing creates
 // a real `approval` row, the parked run's detail names it, and rejecting
@@ -83,7 +83,7 @@ func (p yellowStagingProbe) Plan(_ context.Context, ev workflow.Event) (workflow
 func (p yellowStagingProbe) Apply(ctx context.Context, _ workflow.Event, eff workflow.Effect, _ *workflow.ApprovalToken) (workflow.RunResult, error) {
 	// A zero-value Provider: a 🟡 action stages instead of writing, so
 	// this proves ApplyActions never reaches the write side on this path
-	// (workflows.go).
+	// (engine.go).
 	applied, err := automation.ApplyActions(ctx, automation.Executors{Approvals: p.approvals}, eff)
 	return workflow.RunResult{Applied: applied}, err
 }

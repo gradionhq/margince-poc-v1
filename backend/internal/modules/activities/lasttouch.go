@@ -25,7 +25,7 @@ import (
 
 // automationSource is the activity.source value the automation engine
 // stamps on every activity it creates (its create_task / create_record
-// output, automation/workflows.go's systemSource). LastTouchBefore
+// output, automation/engine.go's systemSource). LastTouchBefore
 // excludes these so the engine's OWN reminder task cannot count as a
 // "touch" that resets the very clock it fires off. A module never imports
 // a sibling (ADR-0054 §9), so this is the value-level shadow of that

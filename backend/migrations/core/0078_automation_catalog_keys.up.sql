@@ -5,14 +5,14 @@
 -- ASSIGNS AN OWNER (people.LeadRoutingWorkflow) — a different act, so
 -- it moves to its own honest catalog key, assign_lead_owner
 -- (automations_catalog.go), and automation's own route_lead key is
--- freed for a NEW create_task handler (workflows_starter.go).
+-- freed for a NEW create_task handler (handlers_event.go).
 --
 -- Every automation row keyed 'route_lead' before this release is,
 -- unambiguously, an owner-assignment instance: the create_task reading
 -- of "route_lead" did not exist until this migration ships alongside
 -- it. Re-key those rows so they keep firing under the renamed handler —
 -- the engine dispatches instances by exact key = Spec().Name
--- (workflows.go's HandleEvent), so an un-rekeyed row would go silently
+-- (engine.go's HandleEvent), so an un-rekeyed row would go silently
 -- dark: it would still read "Active" in the UI, never fire again, and
 -- log nothing, rather than erroring loudly.
 --

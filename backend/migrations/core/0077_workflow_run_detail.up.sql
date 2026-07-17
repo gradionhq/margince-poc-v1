@@ -2,7 +2,7 @@
 -- existing `error` text column carries two payloads: a human-readable
 -- failure/skip/block reason, and — while a run is parked for a staged
 -- 🟡 approval — a machine-parsed staging pointer matched back by exact
--- string equality (workflows_blocked.go). Encoding a machine pointer as
+-- string equality (engine_blocked.go). Encoding a machine pointer as
 -- a bare string that must be string-matched is fragile; a jsonb object
 -- lets the pointer carry the approval id as a real field a matcher
 -- queries structurally, with the reason staying human-readable alongside

@@ -141,8 +141,8 @@ func checkActionPermission(rbac authz.RBAC, action workflow.Action) (gateDecisio
 
 // recordBlocked lands the match-time gate's refusal as a durable
 // 'blocked' run (migration 0061 added 'blocked' to the status CHECK): the
-// SAME direct-claim shape recordSkip uses (workflows_run.go), not
-// MarkRunBlocked's parked→blocked transition (workflows_blocked.go) —
+// SAME direct-claim shape recordSkip uses (engine_run.go), not
+// MarkRunBlocked's parked→blocked transition (engine_blocked.go) —
 // this firing never reached Apply, so it never staged an approval for
 // that path to reverse. planned carries what Plan actually computed, so
 // the run history shows exactly what was refused, not an empty plan.

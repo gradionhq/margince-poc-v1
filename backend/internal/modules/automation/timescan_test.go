@@ -95,7 +95,7 @@ type recordedRunCall struct {
 // TestScanInstanceCandidatesSynthesizesOneEventPerCandidate proves the
 // occurrence-key contract's producing side (timescan.go's
 // buildNoActivityEvent): each candidate gets its OWN fresh ev.ID
-// (trigger_event provenance, workflows_run.go's claimRun doc), the
+// (trigger_event provenance, engine_run.go's claimRun doc), the
 // instance's OwnerID and AutomationID ride along (the Task-13 gate reads
 // OwnerID), and the candidate's Anchor is recoverable from the event's
 // Payload — the anchor a real handler's IdempotencyKey derives its key
@@ -195,7 +195,7 @@ func TestScanInstanceCandidatesStopsOnARunFailure(t *testing.T) {
 // names resolves to ITS OWN days reader (never the other's, never a
 // shared default) and that a handler with no ActivityScan enumeration —
 // renewal_reminder, whose candidate source is deferred, see
-// workflows_clock_handlers.go's renewalReminder doc — has no entry at
+// handlers_clock.go's renewalReminder doc — has no entry at
 // all, so scanWorkspace's map lookup honestly skips it instead of
 // mishandling it as an ActivityScan consumer.
 func TestActivityScanHandlersRoutesEachHandlerToItsOwnDaysReader(t *testing.T) {
@@ -218,6 +218,6 @@ func TestActivityScanHandlersRoutesEachHandlerToItsOwnDaysReader(t *testing.T) {
 	}
 
 	if _, ok := activityScanHandlers[renewalReminderName]; ok {
-		t.Error("activityScanHandlers has an entry for renewal_reminder — its candidate source is deferred (workflows_clock_handlers.go), scanWorkspace must skip it honestly rather than treat it as an ActivityScan consumer")
+		t.Error("activityScanHandlers has an entry for renewal_reminder — its candidate source is deferred (handlers_clock.go), scanWorkspace must skip it honestly rather than treat it as an ActivityScan consumer")
 	}
 }

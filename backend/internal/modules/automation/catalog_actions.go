@@ -57,7 +57,7 @@ const (
 	// fixed value (e.g. add_to_list always mutates list membership).
 	PermissionPinned PermissionShape = "pinned"
 	// PermissionTargetScoped marks an action whose real object is whatever
-	// entity type the automation's trigger fired on — workflows.go's
+	// entity type the automation's trigger fired on — engine.go's
 	// ApplyActions routes both assign_owner and set_field to
 	// provider.Update{Ref: action.Target}, and Target's type comes from
 	// the event, not from this registry. Object is deliberately left
@@ -109,13 +109,13 @@ type ActionDef struct {
 // owner-scoped is 🟢, reassign-at-scale is the held 🟡 form. The tier
 // resolves from the automation's own filter/scope at fire time
 // (assign_owner_tier.go's resolveAssignOwnerTier, wired into
-// ApplyActions' ActionAssignOwner case, workflows.go) — no shipped
+// ApplyActions' ActionAssignOwner case, engine.go) — no shipped
 // automation's own params carry a scale signal yet, so every real
 // firing today resolves single-entity; the 🟡 branch is proven against a
 // synthetic scaled input by its own unit tests, never fabricated into a
 // real template.
 //
-// RequiredPermission's Shape is proven for two actions by workflows.go's
+// RequiredPermission's Shape is proven for two actions by engine.go's
 // ApplyActions switch: create_task's executor case forces entity =
 // datasource.EntityActivity no matter what fired it, so it is
 // PermissionPinned; assign_owner and set_field each route to

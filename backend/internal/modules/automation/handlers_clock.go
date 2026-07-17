@@ -6,13 +6,12 @@ package automation
 // The clock-triggered starters (Task 14a/14b, features/10 §1's
 // no_activity_for_n_days and date_field_approaching / UC-E15-01's own
 // worked example, "remind me if a deal I own has no activity for N
-// days"). Unlike the event starters (workflows_starter.go,
-// workflows_event_handlers.go), a clock handler has no event to read
-// Match's decision off: TimeScanner (timescan.go) is a coarse SQL
-// pre-filter, and Match here is the PRECISE re-check every clock handler
-// owes (occurrence_test.go's convention) — re-deriving the same cutoff
-// from ev.Params and confirming the anchor the scan carried still
-// crosses it as of this event's own OccurredAt.
+// days"). Unlike the event starters (handlers_event.go), a clock handler
+// has no event to read Match's decision off: TimeScanner (timescan.go) is
+// a coarse SQL pre-filter, and Match here is the PRECISE re-check every
+// clock handler owes (occurrence_test.go's convention) — re-deriving the
+// same cutoff from ev.Params and confirming the anchor the scan carried
+// still crosses it as of this event's own OccurredAt.
 //
 // Three handlers share this file because they share machinery, not
 // because they are one concept: no_activity_reminder and
@@ -46,8 +45,8 @@ import (
 const noActivityReminderName = "no_activity_reminder"
 
 // noActivityScheduleMarker is Trigger.Schedule's value. RegisterWorkflow
-// (workflows.go) only requires Schedule to be non-empty — that non-empty-
-// ness is the marker isClockTrigger (workflows_run.go) routes on to reach
+// (engine.go) only requires Schedule to be non-empty — that non-empty-
+// ness is the marker isClockTrigger (engine_run.go) routes on to reach
 // the time-scan instead of the bus. The actual cadence is the River
 // periodic job's own interval (compose/jobs.go's TimeScanArgs), so this
 // string documents intent for a human reading the registry; it is never
@@ -85,7 +84,7 @@ func noActivityDays(params json.RawMessage) (int, error) {
 // (timescan.go's buildActivityAnchorEvent writes it; touchAnchor below
 // reads it back) — shared by both no_activity_reminder and
 // check_in_cadence, since both fire off the SAME "quiet since" moment.
-// The anchor lives in idempotency_key, NOT trigger_event (workflows_run.go's
+// The anchor lives in idempotency_key, NOT trigger_event (engine_run.go's
 // claimRun doc: trigger_event is a fresh per-pass id, pure provenance) —
 // this is what makes a firing re-arm exactly when the entity's last touch
 // moves and stay quiet while it doesn't (Task 12's occurrence-key
@@ -145,7 +144,7 @@ func activityStaleMatch(ev workflow.Event, days clockDaysExtractor) (bool, error
 
 // taskCreateEffect is the ONE create_task effect shape every task-minting
 // starter plans — the clock reminders here AND the event starters in
-// workflows_starter.go (stage_change_create_task, route_lead). A task of
+// handlers_event.go (stage_change_create_task, route_lead). A task of
 // the given subject, due at dueAt, linked to whatever entity actually
 // fired. Sharing the builder keeps the effect's JSON keys
 // (task/subject/due_at/links/entity_type/entity_id) in exactly one place,
@@ -200,7 +199,7 @@ func anchorIdempotencyKey(name string, anchor time.Time, anchorErr error) string
 // noActivityReminder reminds an entity's owner once its most recent
 // captured activity has gone quiet for N days — the clock counterpart of
 // the event starters, converging on the identical runOne path
-// (workflows_run.go) via TimeScanner (timescan.go) rather than the bus.
+// (engine_run.go) via TimeScanner (timescan.go) rather than the bus.
 type noActivityReminder struct {
 	ex Executors
 }

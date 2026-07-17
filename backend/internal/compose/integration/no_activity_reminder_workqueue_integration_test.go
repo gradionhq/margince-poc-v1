@@ -48,7 +48,7 @@ package integration
 // crmcontracts.ListActivitiesParams.AssigneeId nor
 // activities.ListActivitiesInput carries it through to a WHERE clause —
 // and no clock handler stamps assignee_id on the task it creates
-// (workflows_clock_handlers.go's taskCreateEffect carries no assignee_id
+// (handlers_clock.go's taskCreateEffect carries no assignee_id
 // key at all). Sam's reminder reaches him ONLY because he owns the deal
 // it is linked to, never because anyone assigned it to him. See the
 // task-17 report for the full writeup; that gap is out of THIS suite's

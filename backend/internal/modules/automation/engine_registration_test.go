@@ -5,10 +5,10 @@ package automation
 
 // The both-fields registration guard (Task 14a): RegisterWorkflow already
 // rejected a handler declaring NEITHER EventType nor Schedule
-// (workflows.go). Now that real clock handlers (Schedule-bearing) sit
+// (engine.go). Now that real clock handlers (Schedule-bearing) sit
 // beside the event handlers (EventType-bearing), a handler that wrongly
 // set BOTH would have its non-matches silently swallowed as a clock
-// trigger's (runOne never records a clock non-match, workflows_run.go)
+// trigger's (runOne never records a clock non-match, engine_run.go)
 // even though it also claims to ride the bus as an event trigger. This
 // file converts isClockTrigger's documented "exactly one, never both"
 // convention into an enforced registration-time guard, proven two ways:
@@ -55,7 +55,7 @@ func (bothFieldsHandler) IdempotencyKey(workflow.Event) string {
 
 // mustPanic asserts fn panics; used here (rather than a bare recover in
 // each test) because RegisterWorkflow's own guards are composition-time
-// assertions (//craft:ignore panic-in-domain, workflows.go) proven by
+// assertions (//craft:ignore panic-in-domain, engine.go) proven by
 // deliberately triggering them, not by asserting a returned error.
 func mustPanic(t *testing.T, why string, fn func()) {
 	t.Helper()

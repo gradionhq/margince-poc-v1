@@ -4,7 +4,7 @@
 package automation
 
 // This file owns the per-firing run lifecycle WorkflowEngine.HandleEvent
-// drives every dispatched handler through (workflows.go): claim the
+// drives every dispatched handler through (engine.go): claim the
 // (handler, idempotency-key) row first, then Plan → Apply, recording every
 // terminal outcome — applied, skipped, failed, staged — durably on the
 // run row (B-E15.3a).
@@ -147,7 +147,7 @@ func (e *WorkflowEngine) recordApplyOutcome(ctx context.Context, h workflow.Hand
 		case errors.As(applyErr, &staged):
 			// The staging pointer rides the detail column's approval_id
 			// field — the run row's only free seam — so a later rejection
-			// can find and block exactly this run (workflows_blocked.go).
+			// can find and block exactly this run (engine_blocked.go).
 			detail, err := stagedApprovalDetail(staged.ApprovalID)
 			if err != nil {
 				return err

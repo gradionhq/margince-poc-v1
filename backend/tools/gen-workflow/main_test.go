@@ -25,8 +25,8 @@ func TestGenerateWritesHandlerAndTestWithSPDXHeader(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	wantHandler := filepath.Join(dir, "workflows_my_test_handler.go")
-	wantTest := filepath.Join(dir, "workflows_my_test_handler_test.go")
+	wantHandler := filepath.Join(dir, "handlers_my_test_handler.go")
+	wantTest := filepath.Join(dir, "handlers_my_test_handler_test.go")
 	if handlerPath != wantHandler {
 		t.Errorf("handlerPath = %q, want %q", handlerPath, wantHandler)
 	}

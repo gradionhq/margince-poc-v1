@@ -77,7 +77,7 @@ func TestFiringPathRecordsEveryTerminalOutcomeWithItsReason(t *testing.T) {
 // verbatim by any workspace user holding automation:read (GET
 // /automations/{id}/runs, handlers_automations.go). Against the pre-fix
 // code (reasonDetail(applyErr.Error())) this test fails on the
-// "secret_table" substring; sanitizedReason (workflows_run.go) is what
+// "secret_table" substring; sanitizedReason (engine_run.go) is what
 // makes it pass.
 func TestFailedRunReasonNeverLeaksRawProviderErrorInternals(t *testing.T) {
 	fx := setupAutomationDB(t)
@@ -150,7 +150,7 @@ func assertRecordedOutcomes(t *testing.T, fx *autoFixture, wantRuns int, stagedA
 	// that), but never repeats the raw handler/provider error text: a real
 	// Match/Plan/Apply failure can carry a raw pgx error (SQLSTATE, table,
 	// column names), and this column is read verbatim by any workspace user
-	// with automation:read (T2, workflows_run.go's sanitizedReason).
+	// with automation:read (T2, engine_run.go's sanitizedReason).
 	if run := runs["wf_matchfail"]; run.status != "failed" ||
 		!strings.Contains(reasonOf("wf_matchfail"), "matching the trigger") ||
 		strings.Contains(reasonOf("wf_matchfail"), "boom-match") {

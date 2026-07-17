@@ -8,7 +8,7 @@ package automation
 // plus — only while a run is parked behind a staged 🟡 approval — the
 // approval's id as a real field. Before this column, both payloads rode
 // the `error` text column and the staging pointer was matched back by
-// exact string equality (workflows_blocked.go); a jsonb field the
+// exact string equality (engine_blocked.go); a jsonb field the
 // matcher can query structurally survives wording changes and still
 // reads as a sentence to a human looking at the row directly.
 
@@ -34,7 +34,7 @@ func reasonDetail(reason string) ([]byte, error) {
 
 // stagedApprovalDetail is the ONE spelling of the run-row staging
 // pointer: the Apply path stamps it when a run parks (runOne,
-// workflows.go), and MarkRunBlocked (workflows_blocked.go) matches on
+// engine.go), and MarkRunBlocked (engine_blocked.go) matches on
 // its approval_id field, so the linkage can never drift apart.
 func stagedApprovalDetail(approvalID ids.ApprovalID) ([]byte, error) {
 	return json.Marshal(runDetail{

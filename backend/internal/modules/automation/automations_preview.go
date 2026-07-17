@@ -87,7 +87,7 @@ type previewDef struct {
 // to scope a row-visibility clause against, and BOTH their own "if" is
 // relative to "now minus the instance's own N days" — a runtime value
 // this registry's static map cannot parameterize on. renewal_reminder
-// has no candidate source wired at all yet (workflows_clock_handlers.go's
+// has no candidate source wired at all yet (handlers_clock.go's
 // own extensive doc on that gap: no seam reaches an arbitrary cf_*
 // column's value). Fabricating any of the three risks a wrong or
 // over-wide RBAC scope on a preview endpoint — a security-sensitive

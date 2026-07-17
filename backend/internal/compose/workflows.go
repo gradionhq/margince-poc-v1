@@ -50,7 +50,7 @@ func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a
 		// notify firing surfaces as a visible 'skipped' run instead
-		// (automation.ErrNoNotificationTransport, workflows.go) until a
+		// (automation.ErrNoNotificationTransport, engine_run.go) until a
 		// real channel lands here.
 	}
 	for _, handler := range automation.StarterWorkflows(ex) {

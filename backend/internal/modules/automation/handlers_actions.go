@@ -3,9 +3,9 @@
 
 package automation
 
-// The three composing action executors ApplyActions (workflows.go)
+// The three composing action executors ApplyActions (engine.go)
 // delegates to: notify, add_to_list, and draft_email. Split out of
-// workflows.go so that file's own switch stays readable as the executor
+// engine.go so that file's own switch stays readable as the executor
 // count grows (the same reasoning gen-workflow's docs give for splitting
 // a package once a named trigger fires).
 
@@ -129,7 +129,7 @@ func applyDraftEmail(ctx context.Context, comms Comms, action workflow.Action) (
 // *workflow.StagedApprovalError, the same sentinel-as-error shape
 // ApplyActions' own 🟡 kinds already return, so the caller's ordinary
 // `if err != nil` handles both without a second return value to check.
-// scope is the caller's own resolved input (ApplyActions, workflows.go);
+// scope is the caller's own resolved input (ApplyActions, engine.go);
 // taking it as a parameter here — rather than resolving it inline — is
 // what lets this function's own tests prove the 🟡 branch against a
 // synthetic scaled scope, never a caller-set override.

@@ -77,7 +77,7 @@ func assertPermissionIsExactlyOneShape(t *testing.T, a ActionType, p Permission)
 
 // pinnedTargetScopedActions names the actions whose object cannot be
 // pinned: assign_owner and set_field both route to
-// provider.Update{Ref: action.Target} in workflows.go's ApplyActions, and
+// provider.Update{Ref: action.Target} in engine.go's ApplyActions, and
 // Target's type is read off the firing event, so neither can pin a single
 // object. Pinned by name, not derived, so a future change that flips an
 // action's Shape — widening or narrowing the author-time ceiling — must

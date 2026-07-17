@@ -76,7 +76,7 @@ type Notifier interface {
 
 // ErrNoNotificationTransport is notify's honest answer when no Notifier
 // is wired: the firing matched and would have delivered, but this
-// environment has nowhere to send it. runOne (workflows.go) maps it to
+// environment has nowhere to send it. runOne (engine.go) maps it to
 // a 'skipped' run with a readable reason — distinct from a Match/Plan
 // condition-declined skip and distinct from 'failed' (nothing went
 // wrong; delivery is simply out of scope for this run), so a rep reading
@@ -98,7 +98,7 @@ type Executors struct {
 // EntityAnchor is one ActivityScan candidate: an entity whose most recent
 // touch is stale enough to be plausibly "no activity for N days", carrying
 // that touch as Anchor — the timestamp a clock handler's IdempotencyKey
-// must derive its key from (Task 12's occurrence-key contract, workflows_run.go's
+// must derive its key from (Task 12's occurrence-key contract, engine_run.go's
 // runKey doc): the firing re-arms exactly when Anchor moves and stays quiet
 // while it doesn't.
 type EntityAnchor struct {

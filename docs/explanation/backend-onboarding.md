@@ -209,7 +209,7 @@ codegen, and the store shape above into one checklist:
 - **Add or change an API endpoint** → [how-to/add-an-endpoint.md](../how-to/add-an-endpoint.md)
 - **Add a new module or a cross-module edge** → [how-to/add-a-module.md](../how-to/add-a-module.md)
 - **Add a database migration** → [how-to/apply-migrations.md](../how-to/apply-migrations.md)
-- **Add an automation trigger or action** → [how-to/add-an-automation-trigger-or-action.md](../how-to/add-an-automation-trigger-or-action.md)
+- **Create an automation workflow** → [how-to/create-a-workflow.md](../how-to/create-a-workflow.md)
 
 ---
 

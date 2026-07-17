@@ -19,7 +19,7 @@ import (
 // every Create call so a test can assert route_lead's Plan reached
 // ApplyActions' create_task executor with the right entity/fields, and
 // nothing else — every other method panics, the same convention
-// fakeReadProvider (workflows_event_handlers_test.go) uses for the read
+// fakeReadProvider (handlers_event_test.go) uses for the read
 // side.
 type fakeCreateRecorder struct {
 	calls []datasource.CreateInput

@@ -37,7 +37,7 @@ func touchEvent(t *testing.T, now, anchor time.Time, entity datasource.EntityRef
 
 // renewalEvent builds one renewal_reminder clock event carrying a
 // renewal-date anchor — the shape Match/Plan/IdempotencyKey decode.
-// Nothing in production builds this yet (workflows_clock_handlers.go's
+// Nothing in production builds this yet (handlers_clock.go's
 // renewalReminder doc explains why); this is the same "prove the
 // contract directly" posture touchEvent already exercises for the two
 // ActivityScan handlers.

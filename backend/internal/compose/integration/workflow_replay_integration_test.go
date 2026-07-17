@@ -41,7 +41,7 @@ import (
 
 // The two facts this suite's real firing produces, named once so the
 // reconstruction asserts against the SAME strings the seeded starter
-// (workflows_starter.go's routeLeadCreateTask) and its create_task
+// (handlers_event.go's routeLeadCreateTask) and its create_task
 // executor (activities.LogActivity) actually emit.
 const (
 	routeLeadHandler     = "route_lead"

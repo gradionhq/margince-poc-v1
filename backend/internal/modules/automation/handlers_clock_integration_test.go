@@ -12,7 +12,7 @@ package automation
 //     engine.runOne exactly as a real TimeScanner pass would (mirroring
 //     no_activity_reminder's own unit-level rigor, at the DB layer).
 //   - renewal_reminder, whose candidate source is deferred (see its own
-//     doc in workflows_clock_handlers.go), is proven a genuine no-op:
+//     doc in handlers_clock.go), is proven a genuine no-op:
 //     a real TimeScanner.Scan pass over a workspace with an ENABLED
 //     renewal_reminder instance never claims a workflow_run row for it —
 //     the honest "environment absent" behavior, not silence masking a bug.
