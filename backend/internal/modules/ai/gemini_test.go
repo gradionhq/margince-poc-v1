@@ -154,19 +154,24 @@ func TestGeminiStripsSecretsFromWire(t *testing.T) {
 	}
 }
 
-func TestGeminiEmbedReturnsVectors(t *testing.T) {
+func TestGeminiEmbedReturnsVectorsAndPinsOutputDimensionality(t *testing.T) {
+	var body []byte
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, ":embedContent") {
 			t.Errorf("wrong path %s", r.URL.Path)
 		}
+		body = readBody(t, r.Body)
 		_, _ = w.Write([]byte(`{"embedding":{"values":[0.1,0.2,0.3]}}`))
 	})
-	res, err := client.Embed(context.Background(), model.EmbedRequest{Inputs: []string{"a"}})
+	res, err := client.Embed(context.Background(), model.EmbedRequest{Inputs: []string{"a"}, Dimensions: 1024})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Dims != 3 || len(res.Vectors) != 1 {
 		t.Fatalf("unexpected shape: %+v", res)
+	}
+	if !bytes.Contains(body, []byte(`"outputDimensionality":1024`)) {
+		t.Fatalf("outputDimensionality not sent to match the store column: %s", body)
 	}
 }
 

@@ -23,11 +23,13 @@ const (
 )
 
 // embedWire is the OpenAI-style embeddings request body ({model, input}); a
-// typed struct rather than a map so every adapter spells the two fields the
-// same way once.
+// typed struct rather than a map so every adapter spells the fields the same way
+// once. Dimensions is OpenAI's truncation knob — sent only when the caller pins
+// a width (omitted otherwise, so a local server that ignores it is unaffected).
 type embedWire struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model      string   `json:"model"`
+	Input      []string `json:"input"`
+	Dimensions int      `json:"dimensions,omitempty"`
 }
 
 // openAIWireEmbed runs the shared OpenAI /v1/embeddings round-trip: a
@@ -40,7 +42,7 @@ func openAIWireEmbed(ctx context.Context, post func(context.Context, string, []b
 	if embedModel == "" {
 		embedModel = defaultModel
 	}
-	payload, _, err := sendablePayload(ctx, embedWire{Model: embedModel, Input: req.Inputs}, nil)
+	payload, _, err := sendablePayload(ctx, embedWire{Model: embedModel, Input: req.Inputs, Dimensions: req.Dimensions}, nil)
 	if err != nil {
 		return model.Embeddings{}, err
 	}

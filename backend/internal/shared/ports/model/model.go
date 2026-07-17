@@ -126,6 +126,12 @@ type TokenStream interface {
 type EmbedRequest struct {
 	Model  string
 	Inputs []string
+	// Dimensions, when > 0, asks the embedder to emit vectors of exactly this
+	// width — the retrieval store's fixed column width. Cloud embedders whose
+	// native width differs (OpenAI text-embedding-3, Gemini gemini-embedding-001)
+	// honor it via their truncation parameter; an embedder already at the width
+	// (a local bge-m3, the fake) ignores it. 0 means "provider default".
+	Dimensions int
 }
 
 type Embeddings struct {

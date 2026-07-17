@@ -65,16 +65,23 @@ tiers:
 ## 3. Bind the embeddings lane separately
 
 The embedding lane is bound apart from the chat tiers so retrieval survives a
-chat-budget exhaustion. Not every OpenAI-compatible vendor serves it:
+chat-budget exhaustion. The shipped default is **gemini** (`gemini-embedding-001`,
+key from `GEMINI_API_KEY`) so the stack needs no local Ollama:
 
 ```yaml
-embeddings: { provider: ollama, model: bge-m3 }   # a local embedder always works
+embeddings: { provider: gemini, model: gemini-embedding-001 }  # the default
+# embeddings: { provider: ollama, model: bge-m3 }              # fully-local alternative
+# embeddings: { provider: fake }                               # offline dev
 ```
+
+> The retrieval store's column is a fixed **`vector(1024)`**, and cloud embedders
+> default wider (Gemini 3072, OpenAI 1536). The adapter pins the width — Gemini
+> via `outputDimensionality`, OpenAI via `dimensions` — so a cloud embedder drops
+> in without a schema change. A binding that returns another width fails loudly.
 
 > **`openai_compatible`'s `/embeddings` 404s on OpenRouter, Groq, and DeepSeek**
 > — they serve chat only. Bind `embeddings:` to a vendor that has the lane
-> (`openai`, Mistral, Gemini) or to a local model (`ollama` `bge-m3`). `gemini`
-> embeds via `gemini-embedding-001`.
+> (`gemini`, `openai`, Mistral) or a local model (`ollama` `bge-m3`).
 
 ## 4. Start the stack
 

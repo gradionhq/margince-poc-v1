@@ -84,10 +84,12 @@ type geminiThinking struct {
 }
 
 // geminiEmbedWire is the :embedContent request body — a single content whose
-// parts carry the text to embed.
+// parts carry the text to embed. outputDimensionality (MRL truncation) pins the
+// vector width to the retrieval store's column when the caller asks for one.
 type geminiEmbedWire struct {
-	Model   string        `json:"model"`
-	Content geminiContent `json:"content"`
+	Model                string        `json:"model"`
+	Content              geminiContent `json:"content"`
+	OutputDimensionality int           `json:"outputDimensionality,omitempty"` //nolint:tagliatelle // Google's wire format (camelCase)
 }
 
 // geminiOptions is the vendor-only knob namespace read from
@@ -165,8 +167,9 @@ func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	dims := 0
 	for _, input := range req.Inputs {
 		wire := geminiEmbedWire{
-			Model:   "models/" + embedModel,
-			Content: geminiContent{Parts: []geminiPart{{Text: input}}},
+			Model:                "models/" + embedModel,
+			Content:              geminiContent{Parts: []geminiPart{{Text: input}}},
+			OutputDimensionality: req.Dimensions, // 0 ⇒ omitted ⇒ provider default
 		}
 		payload, _, err := sendablePayload(ctx, wire, nil)
 		if err != nil {
