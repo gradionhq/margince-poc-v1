@@ -46,6 +46,45 @@ profile: eu_hosted
 	}
 }
 
+// A cloud provider on any tier or the embeddings lane is refused under the
+// sovereign profile — zero egress by construction (spec §3.6).
+func TestSovereignRefusesOpenAICompatible(t *testing.T) {
+	cfg := []byte(`
+profile: sovereign
+tiers:
+  cheap_cloud: {provider: openai_compatible, base_url: https://api.mistral.ai/v1, api_key: k, model: m}
+embeddings: {provider: ollama, model: bge-m3}
+`)
+	if _, err := ParseRouting(cfg); err == nil || !strings.Contains(err.Error(), "sovereign forbids cloud provider") {
+		t.Fatalf("want sovereign-forbids-cloud, got %v", err)
+	}
+}
+
+// LocalOnly (the runtime capability) and localProviders (the parse-time set)
+// are two encodings of "is this cloud"; they may never disagree.
+func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
+	built := map[string]ProviderConfig{
+		"fake":              {Provider: "fake"},
+		"anthropic":         {Provider: "anthropic", APIKey: "k", Model: "m"},
+		"ollama":            {Provider: "ollama", Model: "m"},
+		"vllm":              {Provider: "vllm", Model: "m"},
+		"openai_compatible": {Provider: "openai_compatible", APIKey: "k", BaseURL: "https://x", Model: "m"},
+	}
+	for _, name := range knownProviders {
+		cfg, ok := built[name]
+		if !ok {
+			t.Fatalf("knownProviders has %q with no build recipe in this test — add one", name)
+		}
+		client, err := SelectBrain(cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got, want := client.Caps().LocalOnly, localProviders[name]; got != want {
+			t.Fatalf("%s: Caps().LocalOnly=%v but localProviders=%v — encodings disagree", name, got, want)
+		}
+	}
+}
+
 func TestParseRoutingSovereignAllLocalIsValid(t *testing.T) {
 	cfg, err := ParseRouting([]byte(`
 tiers:
