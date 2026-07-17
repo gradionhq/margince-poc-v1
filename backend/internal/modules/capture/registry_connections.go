@@ -98,13 +98,29 @@ type DueConnection struct {
 // DueConnections lists every connected connection for provider name across the
 // whole fleet, so the background poller can drive one SyncOnce per
 // connection. capture_connection is RLS-scoped, so this walks each
-// workspace under its own GUC — the same fleet-walk shape as
-// BackfillCredentials. One workspace's failure does not starve the rest.
+// workspace under its own GUC. One workspace's failure does not starve the rest.
 func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnection, error) {
+	return r.collectDue(ctx, func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error) {
+		rows, err := tx.Query(ctx, `
+			SELECT id FROM capture_connection
+			WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL`, name)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	})
+}
+
+// collectDue is the RLS fleet-walk the poll (DueConnections) and the watch scan
+// (DueWatches) share: it enumerates every live workspace, enters each one's own
+// GUC, and appends the connection ids the per-workspace selector returns, tagged
+// with their workspace. Per-workspace errors are joined so one workspace's
+// failure never starves the rest of the fleet.
+func (r *Registry) collectDue(ctx context.Context, selector func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error)) ([]DueConnection, error) {
 	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
 	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
-		return nil, fmt.Errorf("capture: listing workspaces for the %s poll: %w", name, err)
+		return nil, fmt.Errorf("capture: listing workspaces for the fleet walk: %w", err)
 	}
 	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
 	if err != nil {
@@ -116,24 +132,17 @@ func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnec
 		wsCtx := principal.WithWorkspaceID(ctx, wsID)
 		ws := ids.From[ids.WorkspaceKind](wsID)
 		err := database.WithWorkspaceTx(wsCtx, r.pool, func(tx pgx.Tx) error {
-			rows, err := tx.Query(wsCtx, `
-				SELECT id FROM capture_connection
-				WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL`, name)
+			selected, err := selector(wsCtx, tx)
 			if err != nil {
 				return err
 			}
-			defer rows.Close()
-			for rows.Next() {
-				var id ids.UUID
-				if err := rows.Scan(&id); err != nil {
-					return err
-				}
+			for _, id := range selected {
 				due = append(due, DueConnection{Workspace: ws, ID: id})
 			}
-			return rows.Err()
+			return nil
 		})
 		if err != nil {
-			errs = errors.Join(errs, fmt.Errorf("capture: listing %s connections in workspace %s: %w", name, wsID, err))
+			errs = errors.Join(errs, fmt.Errorf("capture: fleet walk in workspace %s: %w", wsID, err))
 		}
 	}
 	return due, errs

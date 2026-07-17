@@ -11,6 +11,7 @@
 package gmail
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -75,6 +76,10 @@ type API interface {
 	History(ctx context.Context, accessToken, startHistoryID string) (addedIDs []string, historyID string, err error)
 	// GetRaw fetches one message as its decoded RFC822 bytes (format=RAW).
 	GetRaw(ctx context.Context, accessToken, msgID string) (rfc822 []byte, err error)
+	// Watch registers (or renews) a users.watch against the given Pub/Sub
+	// topic and returns the mailbox's historyId at watch time plus the watch's
+	// expiration (Gmail caps a watch at 7 days).
+	Watch(ctx context.Context, accessToken, topic string) (historyID string, expiration time.Time, err error)
 }
 
 // OAuthConfig wires the OAuth client. AuthURL/TokenURL default to Google's
@@ -302,6 +307,50 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 		return nil, fmt.Errorf("gmail: decoding raw message %s: %w", msgID, ErrUnreachable)
 	}
 	return decoded, nil
+}
+
+// Watch registers a users.watch so Gmail publishes change notifications for
+// the mailbox to the Pub/Sub topic. Gmail returns the mailbox's current
+// historyId and an expiration as a string of milliseconds since the epoch;
+// re-calling watch renews it (Gmail keeps one watch per mailbox). A 401/403
+// maps to ErrAuthRejected, anything else to ErrUnreachable — Google's raw body
+// never reaches the caller.
+func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string, time.Time, error) {
+	reqBody, err := json.Marshal(map[string]string{"topicName": topic})
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("gmail: encoding watch request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+"/watch", bytes.NewReader(reqBody))
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("gmail: building watch request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("gmail: watch: %w", ErrUnreachable)
+	}
+	//craft:ignore swallowed-errors best-effort close of the watch response body — the decoded result/status is what matters
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return "", time.Time{}, ErrAuthRejected
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", time.Time{}, ErrUnreachable
+	}
+	var out struct {
+		HistoryID  string `json:"historyId"`  //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
+		Expiration string `json:"expiration"` // ms since epoch, as a string
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", time.Time{}, fmt.Errorf("gmail: decoding watch response: %w", ErrUnreachable)
+	}
+	ms, err := strconv.ParseInt(out.Expiration, 10, 64)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("gmail: unparseable watch expiration %q: %w", out.Expiration, ErrUnreachable)
+	}
+	return out.HistoryID, time.UnixMilli(ms), nil
 }
 
 // get performs an authorized GET and JSON-decodes into out. It returns the

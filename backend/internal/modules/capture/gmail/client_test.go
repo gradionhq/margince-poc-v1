@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // googleStub routes the handful of Google/Gmail endpoints the client calls
@@ -53,6 +54,12 @@ func googleStub(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/messages/m1", func(w http.ResponseWriter, _ *http.Request) {
 		raw := base64.RawURLEncoding.EncodeToString([]byte("Subject: hi\r\n\r\nbody"))
 		writeJSON(w, map[string]any{"id": "m1", "raw": raw})
+	})
+
+	mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
+		// Gmail's users.watch returns the mailbox historyId and an expiration
+		// given as a string of milliseconds since the epoch.
+		writeJSON(w, map[string]any{"historyId": "99999", "expiration": "1431990098200"})
 	})
 
 	mux.HandleFunc("/history", func(w http.ResponseWriter, r *http.Request) {
@@ -185,5 +192,21 @@ func TestHistoryTooOldMapsGoneSentinel(t *testing.T) {
 	_, api := newTestClients(t)
 	if _, _, err := api.History(context.Background(), "access-2", "0"); !errors.Is(err, ErrHistoryGone) {
 		t.Fatalf("want ErrHistoryGone for a stale cursor, got %v", err)
+	}
+}
+
+func TestWatchRegistersAndParsesMillisecondExpiration(t *testing.T) {
+	_, api := newTestClients(t)
+	hist, exp, err := api.Watch(context.Background(), "access-2", "projects/p/topics/gmail-push")
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if hist != "99999" {
+		t.Errorf("historyId = %q, want 99999", hist)
+	}
+	// The string "1431990098200" ms must parse to that instant, not be truncated
+	// to seconds or read as nanos.
+	if want := time.UnixMilli(1431990098200); !exp.Equal(want) {
+		t.Errorf("expiration = %v, want %v", exp, want)
 	}
 }
