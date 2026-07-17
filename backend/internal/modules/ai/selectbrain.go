@@ -77,51 +77,31 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		return NewFakeClient(), nil
 	case providerAnthropic:
 		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("ai: provider anthropic needs an api key (BYOK — we provide no inference)")
-		}
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = defaultAnthropicBaseURL
+			return nil, byokKeyRequired(providerAnthropic)
 		}
 		return &anthropicClient{
 			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      baseURL,
+			baseURL:      defaulted(cfg.BaseURL, defaultAnthropicBaseURL),
 			apiKey:       cfg.APIKey,
 			defaultModel: cfg.Model,
 		}, nil
 	case providerOllama:
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = defaultOllamaBaseURL
-		}
-		defaultModel := cfg.Model
-		if defaultModel == "" {
-			defaultModel = defaultOllamaModel
-		}
 		return &ollamaClient{
 			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      baseURL,
-			defaultModel: defaultModel,
+			baseURL:      defaulted(cfg.BaseURL, defaultOllamaBaseURL),
+			defaultModel: defaulted(cfg.Model, defaultOllamaModel),
 		}, nil
 	case providerVLLM:
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = defaultVLLMBaseURL
-		}
-		defaultModel := cfg.Model
-		if defaultModel == "" {
-			defaultModel = defaultVLLMModel
-		}
 		return &openAICompatClient{
 			http:         &http.Client{Timeout: requestTimeout},
-			baseURL:      baseURL,
+			baseURL:      defaulted(cfg.BaseURL, defaultVLLMBaseURL),
 			apiKey:       "", // local vLLM: no auth
 			localOnly:    true,
-			defaultModel: defaultModel,
+			defaultModel: defaulted(cfg.Model, defaultVLLMModel),
 		}, nil
 	case providerOpenAICompatible:
 		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("ai: provider openai_compatible needs an api key (BYOK — we provide no inference)")
+			return nil, byokKeyRequired(providerOpenAICompatible)
 		}
 		if cfg.BaseURL == "" {
 			return nil, fmt.Errorf("ai: provider openai_compatible needs a base_url (the vendor endpoint, e.g. https://api.openai.com/v1)")
@@ -135,25 +115,32 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		}, nil
 	case providerOpenAI:
 		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("ai: provider openai needs an api key (BYOK — we provide no inference)")
+			return nil, byokKeyRequired(providerOpenAI)
 		}
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = defaultOpenAIBaseURL
-		}
-		return &openaiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: baseURL, apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
+		return &openaiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: defaulted(cfg.BaseURL, defaultOpenAIBaseURL), apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
 	case providerGemini:
 		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("ai: provider gemini needs an api key (BYOK — we provide no inference)")
+			return nil, byokKeyRequired(providerGemini)
 		}
-		baseURL := cfg.BaseURL
-		if baseURL == "" {
-			baseURL = defaultGeminiBaseURL
-		}
-		return &geminiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: baseURL, apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
+		return &geminiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: defaulted(cfg.BaseURL, defaultGeminiBaseURL), apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
 	default:
 		return nil, fmt.Errorf("ai: unknown provider %q (have: %s)", cfg.Provider, strings.Join(knownProviders, ", "))
 	}
+}
+
+// defaulted returns val, or fallback when val is empty — the base-url / model
+// defaulting every provider case shares.
+func defaulted(val, fallback string) string {
+	if val == "" {
+		return fallback
+	}
+	return val
+}
+
+// byokKeyRequired is the fail-closed error for a cloud provider bound without a
+// key: Margince provides no inference, so the customer's key is mandatory (ADR-0020).
+func byokKeyRequired(provider string) error {
+	return fmt.Errorf("ai: provider %s needs an api key (BYOK — we provide no inference)", provider)
 }
