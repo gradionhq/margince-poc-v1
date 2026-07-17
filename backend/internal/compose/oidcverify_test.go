@@ -47,6 +47,7 @@ func newOIDCTestRig(t *testing.T) *oidcTestRig {
 		n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
 		e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
 		w.Header().Set("Content-Type", "application/json")
+		//craft:ignore swallowed-errors best-effort test JWKS response encode
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{
 				{"kid": testKID, "kty": "RSA", "alg": "RS256", "use": "sig", "n": n, "e": e},

@@ -11,8 +11,6 @@ package main
 import (
 	// Embedded tzdata: workspace timezones must resolve on scratch
 	// containers that ship no zoneinfo.
-	_ "time/tzdata"
-
 	"context"
 	"errors"
 	"flag"
@@ -26,6 +24,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -146,33 +145,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, busReady)
 	}
 
-	coldStart, err := coldStartOptions(cfg.routingPath, cfg.fakeBrain, pool)
+	aiAndPushOpts, err := aiAndPushComposeOptions(cfg, pool, logger, stdout)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, coldStart...)
-
-	offerDraft, err := offerDraftOptions(cfg.routingPath, cfg.fakeBrain, pool)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, offerDraft...)
-
-	pushCfg := compose.GmailPushConfig{
-		Audience:       cfg.gmailPushAudience,
-		ServiceAccount: cfg.gmailPushSA,
-		JWKSURL:        cfg.gmailJWKSURL,
-	}
-	if pushCfg.Audience != "" && pushCfg.ServiceAccount != "" {
-		inserter, err := jobs.NewInserter(pool, logger)
-		if err != nil {
-			return fmt.Errorf("api: gmail push inserter: %w", err)
-		}
-		opts = append(opts, compose.WithGmailPush(inserter, pushCfg))
-		_, _ = fmt.Fprintln(stdout, "api gmail Pub/Sub push webhook enabled (POST /hooks/gmail/push)")
-	} else if cfg.gmailPushAudience != "" || cfg.gmailPushSA != "" {
-		_, _ = fmt.Fprintln(stdout, "api gmail push webhook configured but INCOMPLETE — needs both --gmail-push-audience and --gmail-push-service-account; surface stays 501")
-	}
+	opts = append(opts, aiAndPushOpts...)
 
 	srv := &http.Server{
 		Addr:              cfg.addr,
@@ -207,6 +184,64 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	case <-ctx.Done():
 		return stopAll(stopHTTP())
 	}
+}
+
+// aiAndPushComposeOptions assembles the boot-optional compose.Options that
+// depend on the AI routing switches (the cold-start read-back, the
+// AI-drafted offer regeneration) plus the Gmail push webhook wiring — all
+// three share the "declared routing / --ai-fake / neither" or
+// "both-set/one-set/neither" self-gating shape, so bundling their
+// call+err-check+append triples here (instead of inline in run()) is what
+// keeps run() inside the file's long-func budget.
+func aiAndPushComposeOptions(cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
+	var opts []compose.Option
+
+	coldStart, err := coldStartOptions(cfg.routingPath, cfg.fakeBrain, pool)
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, coldStart...)
+
+	offerDraft, err := offerDraftOptions(cfg.routingPath, cfg.fakeBrain, pool)
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, offerDraft...)
+
+	pushOpts, err := gmailPushOptions(cfg, pool, logger, stdout)
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, pushOpts...)
+
+	return opts, nil
+}
+
+// gmailPushOptions builds the Gmail Pub/Sub push webhook compose option when
+// both the audience and push service account are configured; INCOMPLETE (only
+// one set) logs and returns no option (the route stays 501). Mirrors
+// blobstoreOptions/keyvaultOptions's slice-returning shape rather than a bare
+// compose.Option so an absent wiring is a nil slice, not a nilable func
+// return. Split out of run() so that function stays inside the file's
+// long-func budget.
+func gmailPushOptions(cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
+	pushCfg := compose.GmailPushConfig{
+		Audience:       cfg.gmailPushAudience,
+		ServiceAccount: cfg.gmailPushSA,
+		JWKSURL:        cfg.gmailJWKSURL,
+	}
+	if pushCfg.Audience != "" && pushCfg.ServiceAccount != "" {
+		inserter, err := jobs.NewInserter(pool, logger)
+		if err != nil {
+			return nil, fmt.Errorf("api: gmail push inserter: %w", err)
+		}
+		_, _ = fmt.Fprintln(stdout, "api gmail Pub/Sub push webhook enabled (POST /hooks/gmail/push)")
+		return []compose.Option{compose.WithGmailPush(inserter, pushCfg)}, nil
+	}
+	if cfg.gmailPushAudience != "" || cfg.gmailPushSA != "" {
+		_, _ = fmt.Fprintln(stdout, "api gmail push webhook configured but INCOMPLETE — needs both --gmail-push-audience and --gmail-push-service-account; surface stays 501")
+	}
+	return nil, nil
 }
 
 // baseComposeOptions assembles the boot-optional compose.Options that

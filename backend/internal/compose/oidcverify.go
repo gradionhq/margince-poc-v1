@@ -304,6 +304,7 @@ func verifyRS256(key *rsa.PublicKey, signingInput, sigB64 string) error {
 	return rsa.VerifyPKCS1v15(key, crypto.SHA256, h[:], sig)
 }
 
+//craft:ignore naked-any out is the caller-supplied decode target — header vs claims, so its concrete type varies per call
 func decodeSegment(seg string, out any) error {
 	b, err := base64.RawURLEncoding.DecodeString(seg)
 	if err != nil {

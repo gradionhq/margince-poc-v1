@@ -294,6 +294,7 @@ func TestNormalizeSkipsAutomatedMail(t *testing.T) {
 
 func TestAccountIDReturnsOwner(t *testing.T) {
 	c := New(nil, nil)
+	//nolint:gosec,nolintlint // G117: test fixture refresh token, not a real credential (the strict config excludes gosec on _test.go, so nolintlint would otherwise call this directive unused there)
 	auth, err := json.Marshal(authState{RefreshToken: "r", Owner: "rep@ws.example", Scopes: []string{"read"}})
 	if err != nil {
 		t.Fatal(err)

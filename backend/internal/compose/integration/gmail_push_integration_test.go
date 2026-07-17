@@ -166,7 +166,9 @@ func TestGmailPushJobSyncsAndRedeliveryIsNoop(t *testing.T) {
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_ = runner.Stop(stopCtx)
+		if err := runner.Stop(stopCtx); err != nil {
+			t.Errorf("Stop: %v", err)
+		}
 	}()
 
 	ins, err := jobs.NewInserter(e.Pool, quiet)
