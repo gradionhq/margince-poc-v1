@@ -18,15 +18,20 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// gmailReadonlyScope is the single Google scope the read-only capture
-// connector requests (mail read; no send, no modify).
-const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
+// The single read-only Google scope each capture connector requests: mail read
+// for Gmail, calendar read for Google Calendar — no send, no modify. Both ride
+// one Google OAuth app (differing only in the requested scope).
+const (
+	gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
+	gcalReadonlyScope  = "https://www.googleapis.com/auth/calendar.readonly"
+)
 
 // NewCaptureRegistry builds the connector registry; process roles register
 // their compiled-in connectors on it and drive SyncOnce. The vault seals and
@@ -90,22 +95,38 @@ func newGmailOAuth(c GmailConfig) gmail.OAuth {
 	})
 }
 
-// NewCaptureRegistryWithGmail builds the capture registry and, when the Gmail
-// OAuth app is configured, registers the read-only Gmail connector so
-// Registry.Connect (api) and SyncOnce (worker poller) can resolve it by name.
-// A deployment without the app configured gets a plain registry (Gmail absent
-// by omission). Returns nil only if pool is nil.
+// newGcalOAuth builds the Google OAuth client for the calendar connector. It is
+// the SAME Google OAuth2 client the Gmail connector uses (same app creds),
+// differing only in the requested scope — so gcal takes on no duplicate token
+// plumbing; the gmail.OAuth value satisfies gcal's structurally-identical seam.
+//
+//nolint:ireturn // returns the gcal.OAuth seam by design (a fakeable interface)
+func newGcalOAuth(c GmailConfig) gcal.OAuth {
+	return gmail.NewOAuth(gmail.OAuthConfig{
+		ClientID:     c.ClientID,
+		ClientSecret: c.ClientSecret,
+		Scopes:       []string{gcalReadonlyScope},
+	})
+}
+
+// NewCaptureRegistryWithGmail builds the capture registry and, when the Google
+// OAuth app is configured, registers the read-only Google connectors — Gmail
+// and Google Calendar — so Registry.Connect (api) and SyncOnce (worker poller)
+// can resolve each by name. A deployment without the app configured gets a
+// plain registry (both absent by omission). Returns nil only if pool is nil.
 func NewCaptureRegistryWithGmail(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) *capture.Registry {
 	reg := NewCaptureRegistry(pool, vault)
 	if c.canSync() {
 		reg.Register(gmail.New(newGmailOAuth(c), gmail.NewAPI(nil, "")))
+		reg.Register(gcal.New(newGcalOAuth(c), gcal.NewAPI(nil, "")))
 	}
 	return reg
 }
 
-// GmailPollRegistry returns a Gmail-registered capture registry for the
-// worker's background poller, or nil when the Gmail app is not configured —
-// nil tells NewJobRunner to skip the poll entirely (no connector, no job).
+// GmailPollRegistry returns a Google-registered capture registry for the
+// worker's background poller (Gmail + Calendar), or nil when the Google app is
+// not configured — nil tells NewJobRunner to skip the polls entirely (no
+// connector, no job).
 func GmailPollRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) *capture.Registry {
 	if !c.canSync() {
 		return nil
@@ -129,6 +150,8 @@ func WithGmailCapture(c GmailConfig) Option {
 			registry:      NewCaptureRegistryWithGmail(pool, s.vault, c),
 			oauth:         newGmailOAuth(c),
 			gmailAPI:      gmail.NewAPI(nil, ""),
+			gcalOAuth:     newGcalOAuth(c),
+			gcalAPI:       gcal.NewAPI(nil, ""),
 			signer:        newStateSigner([]byte(c.StateKey)),
 			publicBaseURL: c.PublicBaseURL,
 			apiBaseURL:    c.APIBaseURL,

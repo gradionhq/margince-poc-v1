@@ -87,6 +87,36 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 	return enumErr
 }
 
+// GcalSyncArgs schedules one incremental-sync pass over every active Google
+// Calendar connection — polling-first (CAP-WIRE-N-1), the calendar sibling of
+// GmailSyncArgs. Calendar real-time push (watch channels) is a later follow-up.
+type GcalSyncArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (GcalSyncArgs) Kind() string { return "gcal_sync" }
+
+// gcalSyncWorker walks the fleet's active Google Calendar connections and runs
+// one incremental SyncOnce per connection under its workspace — the same
+// fleet-walk discipline as gmailSyncWorker, over the "gcal" provider. A single
+// connection's failure is logged and skipped; only a fleet-enumeration failure
+// is returned (so River retries the tick).
+type gcalSyncWorker struct {
+	river.WorkerDefaults[GcalSyncArgs]
+	registry *capture.Registry
+	log      *slog.Logger
+}
+
+func (w *gcalSyncWorker) Work(ctx context.Context, _ *river.Job[GcalSyncArgs]) error {
+	due, enumErr := w.registry.DueConnections(ctx, "gcal")
+	for _, d := range due {
+		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
+		if err := w.registry.SyncOnce(wsCtx, d.ID); err != nil {
+			w.log.WarnContext(ctx, "gcal connection sync failed", "connection", d.ID.String(), "err", err)
+		}
+	}
+	return enumErr
+}
+
 // activeSweepStates is the uniqueness window for the periodic passes: a new
 // tick is suppressed only while a prior run is still in flight (available,
 // pending, running, scheduled, retryable) — reproducing the old ticker's
@@ -138,6 +168,15 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, recon
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(gmailInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+		// The Google Calendar connector rides the same registry + interval
+		// (one Google OAuth app), polled on its own provider key so a mailbox
+		// and a calendar sync independently.
+		river.AddWorker(workers, &gcalSyncWorker{registry: gmailReg, log: log})
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(gmailInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return GcalSyncArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}

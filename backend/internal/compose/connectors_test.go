@@ -15,6 +15,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -23,14 +24,16 @@ import (
 const testStateKey = "a-32-byte-or-longer-signing-key!!"
 
 // wiredHandlers builds connectorHandlers with a real signer + real (pure)
-// Gmail OAuth client and a non-nil registry, so the non-DB paths (connect URL,
-// state verification, provider gating) exercise real code. The registry's
-// DB methods are never reached on these paths.
+// Google OAuth clients (gmail + gcal) and a non-nil registry, so the non-DB
+// paths (connect URL, state verification, provider gating) exercise real code.
+// The registry's DB methods are never reached on these paths.
 func wiredHandlers() connectorHandlers {
 	return connectorHandlers{
 		registry:      capture.NewRegistry(nil, nil, nil, nil),
 		oauth:         gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}}),
 		gmailAPI:      gmail.NewAPI(nil, ""),
+		gcalOAuth:     gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/calendar.readonly"}}),
+		gcalAPI:       gcal.NewAPI(nil, ""),
 		signer:        newStateSigner([]byte(testStateKey)),
 		publicBaseURL: "https://app.test", // the SPA/front origin — landing
 		apiBaseURL:    "https://api.test", // the api origin — callback redirect_uri
@@ -81,15 +84,55 @@ func TestConnectConnectorReturnsSignedAuthorizeURL(t *testing.T) {
 	}
 }
 
-func TestConnectConnectorRejectsUnsupportedProvider(t *testing.T) {
+func TestConnectConnectorReturnsSignedAuthorizeURLForGcal(t *testing.T) {
 	h := wiredHandlers()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gcal/connect", nil).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gcal")
 
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for gcal (body %s)", rec.Code, rec.Body)
+	}
+	var resp crmcontracts.ConnectConnectorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.AuthorizeUrl == nil {
+		t.Fatal("authorize_url missing")
+	}
+	u, err := url.Parse(*resp.AuthorizeUrl)
+	if err != nil {
+		t.Fatalf("authorize_url not a URL: %v", err)
+	}
+	// The redirect_uri and the signed state must both be gcal's.
+	if got := u.Query().Get("redirect_uri"); got != "https://api.test/v1/connectors/gcal/callback" {
+		t.Errorf("redirect_uri = %q, want the gcal callback", got)
+	}
+	// The calendar consent scope must be requested (not the mail scope).
+	if got := u.Query().Get("scope"); !strings.Contains(got, "calendar.readonly") {
+		t.Errorf("scope = %q, want the calendar.readonly consent", got)
+	}
+	st, err := h.signer.verify(u.Query().Get("state"), time.Now())
+	if err != nil {
+		t.Fatalf("authorize_url state does not verify: %v", err)
+	}
+	if st.Provider != "gcal" {
+		t.Errorf("state provider = %q, want gcal", st.Provider)
+	}
+}
+
+func TestConnectConnectorRejectsUnsupportedProvider(t *testing.T) {
+	h := wiredHandlers()
+	rec := httptest.NewRecorder()
+	// graph (Microsoft 365) is contract-declared but not wired on this Google
+	// transport — it must be refused, not treated as gmail/gcal.
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/graph/connect", nil).WithContext(humanCtx())
+
+	h.ConnectConnector(rec, req, "graph")
+
 	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422 for gcal", rec.Code)
+		t.Fatalf("status = %d, want 422 for graph", rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "connector_unsupported") {
 		t.Errorf("body should carry connector_unsupported: %s", rec.Body)
