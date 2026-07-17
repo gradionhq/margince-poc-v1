@@ -114,18 +114,20 @@ This is not an amendment. The spec already mandates it and the code violates it:
 - `import-export-migration.md:641` — "**one dedupe implementation, not two**"
 - `people-and-organizations.md:107` — "there is **one merge in the system**"
 
-### 2.1 Current state — 6 INSERT sites, 3 policies, no shared helper
+### 2.1 Current state — 8 creation paths, 4 dedupe spellings, 3 policies, no shared helper
 
-| INSERT | Entry | RBAC at insert | Dedupe probe | Policy on hit |
+| Path | Entry | RBAC at insert | Dedupe probe | Policy on hit |
 |---|---|---|---|---|
-| `people/person.go:104` | HTTP, MCP | ✅ | `ensurePersonEmailsUnclaimed` (`person_children.go:133`) | **409** |
+| `people/person.go:104` `CreatePerson` | HTTP, MCP | ✅ | `ensurePersonEmailsUnclaimed` (`person_children.go:133`) | **409** |
+| `people/person.go:453` `EnsurePersonByEmail` | public booking (`activities/scheduling_public.go:177`, via port) | ✅ (gate at `:454`) | own `person_email` join, `ORDER BY created_at LIMIT 1`, race-recovery on `DuplicateEmailError` | **land on existing** |
 | `people/promote.go:322` | lead promote | ❌ **none at insert** | inline `person_email` (`promote.go:290`) | **auto-merge** |
-| `people/organization.go:85` | HTTP, MCP | ✅ | `ensureOrgDomainsUnclaimed` (`organization_domains.go:59`) | **409** |
+| `people/organization.go:85` `CreateOrganization` | HTTP, MCP | ✅ | `ensureOrgDomainsUnclaimed` (`organization_domains.go:59`) | **409** |
 | `people/company.go:246` | anchor | ✅ (at `:220`) | none — relies on `uq_organization_anchor` | index error |
 | `people/coldstartprofile.go:145` | scrape accept | ❌ **none at insert** | inline domain probe (`:130`) | link existing |
 | `capture/sink.go:393` | connector | ✅ | own probe (`sink.go:307`) | **stage 🟡** |
+| (harness seed `compose/integration/harness.go:339` — test-only, exempt) | | | | |
 
-Three near-identical email SELECTs, three incompatible resolutions. This is exactly the
+Four near-identical email SELECTs, three incompatible resolutions. This is exactly the
 "fixed the call site, missed the sibling copy" failure the repo's own rule #1 names.
 
 `PO-F-1`/`PO-F-2` (fuzzy tier): **not implemented anywhere.** All five probes are exact-match.
@@ -142,7 +144,8 @@ Nearest prior art is `signals/resolver.go:275` (tiered confidence: domain 0.95, 
   land on existing person).
 - **Tier 2 — fuzzy.** `confidence = DEDUPE_NAME_WEIGHT * jaro_winkler(full_name)
   + DEDUPE_ORGDOMAIN_WEIGHT * org_match`, where org_match = 1.0 same current-primary org /
-  0.8 shared org via `organization_domain` / 0.5 free-text company normalize-equal / 0.0.
+  0.8 shared org via `organization_domain` / 0.0 otherwise (the former 0.5 free-text-company
+  tier was removed upstream as unreachable — PO-N-DEDUPE-1, see §7b.3).
   JW p=0.1, max prefix 4, casefold+unaccent (PO-PARAM-JW-1/2).
   `>= 0.72` (DEDUPE_REVIEW_THRESHOLD) → `FUZZY_REVIEW` → **🟡 review queue, both records
   side by side**.
@@ -176,7 +179,7 @@ as capture already does.
 
 ### 2.4 Where the risk actually is
 
-Not the SQL. Two of six INSERT sites have **no `auth.Require` at the insert**
+Not the SQL. Two of the eight creation paths have **no `auth.Require` at the insert**
 (`promote.go:322`, `coldstartprofile.go:145`). Routing them through one gated chokepoint
 **changes their effective RBAC surface**. Also: `promote`'s auto-merge and capture's
 stage-merge are both **contract-visible behaviors** (§1.3, features/01 §6.2) — unifying is

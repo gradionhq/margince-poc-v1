@@ -40,6 +40,11 @@ func TestNameSimilarityIsCaseAndAccentInsensitive(t *testing.T) {
 	if got := nameSimilarity("ACME Corp", "acme corp"); got != 1 {
 		t.Fatalf("case variants scored %.4f, want an exact 1", got)
 	}
+	// Full Unicode folding, not ToLower: ß folds to ss, so the pair every
+	// German address book contains compares equal.
+	if got := nameSimilarity("Straße", "STRASSE"); got != 1 {
+		t.Fatalf("Straße vs STRASSE scored %.4f, want an exact 1 under full case folding", got)
+	}
 }
 
 func TestNameSimilarityBounds(t *testing.T) {

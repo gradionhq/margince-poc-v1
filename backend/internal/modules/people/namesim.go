@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/text/cases"
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
@@ -35,15 +36,19 @@ var legalSuffixes = map[string]bool{
 // every comparison run through it, so the metric stays internally
 // consistent; it is deliberately not required to agree rune-for-rune
 // with Postgres f_unaccent, which only narrows the candidate set.
+// Casefold is Unicode FULL folding, not ToLower — Straße and STRASSE
+// must compare equal (ß folds to ss), and the DACH market meets that
+// pair daily. A fresh Caser per call: cases.Caser is stateful and not
+// safe for concurrent use.
 func normalizeName(s string) string {
 	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
-	folded, _, err := transform.String(t, s)
+	unaccented, _, err := transform.String(t, s)
 	if err != nil {
 		// Decomposition failure means a malformed rune, not an outage:
 		// compare what we were given rather than dropping the candidate.
-		folded = s
+		unaccented = s
 	}
-	return strings.ToLower(strings.TrimSpace(folded))
+	return strings.TrimSpace(cases.Fold().String(unaccented))
 }
 
 // normalizeOrgName is normalizeName plus the PO-PARAM-1 legal-suffix

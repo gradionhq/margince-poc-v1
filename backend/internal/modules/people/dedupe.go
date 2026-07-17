@@ -180,7 +180,7 @@ func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 // organization domain the incumbent is mapped to.
 func candidateSharesDomain(c PersonCandidate, domain string) bool {
 	for _, e := range c.Emails {
-		if emailDomain(e) == normalizeName(domain) {
+		if emailDomain(e) == normalizeDomain(domain) {
 			return true
 		}
 	}
@@ -190,6 +190,11 @@ func candidateSharesDomain(c PersonCandidate, domain string) bool {
 // normalizeEmail matches how person_email stores the address: the insert
 // path lowercases on write, so the exact tier compares like for like.
 func normalizeEmail(e string) string { return strings.ToLower(strings.TrimSpace(e)) }
+
+// normalizeDomain matches organization_domain's storage contract:
+// lowercase only — never unaccent, or münich.example would collide with
+// a different organization's munich.example.
+func normalizeDomain(d string) string { return strings.ToLower(strings.TrimSpace(d)) }
 
 // emailDomain returns the lowercased host of an address, or "" when the
 // input carries no host to compare.
@@ -239,7 +244,7 @@ func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string) (ids.Org
 	}
 	lowered := make([]string, 0, len(domains))
 	for _, d := range domains {
-		lowered = append(lowered, normalizeName(d))
+		lowered = append(lowered, normalizeDomain(d))
 	}
 	var id ids.OrganizationID
 	err := tx.QueryRow(ctx, `
@@ -259,11 +264,16 @@ func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string) (ids.Org
 // fuzzyOrganization scores name similarity over the trigram-restricted
 // candidate set. "Acme Inc" and "Acme GmbH" both normalize to "acme" and
 // land here — different legal entities are a human's call, not a merge.
+// The trigram filter is recall-only narrowing (scoring below is the
+// authority), so the candidate side is suffix-stripped to match what the
+// score compares; the stored side keeps its suffix, whose few trigrams
+// barely dent the similarity of a shared stem.
 func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id, display_name FROM organization
 		 WHERE archived_at IS NULL
-		   AND f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))`, c.DisplayName)
+		   AND f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))`,
+		normalizeOrgName(c.DisplayName))
 	if err != nil {
 		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
 	}
