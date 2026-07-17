@@ -174,7 +174,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, logger, cfg, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, logger, cfg, modelPath, stdout)
 	if err != nil {
 		return err
 	}
@@ -224,7 +224,7 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // drain — what the bare tickers lacked. The domain logic (Sweep/Reconcile)
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
 	// Build the Gmail poll only when the app is configured. Gating the vault
 	// init here matters: an unconfigured deployment must not fail worker boot
 	// on a keyvault problem it doesn't need. GmailPollRegistry then holds the
@@ -256,6 +256,10 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		GmailRegistry:     gmailReg,
 		GmailInterval:     cfg.gmailSyncInterval,
 		GmailWatch:        watchCfg,
+		// The deep-read worker registers regardless: without a model path
+		// (nil ColdStart) it fails a picked-up read honestly rather than
+		// leaving it queued behind a job no one can work.
+		DeepReadBrain: modelPath.ColdStart,
 	})
 	if err != nil {
 		return nil, err
@@ -270,8 +274,12 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	case gmailReg != nil:
 		gmailNote = fmt.Sprintf("gmail sync every %s (watch off: no pubsub topic)", cfg.gmailSyncInterval)
 	}
-	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailNote)
+	deepReadNote := "deep read on"
+	if modelPath.ColdStart == nil {
+		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
+	}
+	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s)\n",
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailNote, deepReadNote)
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.
