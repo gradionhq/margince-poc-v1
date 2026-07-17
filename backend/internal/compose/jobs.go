@@ -164,17 +164,19 @@ type gmailPushWorker struct {
 }
 
 func (w *gmailPushWorker) Work(ctx context.Context, job *river.Job[GmailPushArgs]) error {
+	// ResolveByAccountEmail walks the whole fleet and returns the connections
+	// it did resolve ALONGSIDE any joined per-workspace error — so a fault in
+	// an unrelated workspace must not skip the mailbox this push named. Drain
+	// the resolved set first, then surface the enumeration error for River to
+	// retry (mirrors gmailSyncWorker); the poll backstops either way.
 	due, enumErr := w.registry.ResolveByAccountEmail(ctx, "gmail", job.Args.EmailAddress)
-	if enumErr != nil {
-		return enumErr
-	}
 	for _, d := range due {
 		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
 		if err := w.registry.SyncOnce(wsCtx, d.ID); err != nil {
 			w.log.WarnContext(ctx, "gmail push sync failed", "connection", d.ID.String(), "err", err)
 		}
 	}
-	return nil
+	return enumErr
 }
 
 // activeSweepStates is the uniqueness window for the periodic passes: a new
