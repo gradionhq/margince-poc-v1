@@ -33,6 +33,18 @@ func (failingClient) Complete(context.Context, model.Request) (model.Response, e
 	return model.Response{}, errors.New("provider down")
 }
 
+// fixedResponseClient returns a canned completion — used to prove the router
+// forwards a provider's itemized usage counters verbatim into the meter.
+type fixedResponseClient struct {
+	model.Client
+	resp model.Response
+}
+
+func (c fixedResponseClient) Complete(context.Context, model.Request) (model.Response, error) {
+	return c.resp, nil
+}
+func (fixedResponseClient) Caps() model.Capabilities { return model.Capabilities{} }
+
 func wsContext(t *testing.T) context.Context {
 	t.Helper()
 	return principal.WithWorkspaceID(context.Background(), ids.NewV7())
@@ -59,6 +71,21 @@ func TestRouterRoutesTaskToPrimaryTierAndMeters(t *testing.T) {
 	}
 	if meter.records[0].TokensIn == 0 {
 		t.Fatal("token usage not metered")
+	}
+}
+
+func TestRouterForwardsCachedAndReasoningTokensToMeter(t *testing.T) {
+	meter := &memMeter{}
+	client := fixedResponseClient{resp: model.Response{InputTokens: 10, OutputTokens: 5, CachedTokens: 3, ReasoningTokens: 7}}
+	r := testRouter(map[Tier]model.Client{TierCheapCloud: client}, meter, DefaultMonthlyTokens, ProfileEUHosted)
+	if _, _, err := r.Complete(wsContext(t), TaskSummarize, model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(meter.records) != 1 {
+		t.Fatalf("want one metered record, got %+v", meter.records)
+	}
+	if meter.records[0].CachedTokens != 3 || meter.records[0].ReasoningTokens != 7 {
+		t.Fatalf("meter did not receive itemized tokens: %+v", meter.records[0])
 	}
 }
 

@@ -121,7 +121,7 @@ func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req mod
 			lastErr = err
 			continue
 		}
-		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens}); err != nil {
+		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens, CachedTokens: resp.CachedTokens, ReasoningTokens: resp.ReasoningTokens}); err != nil {
 			// The tokens are spent either way, but unmetered spend would
 			// quietly hollow out the budget guardrail — fail loudly and
 			// let the caller retry into a metered call.
