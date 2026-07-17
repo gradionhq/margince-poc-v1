@@ -95,15 +95,22 @@ type DueConnection struct {
 	ID        ids.UUID
 }
 
-// DueConnections lists every connected connection for provider name across the
-// whole fleet, so the background poller can drive one SyncOnce per
-// connection. capture_connection is RLS-scoped, so this walks each
-// workspace under its own GUC. One workspace's failure does not starve the rest.
+// DueConnections lists every DUE connection for provider name across the
+// whole fleet, so the background dispatcher can enqueue one sync per
+// connection. Due means: live, in a syncable status, and past its
+// next_sync_at (ADR-0063 — the sidecar's backoff/pacing gate; a connection
+// with no sidecar row yet is due immediately). Status 'error' stays in the
+// scan — degraded connections are probed on their daily cadence, never
+// tombstoned; only 'disconnected' and 'reauth_required' park a row.
+// capture_connection is RLS-scoped, so this walks each workspace under its
+// own GUC. One workspace's failure does not starve the rest.
 func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnection, error) {
 	return r.collectDue(ctx, func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error) {
 		rows, err := tx.Query(ctx, `
-			SELECT id FROM capture_connection
-			WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL`, name)
+			SELECT c.id FROM capture_connection c
+			LEFT JOIN capture_sync_state s ON s.connection_id = c.id
+			WHERE c.provider = $1 AND c.status IN ('connected','error') AND c.archived_at IS NULL
+			  AND COALESCE(s.next_sync_at, now()) <= now()`, name)
 		if err != nil {
 			return nil, err
 		}

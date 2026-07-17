@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // httpTimeout bounds every Google call so a stalled OAuth/Gmail request can't
@@ -41,18 +42,22 @@ const (
 	paramClientID = "client_id"
 )
 
+// The package sentinels wrap the shared connector vocabulary (ADR-0063) so
+// the registry classifies failures without knowing this provider: auth parks
+// the connection, a rate limit honors Retry-After, unreachable backs off.
+
 // ErrAuthRejected marks an OAuth failure Google reported (bad/expired code,
 // revoked refresh). The transport maps it to a 422 without echoing the raw
 // provider error.
-var ErrAuthRejected = errors.New("gmail: the authorization was rejected")
+var ErrAuthRejected = fmt.Errorf("gmail: the authorization was rejected: %w", connector.ErrAuthRejected)
 
 // ErrUnreachable marks a transport-level failure reaching Google (DNS, TCP,
 // TLS, timeout, 5xx). The transport maps it to a 502.
-var ErrUnreachable = errors.New("gmail: could not reach Google")
+var ErrUnreachable = fmt.Errorf("gmail: could not reach Google: %w", connector.ErrUnreachable)
 
 // ErrHistoryGone marks a startHistoryId Gmail no longer has (it expires
 // after ~a week); Sync falls back to a bounded re-list rather than failing.
-var ErrHistoryGone = errors.New("gmail: history cursor too old")
+var ErrHistoryGone = fmt.Errorf("gmail: history cursor too old: %w", connector.ErrCursorGone)
 
 // OAuth is the OAuth2 handshake surface: build the consent URL, exchange the
 // authorization code for a refresh token, and mint a fresh access token from
@@ -358,7 +363,20 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 // ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable.
 // Google's raw body is never surfaced to the caller.
 //
+// retryAfter parses the provider's Retry-After (delta-seconds form; Google
+// does not send HTTP-dates here). Zero when absent — the caller's own backoff
+// takes over.
+//
 //craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
+func retryAfter(resp *http.Response) time.Duration {
+	if s := resp.Header.Get("Retry-After"); s != "" {
+		if secs, err := strconv.Atoi(s); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return 0
+}
+
 func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any) (int, error) {
 	u := a.base + path
 	if len(q) > 0 {
@@ -376,6 +394,14 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	}
+	if resp.StatusCode == http.StatusForbidden && bytes.Contains(body, []byte("ateLimitExceeded")) {
+		// Google reports per-user quota as 403 with reason rateLimitExceeded /
+		// userRateLimitExceeded — a pacing problem, not an authorization one.
+		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
+	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return resp.StatusCode, ErrAuthRejected
 	}
