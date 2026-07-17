@@ -6,7 +6,7 @@
 // technical plumbing that owns no domain. The DB row stays the system of
 // record and the tenant anchor; the vault is custodian of the secret bytes
 // only, addressed by a Ref that a domain row (e.g.
-// connector_connection.credential_ref) carries in place of the raw
+// capture_connection.credential_ref) carries in place of the raw
 // credential. Isolation is a property of the Ref: a Ref minted for one
 // workspace does not resolve under another, so a stolen Ref is inert across
 // the tenant edge without also defeating RLS on the row that names it.

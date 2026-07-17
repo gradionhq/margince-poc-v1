@@ -186,7 +186,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-// backfillConnectorCredentials migrates any legacy connector_connection rows
+// backfillConnectorCredentials migrates any legacy capture_connection rows
 // whose credential still lives in the auth bytea column onto the keyvault.
 // It runs once at boot when a vault is configured and is
 // idempotent — a row already carrying a credential_ref is skipped — so
