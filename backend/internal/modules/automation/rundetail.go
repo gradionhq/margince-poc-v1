@@ -3,7 +3,7 @@
 
 package automation
 
-// workflow_run.detail (migration 0078) is one jsonb shape for every
+// workflow_run.detail (migration 0079) is one jsonb shape for every
 // reasoned outcome the engine ever records: a human-readable reason,
 // plus — only while a run is parked behind a staged 🟡 approval — the
 // approval's id as a real field. Before this column, both payloads rode
