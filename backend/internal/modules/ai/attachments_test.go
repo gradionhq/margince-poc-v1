@@ -51,6 +51,32 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	}
 }
 
+// An attachment must carry exactly one of inline bytes or a URI; both-set or
+// neither-set is a malformed part the gate rejects (spec's Bytes XOR URI).
+func TestAttachmentBytesXorURIEnforced(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "k")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+	}))
+	defer srv.Close()
+	client, err := SelectBrain(ProviderConfig{Provider: "openai", BaseURL: srv.URL, Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range map[string]model.Attachment{
+		"both set":    {MIME: "application/pdf", Bytes: []byte("x"), URI: "file-1"},
+		"neither set": {MIME: "application/pdf"},
+	} {
+		_, err := client.Complete(context.Background(), model.Request{
+			Messages:    []model.Message{{Role: "user", Content: "x"}},
+			Attachments: []model.Attachment{bad},
+		})
+		if err == nil || !strings.Contains(err.Error(), "exactly one") {
+			t.Fatalf("malformed attachment must be rejected, got %v", err)
+		}
+	}
+}
+
 // The native adapters carry documents — a PDF must NOT be rejected. Pairs with
 // the rejection fitness test above so "who can ingest this document" stays an
 // honest, tested routing input (spec §3.8).

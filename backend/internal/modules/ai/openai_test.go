@@ -131,6 +131,36 @@ func TestOpenAIMapsPDFAttachmentToInputFilePart(t *testing.T) {
 	}
 }
 
+func TestOpenAIRoutesHTTPSPdfURIToFileURL(t *testing.T) {
+	var body []byte
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body = readBody(t, r.Body)
+		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+	})
+	if _, err := client.Complete(context.Background(), model.Request{
+		Messages:    []model.Message{{Role: "user", Content: "read"}},
+		Attachments: []model.Attachment{{MIME: "application/pdf", URI: "https://cdn.example/doc.pdf"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"file_url":"https://cdn.example/doc.pdf"`)) {
+		t.Fatalf("https PDF URI must map to file_url, not file_id: %s", body)
+	}
+}
+
+func TestOpenAIMalformedProviderOptionsError(t *testing.T) {
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"r","output":[]}`))
+	})
+	_, err := client.Complete(context.Background(), model.Request{
+		Messages:        []model.Message{{Role: "user", Content: "x"}},
+		ProviderOptions: map[string]json.RawMessage{"openai": json.RawMessage(`{"reasoning_effort":`)}, // truncated JSON
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider options") {
+		t.Fatalf("malformed provider options must surface an error, got %v", err)
+	}
+}
+
 func TestOpenAIRefusalIsAnError(t *testing.T) {
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"refusal","refusal":"cannot help"}]}]}`))

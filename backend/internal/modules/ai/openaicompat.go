@@ -122,6 +122,11 @@ func attachmentUnsupported(provider string, atts []model.Attachment, allow func(
 		if !allow(a.MIME) {
 			return fmt.Errorf("ai: %s: %s: %w", provider, a.MIME, model.ErrAttachmentUnsupported)
 		}
+		// Bytes XOR URI (model.Attachment): both-set would silently drop the
+		// inline bytes, neither-set would emit an empty content part — reject both.
+		if (len(a.Bytes) == 0) == (a.URI == "") {
+			return fmt.Errorf("ai: %s: attachment %q needs exactly one of inline bytes or a uri", provider, a.MIME)
+		}
 	}
 	return nil
 }
@@ -191,10 +196,27 @@ func (c *openAICompatClient) post(ctx context.Context, path string, payload []by
 	if resp.StatusCode != http.StatusOK {
 		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("ai: openai-compat: http %d: %s", resp.StatusCode, bytes.TrimSpace(raw))
+		return nil, openAICompatError(resp)
 	}
 	return resp.Body, nil
+}
+
+// openAICompatError surfaces the vendor's structured error type/message only —
+// never the raw response body, which may be unstructured HTML/text — so a logged
+// failure can't echo the request or leak provider internals (the anthropic /
+// openai pattern). The read error on this already-failed path is not actionable.
+func openAICompatError(resp *http.Response) error {
+	var apiErr struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Message != "" {
+		return fmt.Errorf("ai: openai-compat: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
+	}
+	return fmt.Errorf("ai: openai-compat: http %d", resp.StatusCode)
 }
 
 // openAICompatStream reads the OpenAI-compatible SSE stream: `data: {...}`

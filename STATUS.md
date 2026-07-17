@@ -332,3 +332,18 @@ Implementation follow-ups deferred from this change (honest floors shipped now):
 - **Gemini batch embeddings.** `gemini` Embed makes one `:embedContent` call per
   input (spec §3.5's named endpoint); a large retrieval batch is N sequential
   round-trips. Folding onto `:batchEmbedContents` is the follow-up.
+- **Embedding dimensionality is provider/model-specific — own PR.** The store
+  column is a fixed `vector(1024)` and `search.embeddingDims` pins it; cloud
+  embedders default wider (Gemini 3072, OpenAI 1536), so this change adds
+  `EmbedRequest.Dimensions` and the adapters truncate to 1024
+  (`outputDimensionality` / `dimensions`). But native widths differ per
+  provider/model, and mixed models cannot rank against each other. A proper
+  design (store the dimension — and ideally the model — alongside each embedding
+  row so the lane can change without a full re-embed, or make the column width
+  configurable) is a separate PR. Until then, switching the embed binding means
+  wiping the store (as the module comment already notes).
+- **Native tool-use mapping for `openai`/`gemini`.** The tasks run in JSON mode
+  today, so no caller sets `req.Tools`; the native adapters currently **reject**
+  a non-empty `Tools` (loud, not a silent drop) rather than map it. Mapping to
+  the Responses `tools` / Gemini `functionDeclarations` shapes is the follow-up
+  when a tool-using task routes to these providers.

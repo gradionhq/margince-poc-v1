@@ -187,6 +187,7 @@ func TestGeminiReportsNotLocalOnly(t *testing.T) {
 }
 
 func TestGeminiFailsClosedWithoutKey(t *testing.T) {
+	clearCloudKeyEnv(t)
 	if _, err := SelectBrain(ProviderConfig{Provider: "gemini"}); err == nil || !strings.Contains(err.Error(), "api key") {
 		t.Fatalf("gemini without a key must fail closed, got %v", err)
 	}

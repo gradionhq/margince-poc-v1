@@ -57,6 +57,7 @@ type openaiInputPart struct {
 	ImageURL string `json:"image_url,omitempty"`
 	FileData string `json:"file_data,omitempty"`
 	FileName string `json:"filename,omitempty"`
+	FileURL  string `json:"file_url,omitempty"`
 	FileID   string `json:"file_id,omitempty"`
 }
 
@@ -142,8 +143,9 @@ func (c *openaiClient) Complete(ctx context.Context, req model.Request) (model.R
 		ReasoningTokens: out.Usage.OutputTokenDetails.ReasoningTokens,
 	}
 	if out.ID != "" {
-		meta, _ := json.Marshal(map[string]string{"response_id": out.ID})
-		resp.ProviderMetadata = map[string]json.RawMessage{"openai": meta}
+		if meta, err := json.Marshal(map[string]string{"response_id": out.ID}); err == nil {
+			resp.ProviderMetadata = map[string]json.RawMessage{"openai": meta}
+		}
 	}
 	return resp, nil
 }
@@ -171,6 +173,11 @@ func (c *openaiClient) post(ctx context.Context, path string, req model.Request,
 	if err := attachmentUnsupported("openai", req.Attachments, func(m string) bool { return isImage(m) || m == "application/pdf" }); err != nil {
 		return nil, err
 	}
+	// Native Responses-API tool mapping is a follow-up; reject tools rather than
+	// silently drop them (the tasks run in JSON mode today, so none are passed).
+	if len(req.Tools) > 0 {
+		return nil, fmt.Errorf("ai: openai: native tool-use is not implemented yet (request set %d tool(s))", len(req.Tools))
+	}
 	wire := openaiWire{Model: req.Model, MaxOutputTokens: req.MaxTokens, Stream: stream}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel
@@ -184,7 +191,11 @@ func (c *openaiClient) post(ctx context.Context, path string, req model.Request,
 			Type: jsonSchemaFormatType, Name: openAICompatSchemaName, Schema: req.ResponseSchema, Strict: true,
 		}}
 	}
-	if effort := openaiReasoningEffort(req.ProviderOptions); effort != "" {
+	effort, err := openaiReasoningEffort(req.ProviderOptions)
+	if err != nil {
+		return nil, err
+	}
+	if effort != "" {
 		wire.Reasoning = &openaiReasoning{Effort: effort}
 	}
 	payload, _, err := sendablePayload(ctx, wire, req.SecretStripper)
@@ -244,12 +255,17 @@ func openaiAttachmentPart(a model.Attachment) openaiInputPart {
 		}
 		return part
 	}
-	// application/pdf (the only other allowed MIME, gated in post).
+	// application/pdf (the only other allowed MIME, gated in post). A URI is
+	// either a public URL (file_url) or an OpenAI file handle (file_id); inline
+	// bytes ride file_data.
 	part := openaiInputPart{Type: "input_file", FileName: a.Name}
-	if a.URI != "" {
-		part.FileID = a.URI
-	} else {
+	switch {
+	case a.URI == "":
 		part.FileData = dataURI(a.MIME, a.Bytes)
+	case strings.HasPrefix(a.URI, "http://"), strings.HasPrefix(a.URI, "https://"):
+		part.FileURL = a.URI
+	default:
+		part.FileID = a.URI
 	}
 	return part
 }
@@ -258,16 +274,16 @@ func dataURI(mime string, raw []byte) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
 }
 
-func openaiReasoningEffort(opts map[string]json.RawMessage) string {
+func openaiReasoningEffort(opts map[string]json.RawMessage) (string, error) {
 	raw, ok := opts["openai"]
 	if !ok {
-		return ""
+		return "", nil
 	}
 	var o openaiOptions
 	if err := json.Unmarshal(raw, &o); err != nil {
-		return ""
+		return "", fmt.Errorf("ai: openai: provider options: %w", err)
 	}
-	return o.ReasoningEffort
+	return o.ReasoningEffort, nil
 }
 
 func (c *openaiClient) postRaw(ctx context.Context, path string, payload []byte) (io.ReadCloser, error) {

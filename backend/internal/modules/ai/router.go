@@ -100,7 +100,10 @@ func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req mod
 	}
 	ladder = r.applyProfile(ladder)
 
-	key := cacheKey(wsID, task, req)
+	key, err := cacheKey(wsID, task, req)
+	if err != nil {
+		return model.Response{}, RouteInfo{}, err
+	}
 	if resp, tier, hit := r.cache.get(key, wsID); hit {
 		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); err != nil {
 			return model.Response{}, RouteInfo{}, fmt.Errorf("ai: metering cache hit: %w", err)
@@ -249,8 +252,8 @@ func embedTokenEstimate(inputs []string) int {
 // Attachments and provider options MUST be in the digest — otherwise two calls
 // with identical prompt text but a different attached document (or a different
 // reasoning/thinking knob) collide, and the second is served the first's answer.
-func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) string {
-	material, _ := json.Marshal(struct {
+func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error) {
+	material, err := json.Marshal(struct {
 		System          string                     `json:"system"`
 		Messages        []model.Message            `json:"messages"`
 		Tools           []model.ToolDef            `json:"tools"`
@@ -258,8 +261,14 @@ func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) string {
 		Attachments     []model.Attachment         `json:"attachments"`
 		ProviderOptions map[string]json.RawMessage `json:"provider_options"`
 	}{req.System, req.Messages, req.Tools, req.MaxTokens, req.Attachments, req.ProviderOptions})
+	if err != nil {
+		// A ProviderOptions namespace carrying invalid JSON would otherwise
+		// marshal to nil and collapse every such request onto one cache key —
+		// fail loudly instead of serving a collided answer.
+		return "", fmt.Errorf("ai: cache key: %w", err)
+	}
 	sum := sha256.Sum256(material)
-	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:])
+	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:]), nil
 }
 
 // resultCache is the §6 result cache: workspace_id is part of the key

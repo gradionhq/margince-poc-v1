@@ -140,8 +140,9 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 		ReasoningTokens: out.UsageMetadata.ThoughtsTokenCount,
 	}
 	if len(signatures) > 0 {
-		meta, _ := json.Marshal(map[string][]string{"thought_signatures": signatures})
-		resp.ProviderMetadata = map[string]json.RawMessage{"gemini": meta}
+		if meta, err := json.Marshal(map[string][]string{"thought_signatures": signatures}); err == nil {
+			resp.ProviderMetadata = map[string]json.RawMessage{"gemini": meta}
+		}
 	}
 	return resp, nil
 }
@@ -190,10 +191,15 @@ func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 		if decErr != nil {
 			return model.Embeddings{}, fmt.Errorf("ai: gemini: decode embeddings: %w", decErr)
 		}
-		vectors = append(vectors, out.Embedding.Values)
-		if len(out.Embedding.Values) > dims {
+		// Every vector must share one width — the store ranks against a fixed
+		// column, so a ragged batch (model/version skew) is a hard error, not a
+		// silently-advertised max.
+		if len(vectors) == 0 {
 			dims = len(out.Embedding.Values)
+		} else if len(out.Embedding.Values) != dims {
+			return model.Embeddings{}, fmt.Errorf("ai: gemini: embedding width skew: got %d, expected %d", len(out.Embedding.Values), dims)
 		}
+		vectors = append(vectors, out.Embedding.Values)
 	}
 	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
 }
@@ -208,11 +214,19 @@ func (c *geminiClient) generate(ctx context.Context, req model.Request, stream b
 	if err := attachmentUnsupported("gemini", req.Attachments, func(m string) bool { return isImage(m) || m == "application/pdf" }); err != nil {
 		return nil, err
 	}
+	// Native functionDeclarations mapping is a follow-up; reject tools rather than
+	// silently drop them (the tasks run in JSON mode today, so none are passed).
+	if len(req.Tools) > 0 {
+		return nil, fmt.Errorf("ai: gemini: native tool-use is not implemented yet (request set %d tool(s))", len(req.Tools))
+	}
 	genModel := req.Model
 	if genModel == "" {
 		genModel = c.defaultModel
 	}
-	opts := geminiReadOptions(req.ProviderOptions)
+	opts, err := geminiReadOptions(req.ProviderOptions)
+	if err != nil {
+		return nil, err
+	}
 	wire := geminiWire{Contents: geminiContents(req.Messages, req.Attachments, opts.ThoughtSignatures)}
 	if req.System != "" {
 		wire.SystemInstruction = &geminiContent{Parts: []geminiPart{{Text: req.System}}}
@@ -299,16 +313,16 @@ func geminiGenerationConfig(req model.Request, opts geminiOptions) *geminiGenCon
 	return cfg
 }
 
-func geminiReadOptions(opts map[string]json.RawMessage) geminiOptions {
+func geminiReadOptions(opts map[string]json.RawMessage) (geminiOptions, error) {
 	raw, ok := opts["gemini"]
 	if !ok {
-		return geminiOptions{}
+		return geminiOptions{}, nil
 	}
 	var o geminiOptions
 	if err := json.Unmarshal(raw, &o); err != nil {
-		return geminiOptions{}
+		return geminiOptions{}, fmt.Errorf("ai: gemini: provider options: %w", err)
 	}
-	return o
+	return o, nil
 }
 
 func (c *geminiClient) post(ctx context.Context, path string, payload []byte) (io.ReadCloser, error) {
