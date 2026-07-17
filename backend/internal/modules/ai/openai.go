@@ -176,7 +176,7 @@ func (c *openaiClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &openaiStream{body: body, scanner: sseScanner(body)}, nil
+	return &openaiStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *openaiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {

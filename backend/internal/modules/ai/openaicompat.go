@@ -99,7 +99,7 @@ func (c *openAICompatClient) Stream(ctx context.Context, req model.Request) (mod
 	if err != nil {
 		return nil, err
 	}
-	return &openAICompatStream{body: body, scanner: sseScanner(body)}, nil
+	return &openAICompatStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *openAICompatClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {

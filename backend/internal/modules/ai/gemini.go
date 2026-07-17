@@ -169,7 +169,7 @@ func (c *geminiClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &geminiStream{body: body, scanner: sseScanner(body)}, nil
+	return &geminiStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {

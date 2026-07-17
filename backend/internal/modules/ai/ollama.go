@@ -82,7 +82,7 @@ func (c *ollamaClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &ollamaStream{body: body, scanner: sseScanner(body)}, nil
+	return &ollamaStream{body: body, scanner: streamLineScanner(body)}, nil
 }
 
 func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
