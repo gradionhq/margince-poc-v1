@@ -22,6 +22,21 @@ import (
 // importing a provider package.
 var ErrEmbeddingsUnsupported = errors.New("model: provider has no embedding lane")
 
+// ErrAttachmentUnsupported reports an adapter that cannot carry a given
+// attachment MIME on its wire (a model capability limit, parallel to
+// ErrEmbeddingsUnsupported — NOT an apperrors domain sentinel). Callers route
+// or surface honestly rather than silently dropping the attachment.
+var ErrAttachmentUnsupported = errors.New("model: provider cannot carry this attachment type")
+
+// Attachment is one cross-provider input part. Bytes XOR URI: Bytes for inline
+// content, URI for a provider file handle / URL. Name is optional provenance.
+type Attachment struct {
+	MIME  string
+	Bytes []byte
+	URI   string
+	Name  string
+}
+
 // Client is the swappable model interface; selection is config.
 type Client interface {
 	// Complete is a single-shot completion (summaries, draft replies,
@@ -61,6 +76,16 @@ type Request struct {
 	// pseudonymization (A8 revised); privacy is the location ladder. In
 	// the sovereign profile egress is blocked entirely regardless.
 	SecretStripper SecretStripper
+	// ProviderOptions carries vendor-only knobs, namespaced by provider key
+	// (e.g. {"openai":{"reasoning_effort":"low"}}). An adapter reads only its
+	// own namespace and ignores the rest; an unknown namespace is a no-op. This
+	// is how a native adapter gets reasoning/thinking/cache-control without
+	// widening this interface per vendor.
+	ProviderOptions map[string]json.RawMessage
+	// Attachments are typed cross-provider input parts (image/pdf/audio). Each
+	// capable adapter maps them to its wire; one that cannot carry a given MIME
+	// returns ErrAttachmentUnsupported (never a silent drop).
+	Attachments []Attachment
 }
 
 type Message struct {
@@ -80,6 +105,14 @@ type Response struct {
 	Text         string
 	InputTokens  int
 	OutputTokens int
+	// CachedTokens / ReasoningTokens are the itemized usage a native provider
+	// returns (prompt-cache reads, reasoning/thinking tokens). Flat, alongside
+	// InputTokens/OutputTokens; an adapter with no such figure leaves them 0.
+	CachedTokens    int
+	ReasoningTokens int
+	// ProviderMetadata carries vendor-only outputs namespaced by provider key
+	// (e.g. {"openai":{"response_id":"…"}} for session logging).
+	ProviderMetadata map[string]json.RawMessage
 }
 
 // TokenStream delivers incremental completion tokens; Close releases the
@@ -93,6 +126,12 @@ type TokenStream interface {
 type EmbedRequest struct {
 	Model  string
 	Inputs []string
+	// Dimensions, when > 0, asks the embedder to emit vectors of exactly this
+	// width — the retrieval store's fixed column width. Cloud embedders whose
+	// native width differs (OpenAI text-embedding-3, Gemini gemini-embedding-001)
+	// honor it via their truncation parameter; an embedder already at the width
+	// (a local bge-m3, the fake) ignores it. 0 means "provider default".
+	Dimensions int
 }
 
 type Embeddings struct {

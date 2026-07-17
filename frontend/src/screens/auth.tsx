@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Eye, EyeOff } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -9,6 +10,8 @@ import {
 } from "react";
 import { api } from "../api/client";
 import { navigate } from "../app/router";
+import wordmarkDark from "../assets/wordmark-dark.png";
+import wordmarkWhite from "../assets/wordmark-white.png";
 import { Button } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -86,10 +89,7 @@ export function AuthScreen({
   return (
     <div className="auth-page">
       <main className="auth-column">
-        <span className="auth-wordmark">
-          <span className="mk">M</span>
-          {t("auth.title")}
-        </span>
+        <Wordmark alt={t("auth.title")} />
         {view.kind === "login" && (
           <>
             {notice && (
@@ -156,10 +156,7 @@ export function AvailabilityScreen({
   return (
     <div className="auth-page">
       <main className="auth-column">
-        <span className="auth-wordmark">
-          <span className="mk">M</span>
-          {t("auth.title")}
-        </span>
+        <Wordmark alt={t("auth.title")} />
         <section className="auth-card" role="alert">
           <h1>
             {t(
@@ -183,6 +180,21 @@ export function AvailabilityScreen({
         </section>
       </main>
     </div>
+  );
+}
+
+// Wordmark renders the current Margince logo, prominent above the card.
+// Two source images (dark ink for the light theme, white for dark) swap
+// via CSS on the data-theme toggle — no JS theme read needed.
+function Wordmark({ alt }: Readonly<{ alt: string }>) {
+  // The container carries the ONE accessible name: the theme swap hides
+  // one <img> with display:none, so a name on either image alone would
+  // vanish in the other theme.
+  return (
+    <span className="auth-wordmark" role="img" aria-label={alt}>
+      <img className="auth-wordmark-light" src={wordmarkDark} alt="" />
+      <img className="auth-wordmark-dark" src={wordmarkWhite} alt="" />
+    </span>
   );
 }
 
@@ -352,7 +364,7 @@ function LoginForm({
           <div className="auth-password-row">
             <input
               id={passwordId}
-              className="auth-input"
+              className="auth-input auth-input-reveal"
               type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               value={password}
@@ -363,11 +375,13 @@ function LoginForm({
             />
             <button
               type="button"
-              className="auth-link"
+              className="auth-reveal"
               aria-pressed={showPassword}
+              aria-label={t("auth.showPassword")}
+              title={t("auth.showPassword")}
               onClick={() => setShowPassword((v) => !v)}
             >
-              {showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+              {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
             </button>
           </div>
         </Field>

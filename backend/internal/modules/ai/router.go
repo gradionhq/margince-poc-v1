@@ -100,7 +100,10 @@ func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req mod
 	}
 	ladder = r.applyProfile(ladder)
 
-	key := cacheKey(wsID, task, req)
+	key, err := cacheKey(wsID, task, req)
+	if err != nil {
+		return model.Response{}, RouteInfo{}, err
+	}
 	if resp, tier, hit := r.cache.get(key, wsID); hit {
 		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); err != nil {
 			return model.Response{}, RouteInfo{}, fmt.Errorf("ai: metering cache hit: %w", err)
@@ -121,7 +124,7 @@ func (r *Router) complete(ctx context.Context, task Task, ladder []Tier, req mod
 			lastErr = err
 			continue
 		}
-		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens}); err != nil {
+		if err := r.meter.Record(ctx, Usage{Task: task, Tier: tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens, CachedTokens: resp.CachedTokens, ReasoningTokens: resp.ReasoningTokens}); err != nil {
 			// The tokens are spent either way, but unmetered spend would
 			// quietly hollow out the budget guardrail — fail loudly and
 			// let the caller retry into a metered call.
@@ -241,20 +244,31 @@ func embedTokenEstimate(inputs []string) int {
 	return total
 }
 
-// cacheKey covers EVERY completion-shaping input (system, messages,
-// tools, max tokens) via a collision-resistant digest, prefixed with the
-// plaintext workspace id: a hash collision may spoil a cache hit but can
-// never cross a tenant boundary, because the workspace segment is
+// cacheKey covers EVERY completion-shaping input (system, messages, tools, max
+// tokens, attachments, and provider options) via a collision-resistant digest,
+// prefixed with the plaintext workspace id: a hash collision may spoil a cache
+// hit but can never cross a tenant boundary, because the workspace segment is
 // compared literally (and re-checked against the stored entry on read).
-func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) string {
-	material, _ := json.Marshal(struct {
-		System    string          `json:"system"`
-		Messages  []model.Message `json:"messages"`
-		Tools     []model.ToolDef `json:"tools"`
-		MaxTokens int             `json:"max_tokens"`
-	}{req.System, req.Messages, req.Tools, req.MaxTokens})
+// Attachments and provider options MUST be in the digest — otherwise two calls
+// with identical prompt text but a different attached document (or a different
+// reasoning/thinking knob) collide, and the second is served the first's answer.
+func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error) {
+	material, err := json.Marshal(struct {
+		System          string                     `json:"system"`
+		Messages        []model.Message            `json:"messages"`
+		Tools           []model.ToolDef            `json:"tools"`
+		MaxTokens       int                        `json:"max_tokens"`
+		Attachments     []model.Attachment         `json:"attachments"`
+		ProviderOptions map[string]json.RawMessage `json:"provider_options"`
+	}{req.System, req.Messages, req.Tools, req.MaxTokens, req.Attachments, req.ProviderOptions})
+	if err != nil {
+		// A ProviderOptions namespace carrying invalid JSON would otherwise
+		// marshal to nil and collapse every such request onto one cache key —
+		// fail loudly instead of serving a collided answer.
+		return "", fmt.Errorf("ai: cache key: %w", err)
+	}
 	sum := sha256.Sum256(material)
-	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:])
+	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:]), nil
 }
 
 // resultCache is the §6 result cache: workspace_id is part of the key

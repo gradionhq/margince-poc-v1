@@ -37,7 +37,8 @@ func TestAnthropicLiveSmoke(t *testing.T) {
 	if key == "" {
 		t.Skip("no Anthropic key configured; live smoke skipped")
 	}
-	client, err := SelectBrain(ProviderConfig{Provider: "anthropic", Model: "claude-haiku-4-5-20251001", APIKey: key})
+	t.Setenv("ANTHROPIC_API_KEY", key) // SelectBrain reads the BYOK key from the environment
+	client, err := SelectBrain(ProviderConfig{Provider: "anthropic", Model: "claude-haiku-4-5-20251001"})
 	if err != nil {
 		t.Fatal(err)
 	}

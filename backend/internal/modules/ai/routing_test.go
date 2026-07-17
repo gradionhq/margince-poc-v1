@@ -12,7 +12,7 @@ func TestParseRoutingValidatesAtStartup(t *testing.T) {
 	valid := `
 tiers:
   local_small: {provider: fake}
-  cheap_cloud: {provider: anthropic, model: claude-haiku, api_key: k}
+  cheap_cloud: {provider: anthropic, model: claude-haiku}
 embeddings: {provider: fake}
 profile: eu_hosted
 `
@@ -43,6 +43,64 @@ profile: eu_hosted
 				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
 			}
 		})
+	}
+}
+
+// A cloud provider on any tier or the embeddings lane is refused under the
+// sovereign profile — zero egress by construction (spec §3.6).
+func TestSovereignRefusesOpenAICompatible(t *testing.T) {
+	cfg := []byte(`
+profile: sovereign
+tiers:
+  cheap_cloud: {provider: openai_compatible, base_url: https://api.mistral.ai, model: m}
+embeddings: {provider: ollama, model: bge-m3}
+`)
+	if _, err := ParseRouting(cfg); err == nil || !strings.Contains(err.Error(), "sovereign forbids cloud provider") {
+		t.Fatalf("want sovereign-forbids-cloud, got %v", err)
+	}
+}
+
+// The native cloud adapters are refused under sovereign too — the guarantee is
+// bound to provider identity, not to any config flag (spec §3.6).
+func TestSovereignRefusesNativeCloudProviders(t *testing.T) {
+	for _, provider := range []string{"openai", "gemini"} {
+		t.Run(provider, func(t *testing.T) {
+			cfg := []byte("profile: sovereign\ntiers:\n  premium: {provider: " + provider + ", model: m}\nembeddings: {provider: ollama, model: bge-m3}\n")
+			if _, err := ParseRouting(cfg); err == nil || !strings.Contains(err.Error(), "sovereign forbids cloud provider") {
+				t.Fatalf("%s: want sovereign-forbids-cloud, got %v", provider, err)
+			}
+		})
+	}
+}
+
+// LocalOnly (the runtime capability) and localProviders (the parse-time set)
+// are two encodings of "is this cloud"; they may never disagree.
+func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
+	clearCloudKeyEnv(t)
+	for _, env := range cloudKeyEnv {
+		t.Setenv(env, "k") // every cloud provider has its BYOK key in the environment
+	}
+	built := map[string]ProviderConfig{
+		"fake":              {Provider: "fake"},
+		"anthropic":         {Provider: "anthropic", Model: "m"},
+		"ollama":            {Provider: "ollama", Model: "m"},
+		"vllm":              {Provider: "vllm", Model: "m"},
+		"openai_compatible": {Provider: "openai_compatible", BaseURL: "https://x", Model: "m"},
+		"openai":            {Provider: "openai", Model: "m"},
+		"gemini":            {Provider: "gemini", Model: "m"},
+	}
+	for _, name := range knownProviders {
+		cfg, ok := built[name]
+		if !ok {
+			t.Fatalf("knownProviders has %q with no build recipe in this test — add one", name)
+		}
+		client, err := SelectBrain(cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got, want := client.Caps().LocalOnly, localProviders[name]; got != want {
+			t.Fatalf("%s: Caps().LocalOnly=%v but localProviders=%v — encodings disagree", name, got, want)
+		}
 	}
 }
 

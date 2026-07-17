@@ -33,6 +33,18 @@ func (failingClient) Complete(context.Context, model.Request) (model.Response, e
 	return model.Response{}, errors.New("provider down")
 }
 
+// fixedResponseClient returns a canned completion — used to prove the router
+// forwards a provider's itemized usage counters verbatim into the meter.
+type fixedResponseClient struct {
+	model.Client
+	resp model.Response
+}
+
+func (c fixedResponseClient) Complete(context.Context, model.Request) (model.Response, error) {
+	return c.resp, nil
+}
+func (fixedResponseClient) Caps() model.Capabilities { return model.Capabilities{} }
+
 func wsContext(t *testing.T) context.Context {
 	t.Helper()
 	return principal.WithWorkspaceID(context.Background(), ids.NewV7())
@@ -59,6 +71,21 @@ func TestRouterRoutesTaskToPrimaryTierAndMeters(t *testing.T) {
 	}
 	if meter.records[0].TokensIn == 0 {
 		t.Fatal("token usage not metered")
+	}
+}
+
+func TestRouterForwardsCachedAndReasoningTokensToMeter(t *testing.T) {
+	meter := &memMeter{}
+	client := fixedResponseClient{resp: model.Response{InputTokens: 10, OutputTokens: 5, CachedTokens: 3, ReasoningTokens: 7}}
+	r := testRouter(map[Tier]model.Client{TierCheapCloud: client}, meter, DefaultMonthlyTokens, ProfileEUHosted)
+	if _, _, err := r.Complete(wsContext(t), TaskSummarize, model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(meter.records) != 1 {
+		t.Fatalf("want one metered record, got %+v", meter.records)
+	}
+	if meter.records[0].CachedTokens != 3 || meter.records[0].ReasoningTokens != 7 {
+		t.Fatalf("meter did not receive itemized tokens: %+v", meter.records[0])
 	}
 }
 
@@ -189,6 +216,36 @@ func TestRouterResultCacheHitSkipsModelCall(t *testing.T) {
 	}
 	if !meter.records[1].Cached {
 		t.Fatalf("cache hit not metered as cached: %+v", meter.records[1])
+	}
+}
+
+// Two calls with identical prompt text but a different attached document must
+// not share a cache entry — otherwise the second is served the first's answer,
+// derived from a document the caller never attached (same workspace).
+func TestRouterCacheKeyDistinguishesAttachments(t *testing.T) {
+	cheap := NewFakeClient().Script("summary of A", "summary of B")
+	r := testRouter(map[Tier]model.Client{TierCheapCloud: cheap}, &memMeter{}, DefaultMonthlyTokens, ProfileEUHosted)
+	ctx := wsContext(t)
+	reqA := model.Request{
+		Messages:    []model.Message{{Role: "user", Content: "summarize the attached"}},
+		Attachments: []model.Attachment{{MIME: "application/pdf", Bytes: []byte("PDF-A")}},
+	}
+	reqB := model.Request{
+		Messages:    []model.Message{{Role: "user", Content: "summarize the attached"}},
+		Attachments: []model.Attachment{{MIME: "application/pdf", Bytes: []byte("PDF-B")}},
+	}
+	if _, _, err := r.Complete(ctx, TaskSummarize, reqA); err != nil {
+		t.Fatal(err)
+	}
+	_, info, err := r.Complete(ctx, TaskSummarize, reqB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Cached {
+		t.Fatal("different attachments must not share a cache entry")
+	}
+	if len(cheap.Calls()) != 2 {
+		t.Fatalf("expected two real calls for two distinct attachments, got %d", len(cheap.Calls()))
 	}
 }
 

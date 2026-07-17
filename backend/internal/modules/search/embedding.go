@@ -64,7 +64,7 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 			return err
 		}
 
-		res, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{text}})
+		res, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{text}, Dimensions: embeddingDims})
 		if err != nil {
 			return fmt.Errorf("search: embed: %w", err)
 		}
