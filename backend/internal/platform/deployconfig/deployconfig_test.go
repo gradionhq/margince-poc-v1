@@ -70,7 +70,7 @@ func TestParseRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestParseValidatesFailClosed(t *testing.T) {
-	cases := map[string]string{
+	cases := map[string]string{ // #nosec G101 -- yaml documents that must FAIL validation, not credentials
 		"unsupported version":     "version: 2\n",
 		"bad timezone":            "version: 1\norganization: { name: X, timezone: Mars/Olympus }\n",
 		"bad currency":            "version: 1\norganization: { name: X, base_currency: euros }\n",
@@ -81,6 +81,8 @@ func TestParseValidatesFailClosed(t *testing.T) {
 		"probability out of band": "version: 1\nseeds: { pipeline: { name: S, stages: [ { name: A, probability: 140 } ] } }\n",
 		"purpose without label":   "version: 1\nseeds: { consent_purposes: [ { key: marketing_email } ] }\n",
 		"email without smtp":      "version: 1\nemail: { enabled: true, from_address: a@b.co }\n",
+		"smtp port out of range":  "version: 1\nemail: { enabled: true, from_address: a@b.co, smtp: { host: h, port: 70000 } }\n",
+		"password auth disabled":  "version: 1\nauth: { password: { enabled: false } }\n",
 	}
 	for name, doc := range cases {
 		if _, err := Parse([]byte(doc)); err == nil {

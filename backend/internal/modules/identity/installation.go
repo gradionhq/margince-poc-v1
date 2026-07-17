@@ -188,7 +188,12 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 	if err := seedSystemRoles(ctx, tx, wsID, userID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
-	if err := auditLogin(ctx, tx, wsID, userID, "installation bootstrap"); err != nil {
+	// Bootstrap is a SYSTEM event: no human signed in — the admin's
+	// first session is minted later by a normal login with its own row.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
+		 VALUES ($1, 'system', 'installation-bootstrap', 'installation_bootstrap', jsonb_build_object('admin_user_id', $2::text))`,
+		wsID, userID.String()); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 

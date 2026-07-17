@@ -109,12 +109,17 @@ func TestPasswordResetRequestIsEnumerationResistant(t *testing.T) {
 	mail := &capturedMail{}
 	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test")
 
+	sent := make(chan struct{})
+	h.resetSendStarted = func() { close(sent) }
 	rec := httptest.NewRecorder()
 	h.RequestPasswordReset(rec, httptest.NewRequest(http.MethodPost, "/v1/auth/forgot-password",
 		strings.NewReader(`{"email":"nobody-`+e.member.Email+`"}`)).WithContext(ctx))
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("unknown address status = %d, want the same 202 a known one gets", rec.Code)
 	}
+	// The whole account-dependent path is asynchronous; wait for it
+	// before asserting nothing left the installation.
+	<-sent
 	if mail.sent != 0 {
 		t.Fatalf("a mail left for an unknown address: %+v", mail)
 	}
@@ -138,11 +143,27 @@ func TestPasswordResetSupersedesAndExpires(t *testing.T) {
 	}
 
 	// Expiry: shift the live token past its TTL through the owner
-	// connection (the app role cannot touch clocks) and expect the same
-	// neutral refusal.
-	if _, err := e.owner.Exec(context.Background(),
+	// connection (the app role cannot touch clocks), workspace-bound and
+	// row-count-asserted so the fixture can never miss silently.
+	expireTx, err := e.owner.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is asserted, after which this rollback is a designed no-op
+	defer func() { _ = expireTx.Rollback(context.Background()) }()
+	if _, err := expireTx.Exec(context.Background(), `SELECT set_config('app.workspace_id', $1, true)`, e.admin.WorkspaceID.String()); err != nil {
+		t.Fatal(err)
+	}
+	tag, err := expireTx.Exec(context.Background(),
 		`UPDATE auth_token SET expires_at = now() - interval '1 minute'
-		 WHERE user_id = $1 AND used_at IS NULL`, e.member.UserID); err != nil {
+		 WHERE user_id = $1 AND used_at IS NULL`, e.member.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("expiry fixture touched %d rows, want exactly the live token", tag.RowsAffected())
+	}
+	if err := expireTx.Commit(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.svc.RedeemPasswordReset(ctx, second, "an expired password!"); !errors.Is(err, apperrors.ErrNotFound) {

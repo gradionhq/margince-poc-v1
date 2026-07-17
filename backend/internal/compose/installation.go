@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -128,7 +129,9 @@ func seedConsent(ctx context.Context, tx pgx.Tx, configured []deployconfig.Conse
 // the read).
 func seedBookingPage(ctx context.Context, tx pgx.Tx) error {
 	var adminID ids.UserID
-	if err := tx.QueryRow(ctx, `SELECT id FROM app_user ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM app_user WHERE workspace_id = $1 ORDER BY created_at LIMIT 1`,
+		storekit.MustWorkspace(ctx)).Scan(&adminID); err != nil {
 		return err
 	}
 	_, err := activities.SeedBookingPageTx(ctx, tx, adminID)

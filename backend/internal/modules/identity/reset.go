@@ -69,32 +69,34 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawToken, err := h.svc.CreatePasswordReset(r.Context(), email.String())
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	if rawToken != "" {
-		// The mail leaves AFTER the token committed and OFF the request
-		// path: the SMTP round-trip must not shape the response time, or
-		// the latency would disclose which addresses exist even though
-		// the body does not. A relay failure is an operator incident,
-		// logged — the response stays 202 either way.
+	// EVERYTHING account-dependent runs off the request path — lookup,
+	// token mint, and the SMTP round-trip alike. The 202 leaves before
+	// any of it, so neither the response body nor its timing can
+	// disclose whether the address maps to an account. Failures on the
+	// async path are operator incidents, logged — never a different
+	// answer to the caller.
+	workCtx := context.WithoutCancel(r.Context())
+	done := h.resetSendStarted // test seam; nil in production
+	go func() {
+		if done != nil {
+			defer done()
+		}
+		rawToken, err := h.svc.CreatePasswordReset(workCtx, email.String())
+		if err != nil {
+			slog.Error("password-reset token mint failed", "err", err)
+			return
+		}
+		if rawToken == "" {
+			return
+		}
 		link := h.resetBaseURL + "/reset-password?token=" + rawToken
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."
-		sendCtx := context.WithoutCancel(r.Context())
-		done := h.resetSendStarted // test seam; nil in production
-		go func() {
-			if err := h.resetMailer.Send(sendCtx, email.String(), "Reset your Margince password", body); err != nil {
-				slog.Error("password-reset email failed", "err", err)
-			}
-			if done != nil {
-				done()
-			}
-		}()
-	}
+		if err := h.resetMailer.Send(workCtx, email.String(), "Reset your Margince password", body); err != nil {
+			slog.Error("password-reset email failed", "err", err)
+		}
+	}()
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -222,11 +224,18 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 		}
 		// The reset also clears the §27 lockout state: the account owner
 		// just proved control of the mailbox, which outranks a stale
-		// brute-force streak.
-		if _, err := tx.Exec(ctx,
+		// brute-force streak. Zero rows means the account was archived or
+		// deactivated after the token was issued — the reset must refuse
+		// (same neutral answer), never consume the token around an
+		// unchanged password.
+		tag, err := tx.Exec(ctx,
 			`UPDATE app_user SET password_hash = $2, failed_login_count = 0, locked_until = NULL
-			 WHERE id = $1 AND status = 'active' AND archived_at IS NULL`, userID, hash); err != nil {
+			 WHERE id = $1 AND status = 'active' AND archived_at IS NULL`, userID, hash)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return apperrors.ErrNotFound
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE auth_token SET used_at = now() WHERE id = $1`, tokenID); err != nil {

@@ -19,6 +19,7 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/term"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -129,12 +130,13 @@ func resetPassword(ctx context.Context, conn *pgx.Conn, email string, stdin io.R
 	if email == "" {
 		return errors.New("migrate reset-password: --email is required")
 	}
-	_, _ = fmt.Fprint(stdout, "new password (min 12 chars): ")
-	newPassword, err := bufio.NewReader(stdin).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("migrate reset-password: reading the new password: %w", err)
+	if _, err := fmt.Fprint(stdout, "new password (min 12 chars): "); err != nil {
+		return fmt.Errorf("migrate reset-password: writing the prompt: %w", err)
 	}
-	newPassword = strings.TrimRight(newPassword, "\r\n")
+	newPassword, err := readPassword(stdin, stdout)
+	if err != nil {
+		return err
+	}
 
 	tx, err := conn.Begin(ctx)
 	if err != nil {
@@ -146,31 +148,9 @@ func resetPassword(ctx context.Context, conn *pgx.Conn, email string, stdin io.R
 	// Bind the installation's singleton organization (FORCE RLS applies
 	// to the owner role too). More than one active workspace is the same
 	// operator-led-migration refusal every process role gives.
-	var wsID ids.WorkspaceID
-	rows, err := tx.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL LIMIT 2`)
+	wsID, err := singletonWorkspace(ctx, tx)
 	if err != nil {
 		return err
-	}
-	var found []ids.WorkspaceID
-	for rows.Next() {
-		var id ids.WorkspaceID
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		found = append(found, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	switch len(found) {
-	case 0:
-		return errors.New("migrate reset-password: no active organization — bootstrap the installation first")
-	case 1:
-		wsID = found[0]
-	default:
-		return errors.New("migrate reset-password: more than one active workspace — resolve the single-organization invariant first")
 	}
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
 		return err
@@ -181,6 +161,58 @@ func resetPassword(ctx context.Context, conn *pgx.Conn, email string, stdin io.R
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "password reset for %s; all their sessions are revoked\n", email)
+	if _, err := fmt.Fprintf(stdout, "password reset for %s; all their sessions are revoked\n", email); err != nil {
+		return fmt.Errorf("migrate reset-password: writing the confirmation: %w", err)
+	}
 	return nil
+}
+
+// singletonWorkspace resolves the one active organization — the same
+// 0/1/>1 state machine every process role applies (A107/ADR-0061).
+func singletonWorkspace(ctx context.Context, tx pgx.Tx) (ids.WorkspaceID, error) {
+	rows, err := tx.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL LIMIT 2`)
+	if err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	defer rows.Close()
+	var found []ids.WorkspaceID
+	for rows.Next() {
+		var id ids.WorkspaceID
+		if err := rows.Scan(&id); err != nil {
+			return ids.WorkspaceID{}, err
+		}
+		found = append(found, id)
+	}
+	if err := rows.Err(); err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	switch len(found) {
+	case 0:
+		return ids.WorkspaceID{}, errors.New("migrate reset-password: no active organization — bootstrap the installation first")
+	case 1:
+		return found[0], nil
+	default:
+		return ids.WorkspaceID{}, errors.New("migrate reset-password: more than one active workspace — resolve the single-organization invariant first")
+	}
+}
+
+// readPassword takes the new password from stdin — hidden (no echo, no
+// terminal recording) when stdin is a real terminal, plain reads for
+// pipes and tests.
+func readPassword(stdin io.Reader, stdout io.Writer) (string, error) {
+	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		raw, err := term.ReadPassword(int(f.Fd()))
+		if err != nil {
+			return "", fmt.Errorf("migrate reset-password: reading the new password: %w", err)
+		}
+		if _, err := fmt.Fprintln(stdout); err != nil {
+			return "", fmt.Errorf("migrate reset-password: writing the prompt newline: %w", err)
+		}
+		return string(raw), nil
+	}
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("migrate reset-password: reading the new password: %w", err)
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }

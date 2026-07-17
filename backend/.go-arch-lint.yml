@@ -21,6 +21,7 @@ vendors:
   oapi:   { in: github.com/oapi-codegen/** }
   redis:  { in: github.com/redis/** }
   xcrypto: { in: golang.org/x/crypto/** }
+  xterm:   { in: golang.org/x/term }
   yaml:   { in: gopkg.in/** }
   emersion: { in: github.com/emersion/** }
   river:  { in: github.com/riverqueue/** }
@@ -132,4 +133,4 @@ deps:
     canUse: [yaml]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
-    canUse: [pgx, redis]
+    canUse: [pgx, redis, xterm]

@@ -193,27 +193,48 @@ func (c Config) validate() error {
 	if cur := c.Organization.BaseCurrency; cur != "" && !isCurrencyCode(cur) {
 		return fmt.Errorf("deployconfig: organization.base_currency %q is not a 3-letter ISO 4217 code", cur)
 	}
-	if b := c.BootstrapAdmin; b != nil {
-		if _, err := values.ParseEmail(b.Email); err != nil {
-			return fmt.Errorf("deployconfig: bootstrap_admin.email: %w", err)
+	if c.BootstrapAdmin != nil {
+		if err := c.BootstrapAdmin.validate(); err != nil {
+			return err
 		}
-		if b.DisplayName == "" {
-			return errors.New("deployconfig: bootstrap_admin.display_name is required")
-		}
-		if b.PasswordFile == "" {
-			return errors.New("deployconfig: bootstrap_admin.password_file is required (secrets are file references, never inline values)")
-		}
+	}
+	if !c.Auth.PasswordEnabled() {
+		// Fail closed (A107 §14): password login is the only implemented
+		// method — disabling it would brick every human sign-in. The
+		// switch becomes meaningful when OIDC ships its complete flow.
+		return errors.New("deployconfig: auth.password.enabled=false would disable the only implemented login method — refused until another method (OIDC) exists")
 	}
 	if err := c.Seeds.validate(); err != nil {
 		return err
 	}
 	if c.Email.Enabled {
-		if c.Email.SMTP.Host == "" || c.Email.SMTP.Port == 0 {
-			return errors.New("deployconfig: email.enabled requires email.smtp.host and email.smtp.port")
-		}
-		if _, err := values.ParseEmail(c.Email.FromAddress); err != nil {
-			return fmt.Errorf("deployconfig: email.from_address: %w", err)
-		}
+		return c.Email.validate()
+	}
+	return nil
+}
+
+func (b BootstrapAdmin) validate() error {
+	if _, err := values.ParseEmail(b.Email); err != nil {
+		return fmt.Errorf("deployconfig: bootstrap_admin.email: %w", err)
+	}
+	if b.DisplayName == "" {
+		return errors.New("deployconfig: bootstrap_admin.display_name is required")
+	}
+	if b.PasswordFile == "" {
+		return errors.New("deployconfig: bootstrap_admin.password_file is required (secrets are file references, never inline values)")
+	}
+	return nil
+}
+
+func (e Email) validate() error {
+	if e.SMTP.Host == "" {
+		return errors.New("deployconfig: email.enabled requires email.smtp.host")
+	}
+	if e.SMTP.Port < 1 || e.SMTP.Port > 65535 {
+		return errors.New("deployconfig: email.smtp.port must be between 1 and 65535")
+	}
+	if _, err := values.ParseEmail(e.FromAddress); err != nil {
+		return fmt.Errorf("deployconfig: email.from_address: %w", err)
 	}
 	return nil
 }

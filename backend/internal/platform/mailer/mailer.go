@@ -51,30 +51,12 @@ func (s SMTP) Send(ctx context.Context, to, subject, textBody string) error {
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s\r\n",
 		s.FromAddress, to, subject, textBody)
 
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	client, err := s.connect(ctx, addr)
 	if err != nil {
-		return fmt.Errorf("mailer: relay %s unreachable: %w", addr, err)
-	}
-	client, err := smtp.NewClient(conn, s.Host)
-	if err != nil {
-		closeQuietly(conn)
-		return fmt.Errorf("mailer: relay %s greeting failed: %w", addr, err)
+		return err
 	}
 	defer closeQuietly(client)
 
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err := client.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
-			return fmt.Errorf("mailer: relay %s STARTTLS failed: %w", addr, err)
-		}
-	} else if !isLoopback(s.Host) {
-		return fmt.Errorf("mailer: relay %s offers no STARTTLS — refusing to send a credential-bearing mail in cleartext", addr)
-	}
-	if s.Username != "" {
-		if err := client.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
-			return fmt.Errorf("mailer: relay %s refused the credentials: %w", addr, err)
-		}
-	}
 	if err := client.Mail(s.FromAddress); err != nil {
 		return fmt.Errorf("mailer: relay %s refused the sender: %w", addr, err)
 	}
@@ -92,6 +74,42 @@ func (s SMTP) Send(ctx context.Context, to, subject, textBody string) error {
 		return fmt.Errorf("mailer: relay %s did not accept the message: %w", addr, err)
 	}
 	return client.Quit()
+}
+
+// connect dials the relay, bounds the WHOLE exchange with one deadline
+// (a stalling relay must not pin a goroutine and socket per reset
+// request), secures the channel, and authenticates.
+func (s SMTP) connect(ctx context.Context, addr string) (*smtp.Client, error) {
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("mailer: relay %s unreachable: %w", addr, err)
+	}
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		closeQuietly(conn)
+		return nil, fmt.Errorf("mailer: relay %s deadline setup failed: %w", addr, err)
+	}
+	client, err := smtp.NewClient(conn, s.Host)
+	if err != nil {
+		closeQuietly(conn)
+		return nil, fmt.Errorf("mailer: relay %s greeting failed: %w", addr, err)
+	}
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err := client.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
+			closeQuietly(client)
+			return nil, fmt.Errorf("mailer: relay %s STARTTLS failed: %w", addr, err)
+		}
+	} else if !isLoopback(s.Host) {
+		closeQuietly(client)
+		return nil, fmt.Errorf("mailer: relay %s offers no STARTTLS — refusing to send a credential-bearing mail in cleartext", addr)
+	}
+	if s.Username != "" {
+		if err := client.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
+			closeQuietly(client)
+			return nil, fmt.Errorf("mailer: relay %s refused the credentials: %w", addr, err)
+		}
+	}
+	return client, nil
 }
 
 // isLoopback reports whether the relay lives on this machine — the one
