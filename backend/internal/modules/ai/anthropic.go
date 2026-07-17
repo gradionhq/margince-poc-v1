@@ -161,6 +161,12 @@ func (c *anthropicClient) send(ctx context.Context, req model.Request, stream bo
 // status (0 on a transport-level failure) so send can distinguish a
 // schema-rejection 400 from a transport error.
 func (c *anthropicClient) sendOnce(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, int, error) {
+	// Anthropic is natively capable of image/document blocks; mapping them is a
+	// cheap follow-up. Phase-1 ships the honest reject-guard so the uniform
+	// Attachments field can never silently drop (spec §3.8, "the guard is the floor").
+	if err := attachmentUnsupported("anthropic", req.Attachments, rejectAllAttachments); err != nil {
+		return nil, 0, err
+	}
 	wire := anthropicWire{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,

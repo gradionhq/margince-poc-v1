@@ -90,7 +90,7 @@ func (c *ollamaClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	if embedModel == "" {
 		embedModel = c.defaultModel
 	}
-	payload, _, err := sendablePayload(ctx, map[string]any{"model": embedModel, "input": req.Inputs}, nil)
+	payload, _, err := sendablePayload(ctx, embedWire{Model: embedModel, Input: req.Inputs}, nil)
 	if err != nil {
 		return model.Embeddings{}, err
 	}
@@ -131,6 +131,11 @@ func (c *ollamaClient) chatStream(ctx context.Context, req model.Request) (io.Re
 }
 
 func (c *ollamaClient) sendChat(ctx context.Context, req model.Request, stream bool) (io.ReadCloser, error) {
+	// Local vision is out of scope here — reject any attachment rather than
+	// silently drop it (spec §3.8, the map-or-reject invariant).
+	if err := attachmentUnsupported("ollama", req.Attachments, rejectAllAttachments); err != nil {
+		return nil, err
+	}
 	wire := ollamaWire{Model: req.Model, Stream: stream}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel

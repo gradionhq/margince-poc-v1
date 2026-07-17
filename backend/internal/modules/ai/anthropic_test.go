@@ -19,9 +19,10 @@ import (
 
 func newAnthropicForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
+	t.Setenv("ANTHROPIC_API_KEY", "test-key") // the BYOK key rides the environment
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client, err := SelectBrain(ProviderConfig{Provider: "anthropic", Model: "claude-test", BaseURL: srv.URL, APIKey: "test-key"})
+	client, err := SelectBrain(ProviderConfig{Provider: "anthropic", Model: "claude-test", BaseURL: srv.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

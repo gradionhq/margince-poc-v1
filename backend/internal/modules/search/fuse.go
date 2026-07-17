@@ -40,7 +40,7 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 		return hits, nil
 	}
 
-	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}})
+	queryEmb, err := embedder.Embed(ctx, model.EmbedRequest{Inputs: []string{query}, Dimensions: embeddingDims})
 	if err != nil {
 		return nil, fmt.Errorf("search: embedding the query: %w", err)
 	}

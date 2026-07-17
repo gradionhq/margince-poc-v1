@@ -7,9 +7,69 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
+
+// Message-role vocabulary shared across adapters — one spelling each so an
+// adapter can't drift "assistant" vs "assistants". roleModel is Gemini's
+// spelling for the assistant turn.
+const (
+	roleSystem    = "system"
+	roleUser      = "user"
+	roleAssistant = "assistant"
+	roleModel     = "model"
+)
+
+// embedWire is the OpenAI-style embeddings request body ({model, input}); a
+// typed struct rather than a map so every adapter spells the fields the same way
+// once. Dimensions is OpenAI's truncation knob — sent only when the caller pins
+// a width (omitted otherwise, so a local server that ignores it is unaffected).
+type embedWire struct {
+	Model      string   `json:"model"`
+	Input      []string `json:"input"`
+	Dimensions int      `json:"dimensions,omitempty"`
+}
+
+// openAIWireEmbed runs the shared OpenAI /v1/embeddings round-trip: a
+// {model, input} request and a {data:[{embedding}]} response. The native openai
+// adapter and the openai_compatible transport speak the identical wire, so the
+// request build + decode lives here once (each passes its own authenticated
+// POST). Providers with a different embeddings shape (ollama, gemini) do not use it.
+func openAIWireEmbed(ctx context.Context, post func(context.Context, string, []byte) (io.ReadCloser, error), defaultModel string, req model.EmbedRequest) (model.Embeddings, error) {
+	embedModel := req.Model
+	if embedModel == "" {
+		embedModel = defaultModel
+	}
+	payload, _, err := sendablePayload(ctx, embedWire{Model: embedModel, Input: req.Inputs, Dimensions: req.Dimensions}, nil)
+	if err != nil {
+		return model.Embeddings{}, err
+	}
+	body, err := post(ctx, "/v1/embeddings", payload)
+	if err != nil {
+		return model.Embeddings{}, err
+	}
+	//craft:ignore swallowed-errors best-effort close of a response body already read to completion — the decode result decides the outcome
+	defer func() { _ = body.Close() }()
+	var out struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(body).Decode(&out); err != nil {
+		return model.Embeddings{}, fmt.Errorf("ai: decode embeddings: %w", err)
+	}
+	vectors := make([][]float32, 0, len(out.Data))
+	for _, d := range out.Data {
+		vectors = append(vectors, d.Embedding)
+	}
+	dims := 0
+	if len(vectors) > 0 {
+		dims = len(vectors[0])
+	}
+	return model.Embeddings{Vectors: vectors, Dims: dims}, nil
+}
 
 // wireMessage is the lowercase JSON shape every provider speaks; the
 // port's Message deliberately carries no wire tags (the seam is not a
@@ -22,7 +82,7 @@ type wireMessage struct {
 func wireMessages(system string, msgs []model.Message) []wireMessage {
 	out := make([]wireMessage, 0, len(msgs)+1)
 	if system != "" {
-		out = append(out, wireMessage{Role: "system", Content: system})
+		out = append(out, wireMessage{Role: roleSystem, Content: system})
 	}
 	for _, m := range msgs {
 		out = append(out, wireMessage{Role: m.Role, Content: m.Content})

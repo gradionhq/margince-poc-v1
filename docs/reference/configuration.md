@@ -162,3 +162,40 @@ Model credentials (BYOK cloud tiers) are configured in
 `make dev` copy it to a gitignored `config/ai-routing.yaml` — the
 per-engineer local config each engineer edits to bind their own models;
 delete it and re-run either target to reset.
+
+The providers a binding may name, and what each requires. A cloud provider's
+BYOK key is **read from an environment variable** at boot — the routing file
+names only the provider (a stray `api_key:` there is a startup error):
+
+| provider | key env var | `base_url` | notes |
+|---|---|---|---|
+| `fake` | — | — | offline deterministic stub (dev/test) |
+| `ollama` | — | optional (default `localhost:11434`) | local; sovereign-eligible |
+| `vllm` | — | optional (default `localhost:8000`) | local; sovereign-eligible |
+| `anthropic` | `ANTHROPIC_API_KEY` | optional (default `api.anthropic.com`) | BYOK cloud |
+| `openai_compatible` | `OPENAI_COMPATIBLE_API_KEY` | **required** | BYOK cloud, generic OpenAI wire (OpenAI, Mistral, DeepSeek, Groq, Together, OpenRouter, …) |
+| `openai` | `OPENAI_API_KEY` | optional (default `api.openai.com`) | BYOK cloud, native Responses API |
+| `gemini` | `GEMINI_API_KEY` | optional (default `generativelanguage.googleapis.com/v1beta`) | BYOK cloud, native `generateContent` |
+
+`base_url` for the OpenAI-wire providers (`openai_compatible`, `openai`, and
+`vllm`) is the vendor **host root with no version segment** — the adapter
+appends `/v1/chat/completions` (or `/v1/responses`), so a base ending in `/v1`
+would double it (`…/v1/v1/…` → 404). Use `https://api.mistral.ai`, not
+`https://api.mistral.ai/v1`. `gemini` is the mirror: its default base keeps the
+`/v1beta` segment and the paths are version-relative.
+
+A cloud binding is refused at startup under `profile: sovereign` (zero
+egress by construction). An editor with a YAML language server picks up
+[`config/ai-routing.schema.json`](../../config/ai-routing.schema.json)
+(referenced from the example's first line) for autocomplete, enum
+validation, and hover docs; the parser remains the sole runtime authority.
+
+Two operator gotchas, verified against current vendor docs:
+
+1. **`openai_compatible`'s embeddings lane 404s on OpenRouter, Groq, and
+   DeepSeek** — they serve chat only. Bind `embeddings:` to a vendor that
+   has the lane (OpenAI, Mistral, a Gemini-compat layer, Together) or a
+   local model (ollama `bge-m3`).
+2. **Vendor `-latest` model aliases drift and some are being deprecated**
+   (e.g. Mistral). Pin an explicit versioned id, or resolve via the
+   vendor's `/models` endpoint, rather than hardcoding an alias.

@@ -248,3 +248,110 @@ Next product arcs beyond the baseline groom live in the spec's build
 backlog; route findings as you work — implementation decisions recorded in the
 commit and PR that makes the change; spec/ticket defects reconciled upstream
 against the spec.
+
+## Cloud providers — upstream discrepancies to reconcile
+
+Filed upstream as `gradionhq/margince-foundation` **#1073** (contract
+reconciliation: interfaces.md §4 additive fields, ADR-0020 env-key posture,
+`provider: local` naming gap, Mistral alias, richer `model.Message`) and
+**#1074** (model-capability catalog incl. embedding dimensionality, = §7 #6).
+Per-provider AIUC conformance (§7 #9) and the eval-binding matrix (§7 #4) are
+already tracked in foundation #974 / #975 / #976.
+
+Raised by the cloud BYOK model-providers change (generic `openai_compatible`
+plus native `openai`/`gemini` adapters). Paths use the **live** foundation
+layout (verified against `gradionhq/margince-foundation@main`, 2026-07-17 — the
+local sibling checkout is 299 commits behind and still on the old
+`specs/spec/…` tree). These are for the foundation session; never edited from
+this build repo. The governing rule is contract-first / **spec wins** (the
+`architecture.md` invariant), cited by name to avoid the P-number collision in
+§7 #10 (product `principles.md` P3 = "agent-readable by construction", a
+different principle).
+
+- **#1 / #1a — reconciled in this change (the build side of the contract).**
+  `specs/contract/interfaces.md §4` predates reasoning/attachments/rich-usage.
+  This change adds the additive `Request.ProviderOptions`/`Attachments`,
+  `Response.CachedTokens`/`ReasoningTokens`/`ProviderMetadata`, and the
+  `Attachment` type + `ErrAttachmentUnsupported` capability error to
+  `ports/model` — a model *capability* error parallel to
+  `ErrEmbeddingsUnsupported`, **not** an `apperrors` domain sentinel, so the
+  fixed `apperrors` registry and `interfaces.md §0` are untouched. The
+  interfaces.md §4 struct listing should gain the same additive fields upstream.
+- **#2 — fixed here.** `specs/adr/ADR-0020` §2 + `interfaces.md §4` name OpenAI
+  and Gemini as BYOK providers; the build had only `fake`/`anthropic`/`ollama`/
+  `vllm`. This change ships all three (`openai_compatible`, `openai`, `gemini`).
+- **#3 — raise.** `specs/contract/ai-operational-spec.md §1.4` example binds
+  `embeddings: {provider: local, …}` / `stt: {provider: local}` — a bare `local`
+  provider name no adapter implements (`SelectBrain` has `ollama`/`vllm`, not
+  `local`). A naming gap independent of this change; no `local` alias invented here.
+- **#4 — raise.** `ai-operational-spec.md §1.1` names GPT/Gemini classes for
+  cheap-cloud/premium, and the WP3 exit gate requires evals on "the local-default
+  **and** the cloud-default bindings"; cloud-default is Anthropic, so OpenAI/Gemini
+  are named-but-untested. This change ships the adapters + unit coverage; which
+  cloud provider WP3 gates on is a spec/WP3 call.
+- **#5 — raise.** Mistral is spec-named only as an open-weight **local** model
+  (ADR-0012/A23), yet La Plateforme is an OpenAI-compat **cloud** endpoint —
+  reachable now via `openai_compatible` + `base_url`. Whether to add a named
+  `mistral` cloud alias is a product call.
+- **#6 — raise.** No model-capability catalog exists (context window,
+  supports-vision/-caching/-reasoning). Out of scope here (YAGNI — the router
+  keys on tier); noted as a future item, not half-built.
+- **#7 — raise.** `model.Message` is `{Role, Content}` — no per-part slot for
+  Gemini-3.x thought signatures or OpenAI reasoning items, so full *native*
+  multi-turn thought continuity can't be expressed on the seam. This change
+  rides the `ProviderMetadata`→`ProviderOptions` pass-through instead (the Gemini
+  thought-signature round-trip); a richer typed-parts `model.Message` is a future
+  seam change. Single-shot tasks are unaffected.
+- **#8 — documented (no code change).** `openai_compatible` `/embeddings` 404s on
+  OpenRouter/Groq/DeepSeek (chat-only); Mistral `-latest` aliases drift/deprecate.
+  Captured in `config/ai-routing.example.yaml` + `docs/reference/configuration.md`
+  (bind embeddings to a vendor that serves the lane or a local model; pin explicit
+  model versions).
+- **#9 — raise + follow-up.** `specs/adr/ADR-0050`/A65 (per-provider AI-quality
+  conformance, catalog at `specs/contract/ai-acceptance-catalog.md`) certifies AI
+  quality *per provider* (Certified / Supported-degraded / Not-supported). Adding
+  `openai`/`gemini`/blessed `openai_compatible` targets pulls them into that AIUC
+  matrix — a test/catalog obligation to mark them "supported", tracked as a
+  separate change, not shipped here. ADR-0050 explicitly leaves the ADR-0013/0020
+  invariants and the `Client` seam untouched, so this is not a seam blocker.
+- **#10 — no code.** Cite "contract-first / spec wins" (the `architecture.md`
+  invariant) by name, not the bare "P3", in commits/comments — `product/principles.md`
+  P3 is a different principle.
+- **#11 — BYOK key sourced from the environment, not the routing file (reconcile
+  upstream).** ADR-0020 / `interfaces.md §4` model the customer key as an
+  `api_key` in `ai-routing.yaml`. This build instead reads each cloud provider's
+  key from its conventional environment variable (`GEMINI_API_KEY`,
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`) at boot and
+  fails closed (naming the var) if missing; the config carries no `api_key` field
+  (a stray one is a parse error). This is a deliberate security-posture decision —
+  secrets in the environment, config names only providers (12-factor) — to
+  reconcile with ADR-0020's wording. The `Client` seam and the no-inference
+  invariant are unchanged.
+
+Implementation follow-ups deferred from this change (honest floors shipped now):
+
+- **Image mapping on the generic `openai_compatible` wire.** The shared chat
+  wire is text-only, so `openai_compatible` currently *rejects* every attachment
+  (image and document) with `ErrAttachmentUnsupported` rather than accept-and-drop.
+  Native `openai`/`gemini` carry images+PDFs today; mapping images to `image_url`
+  content parts on the generic wire is the follow-up. `base_url` for the OpenAI-wire
+  providers is the vendor host root with **no** `/v1` segment (the adapter adds it).
+- **Gemini batch embeddings.** `gemini` Embed makes one `:embedContent` call per
+  input (spec §3.5's named endpoint); a large retrieval batch is N sequential
+  round-trips. Folding onto `:batchEmbedContents` is the follow-up.
+- **Embedding dimensionality is provider/model-specific — own PR.** The store
+  column is a fixed `vector(1024)` and `search.embeddingDims` pins it; cloud
+  embedders default wider (Gemini 3072, OpenAI 1536), so this change adds
+  `EmbedRequest.Dimensions` and the adapters truncate to 1024
+  (`outputDimensionality` / `dimensions`). But native widths differ per
+  provider/model, and mixed models cannot rank against each other. A proper
+  design (store the dimension — and ideally the model — alongside each embedding
+  row so the lane can change without a full re-embed, or make the column width
+  configurable) is a separate PR. Until then, switching the embed binding means
+  wiping the store (as the module comment already notes). Filed upstream as
+  foundation #1074.
+- **Native tool-use mapping for `openai`/`gemini`.** The tasks run in JSON mode
+  today, so no caller sets `req.Tools`; the native adapters currently **reject**
+  a non-empty `Tools` (loud, not a silent drop) rather than map it. Mapping to
+  the Responses `tools` / Gemini `functionDeclarations` shapes is the follow-up
+  when a tool-using task routes to these providers.

@@ -216,7 +216,7 @@ func TestLocalProvidersDefaultToGemmaClassModels(t *testing.T) {
 		switch c := client.(type) {
 		case *ollamaClient:
 			got = c.defaultModel
-		case *vllmClient:
+		case *openAICompatClient: // vllm now builds the shared transport
 			got = c.defaultModel
 		default:
 			t.Fatalf("%s built an unexpected client type %T", provider, client)
