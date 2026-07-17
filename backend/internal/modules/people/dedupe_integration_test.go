@@ -88,7 +88,7 @@ func (e *dedupeEnv) as() context.Context {
 
 // seedEmployedPerson creates a person with the given email employed at a
 // fresh org that owns domain — the incumbent every case probes against.
-func (e *dedupeEnv) seedEmployedPerson(t *testing.T, ctx context.Context, name, email, orgName, domain string) (ids.PersonID, ids.OrganizationID) {
+func (e *dedupeEnv) seedEmployedPerson(ctx context.Context, t *testing.T, name, email, orgName, domain string) (ids.PersonID, ids.OrganizationID) {
 	t.Helper()
 	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
 		DisplayName: orgName, Source: "manual",
@@ -117,7 +117,7 @@ func (e *dedupeEnv) seedEmployedPerson(t *testing.T, ctx context.Context, name, 
 
 // dedupeInTx runs the resolver inside one workspace transaction, the way
 // every create-path caller will.
-func (e *dedupeEnv) dedupeInTx(t *testing.T, ctx context.Context, c PersonCandidate) PersonMatch {
+func (e *dedupeEnv) dedupeInTx(ctx context.Context, t *testing.T, c PersonCandidate) PersonMatch {
 	t.Helper()
 	var m PersonMatch
 	err := e.store.tx(ctx, func(tx pgx.Tx) (err error) {
@@ -130,7 +130,7 @@ func (e *dedupeEnv) dedupeInTx(t *testing.T, ctx context.Context, c PersonCandid
 	return m
 }
 
-func (e *dedupeEnv) dedupeOrgInTx(t *testing.T, ctx context.Context, c OrganizationCandidate) OrganizationMatch {
+func (e *dedupeEnv) dedupeOrgInTx(ctx context.Context, t *testing.T, c OrganizationCandidate) OrganizationMatch {
 	t.Helper()
 	var m OrganizationMatch
 	err := e.store.tx(ctx, func(tx pgx.Tx) (err error) {
@@ -146,12 +146,12 @@ func (e *dedupeEnv) dedupeOrgInTx(t *testing.T, ctx context.Context, c Organizat
 func TestDedupePersonExactTierFindsAClaimedEmail(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	janeID, _ := e.seedEmployedPerson(t, ctx, "Jane Doe", "jane.doe@acme.test", "Acme GmbH", "acme.test")
+	janeID, _ := e.seedEmployedPerson(ctx, t, "Jane Doe", "jane.doe@acme.test", "Acme GmbH", "acme.test")
 
 	// The spec's first worked example: a live email row already holds the
 	// address → EXACT_COLLISION + the existing id. No scoring runs, so the
 	// name being wildly different must not matter.
-	m := e.dedupeInTx(t, ctx, PersonCandidate{
+	m := e.dedupeInTx(ctx, t, PersonCandidate{
 		FullName: "Completely Different", Emails: []string{"JANE.DOE@ACME.TEST"},
 	})
 	if m.Decision != DecisionExactCollision {
@@ -165,10 +165,10 @@ func TestDedupePersonExactTierFindsAClaimedEmail(t *testing.T) {
 func TestDedupePersonFuzzyTierReproducesTheSpecWorkedExamples(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	johnID, acmeID := e.seedEmployedPerson(t, ctx, "John Doe", "john.doe@acme.test", "Acme GmbH", "acme.test")
+	johnID, acmeID := e.seedEmployedPerson(ctx, t, "John Doe", "john.doe@acme.test", "Acme GmbH", "acme.test")
 
 	t.Run("same employer queues for review at 0.982", func(t *testing.T) {
-		m := e.dedupeInTx(t, ctx, PersonCandidate{
+		m := e.dedupeInTx(ctx, t, PersonCandidate{
 			FullName: "Jon Doe", Emails: []string{"j.doe@other.test"},
 			CurrentPrimaryOrgID: &acmeID,
 		})
@@ -187,7 +187,7 @@ func TestDedupePersonFuzzyTierReproducesTheSpecWorkedExamples(t *testing.T) {
 		// No employer known for the candidate, but the address sits on
 		// acme.test, which the incumbent's org owns:
 		// 0.55·0.9667 + 0.45·0.8 = 0.8917 ≥ 0.72.
-		m := e.dedupeInTx(t, ctx, PersonCandidate{
+		m := e.dedupeInTx(ctx, t, PersonCandidate{
 			FullName: "Jon Doe", Emails: []string{"jon@acme.test"},
 		})
 		if m.Decision != DecisionFuzzyReview {
@@ -210,7 +210,7 @@ func TestDedupePersonFuzzyTierReproducesTheSpecWorkedExamples(t *testing.T) {
 			t.Fatal(err)
 		}
 		globexID := ids.From[ids.OrganizationKind](ids.UUID(globex.Id))
-		m := e.dedupeInTx(t, ctx, PersonCandidate{
+		m := e.dedupeInTx(ctx, t, PersonCandidate{
 			FullName: "Jon Doe", Emails: []string{"jon@nowhere.test"},
 			CurrentPrimaryOrgID: &globexID,
 		})
@@ -223,11 +223,11 @@ func TestDedupePersonFuzzyTierReproducesTheSpecWorkedExamples(t *testing.T) {
 func TestDedupePersonNamelessCandidateNeverFuzzyMatches(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	_, acmeID := e.seedEmployedPerson(t, ctx, "John Doe", "john@nameless.test", "Nameless GmbH", "nameless.test")
+	_, acmeID := e.seedEmployedPerson(ctx, t, "John Doe", "john@nameless.test", "Nameless GmbH", "nameless.test")
 
 	// PO-F-1 edge case: empty name → fuzzy tier skipped, exact-email only.
 	// Sharing the employer must not conjure a match from org_match alone.
-	m := e.dedupeInTx(t, ctx, PersonCandidate{
+	m := e.dedupeInTx(ctx, t, PersonCandidate{
 		FullName: "  ", Emails: []string{"unknown@elsewhere.test"},
 		CurrentPrimaryOrgID: &acmeID,
 	})
@@ -249,7 +249,7 @@ func TestDedupeOrganizationExactTierFindsAClaimedDomain(t *testing.T) {
 
 	// The capture employer-inference path: a domain hit lands on the
 	// existing org regardless of what the sender calls the company.
-	m := e.dedupeOrgInTx(t, ctx, OrganizationCandidate{
+	m := e.dedupeOrgInTx(ctx, t, OrganizationCandidate{
 		DisplayName: "Some Other Spelling", Domains: []string{"INITECH.TEST"},
 	})
 	if m.Decision != DecisionExactCollision {
@@ -273,7 +273,7 @@ func TestDedupeOrganizationFuzzyTierMeetsAcrossLegalSuffixes(t *testing.T) {
 
 	// PO-F-2's worked example shape: same name, different legal suffix,
 	// no shared domain → normalize-equal → 1.0 → 🟡 review, never a merge.
-	m := e.dedupeOrgInTx(t, ctx, OrganizationCandidate{
+	m := e.dedupeOrgInTx(ctx, t, OrganizationCandidate{
 		DisplayName: "Wayne Enterprises Inc", Domains: []string{"wayne-us.test"},
 	})
 	if m.Decision != DecisionFuzzyReview {
@@ -287,7 +287,7 @@ func TestDedupeOrganizationFuzzyTierMeetsAcrossLegalSuffixes(t *testing.T) {
 	}
 
 	// And a genuinely unrelated name creates.
-	unrelated := e.dedupeOrgInTx(t, ctx, OrganizationCandidate{
+	unrelated := e.dedupeOrgInTx(ctx, t, OrganizationCandidate{
 		DisplayName: "Zorbatron Heavy Industry", Domains: []string{"zorbatron.test"},
 	})
 	if unrelated.Decision != DecisionNoMatch {
