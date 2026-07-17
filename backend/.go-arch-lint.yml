@@ -27,6 +27,8 @@ vendors:
   river:  { in: github.com/riverqueue/** }
   minio:  { in: github.com/minio/** }
   fpdf:   { in: github.com/go-pdf/** }
+  # unicode transforms for the PO-PARAM-JW-2 dedupe preprocessing (casefold+unaccent)
+  xtext:  { in: golang.org/x/text/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -91,7 +93,7 @@ deps:
     canUse: [pgx, oapi]
   people:
     mayDependOn: [contracts, platform]
-    canUse: [pgx, oapi]
+    canUse: [pgx, oapi, xtext]
   privacy:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
