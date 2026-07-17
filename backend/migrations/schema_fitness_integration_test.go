@@ -285,6 +285,7 @@ var rowScopedFKDecisions = map[string]string{
 	"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
 	"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
+	"organization_fact.organization_id":          "child rows written only through the deepread accept effect, whose approval was staged from a visibility-checked read",
 	"offer.deal_id":                              "gated: auth.EnsureLinkTarget in CreateOffer; every later offer read/write re-probes the deal (H1)",
 	"offer.buyer_org_id":                         "gated: auth.EnsureLinkTarget in CreateOffer/UpdateOffer (H1)",
 	"signal.resolved_org_id":                     "gated: the resolver attributes only to a caller-visible org (visibleCandidates → auth.EnsureLinkTarget)",

@@ -50,6 +50,9 @@ var decisionGrants = map[string][]struct {
 	// transport gate by an agent caller.
 	"coldstart": {{"organization", principal.ActionUpdate}},
 	"enrich":    {{"organization", principal.ActionUpdate}},
+	// Accepting a deep site read writes profile fields and category facts
+	// onto the target organization — the same update authority enrich needs.
+	"deepread": {{"organization", principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{"deal", principal.ActionUpdate}},

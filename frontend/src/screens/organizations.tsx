@@ -22,6 +22,7 @@ import {
 } from "../design-system/trust";
 import { formatDateTime, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
@@ -395,6 +396,256 @@ function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
+type SiteReadReport = components["schemas"]["SiteReadReport"];
+
+const SITE_READ_STATUS_LABELS: Record<SiteReadReport["status"], MessageKey> = {
+  queued: "deepread.statusQueued",
+  running: "deepread.statusRunning",
+  done: "deepread.statusDone",
+  partial: "deepread.statusPartial",
+  failed: "deepread.statusFailed",
+};
+
+const SITE_READ_STOP_LABELS: Record<
+  NonNullable<SiteReadReport["stopped_reason"]>,
+  MessageKey
+> = {
+  budget: "deepread.stopBudget",
+  page_cap: "deepread.stopPageCap",
+  byte_cap: "deepread.stopByteCap",
+  deadline: "deepread.stopDeadline",
+};
+
+const SITE_READ_SKIP_LABELS: Record<
+  components["schemas"]["SiteReadSkip"]["reason"],
+  MessageKey
+> = {
+  robots: "deepread.skipRobots",
+  off_domain: "deepread.skipOffDomain",
+  page_cap: "deepread.skipPageCap",
+  byte_cap: "deepread.skipByteCap",
+  unreadable: "deepread.skipUnreadable",
+};
+
+const SITE_READ_KIND_LABELS: Record<
+  components["schemas"]["SiteReadPage"]["kind"],
+  MessageKey
+> = {
+  home: "deepread.kindHome",
+  impressum: "deepread.kindImpressum",
+  about: "deepread.kindAbout",
+  team: "deepread.kindTeam",
+  services: "deepread.kindServices",
+  products: "deepread.kindProducts",
+  contact: "deepread.kindContact",
+  other: "deepread.kindOther",
+};
+
+// Trims the scheme and clamps long paths so the pages/skips lists stay
+// scannable; the full URL survives on the title attribute.
+function shortUrl(url: string): string {
+  const bare = url.replace(/^https?:\/\//, "");
+  return bare.length > 60 ? `${bare.slice(0, 59)}…` : bare;
+}
+
+// The polled half of the deep read: renders progress while the crawl is in
+// flight (3s poll, stops on a terminal status) and the full account when it
+// ends — pages read, pages SKIPPED and why, and the stop reason when the
+// crawl ended early. The skip/stop rendering is the transparency surface: a
+// truncated crawl must never read as complete.
+function SiteReadPanel({
+  orgId,
+  readId,
+}: Readonly<{ orgId: string; readId: string }>) {
+  const t = useT();
+  const reportQuery = useQuery({
+    queryKey: ["site-read", orgId, readId],
+    queryFn: async () => {
+      const { data, error } = await api.GET(
+        "/organizations/{id}/site-reads/{readId}",
+        { params: { path: { id: orgId, readId } } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "running" ? 3000 : false;
+    },
+  });
+
+  if (reportQuery.isPending) {
+    return <Skeleton width="60%" />;
+  }
+  if (reportQuery.isError) {
+    return (
+      <p className="t-caption" style={{ color: "var(--danger)" }}>
+        {reportQuery.error.message}
+      </p>
+    );
+  }
+
+  const report = reportQuery.data;
+  const terminal =
+    report.status === "done" ||
+    report.status === "partial" ||
+    report.status === "failed";
+
+  return (
+    <div style={{ marginTop: "var(--space-3)" }}>
+      <p
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          flexWrap: "wrap",
+          margin: 0,
+        }}
+      >
+        <Badge tone={report.status === "failed" ? "danger" : undefined}>
+          {t(SITE_READ_STATUS_LABELS[report.status])}
+        </Badge>
+        <span className="t-small">
+          {t("deepread.pagesSoFar", { count: report.pages.length })}
+        </span>
+        {terminal && (
+          <span className="t-small">
+            {t("deepread.factCount", { count: report.fact_count ?? 0 })}
+          </span>
+        )}
+      </p>
+      {report.stopped_reason && (
+        <p style={{ margin: "var(--space-2) 0 0" }}>
+          <Badge tone="warn">
+            {t("deepread.stoppedEarly", {
+              reason: t(SITE_READ_STOP_LABELS[report.stopped_reason]),
+            })}
+          </Badge>
+        </p>
+      )}
+      {terminal && report.proposal_ids.length > 0 && (
+        <p
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-2)",
+            flexWrap: "wrap",
+            margin: "var(--space-3) 0 0",
+          }}
+        >
+          <AutonomyDot tier="confirm" />
+          <span className="t-small">
+            {report.proposal_ids.length === 1
+              ? t("deepread.proposalsOne")
+              : t("deepread.proposals", { count: report.proposal_ids.length })}
+          </span>
+          <Button small onClick={() => navigate({ screen: "inbox" })}>
+            {t("enrich.toInbox")}
+          </Button>
+        </p>
+      )}
+      {terminal && report.pages.length > 0 && (
+        <div style={{ marginTop: "var(--space-3)" }}>
+          <span className="t-label">{t("deepread.pagesRead")}</span>
+          <ul
+            className="t-small"
+            style={{
+              listStyle: "none",
+              margin: "var(--space-2) 0 0",
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+            }}
+          >
+            {report.pages.map((page) => (
+              <li key={page.url}>
+                <Badge>{t(SITE_READ_KIND_LABELS[page.kind])}</Badge>{" "}
+                <span className="t-mono" title={page.url}>
+                  {shortUrl(page.url)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {terminal && report.skipped.length > 0 && (
+        <div style={{ marginTop: "var(--space-3)" }}>
+          <span className="t-label">{t("deepread.skippedPages")}</span>
+          <ul
+            className="t-small"
+            style={{
+              listStyle: "none",
+              margin: "var(--space-2) 0 0",
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--space-1)",
+            }}
+          >
+            {report.skipped.map((skip) => (
+              <li key={skip.url}>
+                <span className="t-mono" title={skip.url}>
+                  {shortUrl(skip.url)}
+                </span>{" "}
+                <Badge tone="warn">
+                  {t(SITE_READ_SKIP_LABELS[skip.reason])}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The whole-site deep read (A102/R2), the enrich verb's big sibling: one
+// click starts (or joins — idempotent per org+url) a background crawl of the
+// company's own site; findings stage as 🟡 proposals for the inbox, nothing
+// writes to the record here. 422 (no website on file) and 501 (crawl seam
+// unwired) surface their honest cause instead of a generic failure.
+function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
+  const t = useT();
+  const [readId, setReadId] = useState<string | null>(null);
+  const start = useMutation({
+    mutationFn: async () => {
+      const { data, error, response } = await api.POST(
+        "/organizations/{id}/deep-read",
+        { params: { path: { id: orgId } } },
+      );
+      if (error) {
+        throw new Error(
+          response.status === 501
+            ? t("deepread.unavailable")
+            : problemMessage(error),
+        );
+      }
+      return data;
+    },
+    onSuccess: (started) => setReadId(started.read_id),
+  });
+
+  return (
+    <section className="card" style={{ marginBottom: "var(--space-4)" }}>
+      <div className="list-head">
+        <SectionHeader title={t("deepread.title")} sub={t("deepread.sub")} />
+        <Button small disabled={start.isPending} onClick={() => start.mutate()}>
+          {start.isPending ? t("deepread.starting") : t("deepread.cta")}
+        </Button>
+      </div>
+      {start.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {start.error instanceof Error ? start.error.message : null}
+        </p>
+      )}
+      {readId && <SiteReadPanel orgId={orgId} readId={readId} />}
+    </section>
+  );
+}
+
 type OrganizationHierarchyRollup =
   components["schemas"]["OrganizationHierarchyRollup"];
 
@@ -693,6 +944,7 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
                 </section>
                 <CustomFieldsCard object="organization" record={org} />
                 <EnrichCard orgId={org.id} />
+                <DeepReadCard orgId={org.id} />
                 <RecordContextPanel entityType="organization" id={org.id} />
                 <LogActivity entityType="organization" entityId={org.id} />
               </>

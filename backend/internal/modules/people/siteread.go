@@ -170,19 +170,37 @@ func (s *Store) GetSiteRead(ctx context.Context, orgID ids.OrganizationID, readI
 // transaction (RLS) still scopes the write to the job's tenant. The
 // guarded WHERE is the CAS: a read someone else already began (or that no
 // longer exists) is ErrNotFound.
-func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID) error {
-	return s.tx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
+func (s *Store) BeginSiteRead(ctx context.Context, readID ids.UUID) (SiteReadClaim, error) {
+	var claim SiteReadClaim
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// RETURNING hands the worker the CLAIMED row's own identity: the crawl
+		// and the staged proposal derive from what the dossier says, never
+		// from job args that could in principle diverge from it.
+		err := tx.QueryRow(ctx, `
 			UPDATE site_read SET status = 'running', started_at = now()
-			WHERE id = $1 AND status = 'queued'`, readID)
+			WHERE id = $1 AND status = 'queued'
+			RETURNING organization_id, seed_url, requested_by`, readID).
+			Scan(&claim.OrganizationID, &claim.SeedURL, &claim.RequestedBy)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
 		if err != nil {
 			return fmt.Errorf("begin site read: %w", err)
 		}
-		if tag.RowsAffected() == 0 {
-			return apperrors.ErrNotFound
-		}
 		return nil
 	})
+	if err != nil {
+		return SiteReadClaim{}, err
+	}
+	return claim, nil
+}
+
+// SiteReadClaim is what BeginSiteRead's CAS hands the worker: the claimed
+// dossier's own identity, so the crawl derives from the row, not the job.
+type SiteReadClaim struct {
+	OrganizationID ids.UUID
+	SeedURL        string
+	RequestedBy    string
 }
 
 // FinishSiteReadInput is the worker's completed crawl report.

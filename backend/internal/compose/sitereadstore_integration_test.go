@@ -83,12 +83,17 @@ func TestSiteReadWorkerAdvancesTheDossierThroughGuardedTransitions(t *testing.T)
 		t.Fatalf("StartSiteRead: %v", err)
 	}
 
-	// The pickup is a CAS: the first Begin flips queued → running, a
-	// second worker claiming the same read is told there is nothing to begin.
-	if err := store.BeginSiteRead(worker, read.ID); err != nil {
+	// The pickup is a CAS: the first Begin flips queued → running and hands
+	// back the claimed row's own identity; a second worker claiming the same
+	// read is told there is nothing to begin.
+	claim, err := store.BeginSiteRead(worker, read.ID)
+	if err != nil {
 		t.Fatalf("BeginSiteRead: %v", err)
 	}
-	if err := store.BeginSiteRead(worker, read.ID); !errors.Is(err, apperrors.ErrNotFound) {
+	if claim.SeedURL != read.SeedURL || claim.OrganizationID != org.UUID {
+		t.Fatalf("the claim reports %q/%s, want the dossier's own seed and org", claim.SeedURL, claim.OrganizationID)
+	}
+	if _, err := store.BeginSiteRead(worker, read.ID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("second BeginSiteRead → %v, want ErrNotFound (the read is no longer queued)", err)
 	}
 	running, err := store.GetSiteRead(human, org, read.ID)

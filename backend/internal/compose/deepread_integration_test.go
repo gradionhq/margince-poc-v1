@@ -6,12 +6,15 @@
 package compose
 
 // The deep read end-to-end: the worker crawls the site, extracts every
-// page through the shared evidence gate, stages ONE ordinary "enrich"
-// proposal a human can accept (the existing scrapeaccept executor fills
-// only empty fields), and records the honest outcome on the dossier —
-// done with facts, done with zero facts and NO proposal, partial when the
-// model lane dies midway, failed when the crawl itself does. Retries ride
-// BeginSiteRead's CAS: a second attempt after any terminal outcome no-ops.
+// page through the shared evidence gate — company fields plus the
+// per-page-kind category call — and stages ONE "deepread" proposal a
+// human can accept. Acceptance lands both halves in one transaction:
+// profile fields fill-empty, category facts into organization_fact under
+// the human-precedence guard. The dossier records the honest outcome —
+// done with findings, done with zero findings and NO proposal, partial
+// when the model lane dies midway, failed when the crawl itself does.
+// Retries ride BeginSiteRead's CAS: a second attempt after any terminal
+// outcome no-ops.
 
 import (
 	"context"
@@ -42,27 +45,37 @@ import (
 func acmeDeepSite() *fakeSite {
 	return &fakeSite{pages: map[string]fakeSitePage{
 		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks. Built for RevOps leaders at scaling SaaS companies."},
-		seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart."},
+		seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart. Telefon: +49 711 555 0100."},
 	}}
 }
 
-// The scripted model replies, one per crawled page in crawl order (home,
-// then the Impressum probe). The home reply grounds a positioning fact
-// and GUESSES the legal name off marketing copy; the Impressum states it.
+// The scripted model replies, two per crawled page in crawl order — the
+// shared company-field pass, then the page kind's category pass: home
+// (fields, then signal), then the Impressum probe (fields, then company).
+// The home fields reply grounds a positioning fact and GUESSES the legal
+// name off marketing copy; the Impressum states it. The signal reply
+// grounds a market signal off the home page's own words, the company
+// reply the Impressum's phone number.
 const (
 	deepHomeReply = `{"fields":[
 		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9},
 		{"field":"legal_name","value":"Acme (guessed)","evidence_snippet":"Built for RevOps leaders","confidence":0.95}]}`
+	deepHomeSignalReply = `{"fields":[
+		{"field":"named_customer","value":"Scaling SaaS companies — who the site says it serves","evidence_snippet":"scaling SaaS companies","confidence":0.6}]}`
 	deepImpressumReply = `{"fields":[
 		{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","confidence":0.7}]}`
+	deepImpressumCompanyReply = `{"fields":[
+		{"field":"phone","value":"+49 711 555 0100","evidence_snippet":"Telefon: +49 711 555 0100","confidence":0.85}]}`
+	// noCategoryFacts is a category pass with nothing to quote.
+	noCategoryFacts = `{"fields":[]}`
 )
 
 // newDeepReadTestWorker builds the worker over the fake site with the
-// real approvals service, the enrich accept effect wired exactly as
+// real approvals service, the deepread accept effect wired exactly as
 // compose wires it in production.
 func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain runner.Brain) (*siteDeepReadWorker, *approvals.Service) {
 	svc := approvals.NewService(e.Pool)
-	svc.WithEffect("enrich", scrapeAcceptEffect(svc, e.People))
+	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	return &siteDeepReadWorker{
 		people:    e.People,
 		crawler:   testSiteCrawler(site),
@@ -96,16 +109,17 @@ func startDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteR
 // orgIDOf types a harness-seeded untyped org id for the people store.
 func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
 
-// enrichApprovals counts staged "enrich" rows (workspace-scoped).
-func enrichApprovals(t *testing.T, e *integration.Env) int {
+// deepReadApprovals counts staged "deepread" rows (workspace-scoped).
+func deepReadApprovals(t *testing.T, e *integration.Env) int {
 	t.Helper()
-	return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'enrich'`)
+	return e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'deepread'`)
 }
 
-func TestDeepReadCrawlsExtractsStagesOneEnrichProposalAndFinishesDone(t *testing.T) {
+func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	worker, svc := newDeepReadTestWorker(e, acmeDeepSite(), ai.NewFakeClient().Script(deepHomeReply, deepImpressumReply))
+	worker, svc := newDeepReadTestWorker(e, acmeDeepSite(),
+		ai.NewFakeClient().Script(deepHomeReply, deepHomeSignalReply, deepImpressumReply, deepImpressumCompanyReply))
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -119,10 +133,11 @@ func TestDeepReadCrawlsExtractsStagesOneEnrichProposalAndFinishesDone(t *testing
 	if done.Status != "done" || done.FinishedAt == nil || done.StoppedReason != nil {
 		t.Fatalf("dossier = %+v, want done with no stop reason (discovery exhausted)", done)
 	}
-	// value_proposition from the home page + legal_name — the Impressum's
-	// statement beating the home page's higher-confidence guess.
-	if done.FactCount != 2 {
-		t.Fatalf("fact_count = %d, want 2 (merged across pages, one answer per field)", done.FactCount)
+	// 2 fields (value_proposition + legal_name, the Impressum's statement
+	// beating the home page's higher-confidence guess) + 2 category facts
+	// (the home page's signal, the Impressum's phone).
+	if done.FactCount != 4 {
+		t.Fatalf("fact_count = %d, want 4 (2 merged fields + 2 category facts)", done.FactCount)
 	}
 	if len(done.Pages) != 2 || done.Pages[0].Kind != "home" || done.Pages[1].Kind != "impressum" {
 		t.Fatalf("pages = %+v, want [home, impressum] in crawl order", done.Pages)
@@ -131,8 +146,8 @@ func TestDeepReadCrawlsExtractsStagesOneEnrichProposalAndFinishesDone(t *testing
 		t.Fatalf("proposal_ids = %v, want exactly the one staged bundle", done.ProposalIDs)
 	}
 
-	// The staged row is an ORDINARY enrich proposal carrying the human's
-	// authority: same kind, bound to the org, on behalf of the requester.
+	// The staged row is ONE "deepread" proposal carrying the human's
+	// authority: bound to the org, on behalf of the requester.
 	var kind, status string
 	var onBehalf ids.UUID
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -143,8 +158,8 @@ func TestDeepReadCrawlsExtractsStagesOneEnrichProposalAndFinishesDone(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kind != "enrich" || status != "pending" || onBehalf != e.Rep1 {
-		t.Fatalf("approval = %s/%s on behalf of %s, want enrich/pending on behalf of the requesting human", kind, status, onBehalf)
+	if kind != "deepread" || status != "pending" || onBehalf != e.Rep1 {
+		t.Fatalf("approval = %s/%s on behalf of %s, want deepread/pending on behalf of the requesting human", kind, status, onBehalf)
 	}
 
 	// A River retry after the terminal outcome no-ops on the Begin CAS:
@@ -152,45 +167,87 @@ func TestDeepReadCrawlsExtractsStagesOneEnrichProposalAndFinishesDone(t *testing
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("retry after done: %v", err)
 	}
-	if n := enrichApprovals(t, e); n != 1 {
-		t.Fatalf("retry staged again: %d enrich approvals, want 1", n)
+	if n := deepReadApprovals(t, e); n != 1 {
+		t.Fatalf("retry staged again: %d deepread approvals, want 1", n)
 	}
 
-	// The proposal is decidable by the EXISTING accept executor: the merged
-	// fields land as agent:scrape evidence rows, nothing new invented.
+	// Acceptance lands BOTH halves in one transaction: the profile fields
+	// as agent:deepread evidence rows, the category facts in
+	// organization_fact linked back to the dossier, and ONE
+	// organization.updated event on the outbox carrying the whole delta.
 	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](done.ProposalIDs[0]), true, nil); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
-	var profileRows int
-	var capturedBy, legalName string
+	var profileRows, factRows, updatedEvents int
+	var capturedBy, legalName, factCapturedBy string
+	var phoneValue, signalValue string
+	var phoneSiteRead ids.UUID
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(),
+		ctx := context.Background()
+		if err := tx.QueryRow(ctx,
 			`SELECT count(*), max(captured_by) FROM organization_profile_field WHERE organization_id = $1`,
 			org).Scan(&profileRows, &capturedBy); err != nil {
 			return err
 		}
-		return tx.QueryRow(context.Background(),
+		if err := tx.QueryRow(ctx,
 			`SELECT coalesce(max(value), '') FROM organization_profile_field
-			 WHERE organization_id = $1 AND field = 'legal_name'`, org).Scan(&legalName)
+			 WHERE organization_id = $1 AND field = 'legal_name'`, org).Scan(&legalName); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*), max(captured_by) FROM organization_fact WHERE organization_id = $1`,
+			org).Scan(&factRows, &factCapturedBy); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT value, site_read_id FROM organization_fact
+			 WHERE organization_id = $1 AND category = 'company' AND field = 'phone'`,
+			org).Scan(&phoneValue, &phoneSiteRead); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT coalesce(max(value), '') FROM organization_fact
+			 WHERE organization_id = $1 AND category = 'signal' AND field = 'named_customer'`,
+			org).Scan(&signalValue); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM event_outbox
+			 WHERE envelope->>'type' = 'organization.updated'`).Scan(&updatedEvents)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profileRows != 2 || capturedBy != "agent:scrape" {
-		t.Fatalf("accept wrote %d evidence rows as %q, want 2 as agent:scrape", profileRows, capturedBy)
+	if profileRows != 2 || capturedBy != "agent:deepread" {
+		t.Fatalf("accept wrote %d evidence rows as %q, want 2 as agent:deepread", profileRows, capturedBy)
 	}
 	if legalName != "Acme Robotics GmbH" {
 		t.Fatalf("legal_name = %q, want the Impressum's statement over the home page's guess", legalName)
+	}
+	if factRows != 2 || factCapturedBy != "agent:deepread" {
+		t.Fatalf("accept wrote %d organization_fact rows as %q, want 2 as agent:deepread", factRows, factCapturedBy)
+	}
+	if phoneValue != "+49 711 555 0100" || phoneSiteRead != read.ID {
+		t.Fatalf("company/phone = %q linked to read %s, want the Impressum's number linked to the dossier", phoneValue, phoneSiteRead)
+	}
+	if signalValue == "" {
+		t.Fatal("the home page's named_customer signal never landed in organization_fact")
+	}
+	if updatedEvents != 1 {
+		t.Fatalf("%d organization.updated outbox events after accept, want exactly 1 for the whole delta", updatedEvents)
 	}
 }
 
 func TestDeepReadWithNothingEvidencedIsAnHonestEmptyDoneWithNoProposal(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	// Both replies hallucinate: no snippet is verbatim on either page, so
-	// nothing survives the no-guess gate.
+	// Every reply hallucinates: no snippet is verbatim on either page, so
+	// nothing survives the no-guess gate — on the field passes or the
+	// category passes.
 	hallucinated := `{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on any page","confidence":0.9}]}`
-	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), ai.NewFakeClient().Script(hallucinated, hallucinated))
+	hallucinatedFact := `{"fields":[{"field":"named_customer","value":"guessed","evidence_snippet":"nowhere on any page","confidence":0.9}]}`
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(),
+		ai.NewFakeClient().Script(hallucinated, hallucinatedFact, hallucinated, hallucinatedFact))
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -207,8 +264,8 @@ func TestDeepReadWithNothingEvidencedIsAnHonestEmptyDoneWithNoProposal(t *testin
 	if len(done.ProposalIDs) != 0 {
 		t.Fatalf("proposal_ids = %v, want none — nothing evidenced stages nothing", done.ProposalIDs)
 	}
-	if n := enrichApprovals(t, e); n != 0 {
-		t.Fatalf("%d enrich approvals staged from an empty read, want 0", n)
+	if n := deepReadApprovals(t, e); n != 0 {
+		t.Fatalf("%d deepread approvals staged from an empty read, want 0", n)
 	}
 }
 
@@ -242,8 +299,8 @@ func TestDeepReadCrawlFailureFinishesFailedAndARetryNoOps(t *testing.T) {
 	if after.Status != "failed" || !after.FinishedAt.Equal(*failed.FinishedAt) {
 		t.Fatalf("retry touched the failed dossier: %+v", after)
 	}
-	if n := enrichApprovals(t, e); n != 0 {
-		t.Fatalf("%d enrich approvals after a failed crawl, want 0", n)
+	if n := deepReadApprovals(t, e); n != 0 {
+		t.Fatalf("%d deepread approvals after a failed crawl, want 0", n)
 	}
 }
 
@@ -269,8 +326,9 @@ func TestDeepReadOnABrainlessWorkerFailsTheReadActionably(t *testing.T) {
 func TestDeepReadModelFailureMidwayKeepsWhatWasReadAsPartial(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	// The home page extracts, then the model lane dies before the Impressum.
-	brain := &failsAfter{inner: ai.NewFakeClient().Script(deepHomeReply), limit: 1}
+	// The home page's two passes extract, then the model lane dies before
+	// the Impressum.
+	brain := &failsAfter{inner: ai.NewFakeClient().Script(deepHomeReply, deepHomeSignalReply), limit: 2}
 	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), brain)
 	read, args := startDeepRead(t, e, org)
 
@@ -288,9 +346,143 @@ func TestDeepReadModelFailureMidwayKeepsWhatWasReadAsPartial(t *testing.T) {
 	if len(partial.Pages) != 1 || partial.Pages[0].Kind != "home" {
 		t.Fatalf("pages = %+v, want only the page whose findings made the proposal", partial.Pages)
 	}
-	// Both home-page fields ground verbatim, so both survive.
-	if partial.FactCount != 2 || len(partial.ProposalIDs) != 1 {
-		t.Fatalf("fact_count = %d proposals = %v, want the home page's 2 fields staged", partial.FactCount, partial.ProposalIDs)
+	// Both home-page fields and its signal fact ground verbatim, so all
+	// three survive.
+	if partial.FactCount != 3 || len(partial.ProposalIDs) != 1 {
+		t.Fatalf("fact_count = %d proposals = %v, want the home page's 2 fields + 1 fact staged", partial.FactCount, partial.ProposalIDs)
+	}
+}
+
+// acmeServicesSite is a two-page site whose services page lists what the
+// company sells — the offering category's fixture.
+func acmeServicesSite() *fakeSite {
+	return &fakeSite{pages: map[string]fakeSitePage{
+		seedURL:               {text: readable("Acme home.")},
+		seedURL + "/services": {text: readable("Services.") + " We deliver CRM Rollout projects end to end. Margince is our CRM product."},
+	}}
+}
+
+// deepOfferingReply lists the same service twice under different
+// descriptions (one normalized value_key) plus a distinct product — the
+// dedupe fixture.
+const deepOfferingReply = `{"fields":[
+	{"field":"service","value":"CRM Rollout — implementation projects","evidence_snippet":"CRM Rollout projects","confidence":0.6},
+	{"field":"service","value":"CRM Rollout — end-to-end delivery","evidence_snippet":"CRM Rollout projects end to end","confidence":0.9},
+	{"field":"product","value":"Margince — our CRM product","evidence_snippet":"Margince is our CRM product","confidence":0.8}]}`
+
+// runServicesDeepRead crawls acmeServicesSite with nothing on the field
+// passes and deepOfferingReply on the services page's offering pass, and
+// returns the finished dossier. Call order: home fields, home signal,
+// services fields, services offering.
+func runServicesDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
+	t.Helper()
+	worker, svc := newDeepReadTestWorker(e, acmeServicesSite(),
+		ai.NewFakeClient().Script(noCategoryFacts, noCategoryFacts, noCategoryFacts, deepOfferingReply))
+	read, args := startDeepRead(t, e, org)
+	if err := worker.run(context.Background(), args); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	done, err := e.People.GetSiteRead(e.As(e.Rep1, nil, integration.AdminPerms), orgIDOf(org), read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.FactCount != 2 || len(done.ProposalIDs) != 1 {
+		t.Fatalf("dossier = %+v, want the 2 deduped offerings staged as one proposal", done)
+	}
+	return done, svc
+}
+
+func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	done, svc := runServicesDeepRead(t, e, org)
+
+	// The staged payload carries ONE service row — the higher-confidence
+	// spelling of the shared value_key — plus the product.
+	var proposedChange []byte
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT proposed_change FROM approval WHERE id = $1`, done.ProposalIDs[0]).Scan(&proposedChange)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := people.UnmarshalDeepRead(proposedChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proposal.Facts) != 2 {
+		t.Fatalf("staged facts = %+v, want the deduped service + the product", proposal.Facts)
+	}
+	service := proposal.Facts[0]
+	if service.Field != "service" || service.ValueKey != "crm rollout" || service.Value != "CRM Rollout — end-to-end delivery" {
+		t.Fatalf("staged service = %+v, want the higher-confidence spelling under value_key 'crm rollout'", service)
+	}
+
+	// A human has since claimed the service fact; the accept must land the
+	// product beside it and leave the human's row untouched.
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_fact
+			  (workspace_id, organization_id, category, field, value, value_key,
+			   evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, 'offering', 'service', 'CRM Rollout (human curated)', 'crm rollout',
+			        'set by hand', '', 1, 'manual', $3)`,
+			e.WS, org, "human:"+e.Rep1.String())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](done.ProposalIDs[0]), true, nil); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	var factRows int
+	var serviceValue, serviceCapturedBy, productValue string
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM organization_fact WHERE organization_id = $1`, org).Scan(&factRows); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx,
+			`SELECT value, captured_by FROM organization_fact
+			 WHERE organization_id = $1 AND field = 'service' AND value_key = 'crm rollout'`,
+			org).Scan(&serviceValue, &serviceCapturedBy); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx,
+			`SELECT coalesce(max(value), '') FROM organization_fact
+			 WHERE organization_id = $1 AND field = 'product'`, org).Scan(&productValue)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if factRows != 2 {
+		t.Fatalf("%d organization_fact rows after accept, want 2 (the human's service + the landed product)", factRows)
+	}
+	if serviceValue != "CRM Rollout (human curated)" || serviceCapturedBy != "human:"+e.Rep1.String() {
+		t.Fatalf("service row = %q by %q — the accept overwrote a human-claimed fact", serviceValue, serviceCapturedBy)
+	}
+	if productValue != "Margince — our CRM product" {
+		t.Fatalf("product row = %q, want the staged product landed beside the human's row", productValue)
+	}
+}
+
+func TestDeepReadRejectionLandsNothing(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	done, svc := runServicesDeepRead(t, e, org)
+
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](done.ProposalIDs[0]), false, nil); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM organization_fact`); n != 0 {
+		t.Fatalf("%d organization_fact rows after a rejection, want 0", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM organization_profile_field`); n != 0 {
+		t.Fatalf("%d profile-field rows after a rejection, want 0", n)
 	}
 }
 
