@@ -172,13 +172,15 @@ func dealPreviewDefs() map[string]previewDef {
 			},
 			// When: deal.stage_changed. If: only OPEN destinations mint a
 			// follow-up — so the records in range now are the open deals.
-			match: storekit.Predicate{Field: "status", Op: storekit.OpEq, Value: "open"},
+			// dealStatusOpen is the SAME value the runtime Match tests
+			// (handlers_event.go), so the dry-run and the firing agree.
+			match: storekit.Predicate{Field: "status", Op: storekit.OpEq, Value: dealStatusOpen},
 			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {
 				var n int
 				err := tx.QueryRow(ctx, `
 					SELECT count(*) FROM deal_stage_history h
 					JOIN stage s ON s.id = h.to_stage_id
-					WHERE h.changed_at >= $1 AND s.semantic = 'open'`, since).Scan(&n)
+					WHERE h.changed_at >= $1 AND s.semantic = $2`, since, dealStatusOpen).Scan(&n)
 				return n, err
 			},
 		},

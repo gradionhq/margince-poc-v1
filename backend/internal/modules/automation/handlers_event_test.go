@@ -386,3 +386,33 @@ func TestPostMeetingRecapIdempotencyKeyIsStablePerEvent(t *testing.T) {
 		t.Error("IdempotencyKey did not vary across distinct events — replays of different events would collide")
 	}
 }
+
+// TestStageChangeCreateTaskMatchOnlyFiresOnOpenMoves proves the follow-up
+// cadence stops at a close: an open move (or a defensively-empty payload)
+// fires, but a won/lost close does not. Guards the field-name contract
+// with deals' deal.stage_changed payload (to_status, not to_semantic) —
+// reading the wrong key made Match silently always-true, minting a
+// follow-up task on closed deals.
+func TestStageChangeCreateTaskMatchOnlyFiresOnOpenMoves(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload json.RawMessage
+		want    bool
+	}{
+		{"absent payload defaults to open", nil, true},
+		{"open move fires", json.RawMessage(`{"to_status":"open"}`), true},
+		{"won close does not fire", json.RawMessage(`{"to_status":"won"}`), false},
+		{"lost close does not fire", json.RawMessage(`{"to_status":"lost"}`), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			matched, err := stageChangeCreateTask{}.Match(context.Background(), workflow.Event{Payload: tc.payload})
+			if err != nil {
+				t.Fatalf("Match(%s) err = %v, want nil", tc.payload, err)
+			}
+			if matched != tc.want {
+				t.Errorf("Match(%s) = %v, want %v", tc.payload, matched, tc.want)
+			}
+		})
+	}
+}

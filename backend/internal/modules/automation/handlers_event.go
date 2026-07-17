@@ -46,11 +46,24 @@ func StarterWorkflows(ex Executors) []workflow.Handler {
 // Spec().Name (automations_catalog.go's CatalogEntry doc).
 const stageChangeCreateTaskName = "stage_change_create_task"
 
-// stageChangeCreateTask keeps momentum: every stage move mints a
-// follow-up task on the deal's own timeline.
+// stageChangeCreateTask keeps momentum: every OPEN stage move mints a
+// follow-up task on the deal's own timeline (a close ends the cadence).
 type stageChangeCreateTask struct {
 	ex Executors
 }
+
+// dealStageStatusField is the deal.stage_changed payload key carrying the
+// destination stage's semantic class, and dealStatusOpen is the one value
+// that keeps stage_change_create_task's follow-up cadence going. deals
+// emits the class under "to_status" (deals/deal_advance.go's Emit: open |
+// won | lost) — NOT "to_semantic", which no emitter ever sets. Both are
+// named once here and reused by the preview's equivalent predicate
+// (automations_preview.go's dealPreviewDefs) so the runtime filter and its
+// dry-run can never again drift onto a different field or value.
+const (
+	dealStageStatusField = "to_status"
+	dealStatusOpen       = "open"
+)
 
 func (stageChangeCreateTask) Spec() workflow.Spec {
 	return workflow.Spec{
@@ -62,16 +75,17 @@ func (stageChangeCreateTask) Spec() workflow.Spec {
 
 func (stageChangeCreateTask) Match(_ context.Context, ev workflow.Event) (bool, error) {
 	// A close (won/lost) ends the cadence; only open moves need a next
-	// step.
-	var payload struct {
-		ToSemantic string `json:"to_semantic"`
+	// step. An absent payload (defensive — every real deal.stage_changed
+	// carries one) is treated as an open move rather than silently dropped.
+	if len(ev.Payload) == 0 {
+		return true, nil
 	}
-	if len(ev.Payload) > 0 {
-		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
-			return false, err
-		}
+	var payload map[string]any
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		return false, err
 	}
-	return payload.ToSemantic == "" || payload.ToSemantic == "open", nil
+	status, _ := payload[dealStageStatusField].(string)
+	return status == "" || status == dealStatusOpen, nil
 }
 
 // fieldKind is the "kind" json key shared by the action snapshot and the

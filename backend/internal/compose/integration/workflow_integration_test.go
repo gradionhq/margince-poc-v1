@@ -249,7 +249,7 @@ func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	}
 	engine := compose.NewWorkflowEngine(e.Pool)
 
-	closedPayload, _ := json.Marshal(map[string]string{"to_semantic": "won"})
+	closedPayload, _ := json.Marshal(map[string]string{"to_status": "won"})
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
 		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
 		OccurredAt: time.Now().UTC(),
@@ -258,7 +258,7 @@ func TestWorkflowStageChangeMatchGuardsSemantic(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	openPayload, _ := json.Marshal(map[string]string{"to_semantic": "open"})
+	openPayload, _ := json.Marshal(map[string]string{"to_status": "open"})
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
 		EventID: ids.NewV7(), Type: "deal.stage_changed", WorkspaceID: e.WS,
 		OccurredAt: time.Now().UTC(),
