@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -24,10 +25,13 @@ const (
 	testKID = "test-key-1"
 )
 
-// oidcTestRig serves a JWKS for one RSA key and mints signed tokens against it.
+// oidcTestRig serves a JWKS for one RSA key and mints signed tokens against
+// it. certsHits counts how many times the /certs endpoint was actually hit,
+// for asserting refresh-throttling behavior.
 type oidcTestRig struct {
-	key *rsa.PrivateKey
-	srv *httptest.Server
+	key       *rsa.PrivateKey
+	srv       *httptest.Server
+	certsHits atomic.Int32
 }
 
 func newOIDCTestRig(t *testing.T) *oidcTestRig {
@@ -39,6 +43,7 @@ func newOIDCTestRig(t *testing.T) *oidcTestRig {
 	rig := &oidcTestRig{key: key}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/certs", func(w http.ResponseWriter, _ *http.Request) {
+		rig.certsHits.Add(1)
 		n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
 		e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
 		w.Header().Set("Content-Type", "application/json")
@@ -54,6 +59,8 @@ func newOIDCTestRig(t *testing.T) *oidcTestRig {
 }
 
 func (r *oidcTestRig) jwksURL() string { return r.srv.URL + "/certs" }
+
+func (r *oidcTestRig) certsHitCount() int32 { return r.certsHits.Load() }
 
 // mint builds a signed JWT. Pass kid="" to sign without a kid header; alg
 // overrides RS256; claims are merged over a valid default.
@@ -165,5 +172,46 @@ func TestOIDCVerifyHonorsInjectedClock(t *testing.T) {
 	longBeforeIssue := newTestVerifier(rig).withClock(func() time.Time { return iat.Add(-time.Hour) })
 	if err := longBeforeIssue.Verify(context.Background(), tok); err == nil {
 		t.Fatal("Verify(long before iat) = nil, want an error")
+	}
+}
+
+// TestOIDCVerifyThrottlesJWKSRefresh proves the cross-call refresh bound: an
+// unauthenticated caller can force a cache miss on every request just by
+// sending a never-seen kid (no valid signature required to reach the key
+// lookup), so refreshes must be throttled regardless of how many distinct
+// kids arrive within the cooldown.
+func TestOIDCVerifyThrottlesJWKSRefresh(t *testing.T) {
+	rig := newOIDCTestRig(t)
+	now := time.Now()
+	v := newTestVerifier(rig).withClock(func() time.Time { return now })
+
+	tok1 := rig.mint(t, "unknown-kid-1", "RS256", nil)
+	tok2 := rig.mint(t, "unknown-kid-2", "RS256", nil)
+
+	if err := v.Verify(context.Background(), tok1); err == nil {
+		t.Fatal("Verify(unknown kid 1) = nil, want an error")
+	}
+	if err := v.Verify(context.Background(), tok2); err == nil {
+		t.Fatal("Verify(unknown kid 2) = nil, want an error")
+	}
+	if got := rig.certsHitCount(); got != 1 {
+		t.Fatalf("certs hits after two distinct unknown kids within cooldown = %d, want 1", got)
+	}
+
+	// Advance the injected clock past the cooldown: the next unknown-kid
+	// attempt must trigger a second fetch.
+	now = now.Add(jwksRefreshCooldown)
+	tok3 := rig.mint(t, "unknown-kid-3", "RS256", nil)
+	if err := v.Verify(context.Background(), tok3); err == nil {
+		t.Fatal("Verify(unknown kid 3) = nil, want an error")
+	}
+	if got := rig.certsHitCount(); got != 2 {
+		t.Fatalf("certs hits after cooldown elapsed = %d, want 2", got)
+	}
+
+	// The accept path for a real, cached kid still works after all this.
+	valid := rig.mint(t, testKID, "RS256", nil)
+	if err := v.Verify(context.Background(), valid); err != nil {
+		t.Fatalf("Verify(valid) = %v, want nil", err)
 	}
 }

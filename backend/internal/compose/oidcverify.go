@@ -35,6 +35,13 @@ const googleJWKSURL = "https://www.googleapis.com/oauth2/v3/certs"
 // oidcSkew tolerates small clock differences on exp/iat.
 const oidcSkew = 2 * time.Minute
 
+// jwksRefreshCooldown bounds JWKS refreshes across calls, not just within
+// one: the header's alg/kid are read before any signature check, so an
+// unauthenticated caller can force a cache miss on every request just by
+// sending a never-seen kid. Without this cooldown, a burst of such tokens
+// would drive one outbound HTTPS fetch (and one hold of v.mu) per request.
+const jwksRefreshCooldown = time.Minute
+
 // errOIDCRejected is the single opaque failure the verifier returns; the
 // wrapped cause is for server-side logs only.
 var errOIDCRejected = errors.New("oidc: push token rejected")
@@ -46,9 +53,10 @@ type googleOIDCVerifier struct {
 	client         *http.Client
 	now            func() time.Time
 
-	mu      sync.Mutex
-	keys    map[string]*rsa.PublicKey
-	expires time.Time
+	mu          sync.Mutex
+	keys        map[string]*rsa.PublicKey
+	expires     time.Time
+	nextRefresh time.Time
 }
 
 func newGoogleOIDCVerifier(jwksURL, audience, serviceAccount string) *googleOIDCVerifier {
@@ -142,25 +150,35 @@ func (v *googleOIDCVerifier) checkClaims(c oidcClaims) error {
 	return nil
 }
 
-// key returns the cached public key for kid, refreshing the JWKS once if the
-// cache is empty, expired, or missing the kid (a rotation).
+// key returns the cached public key for kid, refreshing the JWKS if the
+// cache is empty, expired, or missing the kid (a rotation) — subject to
+// jwksRefreshCooldown throttling refreshes across calls.
 func (v *googleOIDCVerifier) key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	if kid == "" {
 		return nil, errors.New("no kid")
 	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	if k, ok := v.keys[kid]; ok && v.now().Before(v.expires) {
+	if k, ok := v.lookupKey(kid); ok {
 		return k, nil
 	}
-	if err := v.refreshLocked(ctx); err != nil {
+	if err := v.refresh(ctx); err != nil {
 		return nil, err
 	}
-	k, ok := v.keys[kid]
+	k, ok := v.lookupKey(kid)
 	if !ok {
 		return nil, fmt.Errorf("unknown kid %q", kid)
 	}
 	return k, nil
+}
+
+// lookupKey reports the cached key for kid, if any, and whether the cache
+// (as a whole) is still within its TTL.
+func (v *googleOIDCVerifier) lookupKey(kid string) (*rsa.PublicKey, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if k, ok := v.keys[kid]; ok && v.now().Before(v.expires) {
+		return k, true
+	}
+	return nil, false
 }
 
 type jwk struct {
@@ -170,29 +188,55 @@ type jwk struct {
 	E   string `json:"e"`
 }
 
-func (v *googleOIDCVerifier) refreshLocked(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.jwksURL, nil)
+// refresh throttles JWKS fetches to at most one per jwksRefreshCooldown
+// across all callers, and performs the network fetch without holding v.mu —
+// only the cooldown decision and the eventual cache swap are locked.
+func (v *googleOIDCVerifier) refresh(ctx context.Context) error {
+	v.mu.Lock()
+	now := v.now()
+	if now.Before(v.nextRefresh) {
+		v.mu.Unlock()
+		return errors.New("jwks: refresh throttled")
+	}
+	v.nextRefresh = now.Add(jwksRefreshCooldown)
+	v.mu.Unlock()
+
+	keys, expires, err := v.fetchJWKS(ctx)
 	if err != nil {
 		return err
 	}
+	v.mu.Lock()
+	v.keys = keys
+	v.expires = expires
+	v.mu.Unlock()
+	return nil
+}
+
+// fetchJWKS performs the outbound HTTPS GET and parses the key set. It takes
+// no lock: it is called from refresh with v.mu already released.
+func (v *googleOIDCVerifier) fetchJWKS(ctx context.Context) (map[string]*rsa.PublicKey, time.Time, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.jwksURL, nil)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
 	resp, err := v.client.Do(req)
 	if err != nil {
-		return err
+		return nil, time.Time{}, err
 	}
 	//craft:ignore swallowed-errors best-effort close of the JWKS response body — the decoded keys are what matter
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("jwks: status %d", resp.StatusCode)
+		return nil, time.Time{}, fmt.Errorf("jwks: status %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return err
+		return nil, time.Time{}, err
 	}
 	var set struct {
 		Keys []jwk `json:"keys"`
 	}
 	if err := json.Unmarshal(body, &set); err != nil {
-		return err
+		return nil, time.Time{}, err
 	}
 	keys := make(map[string]*rsa.PublicKey, len(set.Keys))
 	for _, k := range set.Keys {
@@ -206,11 +250,9 @@ func (v *googleOIDCVerifier) refreshLocked(ctx context.Context) error {
 		keys[k.Kid] = pub
 	}
 	if len(keys) == 0 {
-		return errors.New("jwks: no usable RSA keys")
+		return nil, time.Time{}, errors.New("jwks: no usable RSA keys")
 	}
-	v.keys = keys
-	v.expires = v.now().Add(cacheTTL(resp.Header.Get("Cache-Control")))
-	return nil
+	return keys, v.now().Add(cacheTTL(resp.Header.Get("Cache-Control"))), nil
 }
 
 // cacheTTL reads max-age from a Cache-Control header, clamped to [1m, 24h]
