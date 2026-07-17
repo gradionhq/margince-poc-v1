@@ -11,7 +11,14 @@
   display: grid;
   place-items: center;
   padding: 40px 24px;
+  padding-bottom: max(40px, env(safe-area-inset-bottom));
   background: var(--bgPage);
+}
+@media (max-width: 480px) {
+  .auth-page {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
 }
 .auth-column {
   width: 100%;
@@ -161,4 +168,36 @@
   color: var(--textSecondary);
   margin-top: 3px;
   line-height: 1.45;
+}
+
+.auth-notice {
+  text-align: center;
+  font-size: 13px;
+  color: var(--textSecondary);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 10px 13px;
+}
+.auth-error:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
+.auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--textTertiary);
+  margin-top: 10px;
+}
+.auth-footer .auth-link[aria-pressed="true"] {
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+
+@supports (min-height: 100dvh) {
+  .auth-page {
+    min-height: 100dvh;
+  }
 }

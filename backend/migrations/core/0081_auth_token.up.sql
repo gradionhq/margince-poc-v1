@@ -1,4 +1,4 @@
--- 0079: auth_token — single-use emailed credentials (A74/ADR-0056;
+-- 0081: auth_token — single-use emailed credentials (A74/ADR-0056;
 -- AUTH-DDL-1). Password reset first; the same table carries email
 -- verification and invite activation when those flows land. Only the
 -- token's hash persists (the no-raw-credential-at-rest rule the session

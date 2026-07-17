@@ -958,8 +958,10 @@ export const de = {
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
+  "auth.pageTitle": "Anmelden · Margince",
   "auth.loginTitle": "Bei Margince anmelden",
-  "auth.email": "E-Mail",
+  "auth.email": "E-Mail-Adresse",
+  "auth.emailPlaceholder": "name@beispiel.de",
   "auth.password": "Passwort",
   "auth.passwordHint": "mindestens 12 Zeichen",
   "auth.showPassword": "Anzeigen",
@@ -968,6 +970,22 @@ export const de = {
   "auth.signIn": "Anmelden",
   "auth.signingIn": "Anmeldung läuft…",
   "auth.failed": "Das hat nicht geklappt",
+  "auth.errCredentials":
+    "Die Anmeldung war nicht möglich. Prüfe E-Mail-Adresse und Passwort und versuche es erneut.",
+  "auth.errRateLimited":
+    "Zu viele Anmeldeversuche. Warte einen Moment und versuche es erneut.",
+  "auth.errUnreachable":
+    "Margince ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+  "auth.retry": "Erneut versuchen",
+  "auth.noticeSignedOut": "Du wurdest abgemeldet.",
+  "auth.noticeSessionExpired":
+    "Deine Sitzung ist abgelaufen. Melde dich erneut an, um fortzufahren.",
+  "auth.connectionTitle": "Margince ist nicht erreichbar",
+  "auth.connectionBody":
+    "Prüfe deine Verbindung und versuche es erneut. Besteht das Problem weiter, startet der Server womöglich gerade neu.",
+  "auth.unavailableTitle": "Installation nicht bereit",
+  "auth.unavailableBody":
+    "Diese Margince-Installation kann dich noch nicht anmelden. Ein Operator muss die Einrichtung abschließen oder reparieren.",
   "auth.forgotLink": "Passwort vergessen?",
   "auth.forgotTitle": "Passwort zurücksetzen",
   "auth.forgotSub":
@@ -986,6 +1004,8 @@ export const de = {
   "auth.resetDoneBody":
     "Dein Passwort ist geändert und alle anderen Sitzungen sind abgemeldet. Melde dich mit dem neuen Passwort an.",
   "auth.backToLogin": "Zurück zur Anmeldung",
+  "auth.langDeutsch": "Deutsch",
+  "auth.langEnglish": "English",
   "auth.signOut": "Abmelden",
 
   "client.back": "Zurück zu Margince",
