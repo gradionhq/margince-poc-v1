@@ -21,6 +21,9 @@ func TestSelectBrainOneLinePerProvider(t *testing.T) {
 		{name: "cloud byok", cfg: ProviderConfig{Provider: "anthropic", APIKey: "k", Model: "claude-x"}, localOnly: false},
 		{name: "local", cfg: ProviderConfig{Provider: "ollama", Model: "gemma3"}, localOnly: true},
 		{name: "cloud without key fails closed", cfg: ProviderConfig{Provider: "anthropic"}, wantErr: "api key"},
+		{name: "openai-compat cloud byok", cfg: ProviderConfig{Provider: "openai_compatible", APIKey: "k", BaseURL: "https://api.mistral.ai/v1", Model: "mistral-small-latest"}, localOnly: false},
+		{name: "openai-compat without key fails closed", cfg: ProviderConfig{Provider: "openai_compatible", BaseURL: "https://x"}, wantErr: "api key"},
+		{name: "openai-compat without base_url fails closed", cfg: ProviderConfig{Provider: "openai_compatible", APIKey: "k"}, wantErr: "base_url"},
 		{name: "empty provider", cfg: ProviderConfig{}, wantErr: "no provider"},
 		{name: "unknown provider", cfg: ProviderConfig{Provider: "clippy"}, wantErr: "unknown provider"},
 	}

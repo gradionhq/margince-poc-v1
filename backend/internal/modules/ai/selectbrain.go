@@ -6,6 +6,7 @@ package ai
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -45,6 +46,11 @@ const jsonSchemaFormatType = "json_schema"
 // completions on long context are legitimately slow; per-call contexts
 // tighten it where a caller has a real deadline.
 const requestTimeout = 120 * time.Second
+
+// knownProviders is the single source of truth for the provider names
+// SelectBrain accepts — read by the default error below and by the config
+// JSON-schema drift test. Add a provider here when you add its case.
+var knownProviders = []string{"fake", "anthropic", "ollama", "vllm", "openai_compatible"}
 
 // SelectBrain turns one binding into a Client (interfaces.md §4):
 // "offline fake ↔ API key ↔ local, one line" — swapping providers is a
@@ -97,9 +103,23 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			localOnly:    true,
 			defaultModel: defaultModel,
 		}, nil
+	case "openai_compatible":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("ai: provider openai_compatible needs an api key (BYOK — we provide no inference)")
+		}
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("ai: provider openai_compatible needs a base_url (the vendor endpoint, e.g. https://api.openai.com/v1)")
+		}
+		return &openAICompatClient{
+			http:         &http.Client{Timeout: requestTimeout},
+			baseURL:      cfg.BaseURL,
+			apiKey:       cfg.APIKey,
+			localOnly:    false,
+			defaultModel: cfg.Model,
+		}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
 	default:
-		return nil, fmt.Errorf("ai: unknown provider %q (have: fake, anthropic, ollama, vllm)", cfg.Provider)
+		return nil, fmt.Errorf("ai: unknown provider %q (have: %s)", cfg.Provider, strings.Join(knownProviders, ", "))
 	}
 }
