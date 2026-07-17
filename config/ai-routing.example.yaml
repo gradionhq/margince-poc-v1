@@ -70,11 +70,13 @@ tiers:
 
   # BYOK cloud via the generic OpenAI-wire adapter (any OpenAI-compatible
   # vendor). REQUIRES both base_url and api_key — a keyless or base-url-less
-  # binding fails at startup:
+  # binding fails at startup. base_url is the vendor HOST ROOT with NO version
+  # segment: the adapter appends /v1/chat/completions, so a base ending in /v1
+  # would double it (…/v1/v1/… → 404):
   # cheap_cloud:
   #   provider: openai_compatible
   #   model: mistral-small-2506       # pin an explicit version; -latest aliases drift
-  #   base_url: https://api.mistral.ai/v1
+  #   base_url: https://api.mistral.ai   # NOT https://api.mistral.ai/v1
   #   api_key: <customer BYOK key>
 
   # BYOK cloud via the native adapters — reasoning/thinking, prompt caching,

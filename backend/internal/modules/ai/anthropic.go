@@ -164,7 +164,7 @@ func (c *anthropicClient) sendOnce(ctx context.Context, req model.Request, strea
 	// Anthropic is natively capable of image/document blocks; mapping them is a
 	// cheap follow-up. Phase-1 ships the honest reject-guard so the uniform
 	// Attachments field can never silently drop (spec §3.8, "the guard is the floor").
-	if err := attachmentUnsupported("anthropic", req.Attachments, func(string) bool { return false }); err != nil {
+	if err := attachmentUnsupported("anthropic", req.Attachments, rejectAllAttachments); err != nil {
 		return nil, 0, err
 	}
 	wire := anthropicWire{

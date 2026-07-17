@@ -169,9 +169,16 @@ The providers a binding may name, and what each requires:
 | `ollama` | — | optional (default `localhost:11434`) | local; sovereign-eligible |
 | `vllm` | — | optional (default `localhost:8000`) | local; sovereign-eligible |
 | `anthropic` | required | optional (default `api.anthropic.com`) | BYOK cloud |
-| `openai_compatible` | required | **required** | BYOK cloud, generic OpenAI wire (OpenAI, Mistral, DeepSeek, Groq, Together, OpenRouter, a Gemini `…/v1beta/openai/` layer, …) |
-| `openai` | required | optional (default `api.openai.com/v1`) | BYOK cloud, native Responses API |
+| `openai_compatible` | required | **required** | BYOK cloud, generic OpenAI wire (OpenAI, Mistral, DeepSeek, Groq, Together, OpenRouter, …) |
+| `openai` | required | optional (default `api.openai.com`) | BYOK cloud, native Responses API |
 | `gemini` | required | optional (default `generativelanguage.googleapis.com/v1beta`) | BYOK cloud, native `generateContent` |
+
+`base_url` for the OpenAI-wire providers (`openai_compatible`, `openai`, and
+`vllm`) is the vendor **host root with no version segment** — the adapter
+appends `/v1/chat/completions` (or `/v1/responses`), so a base ending in `/v1`
+would double it (`…/v1/v1/…` → 404). Use `https://api.mistral.ai`, not
+`https://api.mistral.ai/v1`. `gemini` is the mirror: its default base keeps the
+`/v1beta` segment and the paths are version-relative.
 
 A cloud binding is refused at startup under `profile: sovereign` (zero
 egress by construction). An editor with a YAML language server picks up

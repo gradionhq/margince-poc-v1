@@ -158,6 +158,9 @@ func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model
 	if embedModel == "" {
 		embedModel = geminiEmbedModel
 	}
+	// One :embedContent call per input (spec §3.5's named endpoint). A large
+	// retrieval batch is therefore N sequential round-trips; folding onto
+	// :batchEmbedContents for a single call is a follow-up.
 	vectors := make([][]float32, 0, len(req.Inputs))
 	dims := 0
 	for _, input := range req.Inputs {

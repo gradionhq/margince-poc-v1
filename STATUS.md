@@ -288,3 +288,15 @@ different principle).
 - **#10 — no code.** Cite "contract-first / spec wins" (the `architecture.md`
   invariant) by name, not the bare "P3", in commits/comments — `product/principles.md`
   P3 is a different principle.
+
+Implementation follow-ups deferred from this change (honest floors shipped now):
+
+- **Image mapping on the generic `openai_compatible` wire.** The shared chat
+  wire is text-only, so `openai_compatible` currently *rejects* every attachment
+  (image and document) with `ErrAttachmentUnsupported` rather than accept-and-drop.
+  Native `openai`/`gemini` carry images+PDFs today; mapping images to `image_url`
+  content parts on the generic wire is the follow-up. `base_url` for the OpenAI-wire
+  providers is the vendor host root with **no** `/v1` segment (the adapter adds it).
+- **Gemini batch embeddings.** `gemini` Embed makes one `:embedContent` call per
+  input (spec §3.5's named endpoint); a large retrieval batch is N sequential
+  round-trips. Folding onto `:batchEmbedContents` is the follow-up.

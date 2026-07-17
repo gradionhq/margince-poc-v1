@@ -20,27 +20,33 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	pdf := model.Attachment{MIME: "application/pdf", Bytes: []byte("%PDF")}
-	// Every Phase-1 provider that cannot carry a PDF must return the sentinel.
-	cannotCarryPDF := map[string]ProviderConfig{
+	// These adapters carry no attachment parts on their wire, so BOTH a document
+	// and an image must be rejected — accepting an image the wire can't carry
+	// would be a silent drop (the failure this test exists to prevent).
+	cannotCarryAttachments := map[string]ProviderConfig{
 		"openai_compatible": {Provider: "openai_compatible", APIKey: "k", BaseURL: srv.URL, Model: "m"},
 		"ollama":            {Provider: "ollama", Model: "m", BaseURL: srv.URL},
 		"vllm":              {Provider: "vllm", Model: "m", BaseURL: srv.URL},
 	}
-	for name, cfg := range cannotCarryPDF {
-		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = client.Complete(context.Background(), model.Request{
-				Messages:    []model.Message{{Role: "user", Content: "read this"}},
-				Attachments: []model.Attachment{pdf},
+	for _, att := range []model.Attachment{
+		{MIME: "application/pdf", Bytes: []byte("%PDF")},
+		{MIME: "image/png", Bytes: []byte("PNG")},
+	} {
+		for name, cfg := range cannotCarryAttachments {
+			t.Run(name+"/"+att.MIME, func(t *testing.T) {
+				client, err := SelectBrain(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = client.Complete(context.Background(), model.Request{
+					Messages:    []model.Message{{Role: "user", Content: "read this"}},
+					Attachments: []model.Attachment{att},
+				})
+				if !errors.Is(err, model.ErrAttachmentUnsupported) {
+					t.Fatalf("%s: want ErrAttachmentUnsupported for %s, got %v", name, att.MIME, err)
+				}
 			})
-			if !errors.Is(err, model.ErrAttachmentUnsupported) {
-				t.Fatalf("%s: want ErrAttachmentUnsupported for a PDF, got %v", name, err)
-			}
-		})
+		}
 	}
 }
 

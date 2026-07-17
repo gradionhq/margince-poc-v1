@@ -41,6 +41,7 @@ type openaiWire struct {
 	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
 	Text            *openaiText       `json:"text,omitempty"`
 	Reasoning       *openaiReasoning  `json:"reasoning,omitempty"`
+	Stream          bool              `json:"stream,omitempty"`
 }
 
 type openaiInputItem struct {
@@ -170,7 +171,7 @@ func (c *openaiClient) post(ctx context.Context, path string, req model.Request,
 	if err := attachmentUnsupported("openai", req.Attachments, func(m string) bool { return isImage(m) || m == "application/pdf" }); err != nil {
 		return nil, err
 	}
-	wire := openaiWire{Model: req.Model, MaxOutputTokens: req.MaxTokens}
+	wire := openaiWire{Model: req.Model, MaxOutputTokens: req.MaxTokens, Stream: stream}
 	if wire.Model == "" {
 		wire.Model = c.defaultModel
 	}
@@ -186,17 +187,9 @@ func (c *openaiClient) post(ctx context.Context, path string, req model.Request,
 	if effort := openaiReasoningEffort(req.ProviderOptions); effort != "" {
 		wire.Reasoning = &openaiReasoning{Effort: effort}
 	}
-	// Marshal the typed wire, then splice the stream flag in as a raw map field
-	// so the typed struct stays a faithful record of the Responses request shape.
 	payload, _, err := sendablePayload(ctx, wire, req.SecretStripper)
 	if err != nil {
 		return nil, err
-	}
-	if stream {
-		payload, err = withStreamFlag(payload)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return c.postRaw(ctx, path, payload)
 }
@@ -275,22 +268,6 @@ func openaiReasoningEffort(opts map[string]json.RawMessage) string {
 		return ""
 	}
 	return o.ReasoningEffort
-}
-
-// withStreamFlag adds "stream":true to an already-marshaled request body. The
-// typed openaiWire omits it so the struct records only the request content;
-// the streaming toggle is a transport concern spliced in here.
-func withStreamFlag(payload []byte) ([]byte, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &m); err != nil {
-		return nil, fmt.Errorf("ai: openai: splice stream flag: %w", err)
-	}
-	m["stream"] = json.RawMessage("true")
-	out, err := json.Marshal(m)
-	if err != nil {
-		return nil, fmt.Errorf("ai: openai: splice stream flag: %w", err)
-	}
-	return out, nil
 }
 
 func (c *openaiClient) postRaw(ctx context.Context, path string, payload []byte) (io.ReadCloser, error) {

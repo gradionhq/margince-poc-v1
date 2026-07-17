@@ -241,18 +241,23 @@ func embedTokenEstimate(inputs []string) int {
 	return total
 }
 
-// cacheKey covers EVERY completion-shaping input (system, messages,
-// tools, max tokens) via a collision-resistant digest, prefixed with the
-// plaintext workspace id: a hash collision may spoil a cache hit but can
-// never cross a tenant boundary, because the workspace segment is
+// cacheKey covers EVERY completion-shaping input (system, messages, tools, max
+// tokens, attachments, and provider options) via a collision-resistant digest,
+// prefixed with the plaintext workspace id: a hash collision may spoil a cache
+// hit but can never cross a tenant boundary, because the workspace segment is
 // compared literally (and re-checked against the stored entry on read).
+// Attachments and provider options MUST be in the digest — otherwise two calls
+// with identical prompt text but a different attached document (or a different
+// reasoning/thinking knob) collide, and the second is served the first's answer.
 func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) string {
 	material, _ := json.Marshal(struct {
-		System    string          `json:"system"`
-		Messages  []model.Message `json:"messages"`
-		Tools     []model.ToolDef `json:"tools"`
-		MaxTokens int             `json:"max_tokens"`
-	}{req.System, req.Messages, req.Tools, req.MaxTokens})
+		System          string                     `json:"system"`
+		Messages        []model.Message            `json:"messages"`
+		Tools           []model.ToolDef            `json:"tools"`
+		MaxTokens       int                        `json:"max_tokens"`
+		Attachments     []model.Attachment         `json:"attachments"`
+		ProviderOptions map[string]json.RawMessage `json:"provider_options"`
+	}{req.System, req.Messages, req.Tools, req.MaxTokens, req.Attachments, req.ProviderOptions})
 	sum := sha256.Sum256(material)
 	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:])
 }

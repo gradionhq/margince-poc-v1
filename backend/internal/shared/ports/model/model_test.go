@@ -6,6 +6,7 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -36,9 +37,10 @@ func TestErrAttachmentUnsupportedIsADistinctCapabilityError(t *testing.T) {
 	if errors.Is(ErrAttachmentUnsupported, ErrEmbeddingsUnsupported) {
 		t.Fatal("ErrAttachmentUnsupported must be distinct from ErrEmbeddingsUnsupported")
 	}
-	wrapped := errors.New("ai: openai_compatible: " + ErrAttachmentUnsupported.Error())
-	_ = wrapped
-	if ErrAttachmentUnsupported == nil {
-		t.Fatal("ErrAttachmentUnsupported must be defined")
+	// Adapters wrap it with a provider tag; callers must still match the sentinel
+	// via errors.Is — this is the property every adapter's reject-guard relies on.
+	wrapped := fmt.Errorf("ai: openai_compatible: image/png: %w", ErrAttachmentUnsupported)
+	if !errors.Is(wrapped, ErrAttachmentUnsupported) {
+		t.Fatalf("wrapped error must match the sentinel via errors.Is: %v", wrapped)
 	}
 }

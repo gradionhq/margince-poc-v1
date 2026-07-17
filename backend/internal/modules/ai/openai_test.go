@@ -171,3 +171,14 @@ func TestOpenAIFailsClosedWithoutKey(t *testing.T) {
 		t.Fatalf("openai without a key must fail closed, got %v", err)
 	}
 }
+
+// The OpenAI-wire transport appends "/v1/…" to the base, so a default base that
+// already carried "/v1" would double it (…/v1/v1/responses → 404). Guards the
+// version-less convention shared with Anthropic and vLLM.
+func TestOpenAIWireBaseDefaultsAreVersionless(t *testing.T) {
+	for name, base := range map[string]string{"openai": defaultOpenAIBaseURL, "vllm": defaultVLLMBaseURL} {
+		if strings.HasSuffix(base, "/v1") {
+			t.Fatalf("%s default base %q must not end in /v1 — the transport adds it", name, base)
+		}
+	}
+}

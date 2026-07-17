@@ -219,6 +219,36 @@ func TestRouterResultCacheHitSkipsModelCall(t *testing.T) {
 	}
 }
 
+// Two calls with identical prompt text but a different attached document must
+// not share a cache entry — otherwise the second is served the first's answer,
+// derived from a document the caller never attached (same workspace).
+func TestRouterCacheKeyDistinguishesAttachments(t *testing.T) {
+	cheap := NewFakeClient().Script("summary of A", "summary of B")
+	r := testRouter(map[Tier]model.Client{TierCheapCloud: cheap}, &memMeter{}, DefaultMonthlyTokens, ProfileEUHosted)
+	ctx := wsContext(t)
+	reqA := model.Request{
+		Messages:    []model.Message{{Role: "user", Content: "summarize the attached"}},
+		Attachments: []model.Attachment{{MIME: "application/pdf", Bytes: []byte("PDF-A")}},
+	}
+	reqB := model.Request{
+		Messages:    []model.Message{{Role: "user", Content: "summarize the attached"}},
+		Attachments: []model.Attachment{{MIME: "application/pdf", Bytes: []byte("PDF-B")}},
+	}
+	if _, _, err := r.Complete(ctx, TaskSummarize, reqA); err != nil {
+		t.Fatal(err)
+	}
+	_, info, err := r.Complete(ctx, TaskSummarize, reqB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Cached {
+		t.Fatal("different attachments must not share a cache entry")
+	}
+	if len(cheap.Calls()) != 2 {
+		t.Fatalf("expected two real calls for two distinct attachments, got %d", len(cheap.Calls()))
+	}
+}
+
 // RT-AI-M7: identical inputs in two workspaces never share a cache row.
 func TestRouterCacheIsWorkspaceScoped(t *testing.T) {
 	cheap := NewFakeClient()

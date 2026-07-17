@@ -15,7 +15,7 @@ import (
 // ProviderConfig is one tier→provider binding from ai-routing.yaml —
 // the only place vendor names appear.
 type ProviderConfig struct {
-	Provider string `yaml:"provider"` // "fake" | "anthropic" | "ollama"
+	Provider string `yaml:"provider"` // one of knownProviders
 	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
 	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
 	APIKey   string `yaml:"api_key"`  // BYOK credential for cloud providers (ADR-0020)
@@ -27,8 +27,15 @@ const (
 	defaultAnthropicBaseURL = "https://api.anthropic.com"
 	defaultOllamaBaseURL    = "http://localhost:11434"
 	defaultVLLMBaseURL      = "http://localhost:8000"
-	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
-	defaultGeminiBaseURL    = "https://generativelanguage.googleapis.com/v1beta"
+	// defaultOpenAIBaseURL is the host root WITHOUT a version segment: the
+	// OpenAI-wire transport appends "/v1/responses" / "/v1/embeddings", so a base
+	// that already carried "/v1" would double it (…/v1/v1/responses → 404). Same
+	// version-less convention as Anthropic and vLLM.
+	defaultOpenAIBaseURL = "https://api.openai.com"
+	// defaultGeminiBaseURL keeps the /v1beta version segment: Gemini paths are
+	// version-relative (":generateContent" under "/models/…"), the mirror of the
+	// OpenAI-wire convention above.
+	defaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 )
 
 // Local default models are Gemma-class per ADR-0012/A23: the unbound
@@ -39,9 +46,10 @@ const (
 	defaultVLLMModel   = "google/gemma-3-12b-it"
 )
 
-// jsonSchemaFormatType is the structured-output format discriminator both the
-// vLLM (OpenAI-compatible) and Anthropic adapters send for a schema-constrained
-// completion.
+// jsonSchemaFormatType is the structured-output format discriminator the
+// adapters send for a schema-constrained completion (the OpenAI-wire
+// response_format, Anthropic's output_config.format, and the OpenAI Responses
+// text.format all share this "json_schema" value).
 const jsonSchemaFormatType = "json_schema"
 
 // requestTimeout bounds a single model call. Generous because premium
@@ -104,7 +112,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			return nil, byokKeyRequired(providerOpenAICompatible)
 		}
 		if cfg.BaseURL == "" {
-			return nil, fmt.Errorf("ai: provider openai_compatible needs a base_url (the vendor endpoint, e.g. https://api.openai.com/v1)")
+			return nil, fmt.Errorf("ai: provider openai_compatible needs a base_url (the vendor host root — no version segment, the adapter adds /v1; e.g. https://api.mistral.ai)")
 		}
 		return &openAICompatClient{
 			http:         &http.Client{Timeout: requestTimeout},
@@ -117,12 +125,22 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		if cfg.APIKey == "" {
 			return nil, byokKeyRequired(providerOpenAI)
 		}
-		return &openaiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: defaulted(cfg.BaseURL, defaultOpenAIBaseURL), apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
+		return &openaiClient{
+			http:         &http.Client{Timeout: requestTimeout},
+			baseURL:      defaulted(cfg.BaseURL, defaultOpenAIBaseURL),
+			apiKey:       cfg.APIKey,
+			defaultModel: cfg.Model,
+		}, nil
 	case providerGemini:
 		if cfg.APIKey == "" {
 			return nil, byokKeyRequired(providerGemini)
 		}
-		return &geminiClient{http: &http.Client{Timeout: requestTimeout}, baseURL: defaulted(cfg.BaseURL, defaultGeminiBaseURL), apiKey: cfg.APIKey, defaultModel: cfg.Model}, nil
+		return &geminiClient{
+			http:         &http.Client{Timeout: requestTimeout},
+			baseURL:      defaulted(cfg.BaseURL, defaultGeminiBaseURL),
+			apiKey:       cfg.APIKey,
+			defaultModel: cfg.Model,
+		}, nil
 	case "":
 		return nil, fmt.Errorf("ai: binding has no provider")
 	default:
