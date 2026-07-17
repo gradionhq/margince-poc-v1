@@ -18,7 +18,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -28,7 +27,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -149,8 +147,14 @@ func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 	}
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner, err := compose.NewJobRunner(e.Pool, quiet, time.Hour, time.Hour, registry, time.Hour,
-		compose.GmailWatchConfig{Topic: gmailPushTopic, Interval: time.Hour, RenewWithin: 48 * time.Hour})
+	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
+		CloseDateInterval: time.Hour,
+		ReconcileInterval: time.Hour,
+		TimeScanInterval:  time.Hour,
+		GmailRegistry:     registry,
+		GmailInterval:     time.Hour,
+		GmailWatch:        compose.GmailWatchConfig{Topic: gmailPushTopic, Interval: time.Hour, RenewWithin: 48 * time.Hour},
+	})
 	if err != nil {
 		t.Fatalf("NewJobRunner: %v", err)
 	}
@@ -175,25 +179,6 @@ func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 
 	if exp := readWatchExpiry(t, e, connID); exp == nil || !exp.After(time.Now()) {
 		t.Fatalf("scheduled watch job did not set a future watch_expires_at: %v", exp)
-	}
-}
-
-// applyRiverSchema layers River's schema onto the harness-migrated database,
-// exactly as cmd/migrate does after core+custom.
-func applyRiverSchema(t *testing.T) {
-	t.Helper()
-	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-	if ownerDSN == "" {
-		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up`")
-	}
-	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
-	if err != nil {
-		t.Fatalf("opening owner pool: %v", err)
-	}
-	defer ownerPool.Close()
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying river schema: %v", err)
 	}
 }
 
