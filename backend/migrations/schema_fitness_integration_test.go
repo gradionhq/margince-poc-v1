@@ -250,6 +250,7 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 // the map's completeness is the invariant.
 var rowScopedFKDecisions = map[string]string{
 	// Client-supplied references — visibility-gated at the store:
+	"site_read.organization_id":     "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
 	"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
 	"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
 	"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",

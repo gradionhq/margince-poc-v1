@@ -335,7 +335,7 @@ func leftBehind(rest []crawlCandidate, visited map[string]bool, stop crmcontract
 // different document).
 func normalizeCandidate(rawURL string) (string, bool) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS) {
 		return "", false
 	}
 	parsed.Fragment = ""

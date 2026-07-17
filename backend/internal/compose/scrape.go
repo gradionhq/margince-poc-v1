@@ -32,6 +32,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// The enrich proposal's wire identity — one spelling for the two producers
+// (scrapeCompany and the deep read) and the one accept executor.
+const (
+	enrichProposalKind = "enrich"
+	enrichTargetType   = "organization"
+	companyUnreadable  = "company_unreadable"
+)
+
 // scrapeEngine stages a per-org enrichment over the shared extractor.
 type scrapeEngine struct {
 	extract   evidenceExtractor
@@ -93,10 +101,10 @@ func (e *scrapeEngine) Propose(ctx context.Context, orgID ids.UUID, override str
 	// There is no enrichment_proposed event in the events.md §5 catalog, and
 	// this build does not invent one (the spec owns the catalog).
 	approvalID, err := e.approvals.Stage(ctx, approvals.StageInput{
-		Kind:           "enrich",
+		Kind:           enrichProposalKind,
 		ProposedChange: proposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
-		TargetType:     "organization",
+		TargetType:     enrichTargetType,
 		TargetID:       orgID,
 		Summary:        "Enrichment of " + rawURL,
 	})
@@ -148,13 +156,13 @@ func (h scrapeHandlers) ScrapeCompany(w http.ResponseWriter, r *http.Request, id
 			slog.ErrorContext(r.Context(), "company enrichment unreadable", "org", ids.UUID(id), "err", unreadable.cause)
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusUnprocessableEntity,
-				Code:   "company_unreadable",
+				Code:   companyUnreadable,
 				Detail: "Couldn't read enough from this company's site. Retry or add a URL.",
 			})
 		case errors.Is(err, people.ErrNoEnrichTarget):
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusUnprocessableEntity,
-				Code:   "company_unreadable",
+				Code:   companyUnreadable,
 				Detail: "This company has no website on file. Add a URL to read from.",
 			})
 		default:

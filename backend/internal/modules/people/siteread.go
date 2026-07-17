@@ -59,6 +59,9 @@ type SiteRead struct {
 
 // siteReadColumns is the ONE column list every dossier read scans —
 // scanSiteRead pairs with it positionally.
+// siteReadOrgKey is the audit payload's org reference.
+const siteReadOrgKey = "organization_id"
+
 const siteReadColumns = `id, organization_id, seed_url, status, pages, skipped,
 	stopped_reason, fact_count, proposal_ids, requested_by, created_at, started_at, finished_at`
 
@@ -103,7 +106,7 @@ func (s *Store) StartSiteRead(ctx context.Context, orgID ids.OrganizationID, see
 			// site_read.* type; the facts the crawl produces are staged as
 			// proposals, each emitting its own event when accepted.
 			if _, err := storekit.Audit(ctx, tx, "create", "site_read", readID, nil, map[string]any{
-				"organization_id": orgID, "seed_url": seedURL, "requested_by": requestedBy,
+				siteReadOrgKey: orgID, "seed_url": seedURL, "requested_by": requestedBy,
 			}); err != nil {
 				return fmt.Errorf("audit site read start: %w", err)
 			}

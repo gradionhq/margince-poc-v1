@@ -208,10 +208,10 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, args SiteDeepReadArgs, m
 	}
 	digest := sha256.Sum256(proposedChange)
 	return w.approvals.Stage(ctx, approvals.StageInput{
-		Kind:           "enrich",
+		Kind:           enrichProposalKind,
 		ProposedChange: proposedChange,
 		DiffHash:       hex.EncodeToString(digest[:]),
-		TargetType:     "organization",
+		TargetType:     enrichTargetType,
 		TargetID:       args.OrganizationID,
 		Summary:        fmt.Sprintf("Deep site read of %s: %d evidenced fields from %d pages", args.SeedURL, len(merged), pagesRead),
 	})
@@ -299,6 +299,28 @@ type deepReadEnqueuer interface {
 	Enqueue(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) error
 }
 
+// decodeSeedOverride reads the optional body override and validates it; it
+// writes the problem response itself and reports whether the caller may
+// proceed (an empty override with ok=true means "use the org's own domain").
+func decodeSeedOverride(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if r.ContentLength == 0 {
+		return "", true
+	}
+	var req crmcontracts.EnrichCompanyRequest
+	if !httperr.Decode(w, r, &req) {
+		return "", false
+	}
+	if req.Url == nil {
+		return "", true
+	}
+	parsed, err := url.Parse(*req.Url)
+	if err != nil || (parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS) || parsed.Host == "" {
+		httperr.Write(w, r, httperr.Validation("url", "invalid", "url must be an absolute http(s) URL"))
+		return "", false
+	}
+	return *req.Url, true
+}
+
 // deepReadEngine backs the transport: start creates-or-joins the dossier
 // and queues the crawl job; report is the SPA's poll.
 type deepReadEngine struct {
@@ -312,22 +334,9 @@ type deepReadEngine struct {
 // the crawl job. 202 either way: the read to poll is the answer.
 func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	orgID := ids.From[ids.OrganizationKind](ids.UUID(id))
-	var override string
-	if r.ContentLength != 0 {
-		var req crmcontracts.EnrichCompanyRequest
-		if !httperr.Decode(w, r, &req) {
-			return
-		}
-		if req.Url != nil {
-			override = *req.Url
-		}
-	}
-	if override != "" {
-		parsed, err := url.Parse(override)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			httperr.Write(w, r, httperr.Validation("url", "invalid", "url must be an absolute http(s) URL"))
-			return
-		}
+	override, ok := decodeSeedOverride(w, r)
+	if !ok {
+		return
 	}
 	seedURL := override
 	if seedURL == "" {
@@ -335,7 +344,7 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 		if errors.Is(err, people.ErrNoEnrichTarget) {
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusUnprocessableEntity,
-				Code:   "company_unreadable",
+				Code:   companyUnreadable,
 				Detail: "This company has no website on file. Add a URL to read from.",
 			})
 			return
