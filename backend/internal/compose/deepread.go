@@ -85,6 +85,7 @@ type siteDeepReadWorker struct {
 	extract   evidenceExtractor
 	approvals *approvals.Service
 	log       *slog.Logger
+	caps      CrawlCaps
 }
 
 // newSiteDeepReadWorker assembles the worker-role deep read over one
@@ -92,23 +93,34 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain runner.Brain, log *slog.Logger) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain runner.Brain, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
 	fetcher := webread.New()
+	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
 		people:    people.NewStore(pool),
-		crawler:   newSiteCrawler(fetcher),
+		crawler:   newSiteCrawler(fetcher, caps),
 		extract:   evidenceExtractor{fetch: fetcher, brain: brain},
 		approvals: approvals.NewService(pool),
 		log:       log,
+		caps:      caps,
 	}
 }
 
-// Timeout overrides River's 1-minute default, which cannot hold a deep read:
-// the crawl wall (≤90s) plus up to 24 model calls (12 pages × 2 category
-// calls) at a slow tier plus the staging write. Eight minutes is that budget
-// with headroom.
+// perExtractionCallBudget is the slow-tier allowance one model call gets in
+// the job-timeout arithmetic; each crawled page makes at most two calls.
+const perExtractionCallBudget = 15 * time.Second
+
+// Timeout overrides River's 1-minute default, which cannot hold a deep read.
+// The budget scales with the configured caps: the crawl wall, plus two model
+// calls per page at a slow tier, plus a minute for the staging and dossier
+// writes — floored at eight minutes so a tightened cap never squeezes the
+// terminal writes.
 func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	return 8 * time.Minute
+	budget := w.caps.Wall + time.Duration(w.caps.MaxPages)*2*perExtractionCallBudget + time.Minute
+	if floor := 8 * time.Minute; budget < floor {
+		return floor
+	}
+	return budget
 }
 
 func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepReadArgs]) error {
@@ -152,7 +164,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			errors.New("site deep read: worker has no model path — configure --ai-routing (or --ai-fake) on the worker role"))
 	}
 
-	// The crawler owns the 90 s wall (crawlWall) inside Crawl; a seed page
+	// The crawler owns the wall clock (caps.Wall) inside Crawl; a seed page
 	// that cannot be read at all is a failed read, not an empty one.
 	crawl, err := w.crawler.Crawl(ctx, claim.SeedURL)
 	if err != nil {
@@ -162,14 +174,23 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	perPage := make([]pageFields, 0, len(crawl.Pages))
 	var modelErr error
 	for _, page := range crawl.Pages {
-		extracted, err := w.extractPage(ctx, page)
+		extracted, err := extractCrawlPage(ctx, w.extract, page)
 		if err != nil {
 			modelErr = fmt.Errorf("extracting %s: %w", page.URL, err)
 			break
 		}
 		perPage = append(perPage, extracted)
 	}
-	mergedFields := mergeCrawlFields(perPage)
+	mergedFields, legalConflict := mergeCrawlFields(perPage)
+	if legalConflict {
+		w.log.WarnContext(ctx, "site deep read found disagreeing legal pages: multi-entity domain, legal override dropped",
+			"read", args.SiteReadID.String(), "seed", claim.SeedURL)
+	}
+	if modelErr == nil {
+		// The site-level synthesis rides the same brain; when the model
+		// lane already died there is nothing healthy to reconcile with.
+		mergedFields = synthesizeSiteFields(ctx, w.extract, crawl.Pages[:len(perPage)], mergedFields)
+	}
 	mergedFacts := mergeCategoryFacts(perPage)
 	mergedPeople := mergeTeamPeople(perPage)
 	factCount := len(mergedFields) + len(mergedFacts)
@@ -205,31 +226,32 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs)
 }
 
-// extractPage runs one page's model passes: the shared 11-field company
+// extractCrawlPage runs one page's model passes: the shared 11-field company
 // extraction, plus the page kind's ONE extra call when it has one — a
 // category call for the fact-bearing kinds, the people call for team
-// pages. At most two calls per page, so a full 12-page crawl stays
-// within budget.
-func (w *siteDeepReadWorker) extractPage(ctx context.Context, page crawlPage) (pageFields, error) {
-	fields, err := w.extract.extractFields(ctx, "Page "+page.URL, page.Text, page.URL, coldStartFieldValid)
+// pages. At most two calls per page bounds a full crawl's model budget.
+// A free function over the extractor so the worker and the debug facade
+// (sitereaddebug.go) run the identical per-page pipeline.
+func extractCrawlPage(ctx context.Context, x evidenceExtractor, page crawlPage) (pageFields, error) {
+	fields, err := x.extractFields(ctx, "Page "+page.URL, page.Text, page.URL, coldStartFieldValid)
 	if err != nil {
 		return pageFields{}, err
 	}
 	var facts []people.DeepReadFact
 	if category, ok := factCategoryForPageKind(page.Kind); ok {
-		facts, err = w.extract.extractCategory(ctx, category, "Page "+page.URL, page.Text, page.URL)
+		facts, err = x.extractCategory(ctx, category, "Page "+page.URL, page.Text, page.URL)
 		if err != nil {
 			return pageFields{}, err
 		}
 	}
 	var published []sitePerson
 	if page.Kind == crmcontracts.SiteReadPageKindTeam {
-		published, err = w.extract.extractPeople(ctx, "Page "+page.URL, page.Text, page.URL)
+		published, err = x.extractPeople(ctx, "Page "+page.URL, page.Text, page.URL)
 		if err != nil {
 			return pageFields{}, err
 		}
 	}
-	return pageFields{kind: page.Kind, fields: fields, facts: facts, people: published}, nil
+	return pageFields{url: page.URL, kind: page.Kind, fields: fields, facts: facts, people: published}, nil
 }
 
 // stageProposals stages everything the read evidenced: the ONE deepread
@@ -376,34 +398,6 @@ func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause er
 // (deepreadaccept.go). Distinct from the quick scrape's "enrich": a deep
 // read's acceptance also lands category facts.
 const deepReadProposalKind = "deepread"
-
-// pageFields pairs one crawled page's kind with its gate-surviving
-// findings: the shared company fields, the page kind's category facts,
-// and — on team pages — the published people.
-type pageFields struct {
-	kind   crmcontracts.SiteReadPageKind
-	fields []evidencedField
-	facts  []people.DeepReadFact
-	people []sitePerson
-}
-
-// mergeCrawlFields folds the per-page extractions into one answer per
-// field with the same pairwise rule the quick read applies
-// (mergeSiteFields): impressum-kind pages accumulate as the legal side,
-// every other page in crawl order as the seed side, and the final merge
-// lets the legal side win exactly the legal trio. Deterministic: crawl
-// order is deterministic and each fold step is.
-func mergeCrawlFields(pages []pageFields) []evidencedField {
-	var seed, legal []evidencedField
-	for _, p := range pages {
-		if p.kind == crmcontracts.SiteReadPageKindImpressum {
-			legal = mergeSiteFields(legal, p.fields)
-		} else {
-			seed = mergeSiteFields(seed, p.fields)
-		}
-	}
-	return mergeSiteFields(seed, legal)
-}
 
 // requestedByUserID recovers the human uuid behind a "human:<uuid>"
 // requested_by so the staged proposal carries OnBehalfOf. A requester

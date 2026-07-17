@@ -24,6 +24,12 @@ const (
 	// evidence-grounded structured-output pass, routed like the other
 	// extraction tasks (cold-start, enrich).
 	TaskOfferDraft Task = "offer_draft"
+	// TaskSiteExtract is the deep site read's page extraction — its own
+	// dial, separate from the interactive cold-start read-back, so an
+	// installation can put the crawl's many background calls on a
+	// different tier than onboarding without touching either ladder in
+	// code.
+	TaskSiteExtract Task = "site_extract"
 )
 
 // Tier is a capability tier (§1.1); ai-routing.yaml binds each to a
@@ -53,6 +59,7 @@ var taskLadders = map[Task][]Tier{
 	TaskBriefRanking: {TierPremium, TierCheapCloud},
 	TaskAgentLoop:    {TierCheapCloud, TierPremium},
 	TaskOfferDraft:   {TierCheapCloud, TierPremium},
+	TaskSiteExtract:  {TierCheapCloud, TierPremium},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%
@@ -73,4 +80,7 @@ var nonInteractive = map[Task]bool{
 	TaskEnrich:          true,
 	TaskBriefRanking:    true,
 	TaskAgentLoop:       true,
+	// The deep read is a queued job: at 100% budget it should wait for
+	// next-cycle budget, not degrade to a model that extracts less.
+	TaskSiteExtract: true,
 }

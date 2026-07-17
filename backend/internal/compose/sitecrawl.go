@@ -3,8 +3,8 @@
 
 package compose
 
-// The deep site read's crawler: a bounded, same-site walk under the
-// founder-ratified R2 caps (12 pages, 8 MiB, 90 s). Discovery is
+// The deep site read's crawler: a bounded, same-site walk under
+// operator-tunable caps (CrawlCaps; the defaults below). Discovery is
 // DETERMINISTIC GO ONLY — well-known paths, then sitemap.xml, then nav links,
 // in that order — never model-chosen, so page content can influence at most
 // WHICH same-site links exist, never talk the crawl into leaving the site or
@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	crawlMaxPages = 12
-	crawlMaxBytes = 8 << 20
-	crawlWall     = 90 * time.Second
+	defaultCrawlMaxPages = 40
+	defaultCrawlMaxBytes = 32 << 20
+	defaultCrawlWall     = 240 * time.Second
 	// crawlSkipReportCap bounds how many left-behind candidates a cap stop
 	// records: enough to show what was cut, without a 5000-URL sitemap
 	// ballooning the report.
@@ -41,6 +41,10 @@ type crawlPage struct {
 	URL  string
 	Kind crmcontracts.SiteReadPageKind
 	Text string
+	// Bytes and FetchDur are observability for the debug report; the
+	// pipeline itself keys off Text alone.
+	Bytes    int
+	FetchDur time.Duration
 }
 
 type crawlSkip struct {
@@ -49,9 +53,10 @@ type crawlSkip struct {
 }
 
 type siteCrawl struct {
-	Pages   []crawlPage
-	Skipped []crawlSkip
-	Stopped *crmcontracts.SiteReadReportStoppedReason // nil = discovery exhausted
+	Pages      []crawlPage
+	Skipped    []crawlSkip
+	Stopped    *crmcontracts.SiteReadReportStoppedReason // nil = discovery exhausted
+	TotalBytes int
 }
 
 // siteFetcher is the slice of *webread.Fetcher the crawler needs; tests feed
@@ -67,6 +72,28 @@ type crawlPacer interface {
 	Done()
 }
 
+// CrawlCaps bounds one deep read. The zero value means "the defaults":
+// operators only ever tighten or widen the caps deliberately, and a
+// caller that has no opinion inherits the ratified defaults.
+type CrawlCaps struct {
+	MaxPages int
+	MaxBytes int
+	Wall     time.Duration
+}
+
+func (c CrawlCaps) withDefaults() CrawlCaps {
+	if c.MaxPages <= 0 {
+		c.MaxPages = defaultCrawlMaxPages
+	}
+	if c.MaxBytes <= 0 {
+		c.MaxBytes = defaultCrawlMaxBytes
+	}
+	if c.Wall <= 0 {
+		c.Wall = defaultCrawlWall
+	}
+	return c
+}
+
 type siteCrawler struct {
 	fetch    siteFetcher
 	newPacer func() crawlPacer
@@ -75,13 +102,14 @@ type siteCrawler struct {
 	wall     time.Duration
 }
 
-func newSiteCrawler(fetch siteFetcher) *siteCrawler {
+func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
+	caps = caps.withDefaults()
 	return &siteCrawler{
 		fetch:    fetch,
 		newPacer: func() crawlPacer { return webread.NewPacer() },
-		maxPages: crawlMaxPages,
-		maxBytes: crawlMaxBytes,
-		wall:     crawlWall,
+		maxPages: caps.MaxPages,
+		maxBytes: caps.MaxBytes,
+		wall:     caps.Wall,
 	}
 }
 
@@ -137,18 +165,56 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 
 	run := newCrawlRun(c, pacer, seedURL, seedPage)
 	run.discover(ctx, seedParsed.Scheme+"://"+seedParsed.Host, seedPage)
-	for i := 0; i < len(run.queue); i++ {
+	// Highest-priority-first selection instead of FIFO: the page budget
+	// goes to the kinds that state facts (legal, about, team, contact,
+	// offerings) before generic nav links, and boilerplate archives only
+	// fill leftover budget. Ties break on insertion order and every
+	// priority is computed from the URL alone, so the walk stays
+	// deterministic.
+	var taken []bool
+	var priority []int
+	for {
+		for len(priority) < len(run.queue) {
+			priority = append(priority, candidatePriority(run.queue[len(priority)]))
+			taken = append(taken, false)
+		}
+		next := -1
+		for i := range run.queue {
+			if taken[i] {
+				continue
+			}
+			if next == -1 || priority[i] > priority[next] {
+				next = i
+			}
+		}
+		if next == -1 {
+			break // discovery exhausted, the natural end
+		}
 		if stop := stopReason(ctx, len(run.crawl.Pages), c.maxPages, run.totalBytes, c.maxBytes); stop != nil {
 			run.crawl.Stopped = stop
-			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(run.queue[i:], run.visited, *stop)...)
+			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(untakenCandidates(run.queue, taken), run.visited, *stop)...)
 			break
 		}
-		run.visit(ctx, run.queue[i])
+		taken[next] = true
+		run.visit(ctx, run.queue[next])
 		if run.crawl.Stopped != nil {
 			break // the clock ran out mid-fetch
 		}
 	}
-	return run.crawl, nil // Stopped nil = discovery exhausted, the natural end
+	run.crawl.TotalBytes = run.totalBytes
+	return run.crawl, nil
+}
+
+// untakenCandidates lists what the selection never reached, in insertion
+// order — the input to the cap-stop skip report.
+func untakenCandidates(queue []crawlCandidate, taken []bool) []crawlCandidate {
+	var rest []crawlCandidate
+	for i, cand := range queue {
+		if !taken[i] {
+			rest = append(rest, cand)
+		}
+	}
+	return rest
 }
 
 // fetchPaced is one polite fetch: pacer slot in, fetch, slot out.
@@ -187,7 +253,7 @@ func newCrawlRun(c *siteCrawler, pacer crawlPacer, seedURL string, seedPage webr
 		pacer:   pacer,
 		seedURL: seedURL,
 		crawl: siteCrawl{
-			Pages: []crawlPage{{URL: seedURL, Kind: crmcontracts.SiteReadPageKindHome, Text: seedPage.Text}},
+			Pages: []crawlPage{{URL: seedURL, Kind: crmcontracts.SiteReadPageKindHome, Text: seedPage.Text, Bytes: seedPage.Bytes}},
 		},
 		visited:       visited,
 		seenText:      map[string]bool{seedPage.Text: true},
@@ -252,7 +318,9 @@ func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
 // not a duplicate probe, not an XML index): fetch it, and either record a skip
 // with its reason or append the page and enqueue its links.
 func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, candURL string) {
+	fetchStart := time.Now()
 	page, err := r.crawler.fetchPaced(ctx, r.pacer, candURL)
+	fetchDur := time.Since(fetchStart)
 	switch {
 	case errors.Is(err, webread.ErrRobotsDisallowed):
 		r.skip(candURL, crmcontracts.Robots)
@@ -281,7 +349,7 @@ func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, cand
 	// The pre-fetch stopReason bounds the crawl by the PREVIOUS total; this
 	// page, already fetched, must not push the aggregate past the advertised
 	// cap. Over-cap → record it as a byte_cap skip and stop, rather than
-	// silently exceeding the 8 MiB the report promises.
+	// silently exceeding the byte budget the report promises.
 	if r.totalBytes+page.Bytes > r.crawler.maxBytes {
 		r.skip(candURL, crmcontracts.ByteCap)
 		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonByteCap)
@@ -297,7 +365,7 @@ func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, cand
 	if cand.probe {
 		r.probeKindDone[cand.kind] = true
 	}
-	r.crawl.Pages = append(r.crawl.Pages, crawlPage{URL: candURL, Kind: kind, Text: page.Text})
+	r.crawl.Pages = append(r.crawl.Pages, crawlPage{URL: candURL, Kind: kind, Text: page.Text, Bytes: page.Bytes, FetchDur: fetchDur})
 	r.queue = append(r.queue, linkCandidates(page.Links)...)
 }
 
@@ -347,59 +415,12 @@ func leftBehind(rest []crawlCandidate, visited map[string]bool, stop crmcontract
 	return skips
 }
 
-// normalizeCandidate reduces a discovered URL to its fetchable identity:
-// absolute http(s), fragment dropped (a fragment names a position, not a
-// different document).
-func normalizeCandidate(rawURL string) (string, bool) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS) {
-		return "", false
-	}
-	parsed.Fragment = ""
-	return parsed.String(), true
-}
-
 func linkCandidates(links []string) []crawlCandidate {
 	cands := make([]crawlCandidate, 0, len(links))
 	for _, link := range links {
 		cands = append(cands, crawlCandidate{url: link})
 	}
 	return cands
-}
-
-// classifyKind names what a discovered page probably is, from its path alone.
-// Keyword order mirrors the probe list; the first family that matches wins.
-func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return crmcontracts.SiteReadPageKindOther
-	}
-	path := strings.ToLower(parsed.Path)
-	switch {
-	case containsAny(path, "impressum", "imprint", "legal"):
-		return crmcontracts.SiteReadPageKindImpressum
-	case containsAny(path, "about", "ueber"):
-		return crmcontracts.SiteReadPageKindAbout
-	case strings.Contains(path, "team"):
-		return crmcontracts.SiteReadPageKindTeam
-	case containsAny(path, "kontakt", "contact"):
-		return crmcontracts.SiteReadPageKindContact
-	case containsAny(path, "service", "leistung"):
-		return crmcontracts.SiteReadPageKindServices
-	case containsAny(path, "produkt", "product"):
-		return crmcontracts.SiteReadPageKindProducts
-	default:
-		return crmcontracts.SiteReadPageKindOther
-	}
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
 }
 
 func stoppedPtr(reason crmcontracts.SiteReadReportStoppedReason) *crmcontracts.SiteReadReportStoppedReason {

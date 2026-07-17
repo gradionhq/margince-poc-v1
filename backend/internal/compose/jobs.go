@@ -241,11 +241,14 @@ type JobRunnerConfig struct {
 	GmailRegistry     *capture.Registry
 	GmailWatch        GmailWatchConfig
 	// DeepReadBrain is the model lane the site deep-read job extracts with
-	// (the worker's modelPath.ColdStart — the same lane the api's quick
-	// scrape uses). May be nil: the deep-read worker still registers, so a
+	// (the worker's modelPath.SiteExtract — the crawl's own routing
+	// dial). May be nil: the deep-read worker still registers, so a
 	// queued read on a brainless worker finishes failed with an actionable
 	// log instead of sitting queued forever behind a job no one works.
 	DeepReadBrain runner.Brain
+	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
+	// compose defaults (CrawlCaps.withDefaults).
+	DeepReadCaps CrawlCaps
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -268,7 +271,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
-	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, log))
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, log, cfg.DeepReadCaps))
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})

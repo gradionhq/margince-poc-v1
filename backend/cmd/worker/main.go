@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -72,6 +73,9 @@ type workerConfig struct {
 	gmailPubsubTopic   string
 	gmailWatchInterval time.Duration
 	gmailWatchRenew    time.Duration
+	deepReadMaxPages   int
+	deepReadMaxBytes   int
+	deepReadWall       time.Duration
 	logLevel           string
 	logFormat          string
 }
@@ -97,6 +101,21 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.StringVar(&cfg.gmailPubsubTopic, "gmail-pubsub-topic", os.Getenv("MARGINCE_GMAIL_PUBSUB_TOPIC"), "Gmail Pub/Sub topic (projects/<p>/topics/<t>); enables the push-watch register+renew job. Empty leaves capture on the poll.")
 	fs.DurationVar(&cfg.gmailWatchInterval, "gmail-watch-interval", 6*time.Hour, "Gmail push-watch maintenance scan interval")
 	fs.DurationVar(&cfg.gmailWatchRenew, "gmail-watch-renew-within", 48*time.Hour, "renew a Gmail watch this far ahead of its 7-day expiry")
+	maxPagesDefault, err := envIntOr("MARGINCE_DEEPREAD_MAX_PAGES", 0)
+	if err != nil {
+		return workerConfig{}, err
+	}
+	maxBytesDefault, err := envIntOr("MARGINCE_DEEPREAD_MAX_BYTES", 0)
+	if err != nil {
+		return workerConfig{}, err
+	}
+	wallDefault, err := envDurationOr("MARGINCE_DEEPREAD_WALL", 0)
+	if err != nil {
+		return workerConfig{}, err
+	}
+	fs.IntVar(&cfg.deepReadMaxPages, "deepread-max-pages", maxPagesDefault, "deep-read crawl page cap; 0 takes the built-in default")
+	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
+	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -105,10 +124,20 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	if cfg.dsn == "" {
 		return workerConfig{}, errors.New("worker: --dsn or MARGINCE_DSN required")
 	}
+	if cfg.deepReadMaxPages < 0 || cfg.deepReadMaxBytes < 0 || cfg.deepReadWall < 0 {
+		return workerConfig{}, errors.New("worker: the deep-read caps must be zero (default) or positive")
+	}
 	return cfg, nil
 }
 
 func run(ctx context.Context, args []string, stdout io.Writer) error {
+	// `worker siteread …` is the DB-less deep-read debug loop
+	// (siteread.go) — dispatched before the worker flags, which would
+	// otherwise demand a DSN the subcommand never uses.
+	if len(args) > 0 && args[0] == "siteread" {
+		return runSiteReadDebug(ctx, args[1:], stdout)
+	}
+
 	cfg, err := parseWorkerFlags(args)
 	if err != nil {
 		return err
@@ -257,9 +286,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 
 		GmailWatch: watchCfg,
 		// The deep-read worker registers regardless: without a model path
-		// (nil ColdStart) it fails a picked-up read honestly rather than
+		// (nil SiteExtract) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.
-		DeepReadBrain: modelPath.ColdStart,
+		DeepReadBrain: modelPath.SiteExtract,
+		DeepReadCaps: compose.CrawlCaps{
+			MaxPages: cfg.deepReadMaxPages,
+			MaxBytes: cfg.deepReadMaxBytes,
+			Wall:     cfg.deepReadWall,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -275,7 +309,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		gmailNote = fmt.Sprintf("gmail sync every %s (watch off: no pubsub topic)", cfg.gmailSyncInterval)
 	}
 	deepReadNote := "deep read on"
-	if modelPath.ColdStart == nil {
+	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
 	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s)\n",
@@ -353,4 +387,31 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envIntOr / envDurationOr back a numeric flag's default with an
+// environment variable; a set-but-unparseable value is a boot error,
+// never a silent fallback.
+func envIntOr(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("worker: %s=%q is not an integer: %w", key, v, err)
+	}
+	return parsed, nil
+}
+
+func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("worker: %s=%q is not a duration: %w", key, v, err)
+	}
+	return parsed, nil
 }

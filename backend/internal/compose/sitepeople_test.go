@@ -94,7 +94,7 @@ func TestGateTeamPeopleKeepsOnlyVerbatimEvidencedPeople(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := gateTeamPeople(tc.reply, teamPageText, "https://acme.example/team")
+			got, _ := gateTeamPeople(tc.reply, teamPageText, "https://acme.example/team")
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("gateTeamPeople = %+v, want %+v", got, tc.want)
 			}
@@ -102,9 +102,13 @@ func TestGateTeamPeopleKeepsOnlyVerbatimEvidencedPeople(t *testing.T) {
 	}
 }
 
-func TestGateTeamPeopleRefusesUnparseableOutput(t *testing.T) {
-	if got := gateTeamPeople("not json at all", teamPageText, "https://acme.example/team"); got != nil {
+func TestGateTeamPeopleRefusesUnparseableOutputAndReportsTheDrop(t *testing.T) {
+	got, dropped := gateTeamPeople("not json at all", teamPageText, "https://acme.example/team")
+	if got != nil {
 		t.Fatalf("unparseable model output yielded %+v, want nothing", got)
+	}
+	if len(dropped) != 1 || dropped[0].Reason != dropUnparseableReply {
+		t.Fatalf("the unparseable reply left no drop record: %+v", dropped)
 	}
 }
 
