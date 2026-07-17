@@ -424,48 +424,18 @@
   margin-top: 14px;
 }
 
-/* step 2 confirm fields */
-.ob-field {
-  margin-top: 18px;
+/* The company form rides the design-system atoms (.form-stack/.field/.input —
+   atoms.css owns their look); the only onboarding-specific rule is where the
+   form starts relative to the notices above it. */
+.ob-companyform {
+  margin-top: 22px;
 }
-.ob-field label {
-  display: block;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  color: var(--textTertiary);
-  margin-bottom: 6px;
-}
-.ob-field .askhint {
-  color: var(--accent);
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 500;
-}
-.ob-in {
-  width: 100%;
-  border: 1px solid var(--borderStrong);
-  border-radius: var(--r-sm);
-  padding: 11px 13px;
-  font-family: var(--f-body);
-  font-size: 14px;
-  color: var(--textPrimary);
-  background: var(--bgElevated);
-  outline: 0;
-  line-height: 1.5;
-}
-.ob-in:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accentLight);
-}
-textarea.ob-in {
-  resize: vertical;
-  min-height: 84px;
-}
-.ob-in.askfill {
-  border-color: var(--accent);
-  background: var(--bgElevated);
+/* The trust adornments ride the field label (a .t-label): read-from-site tag
+   right-aligned, everything vertically centered with the label text. */
+.ob-companyform .t-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
 /* step 3 voice corpus */
@@ -917,20 +887,15 @@ textarea.ob-in {
 .imap-form .full {
   grid-column: 1 / -1;
 }
-.imap-form .ob-field {
-  margin-top: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+/* The credential fields are design-system .field/.input; the label text here
+   is the label element's own child, so it takes the .t-label look via font
+   rules on the label itself. */
+.imap-form .field {
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
-.imap-form .ob-in {
-  text-transform: none;
-  letter-spacing: normal;
+.imap-form .input {
   font-weight: 400;
 }
 .scopes {

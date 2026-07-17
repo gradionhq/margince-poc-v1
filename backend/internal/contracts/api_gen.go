@@ -619,6 +619,7 @@ func (e CaptureExclusionRuleKind) Valid() bool {
 const (
 	BuyingCenter      ColdStartFieldField = "buying_center"
 	BuyingIntents     ColdStartFieldField = "buying_intents"
+	DisplayName       ColdStartFieldField = "display_name"
 	History           ColdStartFieldField = "history"
 	Icp               ColdStartFieldField = "icp"
 	Industry          ColdStartFieldField = "industry"
@@ -635,6 +636,8 @@ func (e ColdStartFieldField) Valid() bool {
 	case BuyingCenter:
 		return true
 	case BuyingIntents:
+		return true
+	case DisplayName:
 		return true
 	case History:
 		return true

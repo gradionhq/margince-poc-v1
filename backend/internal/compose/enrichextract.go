@@ -19,26 +19,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
+	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/platform/netguard"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
-// Fetch limits: a landing page that needs more than this is not going to
-// yield better evidence, and the cap bounds what one request can pull into
-// the process.
+// Extraction limits: a page that reduced below the rune floor is not worth a
+// model call, and the ceiling bounds what one call hands the model. The fetch
+// side's own limits (timeout, byte cap) live with the fetcher in
+// platform/webread.
 const (
-	fetchTimeout      = 10 * time.Second
-	maxFetchBytes     = 1 << 20 // 1 MiB
 	minReadableRunes  = 80
 	maxExtractionText = 24_000 // runes handed to the model
 )
@@ -95,6 +93,7 @@ type extractedField struct {
 // slice to iterate, so this direction can't be auto-gated — KEEP IN SYNC with
 // the ColdStartField enum whenever a field is added to it.
 var extractionFieldNames = []string{
+	string(crmcontracts.DisplayName),
 	string(crmcontracts.Icp),
 	string(crmcontracts.BuyingCenter),
 	string(crmcontracts.ValueProposition),
@@ -168,13 +167,43 @@ type evidenceExtractor struct {
 	brain runner.Brain
 }
 
-// extract fetches rawURL, asks the model for company facts, and returns only
-// the evidence-grounded fields whose name passes `accept`. It returns
-// *unreadableError (wrapping the real cause) when the page reads too little OR
-// no field survives the gate —
-// honest degradation, zero fabricated fields (ADR-0006 §2/§4).
+// impressumProbePaths are the well-known locations of the legal-notice page,
+// German forms first: an Impressum is legally mandatory in this product's home
+// market and is where legal_name / registered_address / register_vat actually
+// live — the landing page almost never states them. The paths are derived from
+// the OPERATOR's input (same host), never from page content, which keeps this
+// inside ADR-0006's fetch-a-given-URL posture (founder ratification R1).
+var impressumProbePaths = []string{
+	"/impressum",
+	"/imprint",
+	"/de/impressum",
+	"/impressum.html",
+	"/legal-notice",
+}
+
+// perProbeTimeout bounds one legal-notice probe; a slow host must not eat the
+// interactive read's whole budget hunting for a page that may not exist.
+const perProbeTimeout = 2500 * time.Millisecond
+
+// legalPageFields prefer the legal-notice page in the merge: a register entry
+// quoted from the Impressum beats one guessed off the landing page, whatever
+// the model's confidence numbers claim — specificity of the SOURCE outranks
+// self-reported confidence.
+var legalPageFields = map[string]bool{
+	string(crmcontracts.LegalName):         true,
+	string(crmcontracts.RegisteredAddress): true,
+	string(crmcontracts.RegisterVat):       true,
+}
+
+// extract reads the SITE the URL names — the given page plus, when the site
+// publishes one at a well-known path, its legal-notice page — and returns the
+// evidence-grounded fields whose name passes `accept`, merged across pages
+// (legal facts prefer the legal page, everything else the given page). It
+// returns *unreadableError (wrapping the real cause) when the seed page reads
+// too little OR no field survives the gate on any page — honest degradation,
+// zero fabricated fields (ADR-0006 §2/§4).
 func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept func(string) bool) ([]evidencedField, error) {
-	pageText, err := x.fetch.Fetch(ctx, rawURL)
+	seedText, err := x.fetch.Fetch(ctx, rawURL)
 	if err != nil {
 		return nil, &unreadableError{cause: fmt.Errorf("fetch %s: %w", rawURL, err)}
 	}
@@ -182,20 +211,115 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 	// nav-crumbs is not worth a model call. Text a human supplied
 	// deliberately (paste / self-description) skips it — the evidence gate
 	// below still refuses to fabricate from thin input.
-	if n := len([]rune(pageText)); n < minReadableRunes {
+	if n := len([]rune(seedText)); n < minReadableRunes {
 		return nil, &unreadableError{cause: fmt.Errorf("page read %d runes, below the %d-rune floor", n, minReadableRunes)}
 	}
-	return x.extractGrounded(ctx, "Page "+rawURL, pageText, rawURL, accept)
+
+	seedFields, err := x.extractFields(ctx, "Page "+rawURL, seedText, rawURL, accept)
+	if err != nil {
+		return nil, err
+	}
+
+	var legalFields []evidencedField
+	if legalURL, legalText := x.probeLegalPage(ctx, rawURL, seedText); legalText != "" {
+		// A probe failure is a page that does not exist, not a broken read:
+		// the seed page alone is still an honest (if thinner) answer.
+		legalFields, err = x.extractFields(ctx, "Legal notice page "+legalURL, legalText, legalURL, accept)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	merged := mergeSiteFields(seedFields, legalFields)
+	if len(merged) == 0 {
+		return nil, &unreadableError{cause: errors.New("no field survived the no-guess evidence gate")}
+	}
+	return merged, nil
 }
 
-// extractGrounded is the model+gate half of the seam, shared by every
-// input kind (fetched page, pasted text, self-description): it asks the
-// routed model for company facts over already-obtained source text and
-// keeps only the fields whose evidence is VERBATIM in that text. An
-// empty gate result is *unreadableError — honest degradation, zero
-// fabricated fields. sourceURL is stamped onto the surviving fields and
-// is empty for the non-URL kinds.
-func (x evidenceExtractor) extractGrounded(ctx context.Context, sourceLabel, sourceText, sourceURL string, accept func(string) bool) ([]evidencedField, error) {
+// probeLegalPage tries the well-known legal-notice paths on the seed's host
+// and returns the first page that reads as a real, DISTINCT document. Sites
+// that answer every path with the same page (SPA catch-alls — and fixtures)
+// yield the seed text again; treating that as a legal page would double every
+// model call for nothing, so identical text is a miss.
+//
+// The probe fires ONLY when the seed is the host root: on a path-hosted site
+// (sites.example.com/company/), the host root's /impressum belongs to a
+// DIFFERENT party, and the merge's legal-page preference would let whoever
+// controls the root override the company's legal identity. A root seed and
+// its /impressum are the same party by construction.
+//
+// A miss is normal (absence, a robots refusal — the site's answer — or a
+// same-page duplicate) and stays silent; any OTHER failure is logged, because
+// "the Impressum probe kept timing out" must be findable when legal fields
+// come back thin, even though the seed page alone still yields an honest
+// (thinner) read.
+func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText string) (string, string) {
+	parsed, err := url.Parse(seedURL)
+	if err != nil || parsed.Host == "" {
+		return "", ""
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", ""
+	}
+	origin := parsed.Scheme + "://" + parsed.Host
+	for _, path := range impressumProbePaths {
+		if ctx.Err() != nil {
+			return "", ""
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
+		text, err := x.fetch.Fetch(probeCtx, origin+path)
+		cancel()
+		if err != nil {
+			if !errors.Is(err, webread.ErrRobotsDisallowed) && !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+				slog.WarnContext(ctx, "legal-page probe failed", "url", origin+path, "err", err)
+			}
+			continue
+		}
+		if len([]rune(text)) < minReadableRunes || text == seedText {
+			continue
+		}
+		return origin + path, text
+	}
+	return "", ""
+}
+
+// mergeSiteFields folds the per-page results into one answer per field: the
+// legal-notice page wins the legal facts, the seed page everything else, and
+// the non-preferred page only fills what the preferred one could not ground.
+// Order follows the seed page's fields, then legal-page extras — deterministic
+// output for a deterministic gate.
+func mergeSiteFields(seed, legal []evidencedField) []evidencedField {
+	byField := map[string]evidencedField{}
+	var order []string
+	for _, f := range seed {
+		byField[f.Field] = f
+		order = append(order, f.Field)
+	}
+	for _, f := range legal {
+		_, present := byField[f.Field]
+		if present && !legalPageFields[f.Field] {
+			// The seed page holds non-legal fields it grounded; a positioning
+			// claim belongs to the page that makes it.
+			continue
+		}
+		if !present {
+			order = append(order, f.Field)
+		}
+		byField[f.Field] = f
+	}
+	out := make([]evidencedField, 0, len(order))
+	for _, name := range order {
+		out = append(out, byField[name])
+	}
+	return out
+}
+
+// extractFields is the model+gate step for ONE page: an empty result is a
+// page with nothing to quote — a normal answer during a multi-page read, not
+// an error. extractGrounded keeps the empty-is-unreadable contract for the
+// single-source inputs (paste, self-description).
+func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourceText, sourceURL string, accept func(string) bool) ([]evidencedField, error) {
 	if runes := []rune(sourceText); len(runes) > maxExtractionText {
 		sourceText = string(runes[:maxExtractionText])
 	}
@@ -220,8 +344,20 @@ func (x evidenceExtractor) extractGrounded(ctx context.Context, sourceLabel, sou
 	if err != nil {
 		return nil, err
 	}
+	return gateEvidence(resp.Text, sourceText, sourceURL, accept), nil
+}
 
-	fields := gateEvidence(resp.Text, sourceText, sourceURL, accept)
+// extractGrounded is the single-source wrapper over extractFields, shared by
+// the input kinds that have exactly one text (pasted text, self-description —
+// and each page of a site read is extracted the same way underneath): an empty
+// gate result here IS the answer "nothing could be evidenced", so it surfaces
+// as *unreadableError rather than an empty list. sourceURL is stamped onto the
+// surviving fields and is empty for the non-URL kinds.
+func (x evidenceExtractor) extractGrounded(ctx context.Context, sourceLabel, sourceText, sourceURL string, accept func(string) bool) ([]evidencedField, error) {
+	fields, err := x.extractFields(ctx, sourceLabel, sourceText, sourceURL, accept)
+	if err != nil {
+		return nil, err
+	}
 	if len(fields) == 0 {
 		return nil, &unreadableError{cause: errors.New("no field survived the no-guess evidence gate")}
 	}
@@ -268,98 +404,10 @@ func gateEvidence(modelText, pageText, sourceURL string, accept func(string) boo
 	return out
 }
 
-// webFetcher is the production PageFetcher: plain GET with a byte cap, a crude
-// tag strip, and an SSRF guard — a tenant-supplied URL must not become a probe
-// of the deployment's own network.
-type webFetcher struct{ client *http.Client }
-
 // NewWebFetcher builds the egress fetcher used by cmd/api for both the
-// read-back and enrichment.
+// read-back and enrichment. The HTTP mechanics (SSRF guard, robots.txt honor,
+// the tag strip whose output evidence is matched against) live in
+// platform/webread; this seam only narrows it to the PageFetcher interface.
 func NewWebFetcher() PageFetcher {
-	dialer := &net.Dialer{Timeout: fetchTimeout}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := dialer.DialContext(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			// Checked post-dial so DNS answers cannot bypass the guard.
-			if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok && !netguard.PublicIP(tcp.IP) {
-				//craft:ignore swallowed-errors best-effort close of a connection being refused — the SSRF refusal below is the error that matters
-				_ = conn.Close()
-				return nil, fmt.Errorf("enrich: refusing non-public address %s", tcp.IP)
-			}
-			return conn, nil
-		},
-	}
-	return webFetcher{client: &http.Client{
-		Timeout:   fetchTimeout,
-		Transport: transport,
-		// Every redirect hop re-enters the guarded dialer; the cap just
-		// bounds how long a redirect chain can hold the request.
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return errors.New("enrich: too many redirects")
-			}
-			return nil
-		},
-	}}
-}
-
-func (f webFetcher) Fetch(ctx context.Context, rawURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "margince-enrich/1.0")
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for the fetch result
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("enrich: page answered %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
-	if err != nil {
-		return "", err
-	}
-	return stripTags(string(body)), nil
-}
-
-// stripTags reduces HTML to whitespace-normalized text. Deliberately crude:
-// evidence snippets are matched against THIS text, so the same reduction
-// defines both what the model sees and what counts as verbatim.
-func stripTags(html string) string {
-	var b strings.Builder
-	inTag, inScript := false, false
-	for i, r := range html {
-		switch {
-		case inScript:
-			if r == '<' && (foldPrefix(html[i:], "</script") || foldPrefix(html[i:], "</style")) {
-				inScript, inTag = false, true
-			}
-		case r == '<':
-			if foldPrefix(html[i:], "<script") || foldPrefix(html[i:], "<style") {
-				inScript = true
-			} else {
-				inTag = true
-			}
-		case r == '>':
-			inTag = false
-			b.WriteRune(' ')
-		case !inTag:
-			b.WriteRune(r)
-		}
-	}
-	return strings.Join(strings.Fields(b.String()), " ")
-}
-
-// foldPrefix is an ASCII case-insensitive prefix test on the ORIGINAL bytes.
-// Lowercasing the whole document first is not an option: Unicode case mapping
-// changes byte lengths (U+212A → "k"), so indexes into a lowered copy drift
-// off the source and can slice out of range.
-func foldPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+	return webread.New()
 }

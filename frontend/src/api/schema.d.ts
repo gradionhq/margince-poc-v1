@@ -5326,7 +5326,7 @@ export interface components {
          */
         ColdStartField: {
             /** @enum {string} */
-            field: "icp" | "buying_center" | "value_proposition" | "usp" | "buying_intents" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
+            field: "icp" | "buying_center" | "value_proposition" | "usp" | "buying_intents" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history" | "display_name";
             value: string;
             /** @description Verbatim source text (from the page, the pasted text, or the user's own words) — non-empty or the field is absent. */
             evidence_snippet: string;
