@@ -903,6 +903,70 @@ paths:
                     code: company_unreadable
                     detail: Couldn't read enough from this company's site. Retry or add a URL.
 
+  /organizations/{id}/deep-read:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations, AI]
+      operationId: deepReadCompany
+      summary: Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
+      description: |
+        The deep read (founder ratification R2, the A102 crawl seam): discovers up to 12 pages of the
+        organization's own site — well-known paths, sitemap, same-registrable-domain nav links, every
+        one robots-checked and SSRF-guarded, discovery is deterministic code and NEVER model-chosen —
+        extracts each page through the shared evidence gate, and stages the merged findings as 🟡
+        approvals (one `deepread` bundle of company facts; one `site_lead` per person found on team
+        pages, published details only). NOTHING is written to real records until a human accepts.
+        Asynchronous: answers 202 with the read to poll; progress and the outcome (including what was
+        SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
+        while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
+        crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
+      x-mcp-tool: { verb: enrich, tier: yellow }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrichCompanyRequest' }
+      responses:
+        '202':
+          description: The crawl is queued; poll the read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteReadStarted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: No URL to read (no override, org has no domain).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '501':
+          description: The process role wired no model path or no job runner — declared absent, never a silent no-op.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /organizations/{id}/site-reads/{readId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: readId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Organizations]
+      operationId: getSiteRead
+      summary: One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
+      x-mcp-tool: { verb: read_record, record_type: organization, tier: green }
+      responses:
+        '200':
+          description: The read report.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteReadReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /organizations/{id}/strength:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -8134,6 +8198,58 @@ components:
       description: Optional override. With no body the org's own domain is read.
       properties:
         url: { type: string, format: uri, description: Company URL to read instead of the org's domain. }
+
+    SiteReadStarted:
+      type: object
+      description: The 202 handle for a queued deep read.
+      required: [read_id, status]
+      properties:
+        read_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running], description: 'running when the request joined a read already in flight.' }
+
+    SiteReadPage:
+      type: object
+      description: One page the crawl fetched.
+      required: [url, kind]
+      properties:
+        url: { type: string, format: uri }
+        kind: { type: string, enum: [home, impressum, about, team, services, products, contact, other] }
+
+    SiteReadSkip:
+      type: object
+      description: One page the crawl deliberately did NOT read — honest degradation is reportable.
+      required: [url, reason]
+      properties:
+        url: { type: string, format: uri }
+        reason: { type: string, enum: [robots, off_domain, page_cap, byte_cap, unreadable] }
+
+    SiteReadReport:
+      type: object
+      description: |
+        One deep read's full account: what was read, what was skipped and why, whether the crawl ended
+        early (`partial` + `stopped_reason`), and the 🟡 proposals the findings staged. The report is
+        the transparency surface — a crawl that silently dropped pages would read as "covered
+        everything" when it did not.
+      required: [read_id, organization_id, seed_url, status, pages, skipped, proposal_ids, created_at]
+      properties:
+        read_id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        seed_url: { type: string, format: uri }
+        status: { type: string, enum: [queued, running, done, partial, failed] }
+        pages:
+          type: array
+          items: { $ref: '#/components/schemas/SiteReadPage' }
+        skipped:
+          type: array
+          items: { $ref: '#/components/schemas/SiteReadSkip' }
+        stopped_reason: { type: [string, 'null'], enum: [budget, page_cap, byte_cap, deadline, null], description: 'Why the crawl ended early; null when it exhausted discovery.' }
+        fact_count: { type: integer, description: Evidenced fields staged in the deepread proposal. }
+        proposal_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: 'The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead).'
+        created_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
 
     EnrichmentProposal:
       type: object

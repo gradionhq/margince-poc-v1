@@ -158,6 +158,222 @@ describe("company-360 enrichment", () => {
   });
 });
 
+// The deep read (A102/R2): one click starts a background whole-site crawl and
+// the card polls the read report until it lands on a terminal status. The
+// report is the transparency surface — a partial crawl must SAY it stopped
+// early and name every skipped page's reason, and staged proposals point at
+// the approvals inbox.
+const runningRead = {
+  read_id: "rd-1",
+  organization_id: "o-1",
+  seed_url: "https://brandt.example",
+  status: "running",
+  pages: [
+    { url: "https://brandt.example/", kind: "home" },
+    { url: "https://brandt.example/team", kind: "team" },
+  ],
+  skipped: [],
+  proposal_ids: [],
+  created_at: "2026-07-17T08:00:00Z",
+};
+
+function stubDeepRead(options: {
+  post?: () => Response;
+  report?: () => Response;
+}) {
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = new URL(
+        request ? request.url : String(input),
+        "https://test.local",
+      );
+      const method = request?.method ?? init?.method ?? "GET";
+      calls.push(`${method} ${url.pathname}`);
+      if (method === "POST" && url.pathname.endsWith("/deep-read")) {
+        return (
+          options.post ??
+          (() => jsonResponse({ read_id: "rd-1", status: "queued" }, 202))
+        )();
+      }
+      if (url.pathname.includes("/site-reads/")) {
+        return (options.report ?? (() => jsonResponse(runningRead)))();
+      }
+      if (url.pathname.endsWith("/strength")) {
+        return jsonResponse(dormantStrength);
+      }
+      if (url.pathname.endsWith("/context")) {
+        return jsonResponse({
+          anchor: { type: "organization", id: "o-1" },
+          sections: [],
+        });
+      }
+      if (url.pathname.endsWith("/organizations/o-1")) {
+        return jsonResponse(org);
+      }
+      return jsonResponse({ data: [], page: { next_cursor: null } });
+    }),
+  );
+  return { calls };
+}
+
+async function startDeepRead(calls: string[]) {
+  await waitFor(() =>
+    expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Read full site" }));
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) =>
+          call.startsWith("POST") &&
+          call.endsWith("/organizations/o-1/deep-read"),
+      ),
+    ).toBe(true),
+  );
+}
+
+describe("company-360 deep read", () => {
+  it("POSTs deep-read on click and polls the read report every 3s while running", async () => {
+    const { calls } = stubDeepRead({});
+    const reportCalls = () =>
+      calls.filter((call) =>
+        call.endsWith("/organizations/o-1/site-reads/rd-1"),
+      ).length;
+    // The whole flow runs on fake timers so react-query's 3s poll interval is
+    // scheduled on the fake clock (a poll timer armed on the real clock could
+    // not be advanced). Each advance flushes due timers plus the microtask
+    // chains behind the stubbed fetches.
+    const flush = () =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+    vi.useFakeTimers();
+    try {
+      render(<CompanyScreen id="o-1" />);
+      await flush();
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Read full site" }));
+      await flush();
+      await flush();
+      expect(
+        calls.some(
+          (call) =>
+            call.startsWith("POST") &&
+            call.endsWith("/organizations/o-1/deep-read"),
+        ),
+      ).toBe(true);
+      // A running report renders pages-so-far progress…
+      expect(reportCalls()).toBe(1);
+      expect(screen.getByText("2 pages read so far")).toBeTruthy();
+      // …and keeps polling: the 3s interval fires another report fetch.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(reportCalls()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a partial report says it stopped early and names every skip reason", async () => {
+    const { calls } = stubDeepRead({
+      report: () =>
+        jsonResponse({
+          ...runningRead,
+          status: "partial",
+          stopped_reason: "page_cap",
+          fact_count: 6,
+          skipped: [
+            { url: "https://brandt.example/careers", reason: "robots" },
+            { url: "https://elsewhere.example/profile", reason: "off_domain" },
+          ],
+          finished_at: "2026-07-17T08:04:00Z",
+        }),
+    });
+    render(<CompanyScreen id="o-1" />);
+    await startDeepRead(calls);
+
+    await waitFor(() =>
+      expect(screen.getByText("Stopped early: page cap")).toBeTruthy(),
+    );
+    expect(screen.getByText("6 evidenced facts staged")).toBeTruthy();
+    expect(screen.getByText("Pages skipped")).toBeTruthy();
+    expect(screen.getByText("robots.txt")).toBeTruthy();
+    expect(screen.getByText("off domain")).toBeTruthy();
+    expect(screen.getByText("brandt.example/careers")).toBeTruthy();
+  });
+
+  it("a done report lists the pages read and links staged proposals to the inbox", async () => {
+    const { calls } = stubDeepRead({
+      report: () =>
+        jsonResponse({
+          ...runningRead,
+          status: "done",
+          fact_count: 9,
+          proposal_ids: ["ap-1", "ap-2"],
+          finished_at: "2026-07-17T08:05:00Z",
+        }),
+    });
+    render(<CompanyScreen id="o-1" />);
+    await startDeepRead(calls);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("2 proposals waiting for your review"),
+      ).toBeTruthy(),
+    );
+    // A complete crawl carries no stopped-early banner.
+    expect(screen.queryByText(/Stopped early:/)).toBeNull();
+    expect(screen.getByText("Pages read")).toBeTruthy();
+    expect(screen.getByText("Home")).toBeTruthy();
+    expect(screen.getByText("brandt.example/team")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open inbox" }));
+    expect(window.location.hash).toBe("#/inbox");
+  });
+
+  it("renders the honest 422 detail when the org has no website on file", async () => {
+    stubDeepRead({
+      post: () =>
+        jsonResponse(
+          { title: "Unprocessable", detail: "no website on file" },
+          422,
+        ),
+    });
+    render(<CompanyScreen id="o-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Read full site" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("no website on file")).toBeTruthy(),
+    );
+  });
+
+  it("names the unwired seam on a 501 instead of a generic failure", async () => {
+    stubDeepRead({
+      post: () => jsonResponse({ title: "Not Implemented" }, 501),
+    });
+    render(<CompanyScreen id="o-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Read full site" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText("Site reading is not configured on this server."),
+      ).toBeTruthy(),
+    );
+  });
+});
+
 // A URL-capturing fetch stub shared across the P-14/15/16 wiring tests
 // below: every request is recorded so a test can assert the params it
 // carried, and a caller-supplied responder decides what comes back. Strength

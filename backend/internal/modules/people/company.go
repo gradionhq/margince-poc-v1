@@ -51,9 +51,10 @@ const (
 
 // The audit row's and the event envelope's payload keys.
 const (
-	auditKeyFields = "fields"
-	auditKeySource = "source"
-	eventKeyDelta  = "delta"
+	auditKeyFields    = "fields"
+	auditKeySource    = "source"
+	auditKeySourceURL = "source_url"
+	eventKeyDelta     = "delta"
 )
 
 // companyField is one field of the company form: its name, and — when the

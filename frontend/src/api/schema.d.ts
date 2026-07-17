@@ -446,6 +446,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/deep-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
+         * @description The deep read (founder ratification R2, the A102 crawl seam): discovers up to 12 pages of the
+         *     organization's own site — well-known paths, sitemap, same-registrable-domain nav links, every
+         *     one robots-checked and SSRF-guarded, discovery is deterministic code and NEVER model-chosen —
+         *     extracts each page through the shared evidence gate, and stages the merged findings as 🟡
+         *     approvals (one `deepread` bundle of company facts; one `site_lead` per person found on team
+         *     pages, published details only). NOTHING is written to real records until a human accepts.
+         *     Asynchronous: answers 202 with the read to poll; progress and the outcome (including what was
+         *     SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
+         *     while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
+         *     crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
+         */
+        post: operations["deepReadCompany"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/site-reads/{readId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        /** One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged. */
+        get: operations["getSiteRead"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/strength": {
         parameters: {
             query?: never;
@@ -5442,6 +5495,61 @@ export interface components {
              */
             url?: string;
         };
+        /** @description The 202 handle for a queued deep read. */
+        SiteReadStarted: {
+            /** Format: uuid */
+            read_id: string;
+            /**
+             * @description running when the request joined a read already in flight.
+             * @enum {string}
+             */
+            status: "queued" | "running";
+        };
+        /** @description One page the crawl fetched. */
+        SiteReadPage: {
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            kind: "home" | "impressum" | "about" | "team" | "services" | "products" | "contact" | "other";
+        };
+        /** @description One page the crawl deliberately did NOT read — honest degradation is reportable. */
+        SiteReadSkip: {
+            /** Format: uri */
+            url: string;
+            /** @enum {string} */
+            reason: "robots" | "off_domain" | "page_cap" | "byte_cap" | "unreadable";
+        };
+        /**
+         * @description One deep read's full account: what was read, what was skipped and why, whether the crawl ended
+         *     early (`partial` + `stopped_reason`), and the 🟡 proposals the findings staged. The report is
+         *     the transparency surface — a crawl that silently dropped pages would read as "covered
+         *     everything" when it did not.
+         */
+        SiteReadReport: {
+            /** Format: uuid */
+            read_id: string;
+            /** Format: uuid */
+            organization_id: string;
+            /** Format: uri */
+            seed_url: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "done" | "partial" | "failed";
+            pages: components["schemas"]["SiteReadPage"][];
+            skipped: components["schemas"]["SiteReadSkip"][];
+            /**
+             * @description Why the crawl ended early; null when it exhausted discovery.
+             * @enum {string|null}
+             */
+            stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
+            /** @description Evidenced fields staged in the deepread proposal. */
+            fact_count?: number;
+            /** @description The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead). */
+            proposal_ids: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
+        };
         /** @description A staged enrichment of one organization. Field shape is the read-back's (evidence-or-omit); NOTHING is written until accepted via /approvals, which fills only the org's empty fields. */
         EnrichmentProposal: {
             /** Format: uuid */
@@ -7801,6 +7909,79 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    deepReadCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnrichCompanyRequest"];
+            };
+        };
+        responses: {
+            /** @description The crawl is queued; poll the read. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReadStarted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description No URL to read (no override, org has no domain). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The process role wired no model path or no job runner — declared absent, never a silent no-op. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSiteRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                readId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The read report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReadReport"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     getOrganizationStrength: {

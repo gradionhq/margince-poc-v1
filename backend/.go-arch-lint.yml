@@ -29,6 +29,9 @@ vendors:
   fpdf:   { in: github.com/go-pdf/** }
   # unicode transforms for the PO-PARAM-JW-2 dedupe preprocessing (casefold+unaccent)
   xtext:  { in: golang.org/x/text/** }
+  # webread's crawl mechanics: the html tokenizer (link harvest from raw HTML)
+  # and publicsuffix (same-registrable-domain fencing) — R2 crawl seam
+  xnet:   { in: golang.org/x/net/** }
 
 components:
   shared:      { in: internal/shared/** }
@@ -67,7 +70,8 @@ deps:
   platform:
     mayDependOn: [platform, contracts, migrations]
     # yaml: the deployment configuration file (deployconfig, A107/ADR-0061).
-    canUse: [pgx, chi, oapi, redis, river, minio, yaml]
+    # xnet: webread's crawl mechanics (html tokenizer + publicsuffix).
+    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:

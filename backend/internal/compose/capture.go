@@ -33,13 +33,21 @@ const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 // resolves each connection's credential (nil is valid for a role that only
 // runs the transient one-shot pull, which persists no credential).
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault) *capture.Registry {
-	sink := capture.NewSink(pool).
+	return capture.NewRegistry(pool, newCaptureSink(pool), identity.NewService(pool), vault)
+}
+
+// newCaptureSink assembles the ONE fully-guarded Sink over the pool — the
+// merge-stager and the exclusion gate attached. Every capture path shares
+// this spelling: the connector registry above, and the site_lead accept
+// effect (siteleadaccept.go), which captures through the Sink directly
+// without needing a registry.
+func newCaptureSink(pool *pgxpool.Pool) *capture.Sink {
+	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
 		// any write, so it covers EVERY connector (imap one-shot, gmail
 		// sync) uniformly (capture.md CAP-DDL-3, AC1.3).
 		WithExclusions(capture.NewExclusions(pool))
-	return capture.NewRegistry(pool, sink, identity.NewService(pool), vault)
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app

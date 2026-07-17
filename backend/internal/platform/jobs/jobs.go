@@ -49,6 +49,28 @@ func New(pool *pgxpool.Pool, cfg Config, log *slog.Logger) (*Runner, error) {
 	return &Runner{client: client}, nil
 }
 
+// NewInserter builds an insert-only Runner for a role that enqueues jobs
+// but works none (the api): no queues, workers, or periodic jobs are
+// configured, so Start must NOT be called on it — Enqueue is its whole
+// surface. The worker role's fully configured Runner picks the rows up.
+func NewInserter(pool *pgxpool.Pool, log *slog.Logger) (*Runner, error) {
+	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{Logger: log})
+	if err != nil {
+		return nil, fmt.Errorf("jobs: new insert-only client: %w", err)
+	}
+	return &Runner{client: client}, nil
+}
+
+// Enqueue inserts one job for the worker role to pick up. Uniqueness
+// policy rides opts (e.g. UniqueOpts.ByArgs deduplicates a re-submitted
+// job): the caller owns the policy, this method only carries it to River.
+func (r *Runner) Enqueue(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) error {
+	if _, err := r.client.Insert(ctx, args, opts); err != nil {
+		return fmt.Errorf("jobs: enqueue %s: %w", args.Kind(), err)
+	}
+	return nil
+}
+
 // Start begins working the configured queues and returns once startup
 // completes; the client keeps running until Stop. Leadership is elected
 // cluster-wide, so periodic jobs fire exactly once across all replicas.

@@ -456,6 +456,10 @@ func (stubs) UpdateOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateOrganization")
 }
 
+func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeepReadCompany")
+}
+
 func (stubs) ScrapeCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ScrapeCompany")
 }
@@ -474,6 +478,10 @@ func (stubs) GetPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 
 func (stubs) UpsertPartner(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpsertPartnerParams) {
 	httperr.NotImplemented(w, r, "UpsertPartner")
+}
+
+func (stubs) GetSiteRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, readId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetSiteRead")
 }
 
 func (stubs) GetOrganizationStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

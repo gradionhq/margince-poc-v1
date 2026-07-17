@@ -2871,6 +2871,141 @@ func (e SignalWarmthRouting) Valid() bool {
 	}
 }
 
+// Defines values for SiteReadPageKind.
+const (
+	SiteReadPageKindAbout     SiteReadPageKind = "about"
+	SiteReadPageKindContact   SiteReadPageKind = "contact"
+	SiteReadPageKindHome      SiteReadPageKind = "home"
+	SiteReadPageKindImpressum SiteReadPageKind = "impressum"
+	SiteReadPageKindOther     SiteReadPageKind = "other"
+	SiteReadPageKindProducts  SiteReadPageKind = "products"
+	SiteReadPageKindServices  SiteReadPageKind = "services"
+	SiteReadPageKindTeam      SiteReadPageKind = "team"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadPageKind enum.
+func (e SiteReadPageKind) Valid() bool {
+	switch e {
+	case SiteReadPageKindAbout:
+		return true
+	case SiteReadPageKindContact:
+		return true
+	case SiteReadPageKindHome:
+		return true
+	case SiteReadPageKindImpressum:
+		return true
+	case SiteReadPageKindOther:
+		return true
+	case SiteReadPageKindProducts:
+		return true
+	case SiteReadPageKindServices:
+		return true
+	case SiteReadPageKindTeam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SiteReadReportStatus.
+const (
+	SiteReadReportStatusDone    SiteReadReportStatus = "done"
+	SiteReadReportStatusFailed  SiteReadReportStatus = "failed"
+	SiteReadReportStatusPartial SiteReadReportStatus = "partial"
+	SiteReadReportStatusQueued  SiteReadReportStatus = "queued"
+	SiteReadReportStatusRunning SiteReadReportStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadReportStatus enum.
+func (e SiteReadReportStatus) Valid() bool {
+	switch e {
+	case SiteReadReportStatusDone:
+		return true
+	case SiteReadReportStatusFailed:
+		return true
+	case SiteReadReportStatusPartial:
+		return true
+	case SiteReadReportStatusQueued:
+		return true
+	case SiteReadReportStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SiteReadReportStoppedReason.
+const (
+	SiteReadReportStoppedReasonBudget      SiteReadReportStoppedReason = "budget"
+	SiteReadReportStoppedReasonByteCap     SiteReadReportStoppedReason = "byte_cap"
+	SiteReadReportStoppedReasonDeadline    SiteReadReportStoppedReason = "deadline"
+	SiteReadReportStoppedReasonLessThannil SiteReadReportStoppedReason = "<nil>"
+	SiteReadReportStoppedReasonPageCap     SiteReadReportStoppedReason = "page_cap"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadReportStoppedReason enum.
+func (e SiteReadReportStoppedReason) Valid() bool {
+	switch e {
+	case SiteReadReportStoppedReasonBudget:
+		return true
+	case SiteReadReportStoppedReasonByteCap:
+		return true
+	case SiteReadReportStoppedReasonDeadline:
+		return true
+	case SiteReadReportStoppedReasonLessThannil:
+		return true
+	case SiteReadReportStoppedReasonPageCap:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SiteReadSkipReason.
+const (
+	ByteCap    SiteReadSkipReason = "byte_cap"
+	OffDomain  SiteReadSkipReason = "off_domain"
+	PageCap    SiteReadSkipReason = "page_cap"
+	Robots     SiteReadSkipReason = "robots"
+	Unreadable SiteReadSkipReason = "unreadable"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadSkipReason enum.
+func (e SiteReadSkipReason) Valid() bool {
+	switch e {
+	case ByteCap:
+		return true
+	case OffDomain:
+		return true
+	case PageCap:
+		return true
+	case Robots:
+		return true
+	case Unreadable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SiteReadStartedStatus.
+const (
+	SiteReadStartedStatusQueued  SiteReadStartedStatus = "queued"
+	SiteReadStartedStatusRunning SiteReadStartedStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadStartedStatus enum.
+func (e SiteReadStartedStatus) Valid() bool {
+	switch e {
+	case SiteReadStartedStatusQueued:
+		return true
+	case SiteReadStartedStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for StageSemantic.
 const (
 	StageSemanticLost StageSemantic = "lost"
@@ -4025,28 +4160,28 @@ func (e ListSignalsParamsStatus) Valid() bool {
 
 // Defines values for ListSignalsParamsKind.
 const (
-	ListSignalsParamsKindBuyingIntent ListSignalsParamsKind = "buying_intent"
-	ListSignalsParamsKindChampionLeft ListSignalsParamsKind = "champion_left"
-	ListSignalsParamsKindOther        ListSignalsParamsKind = "other"
-	ListSignalsParamsKindReengagement ListSignalsParamsKind = "reengagement"
-	ListSignalsParamsKindRisk         ListSignalsParamsKind = "risk"
-	ListSignalsParamsKindStalledDeal  ListSignalsParamsKind = "stalled_deal"
+	BuyingIntent ListSignalsParamsKind = "buying_intent"
+	ChampionLeft ListSignalsParamsKind = "champion_left"
+	Other        ListSignalsParamsKind = "other"
+	Reengagement ListSignalsParamsKind = "reengagement"
+	Risk         ListSignalsParamsKind = "risk"
+	StalledDeal  ListSignalsParamsKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsKind enum.
 func (e ListSignalsParamsKind) Valid() bool {
 	switch e {
-	case ListSignalsParamsKindBuyingIntent:
+	case BuyingIntent:
 		return true
-	case ListSignalsParamsKindChampionLeft:
+	case ChampionLeft:
 		return true
-	case ListSignalsParamsKindOther:
+	case Other:
 		return true
-	case ListSignalsParamsKindReengagement:
+	case Reengagement:
 		return true
-	case ListSignalsParamsKindRisk:
+	case Risk:
 		return true
-	case ListSignalsParamsKindStalledDeal:
+	case StalledDeal:
 		return true
 	default:
 		return false
@@ -7096,6 +7231,65 @@ type SignalWarmth struct {
 // SignalWarmthRouting The real routing branch — warm signals surface in the warm room, cold ones queue separately.
 type SignalWarmthRouting string
 
+// SiteReadPage One page the crawl fetched.
+type SiteReadPage struct {
+	Kind SiteReadPageKind `json:"kind"`
+	Url  string           `json:"url"`
+}
+
+// SiteReadPageKind defines model for SiteReadPage.Kind.
+type SiteReadPageKind string
+
+// SiteReadReport One deep read's full account: what was read, what was skipped and why, whether the crawl ended
+// early (`partial` + `stopped_reason`), and the 🟡 proposals the findings staged. The report is
+// the transparency surface — a crawl that silently dropped pages would read as "covered
+// everything" when it did not.
+type SiteReadReport struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// FactCount Evidenced fields staged in the deepread proposal.
+	FactCount      *int               `json:"fact_count,omitempty"`
+	FinishedAt     *time.Time         `json:"finished_at,omitempty"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+	Pages          []SiteReadPage     `json:"pages"`
+
+	// ProposalIds The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead).
+	ProposalIds []openapi_types.UUID `json:"proposal_ids"`
+	ReadId      openapi_types.UUID   `json:"read_id"`
+	SeedUrl     string               `json:"seed_url"`
+	Skipped     []SiteReadSkip       `json:"skipped"`
+	Status      SiteReadReportStatus `json:"status"`
+
+	// StoppedReason Why the crawl ended early; null when it exhausted discovery.
+	StoppedReason *SiteReadReportStoppedReason `json:"stopped_reason,omitempty"`
+}
+
+// SiteReadReportStatus defines model for SiteReadReport.Status.
+type SiteReadReportStatus string
+
+// SiteReadReportStoppedReason Why the crawl ended early; null when it exhausted discovery.
+type SiteReadReportStoppedReason string
+
+// SiteReadSkip One page the crawl deliberately did NOT read — honest degradation is reportable.
+type SiteReadSkip struct {
+	Reason SiteReadSkipReason `json:"reason"`
+	Url    string             `json:"url"`
+}
+
+// SiteReadSkipReason defines model for SiteReadSkip.Reason.
+type SiteReadSkipReason string
+
+// SiteReadStarted The 202 handle for a queued deep read.
+type SiteReadStarted struct {
+	ReadId openapi_types.UUID `json:"read_id"`
+
+	// Status running when the request joined a read already in flight.
+	Status SiteReadStartedStatus `json:"status"`
+}
+
+// SiteReadStartedStatus running when the request joined a read already in flight.
+type SiteReadStartedStatus string
+
 // Stage A pipeline stage. Mirrors the `stage` table.
 type Stage struct {
 	ArchivedAt *time.Time         `json:"archived_at,omitempty"`
@@ -9484,6 +9678,9 @@ type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
 
 // UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
 type UpdateOrganizationJSONRequestBody = UpdateOrganizationRequest
+
+// DeepReadCompanyJSONRequestBody defines body for DeepReadCompany for application/json ContentType.
+type DeepReadCompanyJSONRequestBody = EnrichCompanyRequest
 
 // ScrapeCompanyJSONRequestBody defines body for ScrapeCompany for application/json ContentType.
 type ScrapeCompanyJSONRequestBody = EnrichCompanyRequest
@@ -14749,6 +14946,9 @@ type ServerInterface interface {
 	// Update an organization (partial).
 	// (PATCH /organizations/{id})
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, id Id, params UpdateOrganizationParams)
+	// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
+	// (POST /organizations/{id}/deep-read)
+	DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id)
 	// Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 	// (POST /organizations/{id}/enrich)
 	ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -14764,6 +14964,9 @@ type ServerInterface interface {
 	// Create/update the partner extension on an org (sets classification='partner').
 	// (PUT /organizations/{id}/partner)
 	UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams)
+	// One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
+	// (GET /organizations/{id}/site-reads/{readId})
+	GetSiteRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID)
 	// Relationship strength for an organization (max over current employees).
 	// (GET /organizations/{id}/strength)
 	GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id)
@@ -15658,6 +15861,12 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
+// (POST /organizations/{id}/deep-read)
+func (_ Unimplemented) DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Enrich this organization from its website (evidence-or-omit) — a staged 🟡 proposal.
 // (POST /organizations/{id}/enrich)
 func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id Id) {
@@ -15685,6 +15894,12 @@ func (_ Unimplemented) GetPartner(w http.ResponseWriter, r *http.Request, id Id)
 // Create/update the partner extension on an org (sets classification='partner').
 // (PUT /organizations/{id}/partner)
 func (_ Unimplemented) UpsertPartner(w http.ResponseWriter, r *http.Request, id Id, params UpsertPartnerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One deep read's progress and outcome — pages read, pages skipped and WHY, what got staged.
+// (GET /organizations/{id}/site-reads/{readId})
+func (_ Unimplemented) GetSiteRead(w http.ResponseWriter, r *http.Request, id Id, readId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -21553,6 +21768,40 @@ func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// DeepReadCompany operation middleware
+func (siw *ServerInterfaceWrapper) DeepReadCompany(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeepReadCompany(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ScrapeCompany operation middleware
 func (siw *ServerInterfaceWrapper) ScrapeCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -21816,6 +22065,49 @@ func (siw *ServerInterfaceWrapper) UpsertPartner(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpsertPartner(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSiteRead operation middleware
+func (siw *ServerInterfaceWrapper) GetSiteRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "readId" -------------
+	var readId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "readId", chi.URLParam(r, "readId"), &readId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "readId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSiteRead(w, r, id, readId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26185,6 +26477,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/organizations/{id}", wrapper.UpdateOrganization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/deep-read", wrapper.DeepReadCompany)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/enrich", wrapper.ScrapeCompany)
 	})
 	r.Group(func(r chi.Router) {
@@ -26198,6 +26493,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/organizations/{id}/partner", wrapper.UpsertPartner)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/site-reads/{readId}", wrapper.GetSiteRead)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/strength", wrapper.GetOrganizationStrength)

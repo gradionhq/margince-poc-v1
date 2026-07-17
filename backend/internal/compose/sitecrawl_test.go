@@ -1,0 +1,334 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package compose
+
+// The deep-read crawler's contract: bounded by the R2 caps, same-site only,
+// discovery deterministic — nothing a hostile page writes can widen the crawl
+// beyond the seed's own site.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
+)
+
+// fakeSite is an in-memory site behind the siteFetcher seam. It records every
+// URL the crawler asked for, so tests can assert what was NEVER fetched.
+type fakeSite struct {
+	pages   map[string]fakeSitePage
+	sitemap []string
+	fetched []string
+	onFetch func(url string)
+}
+
+type fakeSitePage struct {
+	text   string
+	links  []string
+	robots bool
+}
+
+func (s *fakeSite) FetchPage(_ context.Context, rawURL string) (webread.Page, error) {
+	s.fetched = append(s.fetched, rawURL)
+	if s.onFetch != nil {
+		s.onFetch(rawURL)
+	}
+	page, ok := s.pages[rawURL]
+	if !ok {
+		return webread.Page{}, errors.New("fake site: no such page")
+	}
+	if page.robots {
+		return webread.Page{}, webread.ErrRobotsDisallowed
+	}
+	return webread.Page{URL: rawURL, Text: page.text, Links: page.links, Bytes: len(page.text)}, nil
+}
+
+func (s *fakeSite) FetchSitemap(context.Context, string) ([]string, error) {
+	return s.sitemap, nil
+}
+
+// instantPacer removes real-clock politeness from crawler tests; pacing has
+// its own proof in platform/webread.
+type instantPacer struct{}
+
+func (instantPacer) Wait(context.Context) error { return nil }
+func (instantPacer) Done()                      {}
+
+func testSiteCrawler(site *fakeSite) *siteCrawler {
+	crawler := newSiteCrawler(site)
+	crawler.newPacer = func() crawlPacer { return instantPacer{} }
+	return crawler
+}
+
+// readable pads a marker out past the minimum-rune floor while keeping every
+// page's text distinct, so the duplicate-text skip never fires by accident.
+func readable(marker string) string {
+	return marker + " " + strings.Repeat("Substantive prose about the business. ", 4)
+}
+
+const seedURL = "https://acme.example"
+
+// seedOnly builds a site of just the landing page. Links are given as paths
+// and made absolute here — webread.FetchPage resolves hrefs before the
+// crawler ever sees them, so the fake speaks the same contract.
+func seedOnly(linkPaths ...string) map[string]fakeSitePage {
+	links := make([]string, 0, len(linkPaths))
+	for _, path := range linkPaths {
+		if strings.HasPrefix(path, "https://") {
+			links = append(links, path)
+			continue
+		}
+		links = append(links, seedURL+path)
+	}
+	return map[string]fakeSitePage{
+		seedURL: {text: readable("Welcome to Acme."), links: links},
+	}
+}
+
+func TestCrawlWithoutASeedPageIsAFailureNotAPartialRead(t *testing.T) {
+	site := &fakeSite{pages: map[string]fakeSitePage{}}
+	if _, err := testSiteCrawler(site).Crawl(context.Background(), seedURL); err == nil {
+		t.Fatal("a crawl whose seed page failed returned a result")
+	}
+}
+
+func TestCrawlStopsAtThePageCapAndRecordsWhatWasCut(t *testing.T) {
+	site := &fakeSite{pages: seedOnly()}
+	for i := range 40 {
+		pageURL := fmt.Sprintf("%s/page-%02d", seedURL, i)
+		site.sitemap = append(site.sitemap, pageURL)
+		site.pages[pageURL] = fakeSitePage{text: readable(pageURL)}
+	}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(crawl.Pages) != crawlMaxPages {
+		t.Fatalf("fetched %d pages, want the cap %d", len(crawl.Pages), crawlMaxPages)
+	}
+	if crawl.Stopped == nil || *crawl.Stopped != crmcontracts.SiteReadReportStoppedReasonPageCap {
+		t.Fatalf("Stopped = %v, want page_cap", crawl.Stopped)
+	}
+	var capSkips int
+	for _, skip := range crawl.Skipped {
+		if skip.Reason == crmcontracts.PageCap {
+			capSkips++
+		}
+	}
+	// 40 sitemap URLs minus the 11 fetched leaves far more than the report
+	// bound; the record must show the cut without ballooning.
+	if capSkips != crawlSkipReportCap {
+		t.Fatalf("recorded %d page_cap skips, want the report bound %d", capSkips, crawlSkipReportCap)
+	}
+}
+
+func TestCrawlStopsAtTheByteCap(t *testing.T) {
+	site := &fakeSite{pages: seedOnly()}
+	pageURL := seedURL + "/big"
+	site.sitemap = []string{pageURL, seedURL + "/never-reached"}
+	site.pages[pageURL] = fakeSitePage{text: readable("big page")}
+
+	crawler := testSiteCrawler(site)
+	// The seed plus one page overflow this budget; probes 404 and add nothing.
+	crawler.maxBytes = len(site.pages[seedURL].text) + len(site.pages[pageURL].text)
+
+	crawl, err := crawler.Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crawl.Stopped == nil || *crawl.Stopped != crmcontracts.SiteReadReportStoppedReasonByteCap {
+		t.Fatalf("Stopped = %v, want byte_cap", crawl.Stopped)
+	}
+	var found bool
+	for _, skip := range crawl.Skipped {
+		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.ByteCap {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the candidate the byte cap cut is not in Skipped: %v", crawl.Skipped)
+	}
+}
+
+func TestCrawlRecordsARobotsRefusalAsASkip(t *testing.T) {
+	site := &fakeSite{pages: seedOnly()}
+	site.pages[seedURL+"/impressum"] = fakeSitePage{robots: true}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.Robots}
+	var found bool
+	for _, skip := range crawl.Skipped {
+		if skip == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("robots refusal not recorded; skipped = %v", crawl.Skipped)
+	}
+}
+
+func TestCrawlNeverFollowsAnOffDomainLink(t *testing.T) {
+	// The security property: link discovery reads content a stranger wrote.
+	// A hostile page pointing the crawler at another domain — an internal
+	// service, a victim site, a tarpit — must be recorded and NEVER fetched.
+	hostileTarget := "https://evil.example/exfil"
+	site := &fakeSite{pages: seedOnly(hostileTarget, "https://sub.acme.example/team")}
+	site.pages["https://sub.acme.example/team"] = fakeSitePage{text: readable("Our team")}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fetchedURL := range site.fetched {
+		if fetchedURL == hostileTarget {
+			t.Fatal("the crawler fetched an off-domain URL a page linked to")
+		}
+	}
+	var offDomainRecorded, subdomainFetched bool
+	for _, skip := range crawl.Skipped {
+		if skip.URL == hostileTarget && skip.Reason == crmcontracts.OffDomain {
+			offDomainRecorded = true
+		}
+	}
+	for _, page := range crawl.Pages {
+		if page.URL == "https://sub.acme.example/team" {
+			subdomainFetched = true
+		}
+	}
+	if !offDomainRecorded {
+		t.Fatalf("off-domain link not recorded as a skip: %v", crawl.Skipped)
+	}
+	// Same registrable domain is the line: a subdomain is still the site.
+	if !subdomainFetched {
+		t.Fatal("a same-site subdomain link was not followed")
+	}
+}
+
+func TestCrawlSkipsADuplicateTextPageSilently(t *testing.T) {
+	// An SPA catch-all answers every path with the landing page. That page is
+	// neither new evidence nor honest degradation, so it must appear in
+	// neither Pages nor Skipped.
+	site := &fakeSite{pages: seedOnly()}
+	site.pages[seedURL+"/about"] = fakeSitePage{text: site.pages[seedURL].text}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range crawl.Pages {
+		if page.URL == seedURL+"/about" {
+			t.Fatal("the duplicate-text page was kept as a page")
+		}
+	}
+	for _, skip := range crawl.Skipped {
+		if skip.URL == seedURL+"/about" {
+			t.Fatalf("the duplicate-text page was reported as a skip (%s)", skip.Reason)
+		}
+	}
+}
+
+func TestCrawlClassifiesPageKinds(t *testing.T) {
+	site := &fakeSite{pages: seedOnly("/karriere")}
+	for path, text := range map[string]string{
+		"/impressum": "Acme GmbH, HRB 12345",
+		"/team":      "The people",
+		"/kontakt":   "Reach us",
+		"/services":  "What we do",
+		"/karriere":  "Open roles", // discovered link, no kind keyword → other
+	} {
+		site.pages[seedURL+path] = fakeSitePage{text: readable(text)}
+	}
+	// Both Impressum spellings exist; the probe order must take exactly one.
+	site.pages[seedURL+"/imprint"] = fakeSitePage{text: readable("The same notice again, alternate URL")}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]crmcontracts.SiteReadPageKind{}
+	for _, page := range crawl.Pages {
+		kinds[page.URL] = page.Kind
+	}
+	want := map[string]crmcontracts.SiteReadPageKind{
+		seedURL:                crmcontracts.SiteReadPageKindHome,
+		seedURL + "/impressum": crmcontracts.SiteReadPageKindImpressum,
+		seedURL + "/team":      crmcontracts.SiteReadPageKindTeam,
+		seedURL + "/kontakt":   crmcontracts.SiteReadPageKindContact,
+		seedURL + "/services":  crmcontracts.SiteReadPageKindServices,
+		seedURL + "/karriere":  crmcontracts.SiteReadPageKindOther,
+	}
+	if !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("kinds = %v, want %v", kinds, want)
+	}
+	for _, fetchedURL := range site.fetched {
+		if fetchedURL == seedURL+"/imprint" {
+			t.Fatal("a second Impressum probe was fetched although the kind was already satisfied")
+		}
+	}
+}
+
+func TestCrawlOrderIsDeterministicAcrossRuns(t *testing.T) {
+	build := func() *fakeSite {
+		site := &fakeSite{pages: seedOnly("/blog", "/pricing")}
+		site.sitemap = []string{seedURL + "/cases"}
+		for _, path := range []string{"/about", "/team", "/blog", "/pricing", "/cases"} {
+			site.pages[seedURL+path] = fakeSitePage{text: readable(path)}
+		}
+		return site
+	}
+
+	first, err := testSiteCrawler(build()).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := testSiteCrawler(build()).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("two crawls of the same site diverged:\n%v\n%v", first, second)
+	}
+	// And the order itself is the documented one: probes before sitemap
+	// before harvested links.
+	var order []string
+	for _, page := range first.Pages {
+		order = append(order, page.URL)
+	}
+	want := []string{seedURL, seedURL + "/about", seedURL + "/team", seedURL + "/cases", seedURL + "/blog", seedURL + "/pricing"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("page order = %v, want %v", order, want)
+	}
+}
+
+func TestCrawlStopsWhenTheClockRunsOut(t *testing.T) {
+	site := &fakeSite{pages: seedOnly()}
+	site.sitemap = []string{seedURL + "/never-reached"}
+	site.pages[seedURL+"/never-reached"] = fakeSitePage{text: readable("late")}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The clock "runs out" right after the seed fetch — cancellation stands
+	// in for the wall deadline, no real waiting involved.
+	site.onFetch = func(string) { cancel() }
+
+	crawl, err := testSiteCrawler(site).Crawl(ctx, seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(crawl.Pages) != 1 {
+		t.Fatalf("fetched %d pages after the deadline, want only the seed", len(crawl.Pages))
+	}
+	if crawl.Stopped == nil || *crawl.Stopped != crmcontracts.SiteReadReportStoppedReasonDeadline {
+		t.Fatalf("Stopped = %v, want deadline", crawl.Stopped)
+	}
+}

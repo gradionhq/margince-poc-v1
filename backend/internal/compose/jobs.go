@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -187,6 +188,12 @@ type JobRunnerConfig struct {
 	GmailRegistry     *capture.Registry
 	GmailInterval     time.Duration
 	GmailWatch        GmailWatchConfig
+	// DeepReadBrain is the model lane the site deep-read job extracts with
+	// (the worker's modelPath.ColdStart — the same lane the api's quick
+	// scrape uses). May be nil: the deep-read worker still registers, so a
+	// queued read on a brainless worker finishes failed with an actionable
+	// log instead of sitting queued forever behind a job no one works.
+	DeepReadBrain runner.Brain
 }
 
 // NewJobRunner wires the deals correctors and the automation time-scan
@@ -204,6 +211,9 @@ type JobRunnerConfig struct {
 // omission and capture stays on the poll.
 func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
+	// The deep read is not periodic — the api enqueues one job per started
+	// dossier; the worker role only needs the worker registered.
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, log))
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
@@ -246,7 +256,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	return jobs.New(pool, jobs.Config{
-		Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 5}},
+		Queues: map[string]river.QueueConfig{
+			river.QueueDefault: {MaxWorkers: 5},
+			// Deep reads run on their own bounded pool so long crawls cannot
+			// evict the short maintenance jobs from the default queue.
+			deepReadQueue: {MaxWorkers: deepReadMaxWorkers},
+		},
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	}, log)

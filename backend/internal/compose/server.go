@@ -67,6 +67,7 @@ type Server struct {
 	briefs.Handlers
 	coldstartHandlers
 	companyHandlers
+	siteReadHandlers
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers

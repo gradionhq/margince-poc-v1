@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 )
@@ -173,6 +174,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, offerDraft...)
+
+	deepRead, err := deepReadOption(pool, logger)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, deepRead)
 
 	srv := &http.Server{
 		Addr:              cfg.addr,
@@ -469,6 +476,17 @@ func offerDraftOptions(routingPath string, fakeBrain bool, pool *pgxpool.Pool) (
 	default:
 		return nil, nil
 	}
+}
+
+// deepReadOption wires the deep-read transport over an insert-only River
+// client: the api enqueues the crawl for the worker role, it never works
+// jobs (jobs.NewInserter documents that Start is never called on it).
+func deepReadOption(pool *pgxpool.Pool, logger *slog.Logger) (compose.Option, error) {
+	inserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return nil, err
+	}
+	return compose.WithDeepRead(inserter), nil
 }
 
 // envOr reads an environment variable with an explicit default, keeping

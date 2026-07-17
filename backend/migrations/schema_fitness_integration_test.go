@@ -250,6 +250,7 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 // the map's completeness is the invariant.
 var rowScopedFKDecisions = map[string]string{
 	// Client-supplied references — visibility-gated at the store:
+	"site_read.organization_id":     "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
 	"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
 	"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
 	"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
@@ -284,6 +285,7 @@ var rowScopedFKDecisions = map[string]string{
 	"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
 	"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
+	"organization_fact.organization_id":          "child rows written only through the deepread accept effect, whose approval was staged from a visibility-checked read",
 	"offer.deal_id":                              "gated: auth.EnsureLinkTarget in CreateOffer; every later offer read/write re-probes the deal (H1)",
 	"offer.buyer_org_id":                         "gated: auth.EnsureLinkTarget in CreateOffer/UpdateOffer (H1)",
 	"signal.resolved_org_id":                     "gated: the resolver attributes only to a caller-visible org (visibleCandidates → auth.EnsureLinkTarget)",
