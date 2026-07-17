@@ -33,7 +33,7 @@ func TestGeminiCompleteMapsNativeWireAndUsage(t *testing.T) {
 			t.Errorf("api key header %q", r.Header.Get("x-goog-api-key"))
 		}
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"answer"}]}}],
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"answer"}]},"finishReason":"STOP"}],
 			"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"cachedContentTokenCount":6,"thoughtsTokenCount":4}}`))
 	})
 	resp, err := client.Complete(context.Background(), model.Request{
@@ -77,7 +77,7 @@ func TestGeminiStructuredOutputUsesResponseJSONSchema(t *testing.T) {
 	var body []byte
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"{}"}]},"finishReason":"STOP"}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:       []model.Message{{Role: "user", Content: "hi"}},
@@ -106,7 +106,7 @@ func TestGeminiThinkingLevelFromProviderOptions(t *testing.T) {
 	var body []byte
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:        []model.Message{{Role: "user", Content: "hi"}},
@@ -123,7 +123,7 @@ func TestGeminiMapsImageAndPDFAttachmentsToInlineData(t *testing.T) {
 	var body []byte
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages: []model.Message{{Role: "user", Content: "read these"}},
@@ -143,7 +143,7 @@ func TestGeminiStripsSecretsFromWire(t *testing.T) {
 	var body []byte
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:       []model.Message{{Role: "user", Content: "with password=verysecretpw inside"}},
@@ -201,7 +201,7 @@ func TestGeminiStreamYieldsPartTextChunks(t *testing.T) {
 			t.Errorf("stream path/query wrong: %s?%s", r.URL.Path, r.URL.RawQuery)
 		}
 		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"he"}]}}]}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"llo"}]}}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"llo"}]},"finishReason":"STOP"}]}`+"\n\n")
 	})
 	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
 	if err != nil {
@@ -246,7 +246,7 @@ func TestGeminiMapsAttachmentByURIToFileData(t *testing.T) {
 	var body []byte
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:    []model.Message{{Role: "user", Content: "look"}},
@@ -265,7 +265,7 @@ func TestGeminiThoughtSignatureRoundTrips(t *testing.T) {
 	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		reqBody = readBody(t, r.Body)
 		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[
-			{"text":"answer","thoughtSignature":"SIG-abc"}]}}],
+			{"text":"answer","thoughtSignature":"SIG-abc"}]},"finishReason":"STOP"}],
 			"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2}}`))
 	})
 	resp, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "q1"}}})
@@ -376,7 +376,7 @@ func TestGeminiAcceptsCanonicalModelsPrefixedIDs(t *testing.T) {
 			_, _ = w.Write([]byte(`{"embedding":{"values":[0.1]}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
 	})
 	if _, err := client.Embed(context.Background(), model.EmbedRequest{Model: "models/gemini-embedding-001", Inputs: []string{"a"}}); err != nil {
 		t.Fatal(err)
@@ -394,5 +394,40 @@ func TestGeminiAcceptsCanonicalModelsPrefixedIDs(t *testing.T) {
 	}
 	if paths[1] != "/models/gemini-x:generateContent" {
 		t.Fatalf("generate path wrong: %s", paths[1])
+	}
+}
+
+// A non-stream response is terminal by definition — a candidate with no
+// finishReason is a truncated or foreign body, never a complete answer.
+func TestGeminiCompleteWithoutTerminalStopIsAnError(t *testing.T) {
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"partial"}]}}]}`))
+	})
+	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "q"}}})
+	if err == nil || !strings.Contains(err.Error(), "STOP") {
+		t.Fatalf("missing finishReason must be an error, got %v", err)
+	}
+}
+
+// A stream that closes before the STOP terminal dropped mid-generation — EOF
+// alone must not read as a finished answer.
+func TestGeminiStreamEOFWithoutStopIsAnError(t *testing.T) {
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"partial"}]}}]}`+"\n\n")
+	})
+	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
+	if chunk, ok, err := stream.Next(context.Background()); err != nil || !ok || chunk != "partial" {
+		t.Fatalf("first chunk: %q %v %v", chunk, ok, err)
+	}
+	if _, _, err := stream.Next(context.Background()); err == nil || !strings.Contains(err.Error(), "STOP") {
+		t.Fatalf("EOF without STOP must be an error, got %v", err)
 	}
 }

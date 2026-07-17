@@ -34,7 +34,7 @@ func TestOpenAICompleteMapsResponsesAPIUsageAndReasoning(t *testing.T) {
 		}
 		body = readBody(t, r.Body)
 		// Leading reasoning item BEFORE the message — the parser must walk output[].
-		_, _ = w.Write([]byte(`{"id":"resp_1","output":[
+		_, _ = w.Write([]byte(`{"id":"resp_1","status":"completed","output":[
 			{"type":"reasoning","summary":[]},
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],
 			"usage":{"input_tokens":10,"output_tokens":5,
@@ -68,7 +68,7 @@ func TestOpenAISendsStrictJSONSchemaUnderTextFormat(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:       []model.Message{{Role: "user", Content: "hi"}},
@@ -101,7 +101,7 @@ func TestOpenAIStripsSecretsFromWire(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:       []model.Message{{Role: "user", Content: "with password=verysecretpw inside"}},
@@ -118,7 +118,7 @@ func TestOpenAIMapsPDFAttachmentToInputFilePart(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:    []model.Message{{Role: "user", Content: "read this"}},
@@ -135,7 +135,7 @@ func TestOpenAIRoutesHTTPSPdfURIToFileURL(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages:    []model.Message{{Role: "user", Content: "read"}},
@@ -150,7 +150,7 @@ func TestOpenAIRoutesHTTPSPdfURIToFileURL(t *testing.T) {
 
 func TestOpenAIMalformedProviderOptionsError(t *testing.T) {
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"r","output":[]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[]}`))
 	})
 	_, err := client.Complete(context.Background(), model.Request{
 		Messages:        []model.Message{{Role: "user", Content: "x"}},
@@ -163,7 +163,7 @@ func TestOpenAIMalformedProviderOptionsError(t *testing.T) {
 
 func TestOpenAIRefusalIsAnError(t *testing.T) {
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"refusal","refusal":"cannot help"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"cannot help"}]}]}`))
 	})
 	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "x"}}})
 	if err == nil || !strings.Contains(err.Error(), "refus") {
@@ -254,7 +254,7 @@ func TestOpenAIMapsAttachmentsByURIToFileIDAndImageURL(t *testing.T) {
 	var body []byte
 	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
 		body = readBody(t, r.Body)
-		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+		_, _ = w.Write([]byte(`{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
 	})
 	if _, err := client.Complete(context.Background(), model.Request{
 		Messages: []model.Message{{Role: "user", Content: "look"}},
@@ -310,6 +310,7 @@ func TestOpenAICompleteNonCompletedStatusIsAnError(t *testing.T) {
 	}{
 		"failed":     {`{"id":"r","status":"failed","error":{"code":"server_error","message":"boom"}}`, "server_error"},
 		"incomplete": {`{"id":"r","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}`, "max_output_tokens"},
+		"missing":    {`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`, "no terminal status"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

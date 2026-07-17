@@ -334,8 +334,8 @@ func openaiError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Type != "" {
 		return fmt.Errorf("ai: openai: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
 	}
 	return fmt.Errorf("ai: openai: http %d", resp.StatusCode)
@@ -343,16 +343,20 @@ func openaiError(resp *http.Response) error {
 
 // openaiTerminalStatus maps a non-completed Responses object to an error: a
 // failed call carries the API's error, an incomplete one names why generation
-// stopped (max_output_tokens, content_filter). Either read as a clean answer
-// would silently hand the caller a truncated or filtered result.
+// stopped (max_output_tokens, content_filter), and a missing status means the
+// body was not a terminal Responses object at all. Any of them read as a clean
+// answer would silently hand the caller a truncated or filtered result —
+// "completed" is the only success.
 func openaiTerminalStatus(out openaiResponse) error {
 	switch out.Status {
-	case "", "completed":
+	case "completed":
 		return nil
 	case "failed":
 		return fmt.Errorf("ai: openai: response failed: %s: %s", out.Error.Code, out.Error.Message)
 	case "incomplete":
 		return fmt.Errorf("ai: openai: response incomplete: %s", out.IncompleteDetails.Reason)
+	case "":
+		return fmt.Errorf("ai: openai: response carries no terminal status")
 	default:
 		return fmt.Errorf("ai: openai: response ended with status %q", out.Status)
 	}

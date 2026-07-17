@@ -177,7 +177,10 @@ func (c *ollamaClient) post(ctx context.Context, path string, payload []byte) (i
 	if resp.StatusCode != http.StatusOK {
 		//craft:ignore swallowed-errors best-effort close on the error path — the API status error is the answer
 		defer func() { _ = resp.Body.Close() }()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return nil, fmt.Errorf("ai: ollama: http %d", resp.StatusCode)
+		}
 		return nil, fmt.Errorf("ai: ollama: http %d: %s", resp.StatusCode, bytes.TrimSpace(raw))
 	}
 	return resp.Body, nil

@@ -211,7 +211,7 @@ func (c *openAICompatClient) post(ctx context.Context, path string, payload []by
 // failure can't echo the request or leak provider internals (the anthropic /
 // openai pattern). Two structured shapes exist on this generic wire: OpenAI's
 // nested {"error":{type,message}} and vLLM's top-level {"object":"error",
-// type, message}. The read error on this already-failed path is not actionable.
+// type, message}; a body that can't be read falls back to the HTTP status.
 func openAICompatError(resp *http.Response) error {
 	var apiErr struct {
 		Type    string `json:"type"`
@@ -221,8 +221,8 @@ func openAICompatError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil {
 		if apiErr.Error.Message != "" {
 			return fmt.Errorf("ai: openai-compat: %s: %s (http %d)", apiErr.Error.Type, apiErr.Error.Message, resp.StatusCode)
 		}

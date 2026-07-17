@@ -135,6 +135,12 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 	if err := geminiResponseError(out); err != nil {
 		return model.Response{}, err
 	}
+	// A non-stream response is terminal by definition, so it must say STOP —
+	// a candidate with no finishReason is a truncated or non-Responses body,
+	// not a complete answer.
+	if !geminiSawStop(out) {
+		return model.Response{}, fmt.Errorf("ai: gemini: response carries no terminal STOP")
+	}
 	var text strings.Builder
 	var signatures []string
 	for _, cand := range out.Candidates {
@@ -381,6 +387,18 @@ func geminiResponseError(out geminiResponse) error {
 	return nil
 }
 
+// geminiSawStop reports whether any candidate finished with the clean STOP
+// terminal. Intermediate stream chunks legitimately carry no finishReason —
+// only the final chunk (and every non-stream response) does.
+func geminiSawStop(out geminiResponse) bool {
+	for _, cand := range out.Candidates {
+		if cand.FinishReason == "STOP" {
+			return true
+		}
+	}
+	return false
+}
+
 // geminiError surfaces the API's error status and message only, so a logged
 // failure can never echo the request (or the key).
 func geminiError(resp *http.Response) error {
@@ -390,19 +408,22 @@ func geminiError(resp *http.Response) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Status != "" {
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr == nil && json.Unmarshal(raw, &apiErr) == nil && apiErr.Error.Status != "" {
 		return fmt.Errorf("ai: gemini: %s: %s (http %d)", apiErr.Error.Status, apiErr.Error.Message, resp.StatusCode)
 	}
 	return fmt.Errorf("ai: gemini: http %d", resp.StatusCode)
 }
 
 // geminiStream reads the :streamGenerateContent?alt=sse stream. There is no
-// [DONE] sentinel — the stream simply closes; text arrives at
-// candidates[0].content.parts[].text on each chunk.
+// [DONE] sentinel — the final chunk carries finishReason STOP and then the
+// stream closes; text arrives at candidates[0].content.parts[].text on each
+// chunk. sawStop remembers the terminal so an EOF without one (a connection
+// dropped mid-generation) surfaces as an error, not a complete answer.
 type geminiStream struct {
 	body    io.ReadCloser
 	scanner *bufio.Scanner
+	sawStop bool
 }
 
 func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
@@ -425,6 +446,9 @@ func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
 		if err := geminiResponseError(ev); err != nil {
 			return "", false, err
 		}
+		if geminiSawStop(ev) {
+			s.sawStop = true
+		}
 		var chunk strings.Builder
 		for _, cand := range ev.Candidates {
 			for _, part := range cand.Content.Parts {
@@ -437,6 +461,10 @@ func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
 	}
 	if err := s.scanner.Err(); err != nil {
 		return "", false, fmt.Errorf("ai: gemini: stream: %w", err)
+	}
+	if !s.sawStop {
+		// EOF before the STOP terminal: the connection dropped mid-generation.
+		return "", false, fmt.Errorf("ai: gemini: stream ended without a terminal STOP")
 	}
 	return "", false, nil
 }

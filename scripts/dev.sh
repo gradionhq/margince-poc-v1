@@ -173,13 +173,14 @@ up)
       missing_keys="$missing_keys $_env"
     fi
   done
-  if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GEMINI_API_KEY:-}${OPENAI_COMPATIBLE_API_KEY:-}" && -z "$missing_keys" ]]; then
+  # Real routing whenever every bound provider is satisfied — cloud providers
+  # need their key; local ones (ollama/vllm/fake) need none, so a local-only
+  # routing file gets --ai-routing without any key in the environment.
+  if [[ -z "$missing_keys" ]]; then
     ai_flag=(--ai-routing "$routing_src")
-    echo "dev: using a real cloud model for the cold-start read-back (BYOK key from .env.local env)"
-  elif [[ -n "$missing_keys" ]]; then
-    echo "dev: $routing_src binds provider(s) whose key is not set (${missing_keys# }) — cold-start runs on the offline fake; set the key(s) in .env.local or rebind the provider in $routing_src"
+    echo "dev: using $routing_src for the cold-start read-back (bound providers: $(echo $bound_providers | tr '\n' ' '))"
   else
-    echo "dev: no cloud API key in .env.local (GEMINI_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY/OPENAI_COMPATIBLE_API_KEY) — cold-start runs on the offline fake"
+    echo "dev: $routing_src binds provider(s) whose key is not set (${missing_keys# }) — cold-start runs on the offline fake; set the key(s) in .env.local or rebind the provider in $routing_src"
   fi
 
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass
