@@ -1499,6 +1499,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/coldstart/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
+         * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
+         *     for a human to check and correct in the company form, and NOTHING is written or queued. Confirm-first
+         *     (🟡) is honoured by the form itself — the unsaved form IS the staged state, and PUT /company is the
+         *     human's confirmation. This is the read-back onboarding uses; POST /coldstart's approval-inbox
+         *     staging remains for callers that propose asynchronously, with no human at the screen.
+         *
+         *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
+         *     non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
+         *     is returned as an omission for the human to fill in by hand, never as a guess.
+         */
+        post: operations["coldStartPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/company": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installation's own company (the anchor organization).
+         * @description The company this installation belongs to — the spec's anchor organization, named by
+         *     `workspace.anchor_organization_id` (0082). 404 until a human first saves the company form: that
+         *     404 IS the "this installation has not described itself yet" signal, and it is what onboarding
+         *     gates on. Distinct from GET /organizations/{id}, which reads the customer records.
+         */
+        get: operations["getCompany"];
+        /**
+         * Save the installation's own company — the human's confirm-first write.
+         * @description Creates the anchor organization on first save (setting `workspace.anchor_organization_id`) and
+         *     updates it on every later one. This is a HUMAN write: every field is stamped
+         *     `captured_by=human:<user id>`, `source=manual`, whether it was typed from scratch or accepted
+         *     from a /coldstart/preview read-back — once a human has looked at a value and saved it, it is
+         *     theirs, and a later agent read-back will not overwrite it.
+         *
+         *     Unlike the cold-start accept path this never resolves a target by domain: the workspace names its
+         *     own anchor, so a company saved from pasted text or typed by hand works exactly like one read from
+         *     a website. Fields omitted from the body are left untouched; fields sent empty are cleared.
+         */
+        put: operations["putCompany"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/connectors/imap/connect": {
         parameters: {
             query?: never;
@@ -5302,6 +5365,66 @@ export interface components {
             fields: components["schemas"]["ColdStartField"][];
             /** Format: date-time */
             created_at?: string;
+        };
+        /**
+         * @description An un-staged read-back: the evidenced fields only, for a human to check in the company form.
+         *     There is no proposal_id because there is no proposal — nothing was written or queued.
+         */
+        ColdStartReadback: {
+            fields: components["schemas"]["ColdStartField"][];
+        };
+        /**
+         * @description The installation's own company. `display_name` is the only field the form requires — a company
+         *     that will not say its VAT ID is still a company. Every other field is nullable and stays null
+         *     until someone fills it, by hand or from a read-back.
+         */
+        CompanyProfile: {
+            /**
+             * Format: uuid
+             * @description The anchor organization this profile belongs to.
+             */
+            organization_id: string;
+            /** @description What the company is called day to day. */
+            display_name: string;
+            /** @description The company's own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain. */
+            website?: string | null;
+            /** @description The registered legal entity */
+            legal_name?: string | null;
+            /** @description The registered address as one formatted line. */
+            registered_address?: string | null;
+            /** @description VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B). */
+            register_vat?: string | null;
+            industry?: string | null;
+            /** @description Ideal customer profile — who this company sells to. */
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            /** @description The roles that decide on a purchase. */
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            /** @description Company background. */
+            history?: string | null;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        /**
+         * @description The company form's body. An omitted field is left as it was; a field sent as an empty string is
+         *     cleared. `display_name` is required on every save — the form cannot save a nameless company.
+         */
+        CompanyProfileInput: {
+            display_name: string;
+            /** @description The company's own domain or full URL; stored as the bare domain. */
+            website?: string | null;
+            legal_name?: string | null;
+            registered_address?: string | null;
+            register_vat?: string | null;
+            industry?: string | null;
+            icp?: string | null;
+            value_proposition?: string | null;
+            usp?: string | null;
+            buying_center?: string | null;
+            buying_intents?: string | null;
+            history?: string | null;
         };
         /** @description Optional override. With no body the org's own domain is read. */
         EnrichCompanyRequest: {
@@ -10204,6 +10327,97 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    coldStartPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ColdStartRequest"];
+            };
+        };
+        responses: {
+            /** @description The evidenced fields, for the form to pre-fill. Nothing written, nothing staged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColdStartReadback"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description URL unfetchable / read too little — honest degradation, zero fabricated fields. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The anchor organization's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description No company saved yet — onboarding has not been completed. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putCompany: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyProfileInput"];
+            };
+        };
+        responses: {
+            /** @description The saved company. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyProfile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     connectImap: {

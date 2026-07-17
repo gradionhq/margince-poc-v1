@@ -1,4 +1,8 @@
-import { type UseMutationResult, useMutation } from "@tanstack/react-query";
+import {
+  type UseMutationResult,
+  useMutation,
+  useQuery,
+} from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
@@ -15,7 +19,6 @@ import {
   Mail,
   MessageCircle,
   Mic,
-  Pencil,
   RotateCcw,
   Share2,
   ShieldCheck,
@@ -34,6 +37,7 @@ import {
   useState,
 } from "react";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button } from "../design-system/atoms";
 import {
@@ -48,16 +52,17 @@ import { confidenceLevel } from "./inbox";
 import "./onboarding.css";
 
 // Onboarding funnel (B-EP09.9) — a faithful build of the design source of truth
-// (spec design/mockups/index.html) against the Ledger-Green tokens. Five steps,
-// rail-less: Read · Confirm · Voice · Results · Connect. FD-13: mailbox connect
-// is the LAST step (value before permission). Step 1 drives the real /coldstart
-// read-back (every field carries evidence + confidence or it wasn't returned —
-// a failed read renders the honest "couldn't ground it" state, never a guess).
-// Step 5 runs a REAL IMAP capture through the backend connector.
+// (spec design/mockups/index.html) against the Ledger-Green tokens. Four steps,
+// rail-less: Company · Voice · Results · Connect. FD-13: mailbox connect is the
+// LAST step (value before permission). Step 1 is the company form: it is always
+// fully visible and hand-fillable, and the website read-back
+// (POST /coldstart/preview — writes nothing, stages nothing) is an optional
+// accelerant that PRE-FILLS it. Confirm-first (🟡) is honoured by the form
+// itself: the unsaved form is the staged state, and Save is the human's
+// confirmation. Step 4 runs a REAL IMAP capture through the backend connector.
 
 const STEPS = [
-  { key: "read", label: "ob.read" },
-  { key: "confirm", label: "ob.confirm" },
+  { key: "company", label: "ob.company" },
   { key: "voice", label: "ob.voice" },
   { key: "results", label: "ob.results" },
   { key: "connect", label: "ob.connect" },
@@ -65,20 +70,104 @@ const STEPS = [
 
 const VOICE_TARGET = 30000;
 
-type ColdField = {
-  field: string;
-  value: string;
-  evidence_snippet: string;
-  source_url: string;
-  confidence: number;
+type CompanyProfile = components["schemas"]["CompanyProfile"];
+type ColdField = components["schemas"]["ColdStartField"];
+type ColdReadback = components["schemas"]["ColdStartReadback"];
+
+// The company form, grouped as it reads: who the company IS, then how it sells.
+// Identity fields are one-liners; positioning fields are prose (textareas).
+// website is absent here because it renders as the read bar at the top of the
+// group — one control for one value, not two.
+const IDENTITY_FIELDS = [
+  "display_name",
+  "legal_name",
+  "register_vat",
+  "registered_address",
+  "industry",
+] as const;
+const POSITIONING_FIELDS = [
+  "icp",
+  "value_proposition",
+  "usp",
+  "buying_center",
+  "buying_intents",
+  "history",
+] as const;
+
+type CompanyFieldName =
+  | "website"
+  | (typeof IDENTITY_FIELDS)[number]
+  | (typeof POSITIONING_FIELDS)[number];
+type CompanyForm = Record<CompanyFieldName, string>;
+
+// The read-back can only ground the contract's ColdStartField names — website
+// and display_name are always the human's to give.
+type Grounded = Partial<Record<ColdField["field"], ColdField>>;
+
+// One state object, because the three parts move together: typing a value
+// drops its site grounding (the value is the human's now) and marks it typed.
+type CompanyDraft = {
+  values: CompanyForm;
+  grounded: Grounded;
+  edited: ReadonlySet<CompanyFieldName>;
 };
-// The staged proposal IS the approval row (ADR-0036), so proposal_id is what
-// the confirm step approves.
-type ColdStart = {
-  proposal_id: string;
-  source_url: string;
-  fields: ColdField[];
+
+const EMPTY_FORM: CompanyForm = {
+  display_name: "",
+  website: "",
+  legal_name: "",
+  register_vat: "",
+  registered_address: "",
+  industry: "",
+  icp: "",
+  value_proposition: "",
+  usp: "",
+  buying_center: "",
+  buying_intents: "",
+  history: "",
 };
+
+const EMPTY_DRAFT: CompanyDraft = {
+  values: EMPTY_FORM,
+  grounded: {},
+  edited: new Set(),
+};
+
+function formFromProfile(p: CompanyProfile): CompanyForm {
+  return {
+    display_name: p.display_name,
+    website: p.website ?? "",
+    legal_name: p.legal_name ?? "",
+    register_vat: p.register_vat ?? "",
+    registered_address: p.registered_address ?? "",
+    industry: p.industry ?? "",
+    icp: p.icp ?? "",
+    value_proposition: p.value_proposition ?? "",
+    usp: p.usp ?? "",
+    buying_center: p.buying_center ?? "",
+    buying_intents: p.buying_intents ?? "",
+    history: p.history ?? "",
+  };
+}
+
+// Pre-fill FILLS — it never clobbers. A field the human already typed into
+// keeps their text and its "typed by you" provenance; a field the read-back
+// didn't ground stays empty for manual entry (the no-guess gate).
+function prefill(
+  draft: CompanyDraft,
+  fields: readonly ColdField[],
+): CompanyDraft {
+  const values = { ...draft.values };
+  const grounded: Grounded = { ...draft.grounded };
+  for (const f of fields) {
+    if (values[f.field].trim() !== "") {
+      continue;
+    }
+    values[f.field] = f.value;
+    grounded[f.field] = f;
+  }
+  return { values, grounded, edited: draft.edited };
+}
 
 // URL normalization/validation (S-E01.1: scheme/host/dedupe, honest invalid).
 function normalizeUrl(raw: string): {
@@ -128,55 +217,87 @@ function stepState(index: number, current: number): "done" | "active" | "" {
 // thin < 8k · good ≥ 8k · rich ≥ 20k · sharp ≥ 30k.
 function corpusQuality(total: number): { cls: string; key: MessageKey } {
   if (total === 0) {
-    return { cls: "", key: "ob.s3.qualStart" };
+    return { cls: "", key: "ob.s2.qualStart" };
   }
   if (total < 8000) {
-    return { cls: "thin", key: "ob.s3.qualThin" };
+    return { cls: "thin", key: "ob.s2.qualThin" };
   }
   if (total < 20000) {
-    return { cls: "good", key: "ob.s3.qualGood" };
+    return { cls: "good", key: "ob.s2.qualGood" };
   }
   if (total < VOICE_TARGET) {
-    return { cls: "rich", key: "ob.s3.qualRich" };
+    return { cls: "rich", key: "ob.s2.qualRich" };
   }
-  return { cls: "sharp", key: "ob.s3.qualSharp" };
+  return { cls: "sharp", key: "ob.s2.qualSharp" };
 }
 
 export function OnboardingScreen() {
   const t = useT();
   const [step, setStep] = useState(0);
-  const [url, setUrl] = useState("");
-  const [readData, setReadData] = useState<ColdStart | null>(null);
-  const [host, setHost] = useState("");
   const [voiceBuilt, setVoiceBuilt] = useState(false);
-  // Confirm-step state lives HERE, not in the step component: stepping back
+  // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const [buyer, setBuyer] = useState("");
-  const [profileSaved, setProfileSaved] = useState(false);
+  const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
+  const [nameAttempted, setNameAttempted] = useState(false);
+  const [companySaved, setCompanySaved] = useState(false);
 
-  const norm = useMemo(() => normalizeUrl(url), [url]);
-  const company = host ? deriveName(host) : "";
+  const norm = useMemo(
+    () => normalizeUrl(draft.values.website),
+    [draft.values.website],
+  );
+  // The name the later steps speak to: what the human called the company, or —
+  // until they've typed one — what the website host suggests.
+  const company =
+    draft.values.display_name.trim() || (norm.ok ? deriveName(norm.host) : "");
+
+  // A returning admin edits rather than retypes. 404 is the normal first-run
+  // state — this installation has not saved its company yet, which is an empty
+  // form, not an error.
+  const existing = useQuery({
+    queryKey: ["company"],
+    queryFn: async (): Promise<CompanyProfile | null> => {
+      const { data, error, response } = await api.GET("/company");
+      if (error) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+
+  // Seed once: after the first paint of the loaded profile the form belongs to
+  // the human, and a re-render must not overwrite their typing.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !existing.data) {
+      return;
+    }
+    seeded.current = true;
+    setDraft({
+      values: formFromProfile(existing.data),
+      grounded: {},
+      edited: new Set(),
+    });
+    setCompanySaved(true);
+  }, [existing.data]);
 
   const read = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST("/coldstart", {
+    mutationFn: async (): Promise<ColdReadback> => {
+      const { data, error } = await api.POST("/coldstart/preview", {
         body: { url: norm.full },
       });
       if (error) {
         throw new Error(problemMessage(error));
       }
-      return data as ColdStart;
+      return data;
     },
     onSuccess: (data) => {
-      // Stay on step 1 and render the grounded read-back inline (evidence +
-      // confidence per field) — the trust moment. Continue advances to the
-      // editable confirm. Scroll the read-back into view. A re-read is a NEW
-      // proposal: edits and the saved flag belonged to the old one.
-      setReadData(data);
-      setHost(norm.host);
-      setEdits({});
-      setProfileSaved(false);
+      // Nothing was written or staged: the read-back only pre-fills the form
+      // the human is already looking at. Each filled field keeps its evidence
+      // + confidence until the human edits it.
+      setDraft((prev) => prefill(prev, data.fields));
       globalThis.scrollTo({ top: 0, behavior: "smooth" });
     },
   });
@@ -189,69 +310,53 @@ export function OnboardingScreen() {
     globalThis.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Continue on the confirm step APPROVES the staged proposal — the write
-  // that puts the read-back (plus the user's corrections and the hand-typed
-  // buying center) onto the organization. An edit rides the ADR-0036 §4
-  // modify-then-approve arm; untouched fields approve as staged. The
-  // approval is single-use, so a back-and-forth second Continue (409
-  // already-decided) advances without pretending to re-save.
+  const setField = (field: CompanyFieldName, value: string) =>
+    setDraft((prev) => {
+      // Typing into a pre-filled field makes the value the human's assertion —
+      // it stops claiming the site's snippet as its evidence.
+      const grounded = { ...prev.grounded };
+      if (field in grounded) {
+        delete grounded[field as ColdField["field"]];
+      }
+      return {
+        values: { ...prev.values, [field]: value },
+        grounded,
+        edited: new Set(prev.edited).add(field),
+      };
+    });
+
+  // Save IS the confirmation: PUT /company writes the form the human read and
+  // approved. Nothing was staged, so there is nothing to approve elsewhere.
   const save = useMutation({
-    mutationFn: async (): Promise<boolean> => {
-      if (!readData || profileSaved) {
-        return profileSaved;
-      }
-      const editedAny = readData.fields.some(
-        (f) => f.field in edits && edits[f.field] !== f.value,
-      );
-      const addedBuyer = buyer.trim() !== "";
-      const fields: ColdField[] = readData.fields.map((f) =>
-        f.field in edits && edits[f.field] !== f.value
-          ? // A human-corrected value is the human's assertion — it no longer
-            // claims the site's snippet as its evidence.
-            {
-              field: f.field,
-              value: edits[f.field],
-              evidence_snippet: "",
-              source_url: "",
-              confidence: 1,
-            }
-          : f,
-      );
-      if (addedBuyer) {
-        fields.push({
-          field: "buying_center",
-          value: buyer.trim(),
-          evidence_snippet: "",
-          source_url: "",
-          confidence: 1,
-        });
-      }
-      const { error, response } = await api.POST("/approvals/{id}/approve", {
-        params: { path: { id: readData.proposal_id } },
-        body:
-          editedAny || addedBuyer
-            ? {
-                edited_payload: {
-                  source_url: readData.source_url,
-                  fields,
-                },
-              }
-            : {},
+    mutationFn: async (): Promise<CompanyProfile> => {
+      const { data, error } = await api.PUT("/company", {
+        body: {
+          ...draft.values,
+          display_name: draft.values.display_name.trim(),
+        },
       });
       if (error) {
-        if (response.status === 409) {
-          // Already decided (a back-then-forward pass) — saved earlier.
-          return true;
-        }
         throw new Error(problemMessage(error));
       }
-      return true;
+      return data;
     },
-    onSuccess: (saved) => {
-      setProfileSaved(saved);
-      go(2);
+    onSuccess: (profile) => {
+      setCompanySaved(true);
+      // The server owns the stored shape (a full URL is reduced to its bare
+      // domain) — show what was actually saved, not what was typed.
+      setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
+      go(1);
     },
   });
+
+  const nameMissing = draft.values.display_name.trim() === "";
+  const saveCompany = () => {
+    setNameAttempted(true);
+    if (nameMissing) {
+      return;
+    }
+    save.mutate();
+  };
 
   return (
     <div className="ob-page">
@@ -291,46 +396,33 @@ export function OnboardingScreen() {
 
       <div className="wiz">
         {step === 0 && (
-          <ReadStep
-            url={url}
-            setUrl={setUrl}
+          <CompanyStep
+            draft={draft}
+            setField={setField}
             norm={norm}
             read={read}
-            readData={readData}
-            company={company}
-            host={host}
-            onManual={() => go(1)}
+            saved={companySaved}
+            saveError={save.isError ? save.error.message : null}
+            nameError={nameAttempted && nameMissing}
           />
         )}
         {step === 1 && (
-          <ConfirmStep
-            readData={readData}
-            edits={edits}
-            setEdits={setEdits}
-            buyer={buyer}
-            setBuyer={setBuyer}
-            saved={profileSaved}
-            saveError={save.isError ? save.error.message : null}
-          />
-        )}
-        {step === 2 && (
           <VoiceStep company={company} onBuilt={() => setVoiceBuilt(true)} />
         )}
-        {step === 3 && (
+        {step === 2 && (
           <ResultsStep
             company={company}
             voiceBuilt={voiceBuilt}
-            profileSaved={profileSaved}
+            profileSaved={companySaved}
           />
         )}
-        {step === 4 && <ConnectStep />}
+        {step === 3 && <ConnectStep />}
 
         <Footer
           step={step}
-          canContinue={readData !== null}
           go={go}
-          onConfirm={() => save.mutate()}
-          confirmPending={save.isPending}
+          onSaveCompany={saveCompany}
+          savePending={save.isPending}
         />
       </div>
     </div>
@@ -341,16 +433,14 @@ export function OnboardingScreen() {
 
 function Footer({
   step,
-  canContinue,
   go,
-  onConfirm,
-  confirmPending,
+  onSaveCompany,
+  savePending,
 }: Readonly<{
   step: number;
-  canContinue: boolean;
   go: (n: number) => void;
-  onConfirm: () => void;
-  confirmPending: boolean;
+  onSaveCompany: () => void;
+  savePending: boolean;
 }>) {
   const t = useT();
   return (
@@ -363,38 +453,26 @@ function Footer({
         <span />
       )}
       <span className="grow" />
+      {/* Continue on the company step SAVES it — there is no way past step 1
+          with an unsaved company, and no way to save a nameless one. */}
       {step === 0 && (
-        <Button variant="primary" disabled={!canContinue} onClick={() => go(1)}>
-          {t("ob.next")} <ArrowRight aria-hidden />
+        <Button
+          variant="primary"
+          disabled={savePending}
+          onClick={onSaveCompany}
+        >
+          {savePending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s1.saving")}
+            </>
+          ) : (
+            <>
+              {t("ob.next")} <ArrowRight aria-hidden />
+            </>
+          )}
         </Button>
       )}
       {step === 1 && (
-        <>
-          <button
-            type="button"
-            className="wiz-later"
-            onClick={() => go(step + 1)}
-          >
-            {t("ob.skipStep")}
-          </button>
-          <Button
-            variant="primary"
-            disabled={confirmPending}
-            onClick={onConfirm}
-          >
-            {confirmPending ? (
-              <>
-                <span className="ob-spinner" /> {t("ob.s2.saving")}
-              </>
-            ) : (
-              <>
-                {t("ob.next")} <ArrowRight aria-hidden />
-              </>
-            )}
-          </Button>
-        </>
-      )}
-      {step === 2 && (
         <>
           <button
             type="button"
@@ -408,38 +486,162 @@ function Footer({
           </Button>
         </>
       )}
-      {step === 3 && (
-        <Button variant="primary" onClick={() => go(4)}>
-          {t("ob.s4.cta")} <ArrowRight aria-hidden />
+      {step === 2 && (
+        <Button variant="primary" onClick={() => go(3)}>
+          {t("ob.s3.cta")} <ArrowRight aria-hidden />
         </Button>
       )}
     </div>
   );
 }
 
-// ---- step 1: read ----------------------------------------------------------
+// ---- step 1: company -------------------------------------------------------
 
-function ReadStep({
-  url,
-  setUrl,
+function CompanyStep({
+  draft,
+  setField,
   norm,
   read,
-  readData,
-  company,
-  host,
-  onManual,
+  saved,
+  saveError,
+  nameError,
 }: Readonly<{
-  url: string;
-  setUrl: (v: string) => void;
+  draft: CompanyDraft;
+  setField: (field: CompanyFieldName, value: string) => void;
   norm: { ok: boolean; host: string; full: string };
-  read: UseMutationResult<ColdStart, Error, void>;
-  readData: ColdStart | null;
-  company: string;
-  host: string;
-  onManual: () => void;
+  read: UseMutationResult<ColdReadback, Error, void>;
+  saved: boolean;
+  saveError: string | null;
+  nameError: boolean;
 }>) {
   const t = useT();
-  const showInvalid = url.trim() !== "" && !norm.ok;
+  const grounded = Object.keys(draft.grounded).length > 0;
+
+  return (
+    <section className="ob-panel">
+      <div className="kick">{t("ob.s1.kick")}</div>
+      <h1 className="ttl">
+        {t("ob.s1.title")} <span className="em">{t("ob.s1.titleEm")}</span>
+      </h1>
+      <p className="ob-sub">{t("ob.s1.sub")}</p>
+
+      <WebsiteReadBar
+        website={draft.values.website}
+        setWebsite={(v) => setField("website", v)}
+        norm={norm}
+        read={read}
+        anyGrounded={grounded}
+      />
+
+      {!grounded && !read.isError && (
+        <div className="trust-row">
+          <span className="trustpill">
+            <ShieldCheck aria-hidden /> {t("ob.trustPublic")}
+          </span>
+          <span className="trustpill brand">
+            <Sparkles aria-hidden /> {t("ob.trustAI")}
+          </span>
+        </div>
+      )}
+
+      {!grounded && !read.isError && (
+        <div className="migrate">
+          <div className="mig-l">
+            <Database aria-hidden /> <span>{t("ob.migrateLead")}</span>
+          </div>
+        </div>
+      )}
+
+      {read.isError && <ReadFailure message={read.error.message} />}
+
+      {grounded && (
+        <div className="omit">
+          <Info aria-hidden />
+          <div>
+            <div className="l">{t("ob.s1.omitLabel")}</div>
+            <p>{t("ob.s1.omitBody")}</p>
+          </div>
+        </div>
+      )}
+
+      {saved && (
+        <p className="ob-sub" style={{ margin: "14px 0 0" }}>
+          <CheckCircle2
+            aria-hidden
+            style={{ width: 14, height: 14, verticalAlign: "-2px" }}
+          />{" "}
+          {t("ob.s1.savedNote")}
+        </p>
+      )}
+
+      {saveError && (
+        <div className="readfail warn" style={{ marginTop: "var(--space-3)" }}>
+          <span className="rfi">
+            <Circle aria-hidden />
+          </span>
+          <div>
+            <div className="rft">{t("ob.s1.saveFailed")}</div>
+            <p className="rfp">{saveError}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="seclabel" style={{ margin: "22px 0 0" }}>
+        {t("ob.s1.identityLabel")}
+      </div>
+      {IDENTITY_FIELDS.map((field) => (
+        <CompanyFormField
+          key={field}
+          field={field}
+          value={draft.values[field]}
+          grounded={groundingOf(draft, field)}
+          edited={draft.edited.has(field)}
+          error={
+            field === "display_name" && nameError
+              ? t("ob.s1.nameRequired")
+              : null
+          }
+          onChange={(v) => setField(field, v)}
+        />
+      ))}
+
+      <div className="seclabel" style={{ margin: "26px 0 0" }}>
+        {t("ob.s1.positioningLabel")}
+      </div>
+      {POSITIONING_FIELDS.map((field) => (
+        <CompanyFormField
+          key={field}
+          field={field}
+          value={draft.values[field]}
+          grounded={groundingOf(draft, field)}
+          edited={draft.edited.has(field)}
+          error={null}
+          multiline
+          onChange={(v) => setField(field, v)}
+        />
+      ))}
+    </section>
+  );
+}
+
+// The website field, with the optional read-back action on it: the company's
+// website is a form value like any other — reading it is a shortcut into the
+// form below, never a step of its own.
+function WebsiteReadBar({
+  website,
+  setWebsite,
+  norm,
+  read,
+  anyGrounded,
+}: Readonly<{
+  website: string;
+  setWebsite: (v: string) => void;
+  norm: { ok: boolean; host: string; full: string };
+  read: UseMutationResult<ColdReadback, Error, void>;
+  anyGrounded: boolean;
+}>) {
+  const t = useT();
+  const showInvalid = website.trim() !== "" && !norm.ok;
 
   let readButtonLabel: ReactNode;
   if (read.isPending) {
@@ -448,7 +650,7 @@ function ReadStep({
         <span className="ob-spinner" /> {t("ob.reading")}
       </>
     );
-  } else if (readData) {
+  } else if (anyGrounded) {
     readButtonLabel = t("ob.readAgain");
   } else {
     readButtonLabel = (
@@ -466,21 +668,15 @@ function ReadStep({
   }
 
   return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s1.kick")}</div>
-      <h1 className="ttl">
-        {t("ob.s1.title")} <span className="em">{t("ob.s1.titleEm")}</span>
-      </h1>
-      <p className="ob-sub">{t("ob.s1.sub")}</p>
-
+    <>
       <div className={`urlbar ${showInvalid ? "invalid" : ""}`}>
         <span className="glyph">{"https://"}</span>
         <input
           type="text"
-          value={url}
+          value={website}
           aria-label={t("ob.url")}
           placeholder={t("ob.s1.urlPlaceholder")}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => setWebsite(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && norm.ok && !read.isPending) {
               read.mutate();
@@ -508,80 +704,85 @@ function ReadStep({
           </>
         )}
       </div>
-
-      {!readData && !read.isError && (
-        <div className="trust-row">
-          <span className="trustpill">
-            <ShieldCheck aria-hidden /> {t("ob.trustPublic")}
-          </span>
-          <span className="trustpill brand">
-            <Sparkles aria-hidden /> {t("ob.trustAI")}
-          </span>
-        </div>
-      )}
-
-      {read.isError && (
-        <ReadFailure message={read.error.message} onManual={onManual} />
-      )}
-
-      {readData && (
-        <div className="rb">
-          <div className="nameback">
-            <span className="co-logo">{company.slice(0, 1)}</span>
-            <div>
-              <div className="nb-t">{company}</div>
-              <div className="nb-s">{t("ob.readbackFrom", { host })}</div>
-            </div>
-          </div>
-          {readData.fields.map((f) => {
-            const level = confidenceLevel(f.confidence);
-            return (
-              <div key={f.field} className="rfield">
-                <div className="rfhead">
-                  <span className="rflabel">{coldFieldLabel(f.field, t)}</span>
-                  {level && <ConfidenceMeter level={level} />}
-                  <span className="rfprov">
-                    <Bot aria-hidden /> {t("ob.readFromSite")}
-                  </span>
-                </div>
-                <div className="rfval">{f.value}</div>
-                <EvidenceChip
-                  evidence={{
-                    snippet: f.evidence_snippet,
-                    source: f.source_url,
-                  }}
-                />
-              </div>
-            );
-          })}
-          <div className="omit">
-            <Info aria-hidden />
-            <div>
-              <div className="l">{t("ob.omitLabel")}</div>
-              <p>{t("ob.omitBody")}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!readData && !read.isError && (
-        <div className="migrate">
-          <div className="mig-l">
-            <Database aria-hidden /> <span>{t("ob.migrateLead")}</span>
-          </div>
-        </div>
-      )}
-    </section>
+    </>
   );
 }
 
-function ReadFailure({
-  message,
-  onManual,
+// A field the read-back grounded and the human has not touched still carries
+// the site's evidence; anything else is the human's own.
+function groundingOf(
+  draft: CompanyDraft,
+  field: CompanyFieldName,
+): ColdField | null {
+  return draft.grounded[field as ColdField["field"]] ?? null;
+}
+
+function CompanyFormField({
+  field,
+  value,
+  grounded,
+  edited,
+  error,
+  multiline,
+  onChange,
 }: Readonly<{
-  message: string;
-  onManual: () => void;
+  field: CompanyFieldName;
+  value: string;
+  grounded: ColdField | null;
+  edited: boolean;
+  error: string | null;
+  multiline?: boolean;
+  onChange: (v: string) => void;
 }>) {
+  const t = useT();
+  const id = `co-${field}`;
+  const level = grounded ? confidenceLevel(grounded.confidence) : null;
+  return (
+    <div className="ob-field">
+      <label htmlFor={id}>
+        {coldFieldLabel(field, t)} {level && <ConfidenceMeter level={level} />}
+        {grounded && (
+          <span className="rfprov">
+            <Bot aria-hidden /> {t("ob.readFromSite")}
+          </span>
+        )}
+        {edited && <ProvenanceTag provenance={{ kind: "human" }} />}
+      </label>
+      {multiline ? (
+        <textarea
+          id={id}
+          className="ob-in"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <input
+          id={id}
+          className="ob-in"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+      {grounded && (
+        <EvidenceChip
+          evidence={{
+            snippet: grounded.evidence_snippet,
+            // source_url is carried only by url-sourced evidence; text and
+            // self-description evidence names its origin instead of linking.
+            source: grounded.source_url ?? t("ob.readFromSite"),
+          }}
+        />
+      )}
+      {error && (
+        <div className="urlnote err">
+          <Circle aria-hidden /> {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadFailure({ message }: Readonly<{ message: string }>) {
   const t = useT();
   return (
     <div className="readfail warn">
@@ -601,112 +802,12 @@ function ReadFailure({
             </li>
           ))}
         </ul>
-        <div className="rfacts">
-          <Button small onClick={onManual}>
-            <Pencil aria-hidden /> {t("ob.fillByHand")}
-          </Button>
-        </div>
       </div>
     </div>
   );
 }
 
-// ---- step 2: confirm -------------------------------------------------------
-
-function ConfirmStep({
-  readData,
-  edits,
-  setEdits,
-  buyer,
-  setBuyer,
-  saved,
-  saveError,
-}: Readonly<{
-  readData: ColdStart | null;
-  edits: Record<string, string>;
-  setEdits: (
-    up: (prev: Record<string, string>) => Record<string, string>,
-  ) => void;
-  buyer: string;
-  setBuyer: (v: string) => void;
-  saved: boolean;
-  saveError: string | null;
-}>) {
-  const t = useT();
-  return (
-    <section className="ob-panel">
-      <div className="kick">{t("ob.s2.kick")}</div>
-      <h1 className="ttl">{t("ob.s2.title")}</h1>
-      <p className="ob-sub">{t("ob.s2.sub")}</p>
-
-      {saved && (
-        <p className="ob-sub" style={{ marginBottom: 12 }}>
-          <CheckCircle2
-            aria-hidden
-            style={{ width: 14, height: 14, verticalAlign: "-2px" }}
-          />{" "}
-          {t("ob.s2.savedNote")}
-        </p>
-      )}
-
-      {saveError && (
-        <div className="readfail warn" style={{ marginBottom: 14 }}>
-          <span className="rfi">
-            <Circle aria-hidden />
-          </span>
-          <div>
-            <div className="rft">{t("ob.s2.saveFailed")}</div>
-            <p className="rfp">{saveError}</p>
-          </div>
-        </div>
-      )}
-
-      {readData && readData.fields.length > 0 ? (
-        <>
-          {readData.fields.map((f) => {
-            const dirty = f.field in edits;
-            const value = dirty ? edits[f.field] : f.value;
-            return (
-              <div key={f.field} className="ob-field">
-                <label htmlFor={`s2-${f.field}`}>
-                  {coldFieldLabel(f.field, t)}{" "}
-                  {dirty && <ProvenanceTag provenance={{ kind: "human" }} />}
-                </label>
-                <textarea
-                  id={`s2-${f.field}`}
-                  className="ob-in"
-                  value={value}
-                  onChange={(e) =>
-                    setEdits((prev) => ({ ...prev, [f.field]: e.target.value }))
-                  }
-                />
-              </div>
-            );
-          })}
-          <div className="ob-field">
-            <label htmlFor="s2-buyer">
-              {t("ob.s2.buyerLabel")}{" "}
-              <span className="askhint">· {t("ob.s2.buyerHint")}</span>
-            </label>
-            <input
-              id="s2-buyer"
-              className="ob-in askfill"
-              value={buyer}
-              placeholder={t("ob.s2.buyerPlaceholder")}
-              onChange={(e) => setBuyer(e.target.value)}
-            />
-          </div>
-        </>
-      ) : (
-        <p className="ob-sub" style={{ marginTop: 16 }}>
-          {t("ob.s2.nothingRead")}
-        </p>
-      )}
-    </section>
-  );
-}
-
-// ---- step 3: voice ---------------------------------------------------------
+// ---- step 2: voice ---------------------------------------------------------
 
 type Source = {
   id: string;
@@ -872,18 +973,18 @@ function VoiceStep({
 
   return (
     <section className="ob-panel">
-      <div className="kick">{t("ob.s3.kick")}</div>
+      <div className="kick">{t("ob.s2.kick")}</div>
       <h1 className="ttl">
-        {t("ob.s3.title")} <span className="em">{t("ob.s3.titleEm")}</span>
+        {t("ob.s2.title")} <span className="em">{t("ob.s2.titleEm")}</span>
       </h1>
-      <p className="ob-sub">{t("ob.s3.sub")}</p>
+      <p className="ob-sub">{t("ob.s2.sub")}</p>
 
       <div className="optin">
         <span className="oi-ic">
           <Info aria-hidden />
         </span>
         <div className="oi-b">
-          <b>{t("ob.s3.optinTitle")}</b> {t("ob.s3.optinBody")}
+          <b>{t("ob.s2.optinTitle")}</b> {t("ob.s2.optinBody")}
           <div className="oi-acts">
             <Button
               variant="primary"
@@ -891,14 +992,14 @@ function VoiceStep({
               onClick={() => setOptedIn(true)}
               disabled={optedIn}
             >
-              <Check aria-hidden /> {t("ob.s3.optinYes")}
+              <Check aria-hidden /> {t("ob.s2.optinYes")}
             </Button>
             <button
               type="button"
               className="wiz-later"
               onClick={() => setOptedIn(false)}
             >
-              {t("ob.s3.optinSkip")}
+              {t("ob.s2.optinSkip")}
             </button>
           </div>
         </div>
@@ -926,13 +1027,13 @@ function VoiceStep({
             if (s.locked) {
               words = (
                 <span className="added-w muted">
-                  {t("ob.s3.lockedWords", { count: s.words.toLocaleString() })}
+                  {t("ob.s2.lockedWords", { count: s.words.toLocaleString() })}
                 </span>
               );
             } else if (on) {
               words = (
                 <span className="added-w">
-                  {t("ob.s3.addedWords", { count: s.words.toLocaleString() })}
+                  {t("ob.s2.addedWords", { count: s.words.toLocaleString() })}
                 </span>
               );
             }
@@ -968,8 +1069,8 @@ function VoiceStep({
           <span className="dz-ic">
             <UploadCloud aria-hidden />
           </span>
-          <span className="dz-t">{t("ob.s3.dropTitle")}</span>
-          <span className="dz-fmt">{t("ob.s3.dropFmt")}</span>
+          <span className="dz-t">{t("ob.s2.dropTitle")}</span>
+          <span className="dz-fmt">{t("ob.s2.dropFmt")}</span>
         </button>
         <input
           ref={fileRef}
@@ -990,14 +1091,14 @@ function VoiceStep({
         )}
         {skipped.length > 0 && (
           <output className="ob-sub" style={{ display: "block", marginTop: 8 }}>
-            {t("ob.s3.dropSkipped", { files: skipped.join(", ") })}
+            {t("ob.s2.dropSkipped", { files: skipped.join(", ") })}
           </output>
         )}
 
         <div className="meter">
           <div className="meter-top">
             <span>
-              {t("ob.s3.words", {
+              {t("ob.s2.words", {
                 count: corpus.total.toLocaleString(),
                 target: VOICE_TARGET.toLocaleString(),
               })}
@@ -1013,7 +1114,7 @@ function VoiceStep({
           </div>
           {corpus.total > 0 && (
             <div className="regmix">
-              {t("ob.s3.mix", {
+              {t("ob.s2.mix", {
                 spoken: Math.round((corpus.spoken / corpus.total) * 100),
                 written: Math.round((corpus.written / corpus.total) * 100),
                 sources: corpus.sources,
@@ -1021,13 +1122,13 @@ function VoiceStep({
             </div>
           )}
           <p className="spoken-hint">
-            <Mic aria-hidden /> {t("ob.s3.spokenHint")}
+            <Mic aria-hidden /> {t("ob.s2.spokenHint")}
           </p>
         </div>
 
         <div className="email-callout">
           <Mail aria-hidden />
-          <div>{t("ob.s3.emailCallout")}</div>
+          <div>{t("ob.s2.emailCallout")}</div>
         </div>
 
         {!built && (
@@ -1040,11 +1141,11 @@ function VoiceStep({
             {building ? (
               <>
                 <span className="ob-spinner" />{" "}
-                {t("ob.s3.modelling", { count: corpus.total.toLocaleString() })}
+                {t("ob.s2.modelling", { count: corpus.total.toLocaleString() })}
               </>
             ) : (
               <>
-                <Sparkles aria-hidden /> {t("ob.s3.build")}
+                <Sparkles aria-hidden /> {t("ob.s2.build")}
               </>
             )}
           </Button>
@@ -1056,40 +1157,40 @@ function VoiceStep({
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="provenance provenance-human">
                   <User aria-hidden style={{ width: 13, height: 13 }} />{" "}
-                  {t("ob.s3.starterVoice")}
+                  {t("ob.s2.starterVoice")}
                 </span>
                 <span style={{ marginLeft: "auto" }} className="t-small">
-                  {t("ob.s3.vpMeta", {
+                  {t("ob.s2.vpMeta", {
                     count: corpus.total.toLocaleString(),
                     sources: corpus.sources,
                   })}
                 </span>
               </div>
               <p style={{ marginTop: 10, lineHeight: 1.55 }}>
-                <b>{t("ob.s3.vpLead")}</b> {t("ob.s3.vpRest")}
+                <b>{t("ob.s2.vpLead")}</b> {t("ob.s2.vpRest")}
               </p>
               <div className="seclabel" style={{ margin: "14px 0 6px" }}>
-                {t("ob.s3.movesLabel")}
+                {t("ob.s2.movesLabel")}
               </div>
               <ul className="vp-list">
                 <li>
-                  <Check aria-hidden /> {t("ob.s3.move1")}
+                  <Check aria-hidden /> {t("ob.s2.move1")}
                 </li>
                 <li>
-                  <Check aria-hidden /> {t("ob.s3.move2")}
+                  <Check aria-hidden /> {t("ob.s2.move2")}
                 </li>
                 <li>
-                  <Check aria-hidden /> {t("ob.s3.move3")}
+                  <Check aria-hidden /> {t("ob.s2.move3")}
                 </li>
                 <li className="no">
-                  <Circle aria-hidden /> {t("ob.s3.moveNever")}
+                  <Circle aria-hidden /> {t("ob.s2.moveNever")}
                 </li>
               </ul>
               <div className="seclabel" style={{ margin: "16px 0 6px" }}>
-                {t("ob.s3.sampleLabel")}
+                {t("ob.s2.sampleLabel")}
               </div>
               <div className="draftbox">
-                {t("ob.s4.draftSample", {
+                {t("ob.s3.draftSample", {
                   company: company || "your prospect",
                 })}
               </div>
@@ -1097,7 +1198,7 @@ function VoiceStep({
                 className="t-small"
                 style={{ marginTop: 11, fontStyle: "italic" }}
               >
-                {t("ob.s3.vpFootnote", {
+                {t("ob.s2.vpFootnote", {
                   count: corpus.total.toLocaleString(),
                 })}
               </p>
@@ -1109,7 +1210,7 @@ function VoiceStep({
   );
 }
 
-// ---- step 4: results -------------------------------------------------------
+// ---- step 3: results -------------------------------------------------------
 
 function ResultsStep({
   company,
@@ -1123,28 +1224,28 @@ function ResultsStep({
   // named unsaved, not claimed as captured.
   const cards: { title: MessageKey; body: MessageKey }[] = [
     {
-      title: "ob.s4.cardProfile",
+      title: "ob.s3.cardProfile",
       body: profileSaved
-        ? "ob.s4.cardProfileBody"
-        : "ob.s4.cardProfileSkippedBody",
+        ? "ob.s3.cardProfileBody"
+        : "ob.s3.cardProfileSkippedBody",
     },
     {
-      title: "ob.s4.cardVoice",
-      body: voiceBuilt ? "ob.s4.cardVoiceBody" : "ob.s4.cardVoiceSkippedBody",
+      title: "ob.s3.cardVoice",
+      body: voiceBuilt ? "ob.s3.cardVoiceBody" : "ob.s3.cardVoiceSkippedBody",
     },
-    { title: "ob.s4.cardPipeline", body: "ob.s4.cardPipelineBody" },
+    { title: "ob.s3.cardPipeline", body: "ob.s3.cardPipelineBody" },
     {
-      title: voiceBuilt ? "ob.s4.cardDraft" : "ob.s4.cardDraftExample",
-      body: "ob.s4.cardDraftBody",
+      title: voiceBuilt ? "ob.s3.cardDraft" : "ob.s3.cardDraftExample",
+      body: "ob.s3.cardDraftBody",
     },
   ];
   return (
     <section className="ob-panel">
-      <div className="kick">{t("ob.s4.kick")}</div>
+      <div className="kick">{t("ob.s3.kick")}</div>
       <h1 className="ttl">
-        {t("ob.s4.title")} <span className="em">{t("ob.s4.titleEm")}</span>
+        {t("ob.s3.title")} <span className="em">{t("ob.s3.titleEm")}</span>
       </h1>
-      <p className="ob-sub">{t("ob.s4.sub")}</p>
+      <p className="ob-sub">{t("ob.s3.sub")}</p>
       <div className="rcards">
         {cards.map((c) => (
           <div key={c.title} className="rcard">
@@ -1159,26 +1260,26 @@ function ResultsStep({
         ))}
       </div>
       <div className="draftbox" style={{ marginTop: 12 }}>
-        {t("ob.s4.draftSample", { company: company || "your prospect" })}
+        {t("ob.s3.draftSample", { company: company || "your prospect" })}
       </div>
       <p className="t-small" style={{ marginTop: 8, fontStyle: "italic" }}>
-        {t("ob.s4.exampleTag")}
+        {t("ob.s3.exampleTag")}
       </p>
       <div className="omit" style={{ marginTop: 16, borderStyle: "solid" }}>
         <GitBranch aria-hidden />
         <div>
-          <div className="l">{t("ob.s4.originLabel")}</div>
-          <p>{t("ob.s4.originBody")}</p>
+          <div className="l">{t("ob.s3.originLabel")}</div>
+          <p>{t("ob.s3.originBody")}</p>
         </div>
       </div>
       <span className="trustpill" style={{ marginTop: 16 }}>
-        <Lock aria-hidden /> {t("ob.s4.stillNothing")}
+        <Lock aria-hidden /> {t("ob.s3.stillNothing")}
       </span>
     </section>
   );
 }
 
-// ---- step 5: connect (REAL IMAP capture) -----------------------------------
+// ---- step 4: connect (REAL IMAP capture) -----------------------------------
 
 type ConnectResult = {
   connected: boolean;
@@ -1229,46 +1330,46 @@ function ConnectStep() {
         } catch {
           detail = "";
         }
-        throw new Error(detail || t("ob.s5.connectFailed"));
+        throw new Error(detail || t("ob.s4.connectFailed"));
       }
       return (await res.json()) as ConnectResult;
     },
   });
 
   const scopes: { lead: MessageKey; rest: MessageKey }[] = [
-    { lead: "ob.s5.scope1Lead", rest: "ob.s5.scope1Rest" },
-    { lead: "ob.s5.scope2Lead", rest: "ob.s5.scope2Rest" },
-    { lead: "ob.s5.scope3Lead", rest: "ob.s5.scope3Rest" },
-    { lead: "ob.s5.scope4Lead", rest: "ob.s5.scope4Rest" },
+    { lead: "ob.s4.scope1Lead", rest: "ob.s4.scope1Rest" },
+    { lead: "ob.s4.scope2Lead", rest: "ob.s4.scope2Rest" },
+    { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
+    { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
   ];
 
   const ready = host.trim() !== "" && email.trim() !== "" && password !== "";
 
   return (
     <section className="ob-panel">
-      <div className="kick">{t("ob.s5.kick")}</div>
+      <div className="kick">{t("ob.s4.kick")}</div>
       <h1 className="ttl">
-        {t("ob.s5.title")} <span className="em">{t("ob.s5.titleEm")}</span>
+        {t("ob.s4.title")} <span className="em">{t("ob.s4.titleEm")}</span>
       </h1>
-      <p className="ob-sub">{t("ob.s5.sub")}</p>
+      <p className="ob-sub">{t("ob.s4.sub")}</p>
 
       {connect.data ? (
         <div className="connect-result">
           <div className="cr-h">
-            <CheckCircle2 aria-hidden /> {t("ob.s5.capturedTitle")}
+            <CheckCircle2 aria-hidden /> {t("ob.s4.capturedTitle")}
           </div>
           <div className="cr-stats">
             <div className="cr-stat">
               <b>{connect.data.captured}</b>
-              <span>{t("ob.s5.statCaptured")}</span>
+              <span>{t("ob.s4.statCaptured")}</span>
             </div>
             <div className="cr-stat">
               <b>{connect.data.contacts}</b>
-              <span>{t("ob.s5.statContacts")}</span>
+              <span>{t("ob.s4.statContacts")}</span>
             </div>
             <div className="cr-stat">
               <b>{connect.data.skipped}</b>
-              <span>{t("ob.s5.statSkipped")}</span>
+              <span>{t("ob.s4.statSkipped")}</span>
             </div>
           </div>
           <Button
@@ -1276,7 +1377,7 @@ function ConnectStep() {
             style={{ marginTop: 16 }}
             onClick={() => navigate({ screen: "home" })}
           >
-            {t("ob.s5.enterCrm")} <ArrowRight aria-hidden />
+            {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
           </Button>
         </div>
       ) : (
@@ -1287,40 +1388,40 @@ function ConnectStep() {
               className={`provtab ${provider === "google" ? "sel" : ""}`}
               onClick={() => setProvider("google")}
             >
-              {t("ob.s5.provGoogle")}
+              {t("ob.s4.provGoogle")}
             </button>
             <button
               type="button"
               className={`provtab ${provider === "microsoft" ? "sel" : ""}`}
               onClick={() => setProvider("microsoft")}
             >
-              {t("ob.s5.provMicrosoft")}
+              {t("ob.s4.provMicrosoft")}
             </button>
             <button
               type="button"
               className={`provtab ${provider === "imap" ? "sel" : ""}`}
               onClick={() => setProvider("imap")}
             >
-              {t("ob.s5.provImap")}
+              {t("ob.s4.provImap")}
             </button>
           </div>
 
           <p className="ob-sub" style={{ margin: "0 auto 6px", maxWidth: 460 }}>
-            {t("ob.s5.oauthSoon")}
+            {t("ob.s4.oauthSoon")}
           </p>
 
           <div className="imap-form">
             <label className="ob-field full">
-              {t("ob.s5.imapHost")}
+              {t("ob.s4.imapHost")}
               <input
                 className="ob-in"
                 value={host}
-                placeholder={t("ob.s5.imapHostPlaceholder")}
+                placeholder={t("ob.s4.imapHostPlaceholder")}
                 onChange={(e) => setHostVal(e.target.value)}
               />
             </label>
             <label className="ob-field full">
-              {t("ob.s5.imapEmail")}
+              {t("ob.s4.imapEmail")}
               <input
                 className="ob-in"
                 type="email"
@@ -1330,7 +1431,7 @@ function ConnectStep() {
               />
             </label>
             <label className="ob-field full">
-              {t("ob.s5.imapPassword")}
+              {t("ob.s4.imapPassword")}
               <input
                 className="ob-in"
                 type="password"
@@ -1340,7 +1441,7 @@ function ConnectStep() {
               />
             </label>
             <label className="ob-field">
-              {t("ob.s5.imapMailbox")}
+              {t("ob.s4.imapMailbox")}
               <input
                 className="ob-in"
                 value={mailbox}
@@ -1348,7 +1449,7 @@ function ConnectStep() {
               />
             </label>
             <label className="ob-field">
-              {t("ob.s5.imapMax")}
+              {t("ob.s4.imapMax")}
               <input
                 className="ob-in"
                 type="number"
@@ -1364,7 +1465,7 @@ function ConnectStep() {
             className="spoken-hint"
             style={{ maxWidth: 460, margin: "12px auto 0" }}
           >
-            <ShieldCheck aria-hidden /> {t("ob.s5.imapHint")}
+            <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
           </p>
 
           {connect.isError && (
@@ -1376,7 +1477,7 @@ function ConnectStep() {
                 <Circle aria-hidden />
               </span>
               <div>
-                <div className="rft">{t("ob.s5.connectFailed")}</div>
+                <div className="rft">{t("ob.s4.connectFailed")}</div>
                 <p className="rfp">{connect.error.message}</p>
               </div>
             </div>
@@ -1390,16 +1491,16 @@ function ConnectStep() {
             >
               {connect.isPending ? (
                 <>
-                  <span className="ob-spinner" /> {t("ob.s5.connecting")}
+                  <span className="ob-spinner" /> {t("ob.s4.connecting")}
                 </>
               ) : (
                 <>
-                  <Mail aria-hidden /> {t("ob.s5.imapConnect")}
+                  <Mail aria-hidden /> {t("ob.s4.imapConnect")}
                 </>
               )}
             </Button>
             <Button onClick={() => navigate({ screen: "home" })}>
-              <SkipForward aria-hidden /> {t("ob.s5.skipLater")}
+              <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
             </Button>
           </div>
 

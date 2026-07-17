@@ -12,10 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
 
-// Onboarding honesty pins: cold-start fields render HUMAN labels (never raw
-// snake_case keys), and the step-4 results tell the truth about a skipped
-// voice step — the neutral-starter copy, not "drafts sound like you", with
-// the canned sample draft visibly tagged as an illustrative example.
+// Onboarding honesty pins: the company step is a form the admin can fill by
+// hand end to end; the website read-back only PRE-FILLS it (never clobbers,
+// never guesses, never stages); Save is the confirmation and needs a name; and
+// the step-3 results tell the truth about a skipped voice step.
 
 afterEach(() => {
   cleanup();
@@ -45,169 +45,276 @@ function render(ui: ReactNode) {
   );
 }
 
-const coldstart = {
-  proposal_id: "018f3a1b-0000-7000-8000-0000000000d0",
-  source_url: "https://gradion.com",
-  status: "staged",
+const readback = {
   fields: [
     {
       field: "legal_name",
-      value: "Gradion",
-      evidence_snippet: "© 2026 Gradion",
+      value: "Gradion GmbH",
+      evidence_snippet: "© 2026 Gradion GmbH",
+      source_kind: "url",
       source_url: "https://gradion.com",
       confidence: 0.9,
     },
     {
-      field: "registered_address",
-      value: "Munich",
-      evidence_snippet: "Europe Munich",
+      field: "icp",
+      value: "Mid-market manufacturers",
+      evidence_snippet: "We serve mid-market manufacturers",
+      source_kind: "url",
       source_url: "https://gradion.com",
       confidence: 0.8,
     },
   ],
 };
 
-async function readBusiness() {
+const savedProfile = {
+  organization_id: "018f3a1b-0000-7000-8000-0000000000a1",
+  display_name: "Gradion",
+  website: "gradion.com",
+  legal_name: "Gradion GmbH",
+};
+
+type Route = { url: string; body: unknown; status?: number };
+
+// The first-run backend: no company saved yet (404), a read-back on demand,
+// and a PUT that echoes what it stored.
+function stubApi(routes: Route[] = []) {
+  const calls: Request[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => jsonResponse(coldstart)),
+    vi.fn(async (req: Request) => {
+      calls.push(req);
+      const route = routes.find((r) => req.url.includes(r.url));
+      if (route) {
+        return jsonResponse(route.body, route.status);
+      }
+      if (req.url.includes("/company")) {
+        return req.method === "PUT"
+          ? jsonResponse(savedProfile)
+          : jsonResponse({ title: "no company yet" }, 404);
+      }
+      if (req.url.includes("/coldstart/preview")) {
+        return jsonResponse(readback);
+      }
+      throw new Error(`unstubbed request: ${req.method} ${req.url}`);
+    }),
   );
-  render(<OnboardingScreen />);
+  return calls;
+}
+
+function requestTo(calls: Request[], path: string, method: string) {
+  return calls.find((r) => r.url.includes(path) && r.method === method);
+}
+
+// The read-back leaves `icp` alone in every case here, so it is the honest
+// anchor for "the read landed" — legal_name may be the human's own.
+async function readWebsite() {
   await userEvent.type(
     screen.getByRole("textbox", { name: "Website" }),
     "gradion.com",
   );
   await userEvent.click(
-    screen.getByRole("button", { name: /Read my business/ }),
+    screen.getByRole("button", { name: /Read my website/ }),
   );
-  await waitFor(() => expect(screen.getByText("Company name")).toBeTruthy());
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+    ).toBe("Mid-market manufacturers"),
+  );
 }
 
-describe("cold-start read-back labels", () => {
-  it("renders the human label for every returned field, never the raw key", async () => {
-    await readBusiness();
-    expect(screen.getByText("Company name")).toBeTruthy();
-    expect(screen.getByText("Registered address")).toBeTruthy();
-    expect(screen.queryByText("legal_name")).toBeNull();
-    expect(screen.queryByText("registered_address")).toBeNull();
-  });
+describe("the company step is a form, not a read-back gate", () => {
+  it("an admin who never touches the website types the whole company and saves it", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
 
-  it("carries the same human labels into the editable confirm step", async () => {
-    await readBusiness();
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    expect(screen.getByLabelText(/Company name/)).toBeTruthy();
-    expect(screen.getByLabelText(/Registered address/)).toBeTruthy();
-  });
-});
-
-describe("confirm step saves the proposal", () => {
-  it("Continue approves the staged proposal with the user's edits and the hand-typed buying center", async () => {
-    await readBusiness();
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    const name = screen.getByLabelText(/Company name/);
-    await userEvent.clear(name);
-    await userEvent.type(name, "Gradion GmbH");
+    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
     await userEvent.type(
-      screen.getByLabelText(/Who buys this/),
-      "Head of Operations",
+      screen.getByLabelText(/Ideal customer/),
+      "Mid-market manufacturers",
     );
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await waitFor(() => {
-      const approve = fetchMock.mock.calls
-        .map((c) => c[0] as Request)
-        .find((r) => r.url.includes("/approvals/"));
-      expect(approve).toBeTruthy();
-    });
-    const approve = fetchMock.mock.calls
-      .map((c) => c[0] as Request)
-      .find((r) => r.url.includes("/approvals/")) as Request;
-    expect(approve.url).toContain(
-      `/v1/approvals/${coldstart.proposal_id}/approve`,
+
+    await waitFor(() =>
+      expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),
     );
-    const body = (await approve.clone().json()) as {
-      edited_payload: {
-        source_url: string;
-        fields: { field: string; value: string; evidence_snippet: string }[];
-      };
-    };
-    expect(body.edited_payload.source_url).toBe(coldstart.source_url);
-    const edited = body.edited_payload.fields.find(
-      (f) => f.field === "legal_name",
-    );
-    // A human-corrected value must not carry the site's snippet as evidence.
-    expect(edited?.value).toBe("Gradion GmbH");
-    expect(edited?.evidence_snippet).toBe("");
-    const buyerField = body.edited_payload.fields.find(
-      (f) => f.field === "buying_center",
-    );
-    expect(buyerField?.value).toBe("Head of Operations");
+    const put = requestTo(calls, "/company", "PUT") as Request;
+    const body = (await put.clone().json()) as Record<string, string>;
+    expect(body.display_name).toBe("Gradion");
+    expect(body.icp).toBe("Mid-market manufacturers");
+    // Nothing is staged and nothing is approved — the form IS the 🟡 gate.
+    expect(calls.some((r) => r.url.includes("/approvals"))).toBe(false);
+    expect(calls.some((r) => r.url.includes("/coldstart/preview"))).toBe(false);
   });
 
-  it("an untouched confirm approves as staged, without an edited payload", async () => {
-    await readBusiness();
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+  it("an empty company name blocks the save and says so", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await waitFor(() => {
-      const approve = fetchMock.mock.calls
-        .map((c) => c[0] as Request)
-        .find((r) => r.url.includes("/approvals/"));
-      expect(approve).toBeTruthy();
-    });
-    const approve = fetchMock.mock.calls
-      .map((c) => c[0] as Request)
-      .find((r) => r.url.includes("/approvals/")) as Request;
-    const body = (await approve.clone().json()) as Record<string, unknown>;
-    expect(body.edited_payload).toBeUndefined();
+
+    expect(
+      screen.getByText(/Give your company a name — everything else can wait\./),
+    ).toBeTruthy();
+    expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
+    // still on the company step
+    expect(screen.getByLabelText(/Ideal customer/)).toBeTruthy();
   });
 
-  it("a failed save stays on the confirm step and names the cause", async () => {
-    await readBusiness();
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    fetchMock.mockImplementation(async (req: Request) => {
-      if (req.url.includes("/approvals/")) {
-        return jsonResponse({ detail: "approval expired" }, 422);
-      }
-      return jsonResponse(coldstart);
-    });
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    expect(await screen.findByText("Couldn't save your profile")).toBeTruthy();
-    expect(screen.getByText("approval expired")).toBeTruthy();
-    // still on step 2 — the fields remain editable
-    expect(screen.getByLabelText(/Company name/)).toBeTruthy();
+  it("renders the human label for every field, never the raw contract key", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+    await readWebsite();
+
+    expect(screen.getByLabelText(/Registered legal name/)).toBeTruthy();
+    expect(screen.getByLabelText(/Ideal customer/)).toBeTruthy();
+    expect(screen.queryByText("legal_name")).toBeNull();
+    expect(screen.queryByText("icp")).toBeNull();
   });
 });
 
-describe("connect step is skippable", () => {
-  it("the mailbox-connect step offers a skip beside the connect CTA that exits to home", async () => {
-    await readBusiness();
+describe("the website read-back pre-fills the form", () => {
+  it("fills the grounded fields with their evidence and confidence, and leaves the rest empty", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+    await readWebsite();
+
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+    ).toBe("Mid-market manufacturers");
+    expect(screen.getByText(/© 2026 Gradion GmbH/)).toBeTruthy();
+    expect(screen.getAllByText("read from site").length).toBe(2);
+    // Ungrounded fields stay blank — the no-guess gate, not an invented value.
+    expect(
+      (screen.getByLabelText(/Register \/ VAT ID/) as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  it("never clobbers a field the human already typed into", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+
+    await userEvent.type(
+      screen.getByLabelText(/Registered legal name/),
+      "Gradion Holding SE",
+    );
+    await readWebsite();
+
+    const legal = screen.getByLabelText(
+      /Registered legal name/,
+    ) as HTMLInputElement;
+    expect(legal.value).toBe("Gradion Holding SE");
+    expect(screen.queryByText(/© 2026 Gradion GmbH/)).toBeNull();
+    // The untouched field still takes the read-back's value.
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+    ).toBe("Mid-market manufacturers");
+  });
+
+  it("a pre-filled field the human edits becomes theirs — their value, no site evidence", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+    await readWebsite();
+
+    const legal = screen.getByLabelText(/Registered legal name/);
+    await userEvent.clear(legal);
+    await userEvent.type(legal, "Gradion Holding SE");
+
+    expect((legal as HTMLInputElement).value).toBe("Gradion Holding SE");
+    expect(screen.queryByText(/© 2026 Gradion GmbH/)).toBeNull();
+    expect(screen.getAllByText("typed by you").length).toBeGreaterThan(0);
+
+    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Skip this step" }),
+    await waitFor(() =>
+      expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),
+    );
+    const body = (await (requestTo(calls, "/company", "PUT") as Request)
+      .clone()
+      .json()) as Record<string, string>;
+    expect(body.legal_name).toBe("Gradion Holding SE");
+  });
+
+  it("a read that grounds nothing names the cause and leaves the form fillable", async () => {
+    stubApi([
+      {
+        url: "/coldstart/preview",
+        body: { detail: "couldn't ground any field" },
+        status: 422,
+      },
+    ]);
+    render(<OnboardingScreen />);
+
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Website" }),
+      "gradion.com",
     );
     await userEvent.click(
-      screen.getByRole("button", { name: /Connect my inbox/ }),
+      screen.getByRole("button", { name: /Read my website/ }),
     );
-    const skip = screen.getByRole("button", {
-      name: /Skip for now — I'll connect later/,
-    });
-    await userEvent.click(skip);
-    expect(window.location.hash).toBe("#/home");
+
+    expect(
+      await screen.findByText("Couldn't read enough from this page"),
+    ).toBeTruthy();
+    expect(screen.getByText("couldn't ground any field")).toBeTruthy();
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+    ).toBe("");
   });
 });
 
-describe("step-4 honesty about the voice step", () => {
+describe("a returning admin edits the saved company", () => {
+  it("pre-fills the form from GET /company instead of making them retype it", async () => {
+    stubApi([{ url: "/company", body: savedProfile }]);
+    render(<OnboardingScreen />);
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/Company name/) as HTMLInputElement).value,
+      ).toBe("Gradion"),
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "Website" }) as HTMLInputElement)
+        .value,
+    ).toBe("gradion.com");
+    expect(
+      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
+        .value,
+    ).toBe("Gradion GmbH");
+  });
+});
+
+describe("saving the company", () => {
+  it("a failed save stays on the company step and names the cause", async () => {
+    stubApi([
+      {
+        url: "/company",
+        body: { detail: "database unavailable" },
+        status: 503,
+      },
+    ]);
+    render(<OnboardingScreen />);
+
+    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    expect(await screen.findByText("Couldn't save your company")).toBeTruthy();
+    expect(screen.getByText("database unavailable")).toBeTruthy();
+    expect(screen.getByLabelText(/Ideal customer/)).toBeTruthy();
+  });
+});
+
+describe("step-3 honesty about the voice step", () => {
   it("a skipped voice step gets the neutral-starter copy and the example tag — not 'sounds like you'", async () => {
-    await readBusiness();
+    stubApi();
+    render(<OnboardingScreen />);
+
+    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    // now on step 3 (voice) — skip it
+    // now on the voice step — skip it
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),
     );
+
     expect(screen.getByText(/You skipped the voice step/)).toBeTruthy();
     expect(
       screen.queryByText(/Drafts will sound like you from day one/),
@@ -216,5 +323,26 @@ describe("step-4 honesty about the voice step", () => {
     expect(
       screen.getByText(/Illustrative example — not written from your data/),
     ).toBeTruthy();
+  });
+});
+
+describe("connect step is skippable", () => {
+  it("the mailbox-connect step offers a skip beside the connect CTA that exits to home", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+
+    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Skip this step" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Connect my inbox/ }),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Skip for now — I'll connect later/ }),
+    );
+    expect(window.location.hash).toBe("#/home");
   });
 });

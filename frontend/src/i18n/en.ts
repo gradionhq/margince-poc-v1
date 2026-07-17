@@ -728,8 +728,7 @@ export const en = {
 
   "ob.title": "Welcome to Margince",
   "ob.sub": "value first — connecting your mailbox comes last, not first",
-  "ob.read": "Read",
-  "ob.confirm": "Confirm",
+  "ob.company": "Company",
   "ob.voice": "Voice",
   "ob.results": "Results",
   "ob.connect": "Connect",
@@ -742,13 +741,23 @@ export const en = {
   "ob.skipSetupHint":
     "Go straight into an empty CRM — you can run setup any time from Settings",
 
-  "ob.s1.kick": "Step 1 of 5 · takes 2 minutes",
+  "ob.s1.kick": "Step 1 of 4 · takes 2 minutes",
   "ob.s1.title": "Let's set up your CRM.",
-  "ob.s1.titleEm": "Start with your website.",
+  "ob.s1.titleEm": "Start with your company.",
   "ob.s1.sub":
-    "Paste your company URL and we'll read your business back to you — what you sell, who you sell to, why you win. No account, no mailbox, nothing connected yet.",
+    "Write this yourself, or paste your website and we'll fill in what we can quote from it. Nothing is saved until you continue — every word here is yours to change first.",
   "ob.s1.urlPlaceholder": "yourcompany.com",
-  "ob.readGo": "Read my business",
+  "ob.s1.identityLabel": "Your company",
+  "ob.s1.positioningLabel": "What you sell, and to whom",
+  "ob.s1.nameRequired": "Give your company a name — everything else can wait.",
+  "ob.s1.saving": "Saving…",
+  "ob.s1.saveFailed": "Couldn't save your company",
+  "ob.s1.savedNote":
+    "Saved to your workspace. Change anything here and continue to save it again.",
+  "ob.s1.omitLabel": "Nothing was invented",
+  "ob.s1.omitBody":
+    "We filled only the fields we could quote from your site, and left your own words alone. The rest stayed blank — they're yours to write.",
+  "ob.readGo": "Read my website",
   "ob.reading": "Reading…",
   "ob.readAgain": "Read again",
   "ob.trustPublic": "We only read your public website. No login required.",
@@ -761,11 +770,7 @@ export const en = {
     "Already using another CRM? Import your data instead — bring contacts, companies and open deals across.",
   "ob.fromHubspot": "From HubSpot",
   "ob.fromSalesforce": "From Salesforce",
-  "ob.readbackFrom": "{host} · here's what we read back",
   "ob.readFromSite": "read from site",
-  "ob.omitLabel": "Who buys this",
-  "ob.omitBody":
-    "We couldn't find this on your site — so we won't guess. You'll add it in the next step.",
   "ob.failTitle": "Couldn't read enough from this page",
   "ob.failBody":
     "We reached the site but couldn't pull enough public copy to ground a profile — so we won't guess. Nothing was saved.",
@@ -775,47 +780,33 @@ export const en = {
     "It may be a login wall, a holding page, or block automated reads in robots.txt",
   "ob.failWhy3": "There may simply be too little text to work from",
   "ob.tryAnother": "Try another URL",
-  "ob.fillByHand": "Fill it in by hand instead",
 
+  "ob.field.display_name": "Company name",
   "ob.field.icp": "Ideal customer",
   "ob.field.buying_center": "Who buys",
   "ob.field.value_proposition": "Value proposition",
   "ob.field.usp": "What sets you apart",
   "ob.field.buying_intents": "Buying intents",
-  "ob.field.legal_name": "Company name",
+  "ob.field.legal_name": "Registered legal name",
   "ob.field.registered_address": "Registered address",
   "ob.field.register_vat": "Register / VAT ID",
   "ob.field.industry": "Industry",
   "ob.field.history": "Company history",
 
-  "ob.s2.kick": "Step 2 of 5",
-  "ob.s2.title": "Did we get it right?",
+  "ob.s2.kick": "Step 2 of 4 · optional",
+  "ob.s2.title": "Now let's learn",
+  "ob.s2.titleEm": "how you really write.",
   "ob.s2.sub":
-    "Fix anything below — when you continue, this is saved to your workspace as confirmed by you. We left buying-center blank rather than guess, so tell us who you sell to.",
-  "ob.s2.saving": "Saving…",
-  "ob.s2.saveFailed": "Couldn't save your profile",
-  "ob.s2.savedNote":
-    "Saved to your workspace. Later changes live on your company page — this step won't re-save.",
-  "ob.s2.buyerLabel": "Who buys this?",
-  "ob.s2.buyerHint": "we couldn't read this — your turn",
-  "ob.s2.buyerPlaceholder": "e.g. Head of Operations, Plant Manager, VP Sales",
-  "ob.s2.nothingRead":
-    "Nothing was read yet — go back and read your site, or fill this in by hand.",
-
-  "ob.s3.kick": "Step 3 of 5 · optional",
-  "ob.s3.title": "Now let's learn",
-  "ob.s3.titleEm": "how you really write.",
-  "ob.s3.sub":
     "We don't guess your tone from two emails. Feed us a real corpus — posts, emails, and especially call transcripts — and we model your actual voice: cadence, signature moves, the words you use and the ones you never do. Aim for ~30,000 words. Everything stays in your workspace.",
-  "ob.s3.optinTitle": "Why now — and why it's optional.",
-  "ob.s3.optinBody":
+  "ob.s2.optinTitle": "Why now — and why it's optional.",
+  "ob.s2.optinBody":
     "You've seen your business read back (Step 1) and you'll see a working draft next (Step 4). This step makes those drafts sound unmistakably like you. It's the one step that asks for your own content, so it's entirely your call.",
-  "ob.s3.optinYes": "Yes, build my voice now",
-  "ob.s3.optinSkip": "Skip — I'll do this later in Settings",
-  "ob.s3.dropTitle": "Drag & drop files here, or browse",
-  "ob.s3.dropFmt":
+  "ob.s2.optinYes": "Yes, build my voice now",
+  "ob.s2.optinSkip": "Skip — I'll do this later in Settings",
+  "ob.s2.dropTitle": "Drag & drop files here, or browse",
+  "ob.s2.dropFmt":
     ".txt .md .vtt .srt .json · text only · we keep only your turns",
-  "ob.s3.dropSkipped":
+  "ob.s2.dropSkipped":
     "Skipped {files} — not a text format. Convert to .txt/.md or paste the text instead.",
   "ob.reg.spoken": "spoken",
   "ob.reg.written": "written",
@@ -834,105 +825,105 @@ export const en = {
   "ob.src.chatHint": "Messages you sent",
   "ob.src.memos": "Voice memos",
   "ob.src.memosHint": "Record a 2-min monologue — transcribed",
-  "ob.s3.lockedWords": "+{count} words when connected",
-  "ob.s3.addedWords": "+{count} words",
-  "ob.s3.words": "{count} / {target} words",
-  "ob.s3.qualStart": "add a few sources to start",
-  "ob.s3.qualThin": "thin — add a transcript or two",
-  "ob.s3.qualGood": "good — getting there",
-  "ob.s3.qualRich": "rich — a distinctive voice takes shape",
-  "ob.s3.qualSharp": "sharp — unmistakably you",
-  "ob.s3.mix": "spoken {spoken}% · written {written}% · {sources} sources",
-  "ob.s3.spokenHint":
+  "ob.s2.lockedWords": "+{count} words when connected",
+  "ob.s2.addedWords": "+{count} words",
+  "ob.s2.words": "{count} / {target} words",
+  "ob.s2.qualStart": "add a few sources to start",
+  "ob.s2.qualThin": "thin — add a transcript or two",
+  "ob.s2.qualGood": "good — getting there",
+  "ob.s2.qualRich": "rich — a distinctive voice takes shape",
+  "ob.s2.qualSharp": "sharp — unmistakably you",
+  "ob.s2.mix": "spoken {spoken}% · written {written}% · {sources} sources",
+  "ob.s2.spokenHint":
     "A handful of call transcripts beats 30 LinkedIn posts — spoken sources carry your real cadence. For transcripts we keep only your turns.",
-  "ob.s3.emailCallout":
+  "ob.s2.emailCallout":
     "Your sent emails are your richest voice source. This starter voice gets much sharper the moment you connect your inbox (the last step), then keeps learning from every email you send.",
-  "ob.s3.build": "Build my voice profile",
-  "ob.s3.modelling": "Modelling your voice from {count} words…",
-  "ob.s3.starterVoice": "your starter voice",
-  "ob.s3.vpMeta": "{count} words · {sources} sources · good",
-  "ob.s3.vpLead": "Direct, warm, straight from the work.",
-  "ob.s3.vpRest":
+  "ob.s2.build": "Build my voice profile",
+  "ob.s2.modelling": "Modelling your voice from {count} words…",
+  "ob.s2.starterVoice": "your starter voice",
+  "ob.s2.vpMeta": "{count} words · {sources} sources · good",
+  "ob.s2.vpLead": "Direct, warm, straight from the work.",
+  "ob.s2.vpRest":
     "Short declarative sentences with the occasional long build-up. Backs opinions with specific numbers and names, not abstractions. Low on corporate filler.",
-  "ob.s3.movesLabel": "Signature moves",
-  "ob.s3.move1": "Opens with a blunt claim or a hard number",
-  "ob.s3.move2": "Backs it with a specific, lived example — names, figures",
-  "ob.s3.move3": "Ends with a direct next step or a question",
-  "ob.s3.moveNever":
+  "ob.s2.movesLabel": "Signature moves",
+  "ob.s2.move1": "Opens with a blunt claim or a hard number",
+  "ob.s2.move2": "Backs it with a specific, lived example — names, figures",
+  "ob.s2.move3": "Ends with a direct next step or a question",
+  "ob.s2.moveNever":
     'Never: corporate filler, hedging, "I hope this finds you well"',
-  "ob.s3.sampleLabel": "Sample draft in your voice",
-  "ob.s3.vpFootnote":
+  "ob.s2.sampleLabel": "Sample draft in your voice",
+  "ob.s2.vpFootnote":
     "A starter from {count} words. Connect your inbox next and your sent email pushes this from good → sharp — then it keeps learning from every email you send.",
 
-  "ob.s4.kick": "Step 4 of 5",
-  "ob.s4.title": "Look what you've built —",
-  "ob.s4.titleEm": "with nothing connected.",
-  "ob.s4.sub":
+  "ob.s3.kick": "Step 3 of 4",
+  "ob.s3.title": "Look what you've built —",
+  "ob.s3.titleEm": "with nothing connected.",
+  "ob.s3.sub":
     "Your workspace already knows your business and your voice. Connect your inbox next and it fills itself with your real people, companies, and deals.",
-  "ob.s4.cardProfile": "Business profile",
-  "ob.s4.cardProfileBody":
+  "ob.s3.cardProfile": "Business profile",
+  "ob.s3.cardProfileBody":
     "What we read from your site is confirmed and saved to your company page — each field with its source.",
-  "ob.s4.cardProfileSkippedBody":
+  "ob.s3.cardProfileSkippedBody":
     "Read back from your site but not saved yet — you skipped the confirm step. Go back and confirm to put it on your company page.",
-  "ob.s4.cardVoice": "Your writing voice",
-  "ob.s4.cardVoiceBody":
+  "ob.s3.cardVoice": "Your writing voice",
+  "ob.s3.cardVoiceBody":
     "Built from the corpus you just gave us. Drafts will sound like you from day one.",
-  "ob.s4.cardVoiceSkippedBody":
+  "ob.s3.cardVoiceSkippedBody":
     "You skipped the voice step — drafts start in a neutral starter voice until you build yours. Two minutes, anytime, in Settings.",
-  "ob.s4.cardPipeline": "Sales pipeline",
-  "ob.s4.cardPipelineBody":
+  "ob.s3.cardPipeline": "Sales pipeline",
+  "ob.s3.cardPipelineBody":
     "The standard 7-stage B2B template, pre-tuned to your industry. Empty until you connect — then deals fill in from your mail.",
-  "ob.s4.cardDraft": "A sample draft, in your voice",
-  "ob.s4.cardDraftExample": "A sample draft",
-  "ob.s4.cardDraftBody": "See it below.",
-  "ob.s4.exampleTag": "Illustrative example — not written from your data yet",
-  "ob.s4.draftSample":
+  "ob.s3.cardDraft": "A sample draft, in your voice",
+  "ob.s3.cardDraftExample": "A sample draft",
+  "ob.s3.cardDraftBody": "See it below.",
+  "ob.s3.exampleTag": "Illustrative example — not written from your data yet",
+  "ob.s3.draftSample":
     "Subject: Quick question on your assembly line\n\nHi {{name}} — saw {company} runs discrete assembly at scale. We help teams like yours get a working robotic cell running in 6 weeks without ripping out your existing PLCs. Worth a 15-minute look? Best, Lars",
-  "ob.s4.originLabel": "Where this pipeline comes from",
-  "ob.s4.originBody":
+  "ob.s3.originLabel": "Where this pipeline comes from",
+  "ob.s3.originBody":
     "No magic — it's the standard B2B stage template, tuned to your industry from the Step-1 read. It's empty right now. When you connect your inbox, capture reads your sent mail and meetings, then proposes deals into these stages — each one evidenced and reversible. You approve what becomes a deal.",
-  "ob.s4.stillNothing":
+  "ob.s3.stillNothing":
     "Still nothing connected. You're in control of when that changes.",
-  "ob.s4.cta": "Connect my inbox",
+  "ob.s3.cta": "Connect my inbox",
 
-  "ob.s5.kick": "Step 5 of 5 · the last step",
-  "ob.s5.title": "Ready to",
-  "ob.s5.titleEm": "bring it to life?",
-  "ob.s5.sub":
+  "ob.s4.kick": "Step 4 of 4 · the last step",
+  "ob.s4.title": "Ready to",
+  "ob.s4.titleEm": "bring it to life?",
+  "ob.s4.sub":
     "You've built the brain. Connect your inbox and your CRM fills itself — people, companies, and deals captured automatically, so you never type them.",
-  "ob.s5.provGoogle": "Google",
-  "ob.s5.provMicrosoft": "Microsoft",
-  "ob.s5.provImap": "Any inbox (IMAP)",
-  "ob.s5.googleBtn": "Continue with Google",
-  "ob.s5.msBtn": "Continue with Microsoft",
-  "ob.s5.oauthSoon":
+  "ob.s4.provGoogle": "Google",
+  "ob.s4.provMicrosoft": "Microsoft",
+  "ob.s4.provImap": "Any inbox (IMAP)",
+  "ob.s4.googleBtn": "Continue with Google",
+  "ob.s4.msBtn": "Continue with Microsoft",
+  "ob.s4.oauthSoon":
     "One-click Google & Microsoft sign-in is coming. Connect any mailbox right now over IMAP — it's a real, live capture.",
-  "ob.s5.imapHost": "IMAP host",
-  "ob.s5.imapHostPlaceholder": "imap.gmail.com",
-  "ob.s5.imapEmail": "Email",
-  "ob.s5.imapPassword": "App password",
-  "ob.s5.imapMailbox": "Mailbox",
-  "ob.s5.imapMax": "How many recent emails",
-  "ob.s5.imapHint":
+  "ob.s4.imapHost": "IMAP host",
+  "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapEmail": "Email",
+  "ob.s4.imapPassword": "App password",
+  "ob.s4.imapMailbox": "Mailbox",
+  "ob.s4.imapMax": "How many recent emails",
+  "ob.s4.imapHint":
     "Use an app-specific password (Gmail: Account → Security → App passwords). We pull your recent mail once, capture it as activities, and never store your password.",
-  "ob.s5.imapConnect": "Connect & capture",
-  "ob.s5.connecting": "Connecting securely…",
-  "ob.s5.scope1Lead": "We read — we don't clutter.",
-  "ob.s5.scope1Rest":
+  "ob.s4.imapConnect": "Connect & capture",
+  "ob.s4.connecting": "Connecting securely…",
+  "ob.s4.scope1Lead": "We read — we don't clutter.",
+  "ob.s4.scope1Rest":
     "Your mail becomes contacts, companies and activities, captured automatically.",
-  "ob.s5.scope2Lead": "We never send anything without your approval.",
-  "ob.s5.scope2Rest": "Drafts wait in your approval inbox.",
-  "ob.s5.scope3Lead": "Your data stays in your workspace.",
-  "ob.s5.scope3Rest": "Own-your-data — export or delete everything anytime.",
-  "ob.s5.scope4Lead": "Disconnect in one click.",
-  "ob.s5.scope4Rest": "The CRM keeps working; it just stops capturing.",
-  "ob.s5.capturedTitle": "Your inbox is live in your CRM",
-  "ob.s5.statCaptured": "captured",
-  "ob.s5.statContacts": "contacts",
-  "ob.s5.statSkipped": "skipped",
-  "ob.s5.enterCrm": "Enter your CRM",
-  "ob.s5.connectFailed": "Couldn't connect that mailbox",
-  "ob.s5.skipLater": "Skip for now — I'll connect later",
+  "ob.s4.scope2Lead": "We never send anything without your approval.",
+  "ob.s4.scope2Rest": "Drafts wait in your approval inbox.",
+  "ob.s4.scope3Lead": "Your data stays in your workspace.",
+  "ob.s4.scope3Rest": "Own-your-data — export or delete everything anytime.",
+  "ob.s4.scope4Lead": "Disconnect in one click.",
+  "ob.s4.scope4Rest": "The CRM keeps working; it just stops capturing.",
+  "ob.s4.capturedTitle": "Your inbox is live in your CRM",
+  "ob.s4.statCaptured": "captured",
+  "ob.s4.statContacts": "contacts",
+  "ob.s4.statSkipped": "skipped",
+  "ob.s4.enterCrm": "Enter your CRM",
+  "ob.s4.connectFailed": "Couldn't connect that mailbox",
+  "ob.s4.skipLater": "Skip for now — I'll connect later",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",

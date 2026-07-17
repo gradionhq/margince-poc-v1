@@ -329,6 +329,9 @@ export function isAlreadyDecided(problem: unknown): boolean {
 // rendered as human labels; an unmapped field falls back to its key with the
 // underscores spaced out — readable, never raw snake_case.
 const COLD_FIELD_LABELS: Record<string, MessageKey> = {
+  // display_name is the company form's own field, not one a read-back can
+  // ground — it shares this map so both surfaces name it the same way.
+  display_name: "ob.field.display_name",
   icp: "ob.field.icp",
   buying_center: "ob.field.buying_center",
   value_proposition: "ob.field.value_proposition",
