@@ -60,6 +60,19 @@ embeddings: {provider: ollama, model: bge-m3}
 	}
 }
 
+// The native cloud adapters are refused under sovereign too — the guarantee is
+// bound to provider identity, not to any config flag (spec §3.6).
+func TestSovereignRefusesNativeCloudProviders(t *testing.T) {
+	for _, provider := range []string{"openai", "gemini"} {
+		t.Run(provider, func(t *testing.T) {
+			cfg := []byte("profile: sovereign\ntiers:\n  premium: {provider: " + provider + ", api_key: k, model: m}\nembeddings: {provider: ollama, model: bge-m3}\n")
+			if _, err := ParseRouting(cfg); err == nil || !strings.Contains(err.Error(), "sovereign forbids cloud provider") {
+				t.Fatalf("%s: want sovereign-forbids-cloud, got %v", provider, err)
+			}
+		})
+	}
+}
+
 // LocalOnly (the runtime capability) and localProviders (the parse-time set)
 // are two encodings of "is this cloud"; they may never disagree.
 func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
