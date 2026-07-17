@@ -133,6 +133,50 @@ func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs
 	return enumErr
 }
 
+// GmailPushArgs schedules one targeted incremental sync for every connection
+// bound to a mailbox a Gmail Pub/Sub push named. Inserted by the api role's
+// push webhook (gmailpush.go); executed here in the worker — the same
+// api-enqueues/worker-executes split the poll uses (CAP-WIRE-N-4).
+type GmailPushArgs struct {
+	EmailAddress string `json:"email_address"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (GmailPushArgs) Kind() string { return "gmail_push_sync" }
+
+// gmailPushInsertOpts coalesces redeliveries: while a push-sync for the same
+// mailbox is queued or running, an identical push is a no-op (Pub/Sub is
+// at-least-once). Not a correctness guard — SyncOnce is already idempotent on
+// the capture key — but it keeps a notification burst from fanning out.
+func gmailPushInsertOpts() *river.InsertOpts {
+	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}}
+}
+
+// gmailPushWorker resolves the pushed mailbox to its connection(s) across the
+// fleet and runs one SyncOnce each under the connection's workspace. A single
+// connection's failure is logged and skipped; only a fleet-enumeration failure
+// is returned (River then retries the job). The pushed historyId is ignored —
+// SyncOnce owns the cursor.
+type gmailPushWorker struct {
+	river.WorkerDefaults[GmailPushArgs]
+	registry *capture.Registry
+	log      *slog.Logger
+}
+
+func (w *gmailPushWorker) Work(ctx context.Context, job *river.Job[GmailPushArgs]) error {
+	due, enumErr := w.registry.ResolveByAccountEmail(ctx, "gmail", job.Args.EmailAddress)
+	if enumErr != nil {
+		return enumErr
+	}
+	for _, d := range due {
+		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
+		if err := w.registry.SyncOnce(wsCtx, d.ID); err != nil {
+			w.log.WarnContext(ctx, "gmail push sync failed", "connection", d.ID.String(), "err", err)
+		}
+	}
+	return nil
+}
+
 // activeSweepStates is the uniqueness window for the periodic passes: a new
 // tick is suppressed only while a prior run is still in flight (available,
 // pending, running, scheduled, retryable) — reproducing the old ticker's
@@ -184,6 +228,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, closeDateInterval, recon
 
 	if gmailReg != nil {
 		river.AddWorker(workers, &gmailSyncWorker{registry: gmailReg, log: log})
+		river.AddWorker(workers, &gmailPushWorker{registry: gmailReg, log: log})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(gmailInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },

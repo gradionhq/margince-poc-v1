@@ -16,6 +16,29 @@ func TestJobKindsAreStable(t *testing.T) {
 	if got := (FollowUpReconcileArgs{}).Kind(); got != "follow_up_reconcile" {
 		t.Errorf("FollowUpReconcileArgs.Kind() = %q, want follow_up_reconcile", got)
 	}
+	if got := (GmailPushArgs{}).Kind(); got != "gmail_push_sync" {
+		t.Errorf("GmailPushArgs.Kind() = %q, want gmail_push_sync", got)
+	}
+}
+
+// TestGmailPushInsertOptsDedupesByArgs is the load-bearing invariant for the
+// push webhook (Task 8, gmailpush.go): a Pub/Sub redelivery for the same
+// mailbox while a prior push-sync is in flight must be suppressed (ByArgs),
+// over the same in-flight window the periodic sweeps use — never including
+// completed, so a finished push-sync does not block the next one.
+func TestGmailPushInsertOptsDedupesByArgs(t *testing.T) {
+	opts := gmailPushInsertOpts()
+	if !opts.UniqueOpts.ByArgs {
+		t.Error("gmailPushInsertOpts: ByArgs = false, want true (dedupe redeliveries for the same mailbox)")
+	}
+	if len(opts.UniqueOpts.ByState) != len(activeSweepStates) {
+		t.Fatalf("gmailPushInsertOpts: ByState = %v, want activeSweepStates", opts.UniqueOpts.ByState)
+	}
+	for i, s := range activeSweepStates {
+		if opts.UniqueOpts.ByState[i] != s {
+			t.Errorf("gmailPushInsertOpts: ByState[%d] = %v, want %v", i, opts.UniqueOpts.ByState[i], s)
+		}
+	}
 }
 
 // TestUniquenessWindowExcludesCompleted is the load-bearing invariant: the

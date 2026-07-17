@@ -12,12 +12,17 @@ package integration
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -98,5 +103,92 @@ func TestResolveByAccountEmailFindsConnected(t *testing.T) {
 	}
 	if len(empty) != 0 {
 		t.Fatalf("ResolveByAccountEmail(empty) = %+v, want empty", empty)
+	}
+}
+
+func countActivities(t *testing.T, e *searchEnv) int {
+	t.Helper()
+	var n int
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity`).Scan(&n)
+	})
+	if err != nil {
+		t.Fatalf("counting activity: %v", err)
+	}
+	return n
+}
+
+// TestGmailPushJobSyncsAndRedeliveryIsNoop proves the api-enqueues/worker-executes
+// split end to end: an inserter (standing in for the push webhook) enqueues a
+// GmailPushArgs job, the worker resolves the mailbox and runs SyncOnce, and a
+// second, identical push (Pub/Sub's at-least-once redelivery) leaves the
+// activity count unchanged — SyncOnce's capture key + cursor make the resync a
+// no-op (ADR-0062, CAP-WIRE-N-4).
+func TestGmailPushJobSyncsAndRedeliveryIsNoop(t *testing.T) {
+	e := setupSearch(t)
+	applyRiverSchema(t)
+	const owner = "rep@ws.example"
+
+	stub := gmailStub(t, owner)
+	oauth := gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", TokenURL: stub.URL + "/token"})
+	api := gmail.NewAPI(stub.Client(), stub.URL)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(gmail.New(oauth, api))
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	authReq, err := gmail.AuthRequestFrom("the-code", "https://app.test/v1/connectors/gmail/callback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := gmail.New(oauth, api).Authenticate(context.Background(), authReq)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if _, err := registry.Connect(grantCtx, "gmail", auth); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	runner, err := compose.NewJobRunner(e.Pool, quiet, time.Hour, time.Hour, registry, time.Hour, compose.GmailWatchConfig{})
+	if err != nil {
+		t.Fatalf("NewJobRunner: %v", err)
+	}
+	sub, cancelSub := runner.SubscribeCompleted()
+	defer cancelSub()
+	if err := runner.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = runner.Stop(stopCtx)
+	}()
+
+	ins, err := jobs.NewInserter(e.Pool, quiet)
+	if err != nil {
+		t.Fatalf("NewInserter: %v", err)
+	}
+
+	// First push: the job runs SyncOnce and captures the stubbed mailbox.
+	if err := ins.Insert(context.Background(), compose.GmailPushArgs{EmailAddress: owner}, nil); err != nil {
+		t.Fatalf("Insert push job: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	awaitWatchKindCompleted(waitCtx, t, sub, compose.GmailPushArgs{}.Kind())
+	after := countActivities(t, e)
+	if after == 0 {
+		t.Fatalf("first push captured nothing; want >0 activities")
+	}
+
+	// Redelivery: a second push over the same window creates no new rows.
+	if err := ins.Insert(context.Background(), compose.GmailPushArgs{EmailAddress: owner}, nil); err != nil {
+		t.Fatalf("Insert redelivery job: %v", err)
+	}
+	waitCtx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel2()
+	awaitWatchKindCompleted(waitCtx2, t, sub, compose.GmailPushArgs{}.Kind())
+	if got := countActivities(t, e); got != after {
+		t.Fatalf("redelivery changed activity count: before=%d after=%d (want no-op)", after, got)
 	}
 }
