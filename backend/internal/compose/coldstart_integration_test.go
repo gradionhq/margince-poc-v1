@@ -196,6 +196,72 @@ func TestColdStartSelfDescriptionGroundsOnlyWhatTheStatementSupports(t *testing.
 	}
 }
 
+// The preview is the read-back the FORM consumes: same extraction, same
+// no-guess gate, and — the whole difference from Propose — it stages NOTHING.
+// The unsaved form is the staged state; PUT /company is the human's write.
+func TestColdStartPreviewReturnsEvidencedFieldsAndStagesNothing(t *testing.T) {
+	e := integration.Setup(t)
+	brain := ai.NewFakeClient().Script(`{"fields":[
+		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9},
+		{"field":"icp","value":"RevOps at SaaS scale-ups","evidence_snippet":"Built for RevOps leaders at scaling SaaS companies","confidence":0.7},
+		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"a claim the page never makes","confidence":0.9}]}`)
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.Pool)}
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
+
+	fields, err := engine.Readback(ctx, fromURL("https://acme.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The gate is the same one Propose runs: the unquotable legal_name drops.
+	if len(fields) != 2 {
+		t.Fatalf("preview returned %d fields, want 2 (evidence not on the page must drop): %+v", len(fields), fields)
+	}
+	page := string(acmePage)
+	for _, f := range fields {
+		if !strings.Contains(page, f.EvidenceSnippet) {
+			t.Fatalf("field %s cites %q, which is not verbatim on the page", f.Field, f.EvidenceSnippet)
+		}
+		if f.SourceKind != crmcontracts.ColdStartFieldSourceKindUrl || f.SourceUrl == nil {
+			t.Fatalf("field %s source = %s/%v, want url with its source_url", f.Field, f.SourceKind, f.SourceUrl)
+		}
+	}
+
+	// Nothing was staged and nothing was announced — a preview is a read, and
+	// a human who abandons the form leaves no approval behind for someone else
+	// to find in the inbox.
+	var approvalRows, events int
+	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM approval`).Scan(&approvalRows); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'coldstart.read_back_proposed'`).Scan(&events)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvalRows != 0 || events != 0 {
+		t.Fatalf("preview staged %d approvals and announced %d events, want 0/0 — staging is what /coldstart is for",
+			approvalRows, events)
+	}
+}
+
+// The no-guess gate is honest in the preview too: a read-back that can quote
+// nothing is refused, never padded with a plausible guess for the form to
+// pre-fill.
+func TestColdStartPreviewRefusesWhatItCannotQuote(t *testing.T) {
+	e := integration.Setup(t)
+	brain := ai.NewFakeClient().Script(
+		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`)
+	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.Pool)}
+
+	var unreadable *unreadableError
+	_, err := engine.Readback(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromURL("https://acme.example"))
+	if !errors.As(err, &unreadable) {
+		t.Fatalf("all-hallucinated preview → %v, want unreadable (the transport's honest 422)", err)
+	}
+}
+
 func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 	e := integration.Setup(t)
 	brain := ai.NewFakeClient().Script(

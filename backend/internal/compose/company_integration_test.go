@@ -118,6 +118,70 @@ func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 	}
 }
 
+// Editing the website has to actually move the primary domain. An organization
+// has at most one (uq_org_domain_primary), so a naive insert collides with the
+// old one — and a swallowed collision means the human changed their website,
+// saw a 200, and kept the old site.
+func TestCompanyWebsiteCanBeChangedAfterTheFirstSave(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	base := people.SaveCompanyInput{
+		DisplayName: "Acme GmbH",
+		Fields: map[string]*string{
+			"legal_name": strptr("Acme GmbH"), "registered_address": strptr("Berlin"),
+			"register_vat": strptr("DE123"), "industry": strptr("Software"),
+		},
+	}
+	first := base
+	first.Website = strptr("https://old.example")
+	if _, err := store.SaveCompany(ctx, first); err != nil {
+		t.Fatalf("first SaveCompany: %v", err)
+	}
+
+	moved := base
+	moved.Website = strptr("https://new.example")
+	got, err := store.SaveCompany(ctx, moved)
+	if err != nil {
+		t.Fatalf("changing the website: %v", err)
+	}
+	if got.Website == nil {
+		t.Fatal("the saved company has no website at all after the change")
+	}
+	if *got.Website != "new.example" {
+		t.Fatalf("the saved website is %q, want new.example — the edit was lost", *got.Website)
+	}
+
+	// Exactly one primary, and it is the new site: the old row must be demoted,
+	// not left alongside as a rival primary.
+	var primaries int
+	var primary string
+	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM organization_domain
+			  WHERE organization_id = $1 AND is_primary AND archived_at IS NULL`,
+			got.OrganizationID).Scan(&primaries); err != nil {
+			return err
+		}
+		return tx.QueryRow(context.Background(),
+			`SELECT domain FROM organization_domain
+			  WHERE organization_id = $1 AND is_primary AND archived_at IS NULL`,
+			got.OrganizationID).Scan(&primary)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primaries != 1 || primary != "new.example" {
+		t.Fatalf("primary domains = %d (%q), want exactly 1 as new.example", primaries, primary)
+	}
+
+	// Re-saving the SAME site is idempotent, not a conflict with itself.
+	if _, err := store.SaveCompany(ctx, moved); err != nil {
+		t.Fatalf("re-saving the same website: %v", err)
+	}
+}
+
 func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	e := integration.Setup(t)
 	store := people.NewStore(e.Pool)
