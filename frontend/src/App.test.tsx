@@ -283,6 +283,22 @@ describe("onboarding gate", () => {
     );
   });
 
+  it("holds on every navigation — steering away mid-onboarding lands back on the form", async () => {
+    stubCompany(404);
+    mount();
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#/onboarding/company"),
+    );
+
+    // The palette, a typed hash, a stray link: any client-side navigation
+    // away from onboarding must be turned around, not just the first load.
+    window.location.hash = "#/contacts";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#/onboarding/company"),
+    );
+  });
+
   it("leaves a described installation on the route it asked for", async () => {
     window.location.hash = "#/contacts";
     stubCompany(200);

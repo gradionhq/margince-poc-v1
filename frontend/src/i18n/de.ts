@@ -806,7 +806,7 @@ export const de = {
     "Wir raten deinen Ton nicht aus zwei E-Mails. Gib uns einen echten Korpus — Posts, E-Mails und vor allem Gesprächstranskripte — und wir modellieren, wie du wirklich klingst: dein Rhythmus, deine typischen Wendungen, die Wörter, die du nutzt, und die, die du nie sagst. Ziel: ~30.000 Wörter. Alles bleibt in deinem Workspace.",
   "ob.s2.optinTitle": "Warum jetzt — und warum optional.",
   "ob.s2.optinBody":
-    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 4). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
+    "Du hast dein Geschäft zurückgelesen bekommen (Schritt 1) und siehst gleich einen echten Entwurf (Schritt 3). Dieser Schritt lässt diese Entwürfe unverkennbar nach dir klingen. Es ist der einzige Schritt, der eigene Inhalte verlangt — also ganz deine Entscheidung.",
   "ob.s2.optinYes": "Ja, jetzt meine Stimme bauen",
   "ob.s2.optinSkip": "Überspringen — später in den Einstellungen",
   "ob.s2.dropTitle": "Dateien hierher ziehen, oder durchsuchen",
@@ -868,9 +868,11 @@ export const de = {
   "ob.s3.titleEm": "ganz ohne Anbindung.",
   "ob.s3.sub":
     "Dein Workspace kennt schon dein Geschäft und deine Stimme. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
+  "ob.s3.subNoVoice":
+    "Dein Workspace kennt schon dein Geschäft. Verbinde als Nächstes dein Postfach, und er füllt sich mit deinen echten Menschen, Firmen und Deals.",
   "ob.s3.cardProfile": "Geschäftsprofil",
   "ob.s3.cardProfileBody":
-    "Was wir von deiner Seite gelesen haben, ist bestätigt und auf deiner Firmenseite gespeichert — jedes Feld mit Quelle.",
+    "Bestätigt und auf deiner Firmenseite gespeichert. Von deiner Seite gelesene Felder behalten ihre Quelle; der Rest steht in deinen eigenen Worten.",
   "ob.s3.cardProfileSkippedBody":
     "Von deiner Seite gelesen, aber noch nicht gespeichert — du hast den Bestätigen-Schritt übersprungen. Geh zurück und bestätige, dann landet es auf deiner Firmenseite.",
   "ob.s3.cardVoice": "Deine Schreibstimme",
@@ -886,6 +888,7 @@ export const de = {
   "ob.s3.cardDraftBody": "Sieh ihn unten.",
   "ob.s3.exampleTag":
     "Illustratives Beispiel — noch nicht aus deinen Daten geschrieben",
+  "ob.s3.exampleProspect": "Nordwind Robotics",
   "ob.s3.draftSample":
     "Betreff: Kurze Frage zu eurer Montagelinie\n\nHallo {{name}} — gesehen, dass {company} diskrete Montage im großen Stil fährt. Wir bringen Teams wie euch in 6 Wochen eine laufende Roboterzelle, ohne eure bestehenden SPS rauszureißen. 15 Minuten wert? Beste Grüße, Lars",
   "ob.s3.originLabel": "Woher diese Pipeline kommt",

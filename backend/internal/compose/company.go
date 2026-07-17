@@ -89,14 +89,27 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Website != nil && strings.TrimSpace(*req.Website) != "" && !parseableWebsite(*req.Website) {
+	// The website is normalized ONCE, here: what the validator judged is what
+	// the store receives. Passing the raw pointer onward would let "  acme.com"
+	// (or a whitespace-only value, which skips validation as not-sent) reach
+	// the domain parser and turn a typing slip into a 500.
+	website := req.Website
+	if website != nil {
+		trimmed := strings.TrimSpace(*website)
+		if trimmed == "" {
+			website = nil
+		} else {
+			website = &trimmed
+		}
+	}
+	if website != nil && !parseableWebsite(*website) {
 		httperr.Write(w, r, httperr.Validation("website", "invalid", "website must be a domain (acme.com) or an absolute http(s) URL"))
 		return
 	}
 
 	company, err := h.store.SaveCompany(r.Context(), people.SaveCompanyInput{
 		DisplayName: strings.TrimSpace(req.DisplayName),
-		Website:     req.Website,
+		Website:     website,
 		Fields: map[string]*string{
 			fieldLegalName:         &req.LegalName,
 			fieldRegisteredAddress: &req.RegisteredAddress,

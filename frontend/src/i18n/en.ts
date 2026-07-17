@@ -790,7 +790,7 @@ export const en = {
     "We don't guess your tone from two emails. Feed us a real corpus — posts, emails, and especially call transcripts — and we model your actual voice: cadence, signature moves, the words you use and the ones you never do. Aim for ~30,000 words. Everything stays in your workspace.",
   "ob.s2.optinTitle": "Why now — and why it's optional.",
   "ob.s2.optinBody":
-    "You've seen your business read back (Step 1) and you'll see a working draft next (Step 4). This step makes those drafts sound unmistakably like you. It's the one step that asks for your own content, so it's entirely your call.",
+    "You've seen your business read back (Step 1) and you'll see a working draft next (Step 3). This step makes those drafts sound unmistakably like you. It's the one step that asks for your own content, so it's entirely your call.",
   "ob.s2.optinYes": "Yes, build my voice now",
   "ob.s2.optinSkip": "Skip — I'll do this later in Settings",
   "ob.s2.dropTitle": "Drag & drop files here, or browse",
@@ -850,9 +850,11 @@ export const en = {
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
     "Your workspace already knows your business and your voice. Connect your inbox next and it fills itself with your real people, companies, and deals.",
+  "ob.s3.subNoVoice":
+    "Your workspace already knows your business. Connect your inbox next and it fills itself with your real people, companies, and deals.",
   "ob.s3.cardProfile": "Business profile",
   "ob.s3.cardProfileBody":
-    "What we read from your site is confirmed and saved to your company page — each field with its source.",
+    "Confirmed and saved to your company page. Fields read from your site keep their source; the rest are in your own words.",
   "ob.s3.cardProfileSkippedBody":
     "Read back from your site but not saved yet — you skipped the confirm step. Go back and confirm to put it on your company page.",
   "ob.s3.cardVoice": "Your writing voice",
@@ -867,6 +869,7 @@ export const en = {
   "ob.s3.cardDraftExample": "A sample draft",
   "ob.s3.cardDraftBody": "See it below.",
   "ob.s3.exampleTag": "Illustrative example — not written from your data yet",
+  "ob.s3.exampleProspect": "Nordwind Robotics",
   "ob.s3.draftSample":
     "Subject: Quick question on your assembly line\n\nHi {{name}} — saw {company} runs discrete assembly at scale. We help teams like yours get a working robotic cell running in 6 weeks without ripping out your existing PLCs. Worth a 15-minute look? Best, Lars",
   "ob.s3.originLabel": "Where this pipeline comes from",

@@ -111,14 +111,22 @@ func TestCompanyRequiredFieldsAreNamedIndividually(t *testing.T) {
 	e.bootstrapWorkspace(t)
 
 	required := []string{"display_name", "legal_name", "registered_address", "register_vat", "industry"}
+	cases := []struct {
+		name    string
+		missing bool
+		value   string
+	}{
+		{name: "missing", missing: true},
+		{name: "whitespace-only", value: "   \t "},
+	}
 	for _, field := range required {
-		for name, value := range map[string]any{"missing": nil, "whitespace-only": "   \t "} {
-			t.Run(field+"/"+name, func(t *testing.T) {
+		for _, tc := range cases {
+			t.Run(field+"/"+tc.name, func(t *testing.T) {
 				body := wellFormedCompany()
-				if value == nil {
+				if tc.missing {
 					delete(body, field)
 				} else {
-					body[field] = value
+					body[field] = tc.value
 				}
 				var problem companyProblem
 				status := e.call(t, "PUT", "/v1/company", body, nil, &problem)

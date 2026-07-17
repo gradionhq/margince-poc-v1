@@ -212,11 +212,20 @@ function AuthedApp({
   const company = useCompany(authed);
   const described = company.data !== null && company.data !== undefined;
 
+  // route.screen is a dependency on purpose: the gate must hold on every
+  // navigation, not only on first load — otherwise the palette or a typed hash
+  // walks straight past onboarding. The onboarding screen itself is exempt or
+  // this effect would fight its own destination.
   useEffect(() => {
-    if (authed && company.isSuccess && !described) {
+    if (
+      authed &&
+      company.isSuccess &&
+      !described &&
+      route.screen !== "onboarding"
+    ) {
       navigate({ screen: "onboarding", id: "company" });
     }
-  }, [authed, company.isSuccess, described]);
+  }, [authed, company.isSuccess, described, route.screen]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const commands = useBuiltinCommands();

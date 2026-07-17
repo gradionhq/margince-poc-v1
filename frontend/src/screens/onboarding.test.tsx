@@ -366,6 +366,66 @@ describe("the website read-back pre-fills the form", () => {
     expect(body.legal_name).toBe("Gradion Holding SE");
   });
 
+  it("reading a second site replaces the first site's values and drops what it doesn't ground", async () => {
+    // Site A grounds legal_name + icp; site B grounds only icp, differently.
+    // A field the human typed stays theirs through both reads.
+    const siteB = {
+      fields: [
+        {
+          field: "icp",
+          value: "Enterprise logistics teams",
+          evidence_snippet: "Built for enterprise logistics",
+          source_kind: "url",
+          source_url: "https://other.example",
+          confidence: 0.85,
+        },
+      ],
+    };
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (req: Request) => {
+        if (req.url.includes("/coldstart/preview")) {
+          reads += 1;
+          return jsonResponse(reads === 1 ? readback : siteB);
+        }
+        if (req.url.includes("/company")) {
+          return jsonResponse({ title: "no company yet" }, 404);
+        }
+        throw new Error(`unstubbed request: ${req.method} ${req.url}`);
+      }),
+    );
+    render(<OnboardingScreen />);
+
+    await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
+    await readWebsite();
+    expect(
+      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
+        .value,
+    ).toBe("Gradion GmbH");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Read again|Read my website/ }),
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).value,
+      ).toBe("Enterprise logistics teams"),
+    );
+
+    // Site A's legal_name is gone — value AND evidence — not left standing
+    // as if the new site had claimed it.
+    expect(
+      (screen.getByLabelText(/Registered legal name/) as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(screen.queryByText(/© 2026 Gradion GmbH/)).toBeNull();
+    // The human's own field survived both reads.
+    expect((screen.getByLabelText(/Industry/) as HTMLInputElement).value).toBe(
+      "Robotics",
+    );
+  });
+
   it("a read that grounds nothing names the cause and leaves the form fillable", async () => {
     stubApi([
       {

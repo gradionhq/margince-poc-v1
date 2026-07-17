@@ -2,6 +2,7 @@ import {
   type UseMutationResult,
   useMutation,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -185,15 +186,26 @@ export function useCompany(enabled: boolean) {
   });
 }
 
-// Pre-fill FILLS — it never clobbers. A field the human already typed into
-// keeps their text and its "typed by you" provenance; a field the read-back
-// didn't ground stays empty for manual entry (the no-guess gate).
+// Pre-fill never clobbers a HUMAN value, but each read replaces the MACHINE
+// ones wholesale: a value the site grounded and nobody edited belongs to the
+// previous read, and keeping it would leave site A's claims (and their
+// evidence) standing after the human reads site B. So machine-owned fields are
+// cleared first, then the new read fills what it can quote — a field the new
+// site does not ground goes back to empty for manual entry (the no-guess
+// gate), and a field the human typed or edited keeps their text throughout.
 function prefill(
   draft: CompanyDraft,
   fields: readonly ColdField[],
 ): CompanyDraft {
   const values = { ...draft.values };
   const grounded: Grounded = { ...draft.grounded };
+  // Everything still in `grounded` is machine-owned by construction — typing
+  // into a field drops its grounding (setField) — so clearing the set is
+  // exactly "forget the previous read".
+  for (const field of Object.keys(grounded) as ColdField["field"][]) {
+    values[field] = "";
+    delete grounded[field];
+  }
   for (const f of fields) {
     if (values[f.field].trim() !== "") {
       continue;
@@ -226,18 +238,6 @@ function normalizeUrl(raw: string): {
   return { ok: looksLikeHost, host, full: `https://${s}` };
 }
 
-// A display business name derived from the host (helios-robotics.de → "Helios
-// Robotics") — purely for the read-back header; never persisted.
-function deriveName(host: string): string {
-  const base = (host.split(".")[0] ?? "").replace(/[-_]+/g, " ").trim();
-  const titled = base
-    .split(" ")
-    .filter(Boolean)
-    .map((w) => w[0]?.toUpperCase() + w.slice(1))
-    .join(" ");
-  return titled || host;
-}
-
 function stepState(index: number, current: number): "done" | "active" | "" {
   if (index < current) {
     return "done";
@@ -268,6 +268,7 @@ function corpusQuality(total: number): { cls: string; key: MessageKey } {
 
 export function OnboardingScreen() {
   const t = useT();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [voiceBuilt, setVoiceBuilt] = useState(false);
   // Company-step state lives HERE, not in the step component: stepping back
@@ -280,10 +281,6 @@ export function OnboardingScreen() {
     () => normalizeUrl(draft.values.website),
     [draft.values.website],
   );
-  // The name the later steps speak to: what the human called the company, or —
-  // until they've typed one — what the website host suggests.
-  const company =
-    draft.values.display_name.trim() || (norm.ok ? deriveName(norm.host) : "");
 
   // A returning admin edits rather than retypes.
   const existing = useCompany(true);
@@ -367,6 +364,10 @@ export function OnboardingScreen() {
     },
     onSuccess: (profile) => {
       setCompanySaved(true);
+      // The shell's onboarding gate reads the same ["company"] cache entry;
+      // stamp the save into it or the gate still sees "undescribed" and
+      // bounces the freshly saved workspace back here on the next navigation.
+      queryClient.setQueryData(["company"], profile);
       // The server owns the stored shape (a full URL is reduced to its bare
       // domain) — show what was actually saved, not what was typed.
       setDraft((prev) => ({ ...prev, values: formFromProfile(profile) }));
@@ -424,15 +425,9 @@ export function OnboardingScreen() {
             missingRequired={saveAttempted ? missingRequired : []}
           />
         )}
-        {step === 1 && (
-          <VoiceStep company={company} onBuilt={() => setVoiceBuilt(true)} />
-        )}
+        {step === 1 && <VoiceStep onBuilt={() => setVoiceBuilt(true)} />}
         {step === 2 && (
-          <ResultsStep
-            company={company}
-            voiceBuilt={voiceBuilt}
-            profileSaved={companySaved}
-          />
+          <ResultsStep voiceBuilt={voiceBuilt} profileSaved={companySaved} />
         )}
         {step === 3 && <ConnectStep />}
 
@@ -903,10 +898,7 @@ const SOURCES: Source[] = [
 const ACCEPTED_CORPUS_FILE = /\.(txt|md|vtt|srt|json)$/i;
 const ACCEPTED_CORPUS_ATTR = ".txt,.md,.vtt,.srt,.json";
 
-function VoiceStep({
-  company,
-  onBuilt,
-}: Readonly<{ company: string; onBuilt: () => void }>) {
+function VoiceStep({ onBuilt }: Readonly<{ onBuilt: () => void }>) {
   const t = useT();
   const [optedIn, setOptedIn] = useState(false);
   const [added, setAdded] = useState<Set<string>>(new Set());
@@ -1216,7 +1208,7 @@ function VoiceStep({
               </div>
               <div className="draftbox">
                 {t("ob.s3.draftSample", {
-                  company: company || "your prospect",
+                  company: t("ob.s3.exampleProspect"),
                 })}
               </div>
               <p
@@ -1238,10 +1230,9 @@ function VoiceStep({
 // ---- step 3: results -------------------------------------------------------
 
 function ResultsStep({
-  company,
   voiceBuilt,
   profileSaved,
-}: Readonly<{ company: string; voiceBuilt: boolean; profileSaved: boolean }>) {
+}: Readonly<{ voiceBuilt: boolean; profileSaved: boolean }>) {
   const t = useT();
   // The cards tell the truth about what the funnel actually did: a skipped
   // voice step gets the honest "starter voice" card, not a claim that drafts
@@ -1270,7 +1261,11 @@ function ResultsStep({
       <h1 className="ttl">
         {t("ob.s3.title")} <span className="em">{t("ob.s3.titleEm")}</span>
       </h1>
-      <p className="ob-sub">{t("ob.s3.sub")}</p>
+      {/* The subtitle claims only what the funnel actually did: "knows your
+          voice" is earned by building it, not by reaching this step. */}
+      <p className="ob-sub">
+        {t(voiceBuilt ? "ob.s3.sub" : "ob.s3.subNoVoice")}
+      </p>
       <div className="rcards">
         {cards.map((c) => (
           <div key={c.title} className="rcard">
@@ -1285,7 +1280,7 @@ function ResultsStep({
         ))}
       </div>
       <div className="draftbox" style={{ marginTop: 12 }}>
-        {t("ob.s3.draftSample", { company: company || "your prospect" })}
+        {t("ob.s3.draftSample", { company: t("ob.s3.exampleProspect") })}
       </div>
       <p className="t-small" style={{ marginTop: 8, fontStyle: "italic" }}>
         {t("ob.s3.exampleTag")}
