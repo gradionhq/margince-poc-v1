@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package agents
+package automation
 
 // The run-history read (A72/ADR-0035 Am.1): one automation's firings of
 // EVERY outcome, reconstructed from workflow_run. The linkage is the
@@ -54,7 +54,7 @@ type AutomationRunRecord struct {
 	Status       string
 	Planned      json.RawMessage
 	Applied      json.RawMessage
-	Detail       *string // the `error` column: why for failed/blocked/skipped, the staging pointer while parked
+	Detail       *string // the reason decoded from workflow_run.detail (jsonb, rundetail.go): why for failed/blocked/skipped; nil for a clean applied run
 	TriggerEvent ids.UUID
 	Tier         string // the parent automation's tier — the tier that fired
 	CreatedAt    time.Time
@@ -119,7 +119,7 @@ func (s *AutomationStore) ListRuns(ctx context.Context, id ids.AutomationID, cur
 			where += storekit.SQLf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
 		}
 		rows, err := tx.Query(ctx, storekit.SQLf(`
-			SELECT id, status, planned, applied, error, trigger_event, created_at
+			SELECT id, status, planned, applied, detail, trigger_event, created_at
 			FROM workflow_run WHERE %s
 			ORDER BY created_at DESC, id DESC LIMIT %d`, where, n+1), args...)
 		if err != nil {
@@ -128,8 +128,15 @@ func (s *AutomationStore) ListRuns(ctx context.Context, id ids.AutomationID, cur
 		defer rows.Close()
 		for rows.Next() {
 			rec := AutomationRunRecord{Tier: tier}
+			var rawDetail []byte
 			if err := rows.Scan(&rec.ID, &rec.Status, &rec.Planned, &rec.Applied,
-				&rec.Detail, &rec.TriggerEvent, &rec.CreatedAt); err != nil {
+				&rawDetail, &rec.TriggerEvent, &rec.CreatedAt); err != nil {
+				return err
+			}
+			// A backfilled row and a freshly-written one decode through the
+			// SAME reader (rundetail.go) — a malformed detail must surface
+			// as a read failure, never as a silently empty reason.
+			if rec.Detail, err = decodeRunDetail(rawDetail); err != nil {
 				return err
 			}
 			page.Items = append(page.Items, rec)

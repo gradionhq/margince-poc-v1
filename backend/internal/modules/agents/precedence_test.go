@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // fixedOwnership answers the ownership probe from a fixed conflict list.
@@ -281,7 +282,7 @@ func TestUpdateRecordAllHumanOwnedStagesTheWholeCall(t *testing.T) {
 
 	call := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"full_name":"Greta Machine"}}`, target)
 	_, err := r.Invoke(agentCtx(), "update_record", json.RawMessage(call))
-	var stagedErr *StagedApprovalError
+	var stagedErr *workflow.StagedApprovalError
 	if !errors.As(err, &stagedErr) || !errors.Is(err, apperrors.ErrRequiresApproval) {
 		t.Fatalf("all-human patch → %v, want a staged ErrRequiresApproval", err)
 	}

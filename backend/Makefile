@@ -35,7 +35,7 @@ export MARGINCE_ENV          ?= dev
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -134,6 +134,14 @@ gen: ## Regenerate everything derived from the contract
 
 drift: gen ## Fail when any generated file drifted from the contract
 	git diff --exit-code -- '*_gen.go' internal/contracts/
+
+# Scaffolding, not generation: gen-workflow writes a write-once handler +
+# test stub for a developer to fill in (AC-W1) and is never part of
+# `gen`/`drift` — nothing regenerates or drifts here, it just seeds one
+# new pair of files per invocation.
+gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_idle_deals
+	@test -n "$(NAME)" || { echo "gen-workflow: usage: make gen-workflow NAME=<snake_case_handler_name>"; exit 1; }
+	$(GO) run ./tools/gen-workflow $(NAME)
 
 # The scan runs in CI (.github/workflows/ci.yml), not in the local
 # `make check`, so a missing network never blocks a local build. The

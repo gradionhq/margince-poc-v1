@@ -3,8 +3,8 @@
 
 package compose_test
 
-// The route_lead config seam, fixture-tested end to end (B-E13.7b
-// reusable-artifact DoD): the catalog's params_schema in agents and the
+// The assign_lead_owner config seam, fixture-tested end to end (B-E13.7b
+// reusable-artifact DoD): the catalog's params_schema in automation and the
 // RoutingConfig decoder in people describe the SAME shape — a fixture
 // the validator accepts must decode losslessly, an out-of-schema knob
 // must be refused, and the schema's property names must be exactly the
@@ -14,18 +14,18 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func TestLeadRoutingConfigValidatesAndDecodesFromOneFixture(t *testing.T) {
-	entry, ok := agents.CatalogEntryByKey("route_lead")
+	entry, ok := automation.CatalogEntryByKey("assign_lead_owner")
 	if !ok {
-		t.Fatal("route_lead left the closed catalog")
+		t.Fatal("assign_lead_owner left the closed catalog")
 	}
 	if entry.Trigger != "lead.created" || entry.Action != "assign_owner" || entry.Tier != "green" {
-		t.Fatalf("route_lead entry drifted: trigger=%s action=%s tier=%s", entry.Trigger, entry.Action, entry.Tier)
+		t.Fatalf("assign_lead_owner entry drifted: trigger=%s action=%s tier=%s", entry.Trigger, entry.Action, entry.Tier)
 	}
 
 	poolA, poolB, ruleOwner := ids.New[ids.UserKind](), ids.New[ids.UserKind](), ids.New[ids.UserKind]()
@@ -79,7 +79,7 @@ func TestLeadRoutingConfigValidatesAndDecodesFromOneFixture(t *testing.T) {
 	// added on one side without the other fails here.
 	properties, ok := entry.ParamsSchema["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("route_lead params_schema carries no properties: %v", entry.ParamsSchema)
+		t.Fatalf("assign_lead_owner params_schema carries no properties: %v", entry.ParamsSchema)
 	}
 	decoderKnobs := map[string]bool{"owners": true, "cap_per_owner": true, "rules": true}
 	if len(properties) != len(decoderKnobs) {

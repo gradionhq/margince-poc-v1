@@ -140,7 +140,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — sixteen bounded capabilities, flat by default per
+- `internal/modules/` — seventeen bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
   growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
@@ -153,6 +153,10 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   the authority object), `agents` (the governed tool
   surface: registry, admission gate, stdio/hosted transports, the
   Surface-B loop — reaches records only through the datasource seam),
+  `automation` (the closed 7×7 trigger/action catalog, ADR-0035: the
+  registry, the per-workspace standing automation store, and the
+  deterministic trigger runtime — event matcher and clock time-scan
+  converging on one path, gated at both author-time and match-time),
   `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
   the offline fake, routing + budget + secret-stripping), `search`
   (row-scoped retrieval: FTS + pgvector/RRF hybrid + context graph),

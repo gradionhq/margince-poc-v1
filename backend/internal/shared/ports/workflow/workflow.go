@@ -11,8 +11,10 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -49,7 +51,13 @@ type Spec struct {
 }
 
 // Trigger binds to the event bus or a schedule: EventType for bus events,
-// Schedule (cron) when EventType is empty.
+// Schedule when EventType is empty — a clock:<name> marker, never a cron
+// expression (modules/automation/handlers_clock.go's
+// noActivityScheduleMarker doc): the real cadence is the River periodic
+// job's own interval, and a Schedule-bearing handler also needs its own
+// candidate source wired at the time-scan (modules/automation/
+// timescan.go's activityScanHandlers is the only wired source today) or
+// it registers but is never actually evaluated.
 type Trigger struct {
 	EventType string
 	Schedule  string
@@ -71,6 +79,14 @@ type Event struct {
 
 	AutomationID ids.UUID
 	Params       json.RawMessage
+
+	// OwnerID is the human who authored this automation instance
+	// (automation.owner_id) — the "on behalf of" attribute of a firing,
+	// analogous to AutomationID. Zero for a system-seeded automation (no
+	// owner_id was ever stamped) and for a system handler (no instance
+	// behind it at all): the match-time owner-permission gate reads this
+	// to decide whose live authority a firing must still hold.
+	OwnerID ids.UUID
 }
 
 // Effect is the typed, enumerable set of actions a run may take. No
@@ -96,6 +112,27 @@ const (
 	ActionEnqueueJob     ActionKind = "enqueue_job"
 )
 
+// The user-facing catalog's actions that have no lower-level kind: notify
+// is delivery to a human, add_to_list writes through the list engine, and
+// draft_email creates a draft and never sends — the send is a separate,
+// approval-gated act.
+const (
+	ActionNotify     ActionKind = "notify"
+	ActionAddToList  ActionKind = "add_to_list"
+	ActionDraftEmail ActionKind = "draft_email"
+)
+
+// AllActionKinds is the closed set, in declaration order. The registry maps
+// the user-facing catalog onto these; a kind with no executor fails the
+// totality test rather than reaching a caller.
+func AllActionKinds() []ActionKind {
+	return []ActionKind{
+		ActionCreateRecord, ActionUpdateRecord, ActionCreateTask, ActionAssignOwner,
+		ActionAdvanceDeal, ActionSendEmail, ActionEmitFlowEvent, ActionRecomputeScore,
+		ActionEnqueueJob, ActionNotify, ActionAddToList, ActionDraftEmail,
+	}
+}
+
 type Action struct {
 	Kind   ActionKind
 	Target datasource.EntityRef
@@ -115,3 +152,16 @@ type RunResult struct {
 	Applied    []Action
 	AuditLogID ids.UUID
 }
+
+// StagedApprovalError is the typed form of the "staged as approval"
+// answer: a chat client shows the message, while a programmatic caller
+// (the Surface-B runner) suspends on the id instead of parsing prose.
+type StagedApprovalError struct{ ApprovalID ids.ApprovalID }
+
+func (e *StagedApprovalError) Error() string {
+	return fmt.Sprintf(
+		"staged as approval %s — once a human approves it, repeat this exact call with \"approval_id\": %q: %s",
+		e.ApprovalID, e.ApprovalID.String(), apperrors.ErrRequiresApproval)
+}
+
+func (e *StagedApprovalError) Unwrap() error { return apperrors.ErrRequiresApproval }

@@ -1,6 +1,6 @@
 # Module catalog
 
-The sixteen bounded capabilities under `backend/internal/modules/`. This is the "what owns what" map
+The seventeen bounded capabilities under `backend/internal/modules/`. This is the "what owns what" map
 — use it to find the module a change belongs to, or to place a new one. For the *why* of the module
 boundary (the DAG, the two spine shapes), see [explanation/architecture.md](../explanation/architecture.md);
 for the store/write mechanics every module shares, see
@@ -34,7 +34,8 @@ still answer a generated `501` until its handler lands; it is not an implementat
 | **deals** | The deal aggregate + pipeline/stage scaffolding, stage advancement (won/lost + FX freeze), the per-workspace default-pipeline seed, and the offer engine (rate-card products + versioned deal-bound offers with server-computed totals). | Handlers→Store (`NewStore`) | `deal, deal_stage_history, pipeline, stage, fx_rate, product, offer, offer_line_item` | `/deals` (+`/advance`,`/stakeholders`), `/pipelines`, `/stages`, `/products`, `/offers` (+`/line-items`,`/send`,`/accept`,`/reject`,`/regenerate`) |
 | **activities** | The activity timeline — idempotent capture-keyed logging, polymorphic links to person/org/deal — plus attachments and scheduling/booking. | Handlers→Store (`NewStore`) | `activity, activity_link` | `/activities` (+`/relink`,`/draft-email`,`/send-email`), `/attachments`, `/availability`, `/bookings`, `/public/booking`, `/public/preferences` |
 | **approvals** | The 🟡 confirm-first engine — agents stage an action they may not perform, humans decide it in the inbox, the agent redeems the decision. The staged row is the authority object. | Handlers→Service (`NewService`) | `approval` | `/approvals` (+`/{id}/approve`,`/{id}/reject`) |
-| **agents** | The governed agent surface — the MCP tool registry, the admission gate (scope ∧ tier ∧ seat), the approval flow, and the Surface-B reasoning loop. Reaches records only through the datasource seam. | Engine (MCP registry + `runner/`; automations HTTP via Store) | none (holds no state; records belong to domain modules, staged actions to approvals) | `/automations` (+`/catalog`,`/{id}/preview`,`/{id}/runs`); the MCP tool surface (`cmd/mcp`) |
+| **agents** | The governed agent surface — the MCP tool registry, the admission gate (scope ∧ tier ∧ seat), the approval flow, and the Surface-B reasoning loop. Reaches records only through the datasource seam. | Engine (MCP registry + `runner/`) | none (holds no state; records belong to domain modules, staged actions to approvals) | the MCP tool surface (`cmd/mcp`) |
+| **automation** | The closed automation catalog (ADR-0035) — a bounded 7×7 trigger/action registry a workspace instantiates and parameterizes, never a builder. Owns the per-workspace standing automation rows and the deterministic trigger runtime: an event matcher (`cg:workflows`) and a River-driven clock time-scan converge on one shared firing path, each firing permission-gated twice — an author-time ceiling and a match-time re-check of the automation owner's live RBAC. | Handlers→Store for `/automations` CRUD; the engine + time-scan are worker-driven, not an HTTP spine (precedented by `privacy.RetentionService`) | `automation, workflow_run` | `/automations` (+`/catalog`,`/{id}/preview`,`/{id}/runs`) |
 | **ai** | The model runtime behind `ports/model` — provider adapters (Anthropic BYOK, Ollama, local vLLM, the offline fake), the `SelectBrain` factory, the outbound secret stripper — plus the Voice DNA HTTP slice. | Runtime factory (`SelectBrain`); voice HTTP via Store | `ai_usage, voice_profile, voice_corpus_source` | `/voice-profiles` (+`/sources`) |
 | **search** | Cross-object retrieval — ranked full-text over the generated `search_tsv` columns, with the pgvector/RRF hybrid and context graph. Every query carries the caller's row-scope predicate (a hit IS a read). | Handlers→Store (`NewStore`) | none (reads domain tables through their indexes) | `/search` |
 | **capture** | The one `connector.Sink` — normalized inbound capture, one transaction per record, idempotent on `(source_system, source_id)` — plus the connector registry (grant-time scope intersection). | Sink + Registry (`NewSink`/`NewRegistry`; connector HTTP wired in compose) | `raw_capture, connector_connection` | `/connectors/imap/connect` (via a compose adapter) |
@@ -60,8 +61,11 @@ A module never reaches a sibling; the composition root injects the edge (how tha
 `internal/compose/server.go`):
 
 - **identity's workspace seed** ← deals (default pipeline) + consent (default purposes/retention) +
-  agents (starter automations) + activities (booking page) — one bootstrap transaction.
+  automation (starter automations) + activities (booking page) — one bootstrap transaction.
 - **agents' staging/redemption** ← approvals (adapter).
+- **automation's action seams** ← collections (add-to-list), activities + consent (draft-email
+  compose + the outbound suppression gate), approvals (🟡 staging), activities (the no-activity/
+  check-in candidate scan), identity (the match-time owner-permission re-check via `authz.Resolver`).
 - **consent's DSR erasure** ← privacy's `Eraser`.
 - **signals' relationship strength** ← people's store (adapter).
 - **activities' outbound gate** ← consent (the suppression gate) + people/consent public seams.

@@ -7,21 +7,21 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
 // The routable-lead-field vocabulary lives in two modules that cannot
 // import each other: the people engine matches routing rules on it, and
-// the agents catalog mirrors it as the editor's params-schema enum. If
+// the automation catalog mirrors it as the editor's params-schema enum. If
 // they drift, a config the editor accepts silently never matches (the
 // engine's field lookup returns "" for an unknown key), or the editor
 // 422s a field the engine now supports. Compose is the only place both
 // are visible, so the binding lives here — derive the obligation, don't
 // maintain two hand-synced lists.
 func TestRoutableLeadFieldVocabularyIsSingleSourced(t *testing.T) {
-	if !slices.Equal(people.RoutableLeadFields, agents.RoutableLeadFields) {
-		t.Fatalf("routable-lead-field vocabularies drifted:\n  people: %v\n  agents: %v",
-			people.RoutableLeadFields, agents.RoutableLeadFields)
+	if !slices.Equal(people.RoutableLeadFields, automation.RoutableLeadFields) {
+		t.Fatalf("routable-lead-field vocabularies drifted:\n  people: %v\n  automation: %v",
+			people.RoutableLeadFields, automation.RoutableLeadFields)
 	}
 }

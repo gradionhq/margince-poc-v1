@@ -77,7 +77,7 @@ identity imports none of those modules, because the hook is injected here:
 ```go
 func workspaceSeed(dealsH) func(ctx, tx) error {
     // deals default pipeline → consent purposes → consent retention →
-    // agents starter automations → activities booking page — all in the caller's tx
+    // automation's starter automations → activities booking page — all in the caller's tx
 }
 ```
 
@@ -89,10 +89,11 @@ backed by the provider module's store — so neither module names the other. The
 
 | Consumer | ← needs | Wired as |
 |---|---|---|
-| identity (bootstrap) | deals + consent + agents + activities defaults | `workspaceSeed(dealsH)` (one tx) |
+| identity (bootstrap) | deals + consent + automation + activities defaults | `workspaceSeed(dealsH)` (one tx) |
 | activities | consent's outbound suppression gate; people (public booking); consent (unsubscribe link) | `.WithConsent(...)`, `.WithPublicBooking(...)`, `.WithUnsubscribe(...)` |
 | consent (DSR erase) | privacy's `Eraser` (blob-aware under `WithBlobstore`) | `consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool))` |
-| agents / automations | approvals' staging + redemption (the 🟡 confirm-first effects) | `approvalsHandlersWithEffects(pool)` (`.WithEffects(...)`) |
+| agents (MCP surface) | approvals' staging + redemption (the 🟡 confirm-first effects) | `approvalsHandlersWithEffects(pool)` (`.WithEffects(...)`) |
+| automation (workflow engine) | collections' add-to-list write; activities' draft-email compute + consent's suppression gate; approvals' staging (its own adapter — `automation.StageRequest` is not the agents surface's request type); activities' no-activity/check-in candidate scan; identity's live RBAC (the match-time owner gate, via `authz.Resolver`) | `compose.NewWorkflowEngine(pool)` (`compose/workflows.go`) |
 | signals | people's relationship-strength | `signalStrength{people: people.NewStore(pool)}` adapter |
 | imap connect | capture's connector registry (vault under `WithKeyvault`) | `imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}` |
 | filtered export | collections' saved-view/list source | `filteredExportHandlers{collections: collections.NewStore(pool)}` |

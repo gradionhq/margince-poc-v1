@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package agents
+package automation
 
 // The shared fixture for this package's integration suites, over the
 // already-migrated database (`make migrate` is the integration lane's
@@ -110,7 +110,9 @@ func (fx *autoFixture) humanCtx(user ids.UUID, scope principal.RowScope) context
 	})
 }
 
-// seedAutomation inserts one enabled instance and returns its id.
+// seedAutomation inserts one enabled instance and returns its id. It
+// stamps no owner_id — the trusted system-seed shape (SeedStarterAutomationsTx)
+// the match-time gate (gate.go) must run ungated.
 func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID {
 	t.Helper()
 	id := ids.New[ids.AutomationKind]()
@@ -121,17 +123,31 @@ func (fx *autoFixture) seedAutomation(t *testing.T, key string) ids.AutomationID
 	return id
 }
 
+// seedAutomationWithOwner is seedAutomation's human-authored sibling: a
+// real owner_id, the exact shape automations.go's Create stamps
+// (storekit.UUIDOrNil(actor.UserID)) — the gate.go match-time gate applies
+// only to instances seeded this way.
+func (fx *autoFixture) seedAutomationWithOwner(t *testing.T, key string, owner ids.UUID) {
+	t.Helper()
+	id := ids.New[ids.AutomationKind]()
+	fx.exec(t, `
+		INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, owner_id, enabled)
+		VALUES ($1, $2, $3, $3, '{"event_type":"test"}', '{"kind":"test"}', '{}'::jsonb, $4, true)`,
+		id, fx.ws, key, owner)
+}
+
 // seedRun inserts one recorded firing for the automation, linked the way
 // the engine links them (handler = key, idempotency key suffixed with
-// "@<automation id>").
-func (fx *autoFixture) seedRun(t *testing.T, automationID ids.AutomationID, key, status string, detail *string, at time.Time) ids.UUID {
+// "@<automation id>"). detail is the raw jsonb payload (rundetail.go) —
+// callers build it with reasonDetail/stagedApprovalDetail so the fixture
+// writes through the SAME shape the engine does; nil for a clean run.
+func (fx *autoFixture) seedRun(t *testing.T, automationID ids.AutomationID, key, status string, detail []byte, at time.Time) {
 	t.Helper()
 	id := ids.NewV7()
 	fx.exec(t, `
-		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, status, error, created_at)
+		INSERT INTO workflow_run (id, workspace_id, handler, idempotency_key, trigger_event, planned, status, detail, created_at)
 		VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6, $7, $8)`,
 		id, fx.ws, key, fmt.Sprintf("%s:%s@%s", key, id, automationID), ids.NewV7(), status, detail, at)
-	return id
 }
 
 // scriptedWorkflow lets each engine test case pin one phase's behavior.
@@ -181,14 +197,14 @@ func (s scriptedWorkflow) IdempotencyKey(ev workflow.Event) string {
 
 type recordedRun struct {
 	status  string
-	detail  *string
+	detail  []byte // raw jsonb; decode with parseRunDetail/decodeRunDetail (rundetail.go)
 	planned string
 }
 
 func (fx *autoFixture) runsByHandler(t *testing.T) map[string]recordedRun {
 	t.Helper()
 	rows, err := fx.owner.Query(context.Background(),
-		`SELECT handler, status, error, planned::text FROM workflow_run WHERE workspace_id = $1`, fx.ws)
+		`SELECT handler, status, detail, planned::text FROM workflow_run WHERE workspace_id = $1`, fx.ws)
 	if err != nil {
 		t.Fatal(err)
 	}

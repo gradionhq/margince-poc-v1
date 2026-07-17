@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -60,7 +61,7 @@ type Server struct {
 	collectionsHandlers
 	signalsHandlers
 	privacyHandlers
-	agentsHandlers
+	automationHandlers
 	voiceHandlers
 	reportHandlers
 	briefs.Handlers
@@ -303,7 +304,7 @@ func workspaceSeed(dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
 		if err := consent.SeedDefaultRetentionTx(ctx, tx); err != nil {
 			return err
 		}
-		if err := agents.SeedStarterAutomationsTx(ctx, tx); err != nil {
+		if err := automation.SeedStarterAutomationsTx(ctx, tx); err != nil {
 			return err
 		}
 		// The admin's public booking page: the workspace's only user at
@@ -346,11 +347,11 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		signalsHandlers: signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
-		privacyHandlers: privacy.NewHandlers(pool),
-		agentsHandlers:  agents.NewHandlers(pool),
-		voiceHandlers:   ai.NewHandlers(pool),
-		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
+		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
+		privacyHandlers:    privacy.NewHandlers(pool),
+		automationHandlers: automation.NewHandlers(pool),
+		voiceHandlers:      ai.NewHandlers(pool),
+		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),

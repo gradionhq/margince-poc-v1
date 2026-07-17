@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package agents
+package automation
 
 // The /automations/{id}/runs read (A72/ADR-0035 Am.1) over a real
 // migrated Postgres: keyset paging newest-first, the wire-vocabulary
@@ -26,16 +26,26 @@ import (
 func seedRunHistory(t *testing.T, fx *autoFixture, autoID ids.AutomationID) int {
 	t.Helper()
 	base := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	reason := func(s string) *string { return &s }
+	reason := func(s string) []byte {
+		payload, err := reasonDetail(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return payload
+	}
+	staged, err := stagedApprovalDetail(ids.New[ids.ApprovalKind]())
+	if err != nil {
+		t.Fatal(err)
+	}
 	seeded := []struct {
 		status string
-		detail *string
+		detail []byte
 	}{
 		{"applied", nil},
 		{"failed", reason("provider error")},
 		{"blocked", reason("approval rejected")},
 		{"skipped", reason("conditions declined")},
-		{"requires_approval", reason(stagedApprovalDetail(ids.New[ids.ApprovalKind]()))},
+		{"requires_approval", staged},
 	}
 	for i, s := range seeded {
 		fx.seedRun(t, autoID, "stage_change_create_task", s.status, s.detail, base.Add(time.Duration(i)*time.Minute))
