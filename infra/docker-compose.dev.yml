@@ -35,7 +35,7 @@ services:
       retries: 15
 
   redis:
-    image: redis:7@sha256:b2b95679e3b46fb51864949ed25ea976fc3a6bcc00a40a1bc00d568cb2822e50
+    image: redis:7@sha256:a8f08480e1f88f2647fed492d1178c06abb0d0c1fbf02c682a61e2f483fb3954
     ports:
       - "56379:6379"
     healthcheck:
