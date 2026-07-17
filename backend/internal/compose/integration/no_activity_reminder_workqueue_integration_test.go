@@ -185,6 +185,18 @@ func applyRiverSchema(t *testing.T) {
 		t.Fatalf("opening owner pool: %v", err)
 	}
 	defer ownerPool.Close()
+	// The compose/integration package shares ONE clone DB across its tests, and
+	// more than one drives the real River runner (no_activity_reminder here,
+	// gmail_watch). River's migrator recreates river_migration on a re-apply
+	// (SQLSTATE 42P07), so ensure-once on the table's existence rather than
+	// migrating twice — these tests run sequentially in-package (no t.Parallel).
+	var present bool
+	if err := ownerPool.QueryRow(ctx, `SELECT to_regclass('public.river_migration') IS NOT NULL`).Scan(&present); err != nil {
+		t.Fatalf("checking river schema: %v", err)
+	}
+	if present {
+		return
+	}
 	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
 		t.Fatalf("applying river schema: %v", err)
 	}
