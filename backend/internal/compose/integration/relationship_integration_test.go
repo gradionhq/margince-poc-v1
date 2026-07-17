@@ -25,7 +25,7 @@ func setupRelationships(t *testing.T) *relEnv {
 	t.Helper()
 	e := setup(t)
 	e.slug = "rel-e2e"
-	bootstrapWorkspaceSession(t, e, "Rel E2E", "rel@fable.test")
+	bootstrapWorkspaceSession(t, e, "Rel E2E", "rel@fable.test", "Admin")
 	var person, org struct {
 		ID string `json:"id"`
 	}

@@ -29,7 +29,7 @@ import (
 // every e2e scenario shares. The login also primes the server's
 // singleton-organization resolution before a test seeds any
 // cross-tenant rows directly.
-func bootstrapWorkspaceSession(t *testing.T, e *env, organizationName, adminEmail string) {
+func bootstrapWorkspaceSession(t *testing.T, e *env, organizationName, adminEmail, adminName string) {
 	t.Helper()
 	pwFile := filepath.Join(t.TempDir(), "admin-password")
 	if err := os.WriteFile(pwFile, []byte("correct-horse-battery"), 0o600); err != nil {
@@ -39,7 +39,7 @@ func bootstrapWorkspaceSession(t *testing.T, e *env, organizationName, adminEmai
 		Version:      1,
 		Organization: deployconfig.Organization{Name: organizationName},
 		BootstrapAdmin: &deployconfig.BootstrapAdmin{
-			Email: adminEmail, DisplayName: "Admin", PasswordFile: pwFile,
+			Email: adminEmail, DisplayName: adminName, PasswordFile: pwFile,
 		},
 	}
 	if err := compose.EnsureInstallation(context.Background(), e.pool, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg); err != nil {
@@ -76,7 +76,7 @@ func seedTaskAndTarget(t *testing.T, e *env) (personID, taskID string) {
 func TestActivityUpdateArchiveRelink(t *testing.T) {
 	e := setup(t)
 	e.slug = "act-e2e"
-	bootstrapWorkspaceSession(t, e, "Act E2E", "act@fable.test")
+	bootstrapWorkspaceSession(t, e, "Act E2E", "act@fable.test", "Admin")
 	personID, taskID := seedTaskAndTarget(t, e)
 
 	// Completing the task stamps done_at with it.

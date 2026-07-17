@@ -115,7 +115,7 @@ Connect an agent (Surface A1): mint a passport (`POST /v1/passports`,
 session-authed), then
 
 ```
-MARGINCE_PASSPORT_TOKEN=mgp_… mcp --workspace <slug> --dsn …
+MARGINCE_PASSPORT_TOKEN=mgp_… mcp --dsn …
 ```
 
 serves the governed tool surface over stdio (MCP JSON-RPC). The same
@@ -235,7 +235,7 @@ per-client throttling at the proxy.
   `promote_lead`, and `merge_records`, all composed over the frozen-v1
   `datasource.SystemOfRecordProvider` seam → the same store entry points
   as HTTP: same RBAC, row scope, audit, events. Served over stdio
-  (`mcp --workspace <slug>` + `MARGINCE_PASSPORT_TOKEN`).
+  (`mcp` + `MARGINCE_PASSPORT_TOKEN`; the process binds the installation's singleton organization itself, A107/ADR-0061).
 - **Transport-agnostic autonomy gate (ADR-0055)**: the
   same passport rides the REST surface with the same governance — a 🟢
   mutation executes (agent-stamped provenance), a 🟡 mutation stages an

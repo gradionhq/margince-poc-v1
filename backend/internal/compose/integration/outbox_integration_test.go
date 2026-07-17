@@ -121,7 +121,7 @@ func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 
 func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	e := setup(t)
-	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com")
+	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Admin")
 
 	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 		"email": "ada@example.com", "password": "wrong-password-entirely",

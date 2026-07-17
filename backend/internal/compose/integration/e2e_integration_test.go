@@ -105,7 +105,7 @@ func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 // first step of every e2e scenario.
 func (e *env) bootstrapWorkspace(t *testing.T) {
 	t.Helper()
-	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com")
+	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
 	e.slug = "fable-e2e" // slugify("Fable E2E")
 }
 

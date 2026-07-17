@@ -22,7 +22,7 @@ import (
 func TestMalformedCursorAnswers4xxEverywhere(t *testing.T) {
 	e := setup(t)
 
-	bootstrapWorkspaceSession(t, e, "Cursor Probe", "admin@cursor.test")
+	bootstrapWorkspaceSession(t, e, "Cursor Probe", "admin@cursor.test", "Admin")
 	e.slug = "cursor-probe"
 
 	// /lists/{id}/members needs a real list to point at.

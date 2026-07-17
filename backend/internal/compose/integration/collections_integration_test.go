@@ -19,7 +19,7 @@ func setupCollections(t *testing.T) (*env, string) {
 	t.Helper()
 	e := setup(t)
 	e.slug = "collections-e2e"
-	bootstrapWorkspaceSession(t, e, "Collections E2E", "org@fable.test")
+	bootstrapWorkspaceSession(t, e, "Collections E2E", "org@fable.test", "Admin")
 	var person struct {
 		ID string `json:"id"`
 	}

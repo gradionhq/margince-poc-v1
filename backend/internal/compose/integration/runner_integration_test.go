@@ -53,7 +53,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	e := setup(t)
 	e.slug = "runner-e2e"
 
-	bootstrapWorkspaceSession(t, e, "Runner E2E", "runner@fable.test")
+	bootstrapWorkspaceSession(t, e, "Runner E2E", "runner@fable.test", "Admin")
 
 	var minted struct {
 		PassportID string `json:"passport_id"`

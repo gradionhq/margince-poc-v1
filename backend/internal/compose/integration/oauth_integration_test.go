@@ -51,7 +51,7 @@ func setupOAuth(t *testing.T) *oauthEnv {
 	t.Helper()
 	e := setup(t)
 	e.slug = "oauth-e2e"
-	bootstrapWorkspaceSession(t, e, "OAuth E2E", "granter@fable.test")
+	bootstrapWorkspaceSession(t, e, "OAuth E2E", "granter@fable.test", "Admin")
 
 	var registered struct {
 		ClientID string `json:"client_id"`

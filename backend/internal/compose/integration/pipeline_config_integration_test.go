@@ -18,7 +18,7 @@ import (
 func TestPipelineStageConfigLifecycle(t *testing.T) {
 	e := setup(t)
 	e.slug = "cfg-e2e"
-	bootstrapWorkspaceSession(t, e, "Cfg E2E", "cfg@fable.test")
+	bootstrapWorkspaceSession(t, e, "Cfg E2E", "cfg@fable.test", "Admin")
 
 	var second struct {
 		ID        string `json:"id"`

@@ -23,7 +23,7 @@ import (
 func TestIdempotencyKeyReplay(t *testing.T) {
 	e := setup(t)
 
-	bootstrapWorkspaceSession(t, e, "Idem Probe", "admin@idem.test")
+	bootstrapWorkspaceSession(t, e, "Idem Probe", "admin@idem.test", "Admin")
 	e.slug = "idem-probe"
 
 	keyed := map[string]string{"Idempotency-Key": "lead-retry-1"}
@@ -127,7 +127,7 @@ func TestIdempotencyKeyReplay_createQuota(t *testing.T) {
 func TestIdempotencyKeyReplay_logActivity(t *testing.T) {
 	e := setup(t)
 
-	bootstrapWorkspaceSession(t, e, "Idem Activity", "admin@idem-act.test")
+	bootstrapWorkspaceSession(t, e, "Idem Activity", "admin@idem-act.test", "Admin")
 	e.slug = "idem-activity"
 
 	var person anyMap

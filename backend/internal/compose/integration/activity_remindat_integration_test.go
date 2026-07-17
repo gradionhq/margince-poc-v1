@@ -17,7 +17,7 @@ import (
 func TestRemindAtIsTaskOnlyAndRoundTrips(t *testing.T) {
 	e := setup(t)
 	e.slug = "reminders"
-	bootstrapWorkspaceSession(t, e, "Reminders", "admin@reminders.test")
+	bootstrapWorkspaceSession(t, e, "Reminders", "admin@reminders.test", "Admin")
 
 	// Round-trip on create: the reminder lands and reads back.
 	var created struct {

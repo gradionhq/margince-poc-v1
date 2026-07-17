@@ -96,7 +96,7 @@ func TestSchemaIntrospectionServesDescriptors(t *testing.T) {
 func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 	e := setup(t)
 	e.slug = "reports-e2e"
-	bootstrapWorkspaceSession(t, e, "Reports E2E", "rep@fable.test")
+	bootstrapWorkspaceSession(t, e, "Reports E2E", "rep@fable.test", "Admin")
 
 	var org struct {
 		ID string `json:"id"`

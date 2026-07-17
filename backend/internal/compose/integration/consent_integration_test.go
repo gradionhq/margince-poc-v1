@@ -29,7 +29,7 @@ func setupConsent(t *testing.T) *consentEnv {
 	t.Helper()
 	e := setup(t)
 	e.slug = "consent-e2e"
-	bootstrapWorkspaceSession(t, e, "Consent E2E", "dpo@fable.test")
+	bootstrapWorkspaceSession(t, e, "Consent E2E", "dpo@fable.test", "Admin")
 
 	var person struct {
 		ID string `json:"id"`
