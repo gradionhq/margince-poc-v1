@@ -19,17 +19,7 @@ func setupCollections(t *testing.T) (*env, string) {
 	t.Helper()
 	e := setup(t)
 	e.slug = "collections-e2e"
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Collections E2E", "admin_email": "org@fable.test",
-		"admin_display_name": "Organizer", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "org@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Collections E2E", "org@fable.test", "Admin")
 	var person struct {
 		ID string `json:"id"`
 	}

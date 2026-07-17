@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -36,6 +37,7 @@ type env struct {
 	client *http.Client
 	slug   string
 	owner  *pgx.Conn
+	pool   *pgxpool.Pool
 }
 
 // setup boots the default harness server — no schema pool, so the
@@ -95,21 +97,15 @@ func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 	client := ts.Client()
 	client.Jar = jar
 
-	return &env{ts: ts, client: client, slug: "fable-e2e", owner: owner}
+	return &env{ts: ts, client: client, slug: "fable-e2e", owner: owner, pool: pool}
 }
 
-// bootstrapWorkspace provisions the tenant + admin and leaves the session
-// cookie in the client jar — the first step of every e2e scenario.
+// bootstrapWorkspace provisions the organization + admin (the A107 boot
+// path) and leaves the admin session cookie in the client jar — the
+// first step of every e2e scenario.
 func (e *env) bootstrapWorkspace(t *testing.T) {
 	t.Helper()
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Fable E2E",
-		"admin_email":        "ada@example.com",
-		"admin_display_name": "Ada Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap status = %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
 	e.slug = "fable-e2e" // slugify("Fable E2E")
 }
 
@@ -159,7 +155,6 @@ func (e *env) call(t *testing.T, method, path string, body any, headers map[stri
 		t.Fatalf("building request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Workspace-Slug", e.slug)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

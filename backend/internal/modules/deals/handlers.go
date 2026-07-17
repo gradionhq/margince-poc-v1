@@ -71,6 +71,14 @@ func (h Handlers) SeedWorkspaceDefaultsTx(ctx context.Context, tx pgx.Tx) error 
 	return h.store.SeedDefaultsTx(ctx, tx)
 }
 
+// SeedWorkspacePipelineTx is the configured variant (A107/ADR-0061): the
+// deployment file names the pipeline and its open stages; the terminal
+// Won/Lost pair stays module-owned. Same atomic-bootstrap shape as
+// SeedWorkspaceDefaultsTx.
+func (h Handlers) SeedWorkspacePipelineTx(ctx context.Context, tx pgx.Tx, name string, open []StageSeed) error {
+	return h.store.SeedPipelineTx(ctx, tx, name, open)
+}
+
 func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 	info := crmcontracts.PageInfo{HasMore: p.HasMore}
 	if p.NextCursor != "" {

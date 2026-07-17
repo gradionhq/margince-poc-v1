@@ -48,6 +48,7 @@ var tableOwners = map[string]string{
 	"team_membership":          "internal/modules/identity",
 	"session":                  "internal/modules/identity",
 	"passport":                 "internal/modules/identity",
+	"auth_token":               "internal/modules/identity",
 	"role":                     "internal/modules/identity",
 	"role_assignment":          "internal/modules/identity",
 	"record_grant":             "internal/modules/identity",

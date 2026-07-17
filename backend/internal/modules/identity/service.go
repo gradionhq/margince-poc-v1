@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -33,7 +34,8 @@ const (
 	absoluteTTL = 30 * 24 * time.Hour
 )
 
-// Service owns identity: workspaces, users, opaque server-side sessions.
+// Service owns identity: the singleton organization, users, opaque
+// server-side sessions.
 type Service struct {
 	pool *pgxpool.Pool
 	// now is the service's clock: the §27 lockout window and duration are
@@ -41,6 +43,10 @@ type Service struct {
 	// without sleeping. Session/passport expiries stay on the database's
 	// now() — they are enforced inside SQL predicates, not Go logic.
 	now func() time.Time
+	// installation caches the singleton workspace id after the first
+	// successful resolution (installation.go) — the id is immutable for
+	// the process lifetime, so no request pays the lookup twice.
+	installation atomic.Pointer[ids.WorkspaceID]
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
@@ -106,93 +112,6 @@ func (in *BootstrapInput) normalize() error {
 	return nil
 }
 
-// Bootstrap creates workspace + admin + seeded roles + other modules'
-// per-workspace defaults in ONE transaction, and opens the admin's first
-// session. The workspace insert runs before the GUC exists; everything
-// tenant-scoped happens after set_config binds the fresh workspace id, so
-// RLS holds even during bootstrap. seed runs inside this transaction with
-// a system actor + the workspace GUC bound — a seed failure rolls the
-// whole tenant back, so no half-provisioned workspace can survive (C5).
-// seed may be nil (no cross-module defaults to lay down).
-func (s *Service) Bootstrap(ctx context.Context, in BootstrapInput, seed func(ctx context.Context, tx pgx.Tx) error) (Identity, string, error) {
-	if err := in.normalize(); err != nil {
-		return Identity{}, "", err
-	}
-	hash, err := password.Hash(in.AdminPassword)
-	if err != nil {
-		return Identity{}, "", err
-	}
-	token, tokenHash, err := mintSessionToken()
-	if err != nil {
-		return Identity{}, "", err
-	}
-
-	var id Identity
-	err = database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var wsID ids.WorkspaceID
-		err := tx.QueryRow(ctx,
-			`INSERT INTO workspace (name, slug, base_currency, timezone) VALUES ($1, $2, 'EUR', $3) RETURNING id`,
-			in.WorkspaceName, in.Slug, in.Timezone).Scan(&wsID)
-		if err != nil {
-			if isUniqueViolation(err) {
-				return &slugTakenError{slug: in.Slug}
-			}
-			return err
-		}
-		if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
-			return err
-		}
-
-		var userID ids.UserID
-		err = tx.QueryRow(ctx,
-			`INSERT INTO app_user (workspace_id, email, password_hash, display_name, timezone)
-			 VALUES ($1, lower($2), $3, $4, $5) RETURNING id`,
-			wsID, in.AdminEmail, hash, in.AdminName, in.Timezone).Scan(&userID)
-		if err != nil {
-			return err
-		}
-
-		if err := seedSystemRoles(ctx, tx, wsID, userID); err != nil {
-			return err
-		}
-
-		if err := insertSession(ctx, tx, wsID, userID, tokenHash); err != nil {
-			return err
-		}
-		if err := auditLogin(ctx, tx, wsID, userID, "workspace bootstrap"); err != nil {
-			return err
-		}
-
-		adminDoc, err := policy.Parse(policy.MustDefaultJSON("admin"))
-		if err != nil {
-			return err
-		}
-		id = Identity{
-			UserID: userID, WorkspaceID: wsID,
-			Email: in.AdminEmail, DisplayName: in.AdminName,
-			SeatType: "full", Roles: []string{"admin"},
-			Permissions: policy.Merge(map[string]policy.Document{"admin": adminDoc}),
-		}
-
-		// Lay down other modules' per-workspace defaults in THIS
-		// transaction, as the system actor, so the whole tenant — identity
-		// and defaults — is atomic (C5). The GUC is already bound above.
-		if seed != nil {
-			seedCtx := principal.WithActor(principal.WithWorkspaceID(ctx, wsID.UUID), principal.Principal{
-				Type: principal.PrincipalSystem, ID: "system",
-			})
-			if err := seed(seedCtx, tx); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return Identity{}, "", err
-	}
-	return id, token, nil
-}
-
 // seedSystemRoles lays down the compiled-in role set for a fresh
 // workspace and assigns the admin role to its first user — part of the
 // Bootstrap transaction, so a partial role set can never survive.
@@ -216,29 +135,6 @@ func seedSystemRoles(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, admin
 		`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
 		wsID, adminRoleID, adminUserID)
 	return err
-}
-
-// slugTakenError maps to 409 in the handler.
-type slugTakenError struct{ slug string }
-
-func (e *slugTakenError) Error() string { return fmt.Sprintf("workspace slug %q taken", e.slug) }
-func (e *slugTakenError) Is(target error) bool {
-	return target == apperrors.ErrConflict
-}
-
-// ResolveWorkspace maps a tenant slug (subdomain in production, header in
-// dev) to its id. Pre-auth by necessity: the workspace table is the one
-// non-tenant table.
-func (s *Service) ResolveWorkspace(ctx context.Context, slug string) (ids.WorkspaceID, error) {
-	var id ids.WorkspaceID
-	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT id FROM workspace WHERE slug = $1 AND archived_at IS NULL`, slug).Scan(&id)
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.WorkspaceID{}, apperrors.ErrNotFound
-	}
-	return id, err
 }
 
 // ErrBadCredentials deliberately does not distinguish unknown-user from
@@ -274,10 +170,11 @@ func mustRandomSecret() string {
 func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity, string, error) {
 	rawWsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		// The resolver middleware binds no workspace when the slug doesn't
-		// exist — login stays public so bootstrap can work — and the answer
-		// must not disclose which failed: credentials against a tenant that
-		// isn't there read exactly like wrong credentials.
+		// The middleware binds the singleton organization on every request
+		// (installation.go); an unbound context means the installation is
+		// not bootstrapped — and the answer must not disclose that:
+		// credentials against a not-yet-existing organization read exactly
+		// like wrong credentials.
 		return Identity{}, "", ErrBadCredentials
 	}
 	wsID := ids.From[ids.WorkspaceKind](rawWsID)
@@ -393,14 +290,21 @@ func insertSession(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID 
 // auditLogin appends the login fact to system_log — the ledger for
 // non-entity operational events. A login mutates no record (it has no
 // entity), so it belongs in system_log, not the audit_log record-mutation
-// spine. It writes the row directly (not via storekit.LogSystem) because
-// the login path has no authenticated principal for LogSystem to stamp from
-// — the same reason identity owns its own audit-ledger writer.
+// spine.
 func auditLogin(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, detail string) error {
+	return logAuthEvent(ctx, tx, wsID, userID, "login", detail)
+}
+
+// logAuthEvent writes one system_log row for a human auth event (login,
+// password reset, …). It writes the row directly (not via
+// storekit.LogSystem) because the auth paths have no authenticated
+// principal for LogSystem to stamp from — the same reason identity owns
+// its own audit-ledger writer.
+func logAuthEvent(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, action, detail string) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'human', $2, 'login', jsonb_build_object('detail', $3::text))`,
-		wsID, "human:"+userID.String(), detail)
+		 VALUES ($1, 'human', $2, $3, jsonb_build_object('detail', $4::text))`,
+		wsID, "human:"+userID.String(), action, detail)
 	return err
 }
 
@@ -475,9 +379,4 @@ func mintSessionToken() (raw, hash string, err error) {
 func hashToken(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr interface{ SQLState() string }
-	return errors.As(err, &pgErr) && pgErr.SQLState() == "23505"
 }

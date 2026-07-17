@@ -11,20 +11,39 @@ package integration
 // association whose target passes the visibility probe.
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 )
 
-// bootstrapWorkspaceSession provisions a workspace on the env's slug and
-// leaves its admin session authenticated — the arrange step every
-// single-workspace e2e scenario shares.
-func bootstrapWorkspaceSession(t *testing.T, e *env, workspaceName, adminEmail string) {
+// bootstrapWorkspaceSession provisions the installation's organization
+// through the A107 boot path (configuration-driven, exactly what cmd/api
+// runs at startup) and signs its admin in over HTTP — the arrange step
+// every e2e scenario shares. The login also primes the server's
+// singleton-organization resolution before a test seeds any
+// cross-tenant rows directly.
+func bootstrapWorkspaceSession(t *testing.T, e *env, organizationName, adminEmail, adminName string) {
 	t.Helper()
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": workspaceName, "admin_email": adminEmail,
-		"admin_display_name": "Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
+	pwFile := filepath.Join(t.TempDir(), "admin-password")
+	if err := os.WriteFile(pwFile, []byte("correct-horse-battery"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := deployconfig.Config{
+		Version:      1,
+		Organization: deployconfig.Organization{Name: organizationName},
+		BootstrapAdmin: &deployconfig.BootstrapAdmin{
+			Email: adminEmail, DisplayName: adminName, PasswordFile: pwFile,
+		},
+	}
+	if err := compose.EnsureInstallation(context.Background(), e.pool, slog.New(slog.NewTextHandler(io.Discard, nil)), cfg); err != nil {
+		t.Fatalf("bootstrap: %v", err)
 	}
 	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 		"email": adminEmail, "password": "correct-horse-battery",
@@ -57,7 +76,7 @@ func seedTaskAndTarget(t *testing.T, e *env) (personID, taskID string) {
 func TestActivityUpdateArchiveRelink(t *testing.T) {
 	e := setup(t)
 	e.slug = "act-e2e"
-	bootstrapWorkspaceSession(t, e, "Act E2E", "act@fable.test")
+	bootstrapWorkspaceSession(t, e, "Act E2E", "act@fable.test", "Admin")
 	personID, taskID := seedTaskAndTarget(t, e)
 
 	// Completing the task stamps done_at with it.
