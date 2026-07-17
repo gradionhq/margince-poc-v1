@@ -8049,7 +8049,7 @@ components:
         ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
       required: [field, value, evidence_snippet, source_kind, confidence]
       properties:
-        field: { type: string, enum: [icp, buying_center, value_proposition, usp, buying_intents, legal_name, registered_address, register_vat, industry, history] }
+        field: { type: string, enum: [icp, buying_center, value_proposition, usp, buying_intents, legal_name, registered_address, register_vat, industry, history, display_name] }
         value: { type: string }
         evidence_snippet: { type: string, minLength: 1, description: 'Verbatim source text (from the page, the pasted text, or the user''s own words) — non-empty or the field is absent.' }
         source_kind: { type: string, enum: [url, text, self_description], description: 'Where evidence_snippet came from. For self_description the "evidence" is the user''s own statement — a self-declared ICP is grounded in that statement (B-E01.13), not fabricated.' }

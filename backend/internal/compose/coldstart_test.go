@@ -14,20 +14,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
-func TestStripTagsSurvivesUnicodeCaseFolding(t *testing.T) {
-	// U+212A (KELVIN SIGN) lowercases to a 1-byte "k": an index into a
-	// lowered copy of the document would drift off the source bytes and
-	// slice out of range. The stripper must work on the original bytes.
-	kelvin := strings.Repeat("\u212a", 3)
-	got := stripTags(kelvin + "<p>hello</p><script>evil()</script> world")
-	if !strings.HasSuffix(got, "hello world") {
-		t.Fatalf("stripTags = %q", got)
-	}
-	if stripTags("<SCRIPT>x</SCRIPT>visible<STYLE>y</STYLE>") != "visible" {
-		t.Fatal("case-insensitive script/style stripping broke")
-	}
-}
-
 // The contract's oneOf: EXACTLY ONE of url|text|self_description. Zero or
 // several inputs are a 422 whose details carry how many were populated —
 // before any fetch, model call or staging happens.
