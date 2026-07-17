@@ -29,7 +29,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -41,43 +40,19 @@ import (
 // One workspace's failure does not starve the rest.
 func (r *Registry) DueWatches(ctx context.Context, name string, within time.Duration) ([]DueConnection, error) {
 	threshold := time.Now().Add(within)
-	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
-	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("capture: listing workspaces for the %s watch scan: %w", name, err)
-	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-	if err != nil {
-		return nil, err
-	}
-	var due []DueConnection
-	var errs error
-	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		ws := ids.From[ids.WorkspaceKind](wsID)
-		err := database.WithWorkspaceTx(wsCtx, r.pool, func(tx pgx.Tx) error {
-			rows, err := tx.Query(wsCtx, `
-				SELECT id FROM capture_connection
-				WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL
-				  AND (watch_expires_at IS NULL OR watch_expires_at < $2)`, name, threshold)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var id ids.UUID
-				if err := rows.Scan(&id); err != nil {
-					return err
-				}
-				due = append(due, DueConnection{Workspace: ws, ID: id})
-			}
-			return rows.Err()
-		})
+	return r.collectDue(ctx, func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error) {
+		// The near-expiry branch is served by idx_capture_watch_renew; a
+		// never-watched row (watch_expires_at IS NULL) is due for an initial
+		// registration.
+		rows, err := tx.Query(ctx, `
+			SELECT id FROM capture_connection
+			WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL
+			  AND (watch_expires_at IS NULL OR watch_expires_at < $2)`, name, threshold)
 		if err != nil {
-			errs = errors.Join(errs, fmt.Errorf("capture: scanning %s watches in workspace %s: %w", name, wsID, err))
+			return nil, err
 		}
-	}
-	return due, errs
+		return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	})
 }
 
 // RenewWatch registers (or renews) the push watch for one connection against
