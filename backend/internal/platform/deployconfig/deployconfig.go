@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package deployconfig loads the installation's deployment configuration
-// file (`margince.yaml`, A107/ADR-0061). The file is scoped to bootstrap
-// and authentication — runtime process settings stay flags and environment
-// variables, and no value is configurable in both places. Decoding is
-// strict (an unknown key is a boot error, never a silent ignore) and
-// secrets arrive only as `*_file` references (OPS-CFG-3): the file itself
-// never carries a credential.
+// file (`margince.yaml`, A107/ADR-0061). It carries bootstrap and
+// authentication, and a small set of operator-posture runtime switches
+// (e.g. ai.capture_payloads) that are deployment choices rather than
+// secrets or per-request settings. Decoding is strict (an unknown key is a
+// boot error, never a silent ignore) and secrets arrive only as `*_file`
+// references (OPS-CFG-3): the file itself never carries a credential.
 package deployconfig
 
 import (
@@ -32,6 +32,7 @@ type Config struct {
 	Seeds          Seeds           `yaml:"seeds"`
 	Auth           Auth            `yaml:"auth"`
 	Email          Email           `yaml:"email"`
+	AI             AIConfig        `yaml:"ai"`
 }
 
 // Organization names the installation's singleton organization. Consumed
@@ -148,6 +149,16 @@ func (e Email) SMTPPassword() (string, error) {
 		return "", fmt.Errorf("deployconfig: reading email.smtp.password_file: %w", err)
 	}
 	return strings.TrimRight(string(raw), "\r\n"), nil
+}
+
+// AIConfig carries operator-posture switches for the AI runtime. It names
+// no providers or models (that is ai-routing.yaml) and holds no secret —
+// only deployment posture. capture_payloads turns on Layer-3 AI payload
+// capture (ai_call_payload); OFF by default, because it stores
+// special-category-adjacent content that then ages under the retention
+// engine and the Art. 17 erasure cascade.
+type AIConfig struct {
+	CapturePayloads bool `yaml:"capture_payloads"`
 }
 
 // Load reads and strictly validates the configuration file. A missing

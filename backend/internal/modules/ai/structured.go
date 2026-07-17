@@ -55,7 +55,8 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 	}
 	if finalErr := validate(resp.Text); finalErr != nil {
 		return model.Response{}, info, fmt.Errorf(
-			"ai: %s output failed validation after retry and escalation: %w", task, finalErr)
+			"ai: %s output failed validation after retry and escalation: %w", task, finalErr,
+		)
 	}
 	return resp, info, nil
 }
@@ -66,7 +67,8 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 // retry can never be served the cached invalid answer.
 func withValidatorFeedback(req model.Request, failedText string, cause error) model.Request {
 	out := req
-	out.Messages = append(append([]model.Message{}, req.Messages...),
+	out.Messages = append(
+		append([]model.Message{}, req.Messages...),
 		model.Message{Role: "assistant", Content: failedText},
 		model.Message{Role: "user", Content: "That output failed validation: " + cause.Error() +
 			"\nReturn ONLY the corrected output in the required format."},
@@ -82,5 +84,5 @@ func (r *Router) completeEscalated(ctx context.Context, task Task, req model.Req
 	if !ok || len(ladder) < 2 {
 		return r.Complete(ctx, task, req)
 	}
-	return r.complete(ctx, task, ladder[1:], req)
+	return r.serveCompletion(ctx, task, ladder[1:], req)
 }

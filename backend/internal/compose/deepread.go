@@ -31,7 +31,6 @@ import (
 	"github.com/riverqueue/river"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -92,7 +91,7 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain runner.Brain, log *slog.Logger) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger) *siteDeepReadWorker {
 	fetcher := webread.New()
 	return &siteDeepReadWorker{
 		people:    people.NewStore(pool),

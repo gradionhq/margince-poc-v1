@@ -25,7 +25,6 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -164,7 +163,7 @@ func extractionShapeValid(text string) error {
 // extract, gate. Both engines embed it.
 type evidenceExtractor struct {
 	fetch PageFetcher
-	brain runner.Brain
+	brain completer
 }
 
 // impressumProbePaths are the well-known locations of the legal-notice page,
