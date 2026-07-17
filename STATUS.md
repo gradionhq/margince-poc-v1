@@ -226,3 +226,65 @@ Next product arcs beyond the baseline groom live in the spec's build
 backlog; route findings as you work — implementation decisions recorded in the
 commit and PR that makes the change; spec/ticket defects reconciled upstream
 against the spec.
+
+## Cloud providers — upstream discrepancies to reconcile
+
+Raised by the cloud BYOK model-providers change (generic `openai_compatible`
+plus native `openai`/`gemini` adapters). Paths use the **live** foundation
+layout (verified against `gradionhq/margince-foundation@main`, 2026-07-17 — the
+local sibling checkout is 299 commits behind and still on the old
+`specs/spec/…` tree). These are for the foundation session; never edited from
+this build repo. The governing rule is contract-first / **spec wins** (the
+`architecture.md` invariant), cited by name to avoid the P-number collision in
+§7 #10 (product `principles.md` P3 = "agent-readable by construction", a
+different principle).
+
+- **#1 / #1a — reconciled in this change (the build side of the contract).**
+  `specs/contract/interfaces.md §4` predates reasoning/attachments/rich-usage.
+  This change adds the additive `Request.ProviderOptions`/`Attachments`,
+  `Response.CachedTokens`/`ReasoningTokens`/`ProviderMetadata`, and the
+  `Attachment` type + `ErrAttachmentUnsupported` capability error to
+  `ports/model` — a model *capability* error parallel to
+  `ErrEmbeddingsUnsupported`, **not** an `apperrors` domain sentinel, so the
+  fixed `apperrors` registry and `interfaces.md §0` are untouched. The
+  interfaces.md §4 struct listing should gain the same additive fields upstream.
+- **#2 — fixed here.** `specs/adr/ADR-0020` §2 + `interfaces.md §4` name OpenAI
+  and Gemini as BYOK providers; the build had only `fake`/`anthropic`/`ollama`/
+  `vllm`. This change ships all three (`openai_compatible`, `openai`, `gemini`).
+- **#3 — raise.** `specs/contract/ai-operational-spec.md §1.4` example binds
+  `embeddings: {provider: local, …}` / `stt: {provider: local}` — a bare `local`
+  provider name no adapter implements (`SelectBrain` has `ollama`/`vllm`, not
+  `local`). A naming gap independent of this change; no `local` alias invented here.
+- **#4 — raise.** `ai-operational-spec.md §1.1` names GPT/Gemini classes for
+  cheap-cloud/premium, and the WP3 exit gate requires evals on "the local-default
+  **and** the cloud-default bindings"; cloud-default is Anthropic, so OpenAI/Gemini
+  are named-but-untested. This change ships the adapters + unit coverage; which
+  cloud provider WP3 gates on is a spec/WP3 call.
+- **#5 — raise.** Mistral is spec-named only as an open-weight **local** model
+  (ADR-0012/A23), yet La Plateforme is an OpenAI-compat **cloud** endpoint —
+  reachable now via `openai_compatible` + `base_url`. Whether to add a named
+  `mistral` cloud alias is a product call.
+- **#6 — raise.** No model-capability catalog exists (context window,
+  supports-vision/-caching/-reasoning). Out of scope here (YAGNI — the router
+  keys on tier); noted as a future item, not half-built.
+- **#7 — raise.** `model.Message` is `{Role, Content}` — no per-part slot for
+  Gemini-3.x thought signatures or OpenAI reasoning items, so full *native*
+  multi-turn thought continuity can't be expressed on the seam. This change
+  rides the `ProviderMetadata`→`ProviderOptions` pass-through instead (the Gemini
+  thought-signature round-trip); a richer typed-parts `model.Message` is a future
+  seam change. Single-shot tasks are unaffected.
+- **#8 — documented (no code change).** `openai_compatible` `/embeddings` 404s on
+  OpenRouter/Groq/DeepSeek (chat-only); Mistral `-latest` aliases drift/deprecate.
+  Captured in `config/ai-routing.example.yaml` + `docs/reference/configuration.md`
+  (bind embeddings to a vendor that serves the lane or a local model; pin explicit
+  model versions).
+- **#9 — raise + follow-up.** `specs/adr/ADR-0050`/A65 (per-provider AI-quality
+  conformance, catalog at `specs/contract/ai-acceptance-catalog.md`) certifies AI
+  quality *per provider* (Certified / Supported-degraded / Not-supported). Adding
+  `openai`/`gemini`/blessed `openai_compatible` targets pulls them into that AIUC
+  matrix — a test/catalog obligation to mark them "supported", tracked as a
+  separate change, not shipped here. ADR-0050 explicitly leaves the ADR-0013/0020
+  invariants and the `Client` seam untouched, so this is not a seam blocker.
+- **#10 — no code.** Cite "contract-first / spec wins" (the `architecture.md`
+  invariant) by name, not the bare "P3", in commits/comments — `product/principles.md`
+  P3 is a different principle.
