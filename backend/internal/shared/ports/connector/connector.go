@@ -13,6 +13,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -46,6 +47,30 @@ type Connector interface {
 	// HealthCheck feeds the ops surface; an outage degrades capture but
 	// never blocks core CRM (capture is async on the job queue).
 	HealthCheck(ctx context.Context, auth Auth) error
+}
+
+// Watcher is the OPTIONAL push-watch seam a connector implements when its
+// provider delivers change notifications through a subscription that must be
+// renewed before it lapses (Gmail Pub/Sub's 7-day watch, Graph's ≤3-day
+// subscription). It is separate from Connector because a provider without a
+// renewable push subscription (the one-shot IMAP puller) does not implement it;
+// the registry's watch-renewal scan type-asserts for it and skips a connector
+// that is not a Watcher.
+type Watcher interface {
+	// Watch registers (or, on a repeat call, renews) the provider push
+	// subscription against topic and returns the watermark to resume from plus
+	// the new expiration deadline. It performs provider I/O like Sync; it never
+	// touches the CRM or the connection row (the registry persists the result).
+	Watch(ctx context.Context, auth Auth, topic string) (WatchResult, error)
+}
+
+// WatchResult is the outcome of registering/renewing a provider push watch:
+// the historyId/delta anchor at watch time and when the watch expires. The
+// registry stores ExpiresAt in capture_connection.watch_expires_at, which the
+// renewal scan keys on (CAP-DDL-2, idx_capture_watch_renew).
+type WatchResult struct {
+	HistoryID string
+	ExpiresAt time.Time
 }
 
 // Descriptor — declared capabilities; ⊆ the granting human's scopes.
