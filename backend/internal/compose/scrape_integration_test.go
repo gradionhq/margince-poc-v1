@@ -178,7 +178,7 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 		t.Fatalf("accept: %v", err)
 	}
 
-	var industry, capturedBy string
+	var industry, capturedBy, source string
 	var profileRows, orgs int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(),
@@ -189,8 +189,8 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 			return err
 		}
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*), max(captured_by) FROM organization_profile_field WHERE organization_id = $1`,
-			orgID).Scan(&profileRows, &capturedBy)
+			`SELECT count(*), max(captured_by), max(source) FROM organization_profile_field WHERE organization_id = $1`,
+			orgID).Scan(&profileRows, &capturedBy, &source)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +203,13 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	}
 	if profileRows != 2 || capturedBy != "agent:scrape" {
 		t.Fatalf("evidence rows = %d captured_by=%q, want 2 as agent:scrape", profileRows, capturedBy)
+	}
+	// An enrichment's evidence is labelled 'scrape', not the table's
+	// 'coldstart' default: the row says which engine wrote it, so a later
+	// reader can tell "read from OUR site at onboarding" from "scraped off a
+	// customer's".
+	if source != "scrape" {
+		t.Fatalf("evidence source = %q, want scrape", source)
 	}
 
 	// Exactly-once: the approval is consumed and a re-decide is refused.

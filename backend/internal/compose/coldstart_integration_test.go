@@ -32,6 +32,18 @@ type fixturePage string
 
 func (p fixturePage) Fetch(context.Context, string) (string, error) { return string(p), nil }
 
+// The three input kinds, named so a test reads as the thing it exercises
+// rather than as pointer plumbing.
+func fromURL(u string) crmcontracts.ColdStartRequest { return crmcontracts.ColdStartRequest{Url: &u} }
+
+func fromPastedText(s string) crmcontracts.ColdStartRequest {
+	return crmcontracts.ColdStartRequest{Text: &s}
+}
+
+func fromSelfDescription(s string) crmcontracts.ColdStartRequest {
+	return crmcontracts.ColdStartRequest{SelfDescription: &s}
+}
+
 const acmePage = fixturePage(`Acme GmbH — Onboard your team in minutes, not weeks. ` +
 	`Built for RevOps leaders at scaling SaaS companies. ` +
 	`Registered in Berlin, HRB 12345.`)
@@ -47,7 +59,7 @@ func TestColdStartStagesOnlyEvidencedFields(t *testing.T) {
 	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: approvals.NewService(e.Pool)}
 
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
-	proposal, err := engine.Propose(ctx, "https://acme.example")
+	proposal, err := engine.Propose(ctx, fromURL("https://acme.example"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +121,7 @@ func TestColdStartTextInputGroundsFieldsInThePaste(t *testing.T) {
 		{"field":"legal_name","value":"Acme GmbH","evidence_snippet":"registered as Acme GmbH in Berlin","confidence":0.9}]}`)
 	engine := &coldStartEngine{extract: evidenceExtractor{brain: brain}, approvals: approvals.NewService(e.Pool)}
 
-	proposal, err := engine.ProposeText(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), pasted)
+	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromPastedText(pasted))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +161,7 @@ func TestColdStartSelfDescriptionGroundsOnlyWhatTheStatementSupports(t *testing.
 	engine := &coldStartEngine{extract: evidenceExtractor{brain: brain}, approvals: approvals.NewService(e.Pool)}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
-	proposal, err := engine.ProposeSelfDescription(ctx, statement)
+	proposal, err := engine.Propose(ctx, fromSelfDescription(statement))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +191,7 @@ func TestColdStartSelfDescriptionGroundsOnlyWhatTheStatementSupports(t *testing.
 		{"field":"icp","value":"guessed","evidence_snippet":"enterprise Fortune-500 buyers","confidence":0.9}]}`)
 	empty := &coldStartEngine{extract: evidenceExtractor{brain: unsupported}, approvals: approvals.NewService(e.Pool)}
 	var unreadable *unreadableError
-	if _, err := empty.ProposeSelfDescription(ctx, statement); !errors.As(err, &unreadable) {
+	if _, err := empty.Propose(ctx, fromSelfDescription(statement)); !errors.As(err, &unreadable) {
 		t.Fatalf("unsupported statement → %v, want unreadable (no-guess)", err)
 	}
 }
@@ -193,15 +205,15 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
 	var unreadable *unreadableError
-	if _, err := engine.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
+	if _, err := engine.Propose(ctx, fromURL("https://acme.example")); !errors.As(err, &unreadable) {
 		t.Fatalf("all-hallucinated extraction → %v, want unreadable", err)
 	}
-	if _, err := engine.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
+	if _, err := engine.Propose(ctx, fromURL("https://acme.example")); !errors.As(err, &unreadable) {
 		t.Fatalf("unparseable model output → %v, want unreadable", err)
 	}
 	// A page below the readable floor never reaches the model.
 	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.Pool)}
-	if _, err := tiny.Propose(ctx, "https://acme.example"); !errors.As(err, &unreadable) {
+	if _, err := tiny.Propose(ctx, fromURL("https://acme.example")); !errors.As(err, &unreadable) {
 		t.Fatalf("tiny page → %v, want unreadable", err)
 	}
 }
@@ -227,7 +239,7 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, people.NewStore(e.Pool)))
 	engine := &coldStartEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, approvals: svc}
 
-	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), "https://www.acme.example/about")
+	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromURL("https://www.acme.example/about"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +269,7 @@ func TestColdStartAcceptWritesProfileOntoOrganization(t *testing.T) {
 	}
 
 	// A REJECTED proposal writes nothing: stage a second one and reject.
-	proposal2, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), "https://other.example")
+	proposal2, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms), fromURL("https://other.example"))
 	if err != nil {
 		t.Fatal(err)
 	}

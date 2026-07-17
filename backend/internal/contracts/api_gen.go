@@ -4733,6 +4733,12 @@ type ColdStartProposalSourceKind string
 // ColdStartProposalStatus Always staged — accept via the approval inbox.
 type ColdStartProposalStatus string
 
+// ColdStartReadback An un-staged read-back: the evidenced fields only, for a human to check in the company form.
+// There is no proposal_id because there is no proposal — nothing was written or queued.
+type ColdStartReadback struct {
+	Fields []ColdStartField `json:"fields"`
+}
+
 // ColdStartRequest EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
 // manual paste-text fallback — a robots-disallowed / unreadable site degrades to "paste the text",
 // never an error wall), or `self_description` (the user's own dictated/typed description of their
@@ -4757,6 +4763,62 @@ type ColdStartRequest1 = interface{}
 
 // ColdStartRequest2 defines model for .
 type ColdStartRequest2 = interface{}
+
+// CompanyProfile The installation's own company. `display_name` is the only field the form requires — a company
+// that will not say its VAT ID is still a company. Every other field is nullable and stays null
+// until someone fills it, by hand or from a read-back.
+type CompanyProfile struct {
+	// BuyingCenter The roles that decide on a purchase.
+	BuyingCenter  *string `json:"buying_center,omitempty"`
+	BuyingIntents *string `json:"buying_intents,omitempty"`
+
+	// DisplayName What the company is called day to day.
+	DisplayName string `json:"display_name"`
+
+	// History Company background.
+	History *string `json:"history,omitempty"`
+
+	// Icp Ideal customer profile — who this company sells to.
+	Icp      *string `json:"icp,omitempty"`
+	Industry *string `json:"industry,omitempty"`
+
+	// LegalName The registered legal entity
+	LegalName *string `json:"legal_name,omitempty"`
+
+	// OrganizationId The anchor organization this profile belongs to.
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// RegisterVat VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).
+	RegisterVat *string `json:"register_vat,omitempty"`
+
+	// RegisteredAddress The registered address as one formatted line.
+	RegisteredAddress *string    `json:"registered_address,omitempty"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	Usp               *string    `json:"usp,omitempty"`
+	ValueProposition  *string    `json:"value_proposition,omitempty"`
+
+	// Website The company's own domain (acme.com) — stored as its primary domain, the same handle a read-back resolves organizations by. A full URL is accepted on write and reduced to its domain.
+	Website *string `json:"website,omitempty"`
+}
+
+// CompanyProfileInput The company form's body. An omitted field is left as it was; a field sent as an empty string is
+// cleared. `display_name` is required on every save — the form cannot save a nameless company.
+type CompanyProfileInput struct {
+	BuyingCenter      *string `json:"buying_center,omitempty"`
+	BuyingIntents     *string `json:"buying_intents,omitempty"`
+	DisplayName       string  `json:"display_name"`
+	History           *string `json:"history,omitempty"`
+	Icp               *string `json:"icp,omitempty"`
+	Industry          *string `json:"industry,omitempty"`
+	LegalName         *string `json:"legal_name,omitempty"`
+	RegisterVat       *string `json:"register_vat,omitempty"`
+	RegisteredAddress *string `json:"registered_address,omitempty"`
+	Usp               *string `json:"usp,omitempty"`
+	ValueProposition  *string `json:"value_proposition,omitempty"`
+
+	// Website The company's own domain or full URL; stored as the bare domain.
+	Website *string `json:"website,omitempty"`
+}
 
 // ComputedField S-E15.8c formula-field display row (RD-AC-6/RD-AC-7/RD-AC-N-1) — a read-only,
 // database-computed value, never a runtime-authored expression. `computable: false` +
@@ -9325,6 +9387,12 @@ type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
+
+// ColdStartPreviewJSONRequestBody defines body for ColdStartPreview for application/json ContentType.
+type ColdStartPreviewJSONRequestBody = ColdStartRequest
+
+// PutCompanyJSONRequestBody defines body for PutCompany for application/json ContentType.
+type PutCompanyJSONRequestBody = CompanyProfileInput
 
 // ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
 type ConnectImapJSONRequestBody = ImapConnectRequest
@@ -14476,6 +14544,15 @@ type ServerInterface interface {
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
+	// Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
+	// (POST /coldstart/preview)
+	ColdStartPreview(w http.ResponseWriter, r *http.Request)
+	// The installation's own company (the anchor organization).
+	// (GET /company)
+	GetCompany(w http.ResponseWriter, r *http.Request)
+	// Save the installation's own company — the human's confirm-first write.
+	// (PUT /company)
+	PutCompany(w http.ResponseWriter, r *http.Request)
 	// List the calling user's capture connections + sync state.
 	// (GET /connectors)
 	ListConnectors(w http.ResponseWriter, r *http.Request)
@@ -15181,6 +15258,24 @@ func (_ Unimplemented) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Req
 // Website cold-start read-back — returns a staged proposal with evidence.
 // (POST /coldstart)
 func (_ Unimplemented) ColdStartReadback(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
+// (POST /coldstart/preview)
+func (_ Unimplemented) ColdStartPreview(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The installation's own company (the anchor organization).
+// (GET /company)
+func (_ Unimplemented) GetCompany(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save the installation's own company — the human's confirm-first write.
+// (PUT /company)
+func (_ Unimplemented) PutCompany(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17954,6 +18049,70 @@ func (siw *ServerInterfaceWrapper) ColdStartReadback(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ColdStartReadback(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ColdStartPreview operation middleware
+func (siw *ServerInterfaceWrapper) ColdStartPreview(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ColdStartPreview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompany operation middleware
+func (siw *ServerInterfaceWrapper) GetCompany(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompany(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutCompany operation middleware
+func (siw *ServerInterfaceWrapper) PutCompany(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutCompany(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -25819,6 +25978,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/coldstart/preview", wrapper.ColdStartPreview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/company", wrapper.GetCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/company", wrapper.PutCompany)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connectors", wrapper.ListConnectors)
