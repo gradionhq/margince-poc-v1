@@ -29,24 +29,23 @@
 }
 .auth-wordmark {
   align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--f-display);
-  font-weight: 600;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-  color: var(--textPrimary);
-}
-.auth-wordmark .mk {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-sm);
-  background: var(--accent);
-  color: var(--bgElevated);
   display: grid;
   place-items: center;
-  font-size: 14px;
+  margin-bottom: 6px;
+}
+.auth-wordmark img {
+  width: 232px;
+  max-width: 70vw;
+  height: auto;
+}
+.auth-wordmark-dark {
+  display: none;
+}
+[data-theme="dark"] .auth-wordmark-light {
+  display: none;
+}
+[data-theme="dark"] .auth-wordmark-dark {
+  display: block;
 }
 
 .auth-card {
@@ -114,12 +113,38 @@
   box-shadow: 0 0 0 4px var(--accentLight);
 }
 .auth-password-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  position: relative;
 }
-.auth-password-row .auth-input {
-  flex: 1;
+.auth-input-reveal {
+  /* room for the in-field reveal button, so email and password fields
+     keep the exact same outer width */
+  padding-right: 44px;
+}
+.auth-reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--textTertiary);
+  border-radius: var(--r-sm);
+}
+.auth-reveal svg {
+  width: 18px;
+  height: 18px;
+}
+.auth-reveal:hover,
+.auth-reveal[aria-pressed="true"] {
+  color: var(--textPrimary);
+}
+.auth-reveal:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
 }
 .auth-actions {
   margin-top: 22px;
