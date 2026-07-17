@@ -113,7 +113,7 @@ func (c *anthropicClient) Stream(ctx context.Context, req model.Request) (model.
 	if err != nil {
 		return nil, err
 	}
-	return &anthropicStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &anthropicStream{body: body, scanner: sseScanner(body)}, nil
 }
 
 // Embed is a different lane, not a chat-tier capability: Anthropic

@@ -43,7 +43,9 @@ func TestGeminiCompleteMapsNativeWireAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Text != "answer" || resp.InputTokens != 10 || resp.OutputTokens != 5 || resp.CachedTokens != 6 || resp.ReasoningTokens != 4 {
+	// OutputTokens is reasoning-inclusive (the port invariant): Gemini reports
+	// candidates (5) and thoughts (4) separately, so the adapter sums them.
+	if resp.Text != "answer" || resp.InputTokens != 10 || resp.OutputTokens != 9 || resp.CachedTokens != 6 || resp.ReasoningTokens != 4 {
 		t.Fatalf("mapping wrong: %+v", resp)
 	}
 	var wire struct {
@@ -289,5 +291,108 @@ func TestGeminiThoughtSignatureRoundTrips(t *testing.T) {
 	}
 	if !bytes.Contains(reqBody, []byte(`"thoughtSignature":"SIG-abc"`)) {
 		t.Fatalf("thought signature not echoed onto the model turn: %s", reqBody)
+	}
+}
+
+// SAFETY / MAX_TOKENS / RECITATION arrive inside a 200 body — an abnormal
+// finishReason must surface as an error, never as a clean (truncated) answer.
+func TestGeminiAbnormalFinishReasonIsAnError(t *testing.T) {
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"trunc"}]},"finishReason":"MAX_TOKENS"}]}`))
+	})
+	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "q"}}})
+	if err == nil || !strings.Contains(err.Error(), "MAX_TOKENS") {
+		t.Fatalf("want error naming MAX_TOKENS, got %v", err)
+	}
+}
+
+// A mid-stream error object and an abnormal finishReason both ride 200 SSE
+// chunks; either passing for EOF would report a failed call as complete.
+func TestGeminiStreamSurfacesErrorChunkAndAbnormalFinish(t *testing.T) {
+	cases := map[string]struct {
+		chunk string
+		want  string
+	}{
+		"error object":  {`data: {"error":{"status":"RESOURCE_EXHAUSTED","message":"quota"}}`, "RESOURCE_EXHAUSTED"},
+		"safety finish": {`data: {"candidates":[{"content":{"parts":[]},"finishReason":"SAFETY"}]}`, "SAFETY"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"he"}]}}]}`+"\n\n")
+				_, _ = io.WriteString(w, tc.chunk+"\n\n")
+			})
+			stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := stream.Close(); err != nil {
+					t.Errorf("closing stream: %v", err)
+				}
+			}()
+			if chunk, ok, err := stream.Next(context.Background()); err != nil || !ok || chunk != "he" {
+				t.Fatalf("first chunk: %q %v %v", chunk, ok, err)
+			}
+			_, _, err = stream.Next(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want error naming %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// A final chunk finishing with STOP is the clean terminal — it must not be
+// mistaken for an abnormal finish.
+func TestGeminiStreamCleanStopIsNotAnError(t *testing.T) {
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"done"}]},"finishReason":"STOP"}]}`+"\n\n")
+	})
+	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
+	if chunk, ok, err := stream.Next(context.Background()); err != nil || !ok || chunk != "done" {
+		t.Fatalf("STOP chunk must deliver its text: %q %v %v", chunk, ok, err)
+	}
+	if _, ok, err := stream.Next(context.Background()); ok || err != nil {
+		t.Fatalf("stream after STOP must end cleanly: %v %v", ok, err)
+	}
+}
+
+// Config may carry Google's canonical "models/…" id form; the adapter adds the
+// prefix itself, so it must trim a canonical id rather than double it
+// (/models/models/… → 404).
+func TestGeminiAcceptsCanonicalModelsPrefixedIDs(t *testing.T) {
+	var paths []string
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if strings.Contains(r.URL.Path, ":embedContent") {
+			_, _ = w.Write([]byte(`{"embedding":{"values":[0.1]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+	})
+	if _, err := client.Embed(context.Background(), model.EmbedRequest{Model: "models/gemini-embedding-001", Inputs: []string{"a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Complete(context.Background(), model.Request{Model: "models/gemini-x", Messages: []model.Message{{Role: "user", Content: "q"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if strings.Contains(p, "/models/models/") {
+			t.Fatalf("canonical id double-prefixed: %s", p)
+		}
+	}
+	if paths[0] != "/models/gemini-embedding-001:embedContent" {
+		t.Fatalf("embed path wrong: %s", paths[0])
+	}
+	if paths[1] != "/models/gemini-x:generateContent" {
+		t.Fatalf("generate path wrong: %s", paths[1])
 	}
 }

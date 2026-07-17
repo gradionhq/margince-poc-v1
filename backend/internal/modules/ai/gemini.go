@@ -102,7 +102,17 @@ type geminiOptions struct {
 type geminiResponse struct {
 	Candidates []struct {
 		Content geminiContent `json:"content"`
+		// FinishReason names why generation stopped; "STOP" is the only clean
+		// finish. SAFETY / MAX_TOKENS / RECITATION / … must surface as errors —
+		// a filtered or truncated answer must never read as a complete one.
+		FinishReason string `json:"finishReason"` //nolint:tagliatelle // Google's wire format (camelCase)
 	} `json:"candidates"`
+	// Error is Google's mid-stream/in-body error object (a 200 stream can
+	// still deliver {"error":{…}} as a chunk).
+	Error struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	} `json:"error"`
 	UsageMetadata struct {
 		PromptTokenCount        int `json:"promptTokenCount"`        //nolint:tagliatelle // Google's wire format (camelCase)
 		CandidatesTokenCount    int `json:"candidatesTokenCount"`    //nolint:tagliatelle // Google's wire format (camelCase)
@@ -122,6 +132,9 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
 		return model.Response{}, fmt.Errorf("ai: gemini: decode response: %w", err)
 	}
+	if err := geminiResponseError(out); err != nil {
+		return model.Response{}, err
+	}
 	var text strings.Builder
 	var signatures []string
 	for _, cand := range out.Candidates {
@@ -133,9 +146,12 @@ func (c *geminiClient) Complete(ctx context.Context, req model.Request) (model.R
 		}
 	}
 	resp := model.Response{
-		Text:            text.String(),
-		InputTokens:     out.UsageMetadata.PromptTokenCount,
-		OutputTokens:    out.UsageMetadata.CandidatesTokenCount,
+		Text:        text.String(),
+		InputTokens: out.UsageMetadata.PromptTokenCount,
+		// candidatesTokenCount EXCLUDES thinking tokens, but the port's
+		// OutputTokens invariant is reasoning-inclusive (model.Response) so the
+		// budget meter charges true spend on every provider — add them here.
+		OutputTokens:    out.UsageMetadata.CandidatesTokenCount + out.UsageMetadata.ThoughtsTokenCount,
 		CachedTokens:    out.UsageMetadata.CachedContentTokenCount,
 		ReasoningTokens: out.UsageMetadata.ThoughtsTokenCount,
 	}
@@ -153,11 +169,14 @@ func (c *geminiClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &geminiStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &geminiStream{body: body, scanner: sseScanner(body)}, nil
 }
 
 func (c *geminiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
-	embedModel := req.Model
+	// Accept both the bare id and Google's canonical "models/…" form — the
+	// path and wire body add the prefix themselves, so a canonical id would
+	// otherwise double it (/models/models/… → 404).
+	embedModel := strings.TrimPrefix(req.Model, "models/")
 	if embedModel == "" {
 		embedModel = geminiEmbedModel
 	}
@@ -219,9 +238,11 @@ func (c *geminiClient) generate(ctx context.Context, req model.Request, stream b
 	if len(req.Tools) > 0 {
 		return nil, fmt.Errorf("ai: gemini: native tool-use is not implemented yet (request set %d tool(s))", len(req.Tools))
 	}
-	genModel := req.Model
+	// Same id normalization as Embed: the ":generateContent" path adds the
+	// "models/" prefix, so trim a canonical "models/…" id.
+	genModel := strings.TrimPrefix(req.Model, "models/")
 	if genModel == "" {
-		genModel = c.defaultModel
+		genModel = strings.TrimPrefix(c.defaultModel, "models/")
 	}
 	opts, err := geminiReadOptions(req.ProviderOptions)
 	if err != nil {
@@ -344,6 +365,22 @@ func (c *geminiClient) post(ctx context.Context, path string, payload []byte) (i
 	return resp.Body, nil
 }
 
+// geminiResponseError maps an in-body error object or an abnormal
+// finishReason to an error. STOP (and absent — a non-final stream chunk) is
+// the only clean state; SAFETY, MAX_TOKENS, RECITATION, … otherwise pass for
+// a complete answer because Gemini delivers them inside a 200 body.
+func geminiResponseError(out geminiResponse) error {
+	if out.Error.Message != "" || out.Error.Status != "" {
+		return fmt.Errorf("ai: gemini: %s: %s", out.Error.Status, out.Error.Message)
+	}
+	for _, cand := range out.Candidates {
+		if cand.FinishReason != "" && cand.FinishReason != "STOP" {
+			return fmt.Errorf("ai: gemini: generation stopped: %s", cand.FinishReason)
+		}
+	}
+	return nil
+}
+
 // geminiError surfaces the API's error status and message only, so a logged
 // failure can never echo the request (or the key).
 func geminiError(resp *http.Response) error {
@@ -381,6 +418,12 @@ func (s *geminiStream) Next(ctx context.Context) (string, bool, error) {
 		var ev geminiResponse
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			return "", false, fmt.Errorf("ai: gemini: stream event: %w", err)
+		}
+		// A mid-stream error object or an abnormal finishReason (SAFETY,
+		// MAX_TOKENS, …) arrives inside a 200 chunk — surface it instead of
+		// letting a zero-text chunk fall through to a clean-looking EOF.
+		if err := geminiResponseError(ev); err != nil {
+			return "", false, err
 		}
 		var chunk strings.Builder
 		for _, cand := range ev.Candidates {

@@ -42,6 +42,11 @@ type openaiWire struct {
 	Text            *openaiText       `json:"text,omitempty"`
 	Reasoning       *openaiReasoning  `json:"reasoning,omitempty"`
 	Stream          bool              `json:"stream,omitempty"`
+	// Store is pinned false (no omitempty — the field must be on the wire):
+	// the Responses API defaults to store:true, which retains prompts — CRM
+	// record content — server-side for ~30 days. BYOK egress sends the
+	// request for inference only, never for vendor-side retention.
+	Store bool `json:"store"`
 }
 
 type openaiInputItem struct {
@@ -87,7 +92,19 @@ type openaiOptions struct {
 }
 
 type openaiResponse struct {
-	ID     string `json:"id"`
+	ID string `json:"id"`
+	// Status is the terminal response state: "completed" is the only success;
+	// "failed" carries Error, "incomplete" carries IncompleteDetails (e.g.
+	// max_output_tokens, content_filter). Anything else must surface as an
+	// error — a truncated or filtered answer must never read as a clean one.
+	Status string `json:"status"`
+	Error  struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+	IncompleteDetails struct {
+		Reason string `json:"reason"`
+	} `json:"incomplete_details"`
 	Output []struct {
 		Type    string `json:"type"`
 		Content []struct {
@@ -118,6 +135,9 @@ func (c *openaiClient) Complete(ctx context.Context, req model.Request) (model.R
 	var out openaiResponse
 	if err := json.NewDecoder(body).Decode(&out); err != nil {
 		return model.Response{}, fmt.Errorf("ai: openai: decode response: %w", err)
+	}
+	if err := openaiTerminalStatus(out); err != nil {
+		return model.Response{}, err
 	}
 	// Walk output[]: a type:"reasoning" item can precede the message, and a
 	// type:"refusal" part is a first-class outcome — never output[0].content[0].
@@ -156,7 +176,7 @@ func (c *openaiClient) Stream(ctx context.Context, req model.Request) (model.Tok
 	if err != nil {
 		return nil, err
 	}
-	return &openaiStream{body: body, scanner: bufio.NewScanner(body)}, nil
+	return &openaiStream{body: body, scanner: sseScanner(body)}, nil
 }
 
 func (c *openaiClient) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
@@ -321,8 +341,26 @@ func openaiError(resp *http.Response) error {
 	return fmt.Errorf("ai: openai: http %d", resp.StatusCode)
 }
 
+// openaiTerminalStatus maps a non-completed Responses object to an error: a
+// failed call carries the API's error, an incomplete one names why generation
+// stopped (max_output_tokens, content_filter). Either read as a clean answer
+// would silently hand the caller a truncated or filtered result.
+func openaiTerminalStatus(out openaiResponse) error {
+	switch out.Status {
+	case "", "completed":
+		return nil
+	case "failed":
+		return fmt.Errorf("ai: openai: response failed: %s: %s", out.Error.Code, out.Error.Message)
+	case "incomplete":
+		return fmt.Errorf("ai: openai: response incomplete: %s", out.IncompleteDetails.Reason)
+	default:
+		return fmt.Errorf("ai: openai: response ended with status %q", out.Status)
+	}
+}
+
 // openaiStream parses the Responses SSE stream, yielding text deltas from
-// response.output_text.delta events.
+// response.output_text.delta events. response.completed is the ONLY clean
+// terminal — failed/incomplete/error events surface as errors, never as EOF.
 type openaiStream struct {
 	body    io.ReadCloser
 	scanner *bufio.Scanner
@@ -339,8 +377,12 @@ func (s *openaiStream) Next(ctx context.Context) (string, bool, error) {
 			continue
 		}
 		var ev struct {
-			Type  string `json:"type"`
-			Delta string `json:"delta"`
+			Type     string         `json:"type"`
+			Delta    string         `json:"delta"`
+			Response openaiResponse `json:"response"`
+			// Code/Message are the top-level `error` event's shape.
+			Code    string `json:"code"`
+			Message string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(data), &ev); err != nil {
 			return "", false, fmt.Errorf("ai: openai: stream event: %w", err)
@@ -352,12 +394,22 @@ func (s *openaiStream) Next(ctx context.Context) (string, bool, error) {
 			}
 		case "response.completed":
 			return "", false, nil
+		case "response.failed", "response.incomplete":
+			if err := openaiTerminalStatus(ev.Response); err != nil {
+				return "", false, err
+			}
+			// The embedded response object omitted its status — the event
+			// type itself is still the authority that this is a failure.
+			return "", false, fmt.Errorf("ai: openai: stream ended with %s", ev.Type)
+		case "error":
+			return "", false, fmt.Errorf("ai: openai: stream error: %s: %s", ev.Code, ev.Message)
 		}
 	}
 	if err := s.scanner.Err(); err != nil {
 		return "", false, fmt.Errorf("ai: openai: stream: %w", err)
 	}
-	return "", false, nil
+	// EOF without response.completed: the connection dropped mid-generation.
+	return "", false, fmt.Errorf("ai: openai: stream ended without a terminal event")
 }
 
 func (s *openaiStream) Close() error { return s.body.Close() }

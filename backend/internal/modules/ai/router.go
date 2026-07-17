@@ -244,8 +244,9 @@ func embedTokenEstimate(inputs []string) int {
 	return total
 }
 
-// cacheKey covers EVERY completion-shaping input (system, messages, tools, max
-// tokens, attachments, and provider options) via a collision-resistant digest,
+// cacheKey covers EVERY completion-shaping input (model override, system,
+// messages, tools, max tokens, response schema, attachments, and provider
+// options) via a collision-resistant digest,
 // prefixed with the plaintext workspace id: a hash collision may spoil a cache
 // hit but can never cross a tenant boundary, because the workspace segment is
 // compared literally (and re-checked against the stored entry on read).
@@ -254,13 +255,15 @@ func embedTokenEstimate(inputs []string) int {
 // reasoning/thinking knob) collide, and the second is served the first's answer.
 func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error) {
 	material, err := json.Marshal(struct {
+		Model           string                     `json:"model"`
 		System          string                     `json:"system"`
 		Messages        []model.Message            `json:"messages"`
 		Tools           []model.ToolDef            `json:"tools"`
 		MaxTokens       int                        `json:"max_tokens"`
+		ResponseSchema  json.RawMessage            `json:"response_schema"`
 		Attachments     []model.Attachment         `json:"attachments"`
 		ProviderOptions map[string]json.RawMessage `json:"provider_options"`
-	}{req.System, req.Messages, req.Tools, req.MaxTokens, req.Attachments, req.ProviderOptions})
+	}{req.Model, req.System, req.Messages, req.Tools, req.MaxTokens, req.ResponseSchema, req.Attachments, req.ProviderOptions})
 	if err != nil {
 		// A ProviderOptions namespace carrying invalid JSON would otherwise
 		// marshal to nil and collapse every such request onto one cache key —
