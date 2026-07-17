@@ -114,6 +114,15 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	for _, s := range c.Descriptor().Scopes {
 		scopes = append(scopes, string(s))
 	}
+	// The mailbox address, if this connector names one (AccountIdentifier),
+	// so an inbound provider push can resolve account -> connection. A
+	// connector without the seam leaves account_email NULL (CAP-DDL-2).
+	var accountEmail *string
+	if ident, ok := c.(connector.AccountIdentifier); ok {
+		if id, err := ident.AccountID(auth); err == nil && id != "" {
+			accountEmail = &id
+		}
+	}
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return ids.Nil, errors.New("capture: connector grant outside workspace context")
@@ -133,12 +142,12 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	var id ids.UUID
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected')
+			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_email)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5)
 			ON CONFLICT (workspace_id, user_id, provider)
-			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL
+			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL, account_email = EXCLUDED.account_email
 			RETURNING id`,
-			name, actor.UserID, scopes, string(ref)).Scan(&id)
+			name, actor.UserID, scopes, string(ref), accountEmail).Scan(&id)
 	})
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
