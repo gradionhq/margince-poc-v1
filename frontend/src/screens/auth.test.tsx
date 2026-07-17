@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { AuthScreen } from "./auth";
+import { AuthScreen, AvailabilityScreen } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
 // no signup mode, no workspace field, no tenant selector on the wire — and
@@ -75,7 +75,10 @@ describe("AuthScreen login", () => {
     expect(screen.queryByLabelText(/workspace/i)).toBeNull();
     expect(screen.queryByText(/create/i)).toBeNull();
 
-    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
     // Enter inside the real <form> submits — no button click needed.
     await userEvent.type(
       screen.getByLabelText("Password"),
@@ -88,7 +91,7 @@ describe("AuthScreen login", () => {
     expect(request?.headers.has("X-Workspace-Slug")).toBe(false);
   });
 
-  it("keeps the entered email after a failed attempt and announces the error", async () => {
+  it("answers bad credentials with the one non-enumerating message, keeps the email, clears the password", async () => {
     stubApi({ password: true, password_reset: false }, () =>
       ok(401, {
         title: "unauthorized",
@@ -97,20 +100,96 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
     await userEvent.type(screen.getByLabelText("Password"), "wrong{enter}");
 
-    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
-    expect(screen.getByLabelText("Email")).toHaveProperty(
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "We couldn't sign you in. Check your email and password and try again.",
+    );
+    expect(screen.getByLabelText("Email address")).toHaveProperty(
       "value",
       "ada@example.com",
     );
+    // §9.2: a rejected credential clears the password for the retry.
+    expect(screen.getByLabelText("Password")).toHaveProperty("value", "");
+  });
+
+  it("presents rate limiting as its own actionable state, never a credential error", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(429, { title: "budget exceeded" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Too many sign-in attempts. Wait a moment and try again.",
+    );
+  });
+
+  it("presents a server outage as connectivity, not wrong credentials", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(500, { title: "boom" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Margince couldn't be reached");
+  });
+
+  it("restores a deep link after login instead of forcing home", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
+    );
+    window.location.hash = "#/deals/d-42";
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "correct-horse-battery{enter}",
+    );
+
+    await waitFor(() => expect(window.location.hash).toBe("#/deals/d-42"));
+  });
+
+  it("renders the session notices the boundary hands it", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} notice="session-expired" />);
+    expect(
+      await screen.findByText(
+        "Your session expired. Sign in again to continue.",
+      ),
+    ).toBeTruthy();
+    cleanup();
+
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} notice="signed-out" />);
+    expect(await screen.findByText("You have been signed out.")).toBeTruthy();
   });
 
   it("hides the forgot-password link when the capability is off, shows it when on", async () => {
     stubApi({ password: true, password_reset: false }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    await screen.findByLabelText("Email");
+    await screen.findByLabelText("Email address");
     expect(screen.queryByText("Forgot password?")).toBeNull();
     cleanup();
 
@@ -129,7 +208,7 @@ describe("AuthScreen forgot password", () => {
 
     await userEvent.click(await screen.findByText("Forgot password?"));
     await userEvent.type(
-      screen.getByLabelText("Email"),
+      screen.getByLabelText("Email address"),
       "ada@example.com{enter}",
     );
 
@@ -183,5 +262,21 @@ describe("AuthScreen reset deep link", () => {
       await screen.findByText("That reset link is invalid, used, or expired."),
     ).toBeTruthy();
     expect(screen.getByText("Request a new link")).toBeTruthy();
+  });
+});
+
+describe("AvailabilityScreen", () => {
+  it("presents connectivity and installation problems as availability with a retry", async () => {
+    const onRetry = vi.fn();
+    render(<AvailabilityScreen kind="connection" onRetry={onRetry} />);
+    expect(screen.getByText("Margince couldn't be reached")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalled();
+    cleanup();
+
+    render(<AvailabilityScreen kind="installation" onRetry={vi.fn()} />);
+    expect(screen.getByText("Installation not ready")).toBeTruthy();
+    // No credential fields: this is not a login problem.
+    expect(screen.queryByLabelText("Email address")).toBeNull();
   });
 });

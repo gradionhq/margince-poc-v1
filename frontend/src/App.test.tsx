@@ -146,3 +146,74 @@ describe("locale switch", () => {
     expect(screen.queryByRole("link", { name: "Contacts" })).toBeNull();
   });
 });
+
+describe("auth boundary states (login spec §4)", () => {
+  const mount = () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+  };
+  const probe = (status: number) =>
+    vi.fn(async (input: Request | string | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/v1/me")) {
+        return new Response(JSON.stringify({ code: "x" }), {
+          status,
+          headers: { "Content-Type": "application/problem+json" },
+        });
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+  it("renders login on 401 — not signed in is an authentication state", async () => {
+    vi.stubGlobal("fetch", probe(401));
+    mount();
+    expect(
+      await screen.findByRole("heading", { name: "Sign in to Margince" }),
+    ).toBeTruthy();
+  });
+
+  it("renders the connection problem on 5xx — an outage is never a login", async () => {
+    vi.stubGlobal("fetch", probe(500));
+    mount();
+    expect(
+      await screen.findByText("Margince couldn't be reached"),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Email address")).toBeNull();
+  });
+
+  it("renders installation-unavailable on 503 and retry re-probes /me", async () => {
+    const fetchMock = probe(503);
+    vi.stubGlobal("fetch", fetchMock);
+    mount();
+    expect(await screen.findByText("Installation not ready")).toBeTruthy();
+    const before = fetchMock.mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(before),
+    );
+  });
+
+  it("renders the connection problem when the probe cannot reach the API at all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network down");
+      }),
+    );
+    mount();
+    expect(
+      await screen.findByText("Margince couldn't be reached"),
+    ).toBeTruthy();
+  });
+});

@@ -936,8 +936,10 @@ export const en = {
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
+  "auth.pageTitle": "Sign in · Margince",
   "auth.loginTitle": "Sign in to Margince",
-  "auth.email": "Email",
+  "auth.email": "Email address",
+  "auth.emailPlaceholder": "name@example.com",
   "auth.password": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show",
@@ -946,6 +948,22 @@ export const en = {
   "auth.signIn": "Sign in",
   "auth.signingIn": "Signing in…",
   "auth.failed": "That didn't work",
+  "auth.errCredentials":
+    "We couldn't sign you in. Check your email and password and try again.",
+  "auth.errRateLimited":
+    "Too many sign-in attempts. Wait a moment and try again.",
+  "auth.errUnreachable":
+    "Margince couldn't be reached. Check your connection and try again.",
+  "auth.retry": "Try again",
+  "auth.noticeSignedOut": "You have been signed out.",
+  "auth.noticeSessionExpired":
+    "Your session expired. Sign in again to continue.",
+  "auth.connectionTitle": "Margince couldn't be reached",
+  "auth.connectionBody":
+    "Check your connection and try again. If the problem persists, the server may be restarting.",
+  "auth.unavailableTitle": "Installation not ready",
+  "auth.unavailableBody":
+    "This Margince installation isn't ready to sign you in. An operator needs to complete or repair the setup.",
   "auth.forgotLink": "Forgot password?",
   "auth.forgotTitle": "Reset your password",
   "auth.forgotSub":
@@ -964,6 +982,8 @@ export const en = {
   "auth.resetDoneBody":
     "Your password is changed and every other session is signed out. Sign in with the new password.",
   "auth.backToLogin": "Back to sign in",
+  "auth.langDeutsch": "Deutsch",
+  "auth.langEnglish": "English",
   "auth.signOut": "Sign out",
 
   "client.back": "Back to Margince",
