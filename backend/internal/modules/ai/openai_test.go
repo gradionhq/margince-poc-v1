@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -169,6 +170,74 @@ func TestOpenAIReportsNotLocalOnly(t *testing.T) {
 func TestOpenAIFailsClosedWithoutKey(t *testing.T) {
 	if _, err := SelectBrain(ProviderConfig{Provider: "openai"}); err == nil || !strings.Contains(err.Error(), "api key") {
 		t.Fatalf("openai without a key must fail closed, got %v", err)
+	}
+}
+
+func TestOpenAIStreamYieldsOutputTextDeltas(t *testing.T) {
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","delta":"he"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","delta":"llo"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"response.completed"}`+"\n\n")
+	})
+	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
+	var got strings.Builder
+	for {
+		chunk, ok, err := stream.Next(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			break
+		}
+		got.WriteString(chunk)
+	}
+	if got.String() != "hello" {
+		t.Fatalf("stream mismatch: %q", got.String())
+	}
+}
+
+func TestOpenAIErrorSurfacesVendorTypeAndMessageOnly(t *testing.T) {
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","message":"bad model"}}`))
+	})
+	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "with password=verysecretpw inside"}}})
+	if err == nil || !strings.Contains(err.Error(), "invalid_request_error") || !strings.Contains(err.Error(), "bad model") {
+		t.Fatalf("want vendor error type+message, got %v", err)
+	}
+	if strings.Contains(err.Error(), "verysecretpw") {
+		t.Fatalf("error must not echo the request: %v", err)
+	}
+}
+
+func TestOpenAIMapsAttachmentsByURIToFileIDAndImageURL(t *testing.T) {
+	var body []byte
+	client := newOpenAIForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body = readBody(t, r.Body)
+		_, _ = w.Write([]byte(`{"id":"r","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`))
+	})
+	if _, err := client.Complete(context.Background(), model.Request{
+		Messages: []model.Message{{Role: "user", Content: "look"}},
+		Attachments: []model.Attachment{
+			{MIME: "image/png", URI: "https://cdn.example/img.png"},
+			{MIME: "application/pdf", URI: "file-abc123"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("https://cdn.example/img.png")) {
+		t.Fatalf("image URI not carried as image_url: %s", body)
+	}
+	if !bytes.Contains(body, []byte(`"file_id":"file-abc123"`)) {
+		t.Fatalf("pdf URI not carried as file_id: %s", body)
 	}
 }
 

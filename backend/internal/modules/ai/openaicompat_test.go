@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -37,4 +38,39 @@ func TestOpenAICompatSendsBearerWhenKeyedAndOmitsWhenNot(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenAICompatSurfacesHTTPErrorWithoutEchoingRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("upstream boom"))
+	}))
+	defer srv.Close()
+	c := &openAICompatClient{http: &http.Client{}, baseURL: srv.URL, apiKey: "k", defaultModel: "m"}
+	_, err := c.Complete(context.Background(), model.Request{
+		Messages:       []model.Message{{Role: "user", Content: "with password=verysecretpw inside"}},
+		SecretStripper: NewSecretStripper(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "http 500") {
+		t.Fatalf("want http 500 surfaced, got %v", err)
+	}
+	if strings.Contains(err.Error(), "verysecretpw") {
+		t.Fatalf("error must not echo the request: %v", err)
+	}
+}
+
+func TestOpenAICompatEmptyChoicesIsAnError(t *testing.T) {
+	c := &openAICompatClient{http: &http.Client{}, defaultModel: "m", baseURL: newJSONServer(t, `{"choices":[]}`)}
+	if _, err := c.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}}); err == nil || !strings.Contains(err.Error(), "no choices") {
+		t.Fatalf("want a no-choices error, got %v", err)
+	}
+}
+
+func newJSONServer(t *testing.T, body string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }

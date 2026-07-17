@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -182,6 +183,70 @@ func TestGeminiReportsNotLocalOnly(t *testing.T) {
 func TestGeminiFailsClosedWithoutKey(t *testing.T) {
 	if _, err := SelectBrain(ProviderConfig{Provider: "gemini"}); err == nil || !strings.Contains(err.Error(), "api key") {
 		t.Fatalf("gemini without a key must fail closed, got %v", err)
+	}
+}
+
+func TestGeminiStreamYieldsPartTextChunks(t *testing.T) {
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, ":streamGenerateContent") || r.URL.RawQuery != "alt=sse" {
+			t.Errorf("stream path/query wrong: %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"he"}]}}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"candidates":[{"content":{"parts":[{"text":"llo"}]}}]}`+"\n\n")
+	})
+	stream, err := client.Stream(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			t.Errorf("closing stream: %v", err)
+		}
+	}()
+	var got strings.Builder
+	for {
+		chunk, ok, err := stream.Next(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			break
+		}
+		got.WriteString(chunk)
+	}
+	if got.String() != "hello" {
+		t.Fatalf("stream mismatch: %q", got.String())
+	}
+}
+
+func TestGeminiErrorSurfacesStatusAndMessageOnly(t *testing.T) {
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"status":"INVALID_ARGUMENT","message":"bad request"}}`))
+	})
+	_, err := client.Complete(context.Background(), model.Request{Messages: []model.Message{{Role: "user", Content: "with password=verysecretpw inside"}}})
+	if err == nil || !strings.Contains(err.Error(), "INVALID_ARGUMENT") || !strings.Contains(err.Error(), "bad request") {
+		t.Fatalf("want vendor status+message, got %v", err)
+	}
+	if strings.Contains(err.Error(), "verysecretpw") {
+		t.Fatalf("error must not echo the request: %v", err)
+	}
+}
+
+func TestGeminiMapsAttachmentByURIToFileData(t *testing.T) {
+	var body []byte
+	client := newGeminiForTest(t, func(w http.ResponseWriter, r *http.Request) {
+		body = readBody(t, r.Body)
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))
+	})
+	if _, err := client.Complete(context.Background(), model.Request{
+		Messages:    []model.Message{{Role: "user", Content: "look"}},
+		Attachments: []model.Attachment{{MIME: "application/pdf", URI: "gs://bucket/contract.pdf"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"fileData"`)) || !bytes.Contains(body, []byte("gs://bucket/contract.pdf")) {
+		t.Fatalf("URI attachment not carried as fileData: %s", body)
 	}
 }
 
