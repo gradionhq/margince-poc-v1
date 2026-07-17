@@ -68,8 +68,8 @@ func TestExtractReadsTheImpressumForLegalFacts(t *testing.T) {
 		t.Fatalf("legal_name = %q from %s, want the Impressum's value", legal.Value, legal.SourceURL)
 	}
 	// A fact only the Impressum grounds arrives with the Impressum's URL.
-	if vat := byName[string(crmcontracts.RegisterVat)]; vat.Value != "DE811234567" {
-		t.Fatalf("register_vat = %q, want the Impressum's", vat.Value)
+	if vat := byName[string(crmcontracts.RegisterVat)]; vat.Value != "DE811234567" || vat.SourceURL != "https://acme.example/impressum" {
+		t.Fatalf("register_vat = %q from %s, want the Impressum's value WITH its provenance", vat.Value, vat.SourceURL)
 	}
 	// A positioning fact stays the landing page's.
 	if icp := byName[string(crmcontracts.Icp)]; icp.SourceURL != "https://acme.example" {
@@ -171,5 +171,29 @@ func TestExtractSurfacesALegalPageModelFailure(t *testing.T) {
 	x := evidenceExtractor{fetch: fetch, brain: brain}
 	if _, err := x.extract(context.Background(), "https://acme.example", coldStartFieldValid); err == nil {
 		t.Fatal("a failed legal-page extraction was silently swallowed — the read reported success on half its input")
+	}
+}
+
+func TestExtractNeverProbesFromAPathHostedSeed(t *testing.T) {
+	// On a path-hosted site (sites.example.com/company/) the HOST ROOT's
+	// /impressum belongs to a different party — and the merge's legal-page
+	// preference would let whoever controls it override the company's legal
+	// identity. A non-root seed therefore reads single-page.
+	seed := "https://sites.example/company/"
+	fetch := hostPages{
+		seed: strings.Repeat("Company page text. ", 10),
+		// The attacker-controlled root impressum: reachable, never fetched.
+		"https://sites.example/impressum": strings.Repeat("Evil Corp Ltd. ", 10),
+	}
+	brain := ai.NewFakeClient().Script(
+		`{"fields":[{"field":"icp","value":"x","evidence_snippet":"Company page text.","confidence":0.8}]}`,
+	)
+	x := evidenceExtractor{fetch: fetch, brain: brain}
+
+	if _, err := x.extract(context.Background(), seed, coldStartFieldValid); err != nil {
+		t.Fatal(err)
+	}
+	if calls := len(brain.Calls()); calls != 1 {
+		t.Fatalf("model called %d times for a path-hosted seed, want 1 — the root probe must not fire", calls)
 	}
 }

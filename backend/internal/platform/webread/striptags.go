@@ -15,11 +15,11 @@ func StripTags(html string) string {
 	for i, r := range html {
 		switch {
 		case inScript:
-			if r == '<' && (foldPrefix(html[i:], "</script") || foldPrefix(html[i:], "</style")) {
+			if r == '<' && (tagPrefix(html[i:], "</script") || tagPrefix(html[i:], "</style")) {
 				inScript, inTag = false, true
 			}
 		case r == '<':
-			if foldPrefix(html[i:], "<script") || foldPrefix(html[i:], "<style") {
+			if tagPrefix(html[i:], "<script") || tagPrefix(html[i:], "<style") {
 				inScript = true
 			} else {
 				inTag = true
@@ -34,10 +34,23 @@ func StripTags(html string) string {
 	return strings.Join(strings.Fields(b.String()), " ")
 }
 
-// foldPrefix is an ASCII case-insensitive prefix test on the ORIGINAL bytes.
-// Lowercasing the whole document first is not an option: Unicode case mapping
-// changes byte lengths (U+212A → "k"), so indexes into a lowered copy drift
-// off the source and can slice out of range.
-func foldPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+// tagPrefix is an ASCII case-insensitive TAG-NAME test on the ORIGINAL bytes:
+// the name must end at a tag boundary (whitespace, /, or >), so a custom
+// element like <script-loader> is an ordinary tag whose content survives, not
+// a script block to swallow. Lowercasing the whole document first is not an
+// option: Unicode case mapping changes byte lengths (U+212A → "k"), so
+// indexes into a lowered copy drift off the source and can slice out of range.
+func tagPrefix(s, prefix string) bool {
+	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
+		return false
+	}
+	if len(s) == len(prefix) {
+		return true // tag truncated at end of input — nothing left to protect
+	}
+	switch s[len(prefix)] {
+	case ' ', '\t', '\n', '\r', '/', '>':
+		return true
+	default:
+		return false
+	}
 }

@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestStripTagsSurvivesUnicodeCaseFolding(t *testing.T) {
@@ -49,6 +48,17 @@ func TestRobotsPolicyReading(t *testing.T) {
 		{"comments and case ignored", "# hi\nUSER-AGENT: *\nDISALLOW: /x # trailing", "/x/y", false},
 		{"stacked agent lines share one group", "User-agent: otherbot\nUser-agent: *\nDisallow: /x", "/x", false},
 		{"rules before any agent line bind nobody", "Disallow: /\nUser-agent: *\nAllow: /", "/x", true},
+		{"star wildcard matches any run", "User-agent: *\nDisallow: /*.php", "/a/b.php", false},
+		{"star wildcard does not invent text", "User-agent: *\nDisallow: /*.php", "/a/b.html", true},
+		{"dollar anchors to the end", "User-agent: *\nDisallow: /*.php$", "/a.php.html", true},
+		{"dollar anchored match", "User-agent: *\nDisallow: /*.php$", "/a.php.php", false},
+		{"literal with dollar only", "User-agent: *\nDisallow: /exact$", "/exact", false},
+		{"literal with dollar refuses longer", "User-agent: *\nDisallow: /exact$", "/exactly", true},
+		{"query is matchable", "User-agent: *\nDisallow: /*?sessionid=", "/page?sessionid=1", false},
+		{"query rule leaves plain path alone", "User-agent: *\nDisallow: /*?sessionid=", "/page", true},
+		{"matching groups COMBINE", "User-agent: margince-siteread\nAllow: /a\n\nUser-agent: margince-siteread\nDisallow: /b", "/b", false},
+		{"wildcard groups combine too", "User-agent: *\nDisallow: /a\n\nUser-agent: *\nDisallow: /b", "/b", false},
+		{"group naming us AND star is ours", "User-agent: *\nUser-agent: margince-siteread\nDisallow: /x", "/x", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,11 +74,7 @@ func TestRobotsPolicyReading(t *testing.T) {
 // on loopback, which the production SSRF guard rightly refuses — the guard has
 // its own coverage in platform/netguard, this suite covers the robots gate.
 func testFetcher() *Fetcher {
-	return &Fetcher{
-		client: &http.Client{Timeout: time.Second},
-		robots: map[string]robotsEntry{},
-		now:    time.Now,
-	}
+	return newFetcher(http.DefaultTransport)
 }
 
 func TestFetchHonorsTheSitesRobotsAnswer(t *testing.T) {
@@ -173,7 +179,7 @@ func TestProductionFetcherRefusesPrivateAddresses(t *testing.T) {
 	defer srv.Close()
 
 	_, err := New().Fetch(context.Background(), srv.URL+"/page")
-	if err == nil || !strings.Contains(err.Error(), "refusing non-public address") {
+	if err == nil || !strings.Contains(err.Error(), "refusing to dial non-public address") {
 		t.Fatalf("fetch of a loopback URL → %v, want the SSRF refusal", err)
 	}
 }
@@ -181,5 +187,37 @@ func TestProductionFetcherRefusesPrivateAddresses(t *testing.T) {
 func TestFetchRefusesAnUnfetchableURL(t *testing.T) {
 	if _, err := testFetcher().Fetch(context.Background(), "not-a-url"); err == nil {
 		t.Fatal("fetch accepted a URL with no host")
+	}
+}
+
+func TestRedirectTargetsRePassTheRobotsGate(t *testing.T) {
+	// An allowed path 302s onto a disallowed one: following it would fetch
+	// what the site said not to. The redirect hop must fail the gate.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt":
+			//craft:ignore swallowed-errors httptest handler write; a failed write fails the test through the assertion below
+			_, _ = w.Write([]byte("User-agent: *\nDisallow: /private/\n"))
+		case "/open":
+			http.Redirect(w, r, "/private/secret", http.StatusFound)
+		case "/private/secret":
+			t.Error("the redirect was followed into a robots-disallowed path")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	if _, err := testFetcher().Fetch(context.Background(), srv.URL+"/open"); !errors.Is(err, ErrRobotsDisallowed) {
+		t.Fatalf("redirect into a disallowed path → %v, want ErrRobotsDisallowed", err)
+	}
+}
+
+func TestStripTagsKeepsCustomElementsNamedLikeScript(t *testing.T) {
+	// <script-loader> is an ordinary custom element, not a script block; its
+	// content is page text a user can read and evidence can quote.
+	got := StripTags("<script-loader>visible words</script-loader><script>gone()</script>")
+	if got != "visible words" {
+		t.Fatalf("StripTags = %q, want the custom element's content kept and the real script dropped", got)
 	}
 }

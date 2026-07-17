@@ -67,38 +67,52 @@ type robotsEntry struct {
 
 // New builds the guarded fetcher.
 func New() *Fetcher {
-	dialer := &net.Dialer{Timeout: fetchTimeout}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := dialer.DialContext(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			// Checked post-dial so DNS answers cannot bypass the guard.
-			if tcp, ok := conn.RemoteAddr().(*net.TCPAddr); ok && !netguard.PublicIP(tcp.IP) {
-				//craft:ignore swallowed-errors best-effort close of a connection being refused — the SSRF refusal below is the error that matters
-				_ = conn.Close()
-				return nil, fmt.Errorf("webread: refusing non-public address %s", tcp.IP)
-			}
-			return conn, nil
-		},
-	}
-	return &Fetcher{
-		client: &http.Client{
-			Timeout:   fetchTimeout,
-			Transport: transport,
-			// Every redirect hop re-enters the guarded dialer; the cap bounds
-			// how long a redirect chain can hold the request.
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return errors.New("webread: too many redirects")
-				}
-				return nil
-			},
-		},
+	// netguard.RefusePrivate runs in the socket's Control hook — BEFORE the
+	// connect completes — matching the ratified sibling egress path (the imap
+	// connector). A post-dial check would let the TCP handshake reach an
+	// internal service that acts on connect, and leave connect timing as a
+	// port oracle. The hook sees the literal dial address, so DNS answers
+	// cannot bypass it either.
+	dialer := &net.Dialer{Timeout: fetchTimeout, Control: netguard.RefusePrivate}
+	return newFetcher(&http.Transport{DialContext: dialer.DialContext})
+}
+
+// newFetcher wires the client policy every fetcher shares — the timeout, the
+// redirect cap, and the per-hop robots re-check — over the given transport.
+// Production passes the guarded transport; tests pass an unguarded one (their
+// servers live on loopback, which the guard rightly refuses) and get the SAME
+// redirect/robots behavior, so what the tests prove is what production does.
+func newFetcher(transport http.RoundTripper) *Fetcher {
+	f := &Fetcher{
 		robots: map[string]robotsEntry{},
 		now:    time.Now,
 	}
+	f.client = &http.Client{
+		Timeout:   fetchTimeout,
+		Transport: transport,
+		// Every redirect hop re-enters the transport's dialer, and — because
+		// an allowed path may 30x onto a path (or origin) the site's robots
+		// disallow — every hop re-passes the robots gate too. The robots
+		// fetches themselves are exempt or a redirecting robots.txt would
+		// recurse into its own policy lookup.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("webread: too many redirects")
+			}
+			if req.URL.Path == "/robots.txt" {
+				return nil
+			}
+			allowed, err := f.pathAllowed(req.Context(), req.URL)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return fmt.Errorf("%w: redirect target %s", ErrRobotsDisallowed, req.URL.Path)
+			}
+			return nil
+		},
+	}
+	return f
 }
 
 // Fetch retrieves one page as whitespace-normalized text, refusing what the
@@ -178,11 +192,13 @@ func (f *Fetcher) pathAllowed(ctx context.Context, page *url.URL) (bool, error) 
 // failure is NOT an answer: it reads as deny, because "the site could not say
 // what it permits" must never resolve in our own favor.
 func (f *Fetcher) fetchRobots(ctx context.Context, origin string) (robotsPolicy, error) {
+	//nolint:gosec // G704: fetching tenant-named hosts is this package's purpose; egress is guarded beneath — the dialer's netguard.RefusePrivate control and the per-hop robots gate — not at request construction
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, origin+"/robots.txt", nil)
 	if err != nil {
 		return robotsPolicy{}, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
+	//nolint:gosec // G704: same guard — the transport beneath refuses non-public addresses pre-connect
 	resp, err := f.client.Do(req)
 	if err != nil {
 		return robotsPolicy{}, fmt.Errorf("webread: robots.txt unreachable (refusing to guess what %s permits): %w", origin, err)

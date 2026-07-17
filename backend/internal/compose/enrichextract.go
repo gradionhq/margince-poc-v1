@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -240,12 +241,25 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 // and returns the first page that reads as a real, DISTINCT document. Sites
 // that answer every path with the same page (SPA catch-alls — and fixtures)
 // yield the seed text again; treating that as a legal page would double every
-// model call for nothing, so identical text is a miss. Failures are silent by
-// design: the probe's absence is normal, and the robots gate's refusal is the
-// site's answer.
+// model call for nothing, so identical text is a miss.
+//
+// The probe fires ONLY when the seed is the host root: on a path-hosted site
+// (sites.example.com/company/), the host root's /impressum belongs to a
+// DIFFERENT party, and the merge's legal-page preference would let whoever
+// controls the root override the company's legal identity. A root seed and
+// its /impressum are the same party by construction.
+//
+// A miss is normal (absence, a robots refusal — the site's answer — or a
+// same-page duplicate) and stays silent; any OTHER failure is logged, because
+// "the Impressum probe kept timing out" must be findable when legal fields
+// come back thin, even though the seed page alone still yields an honest
+// (thinner) read.
 func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText string) (string, string) {
 	parsed, err := url.Parse(seedURL)
 	if err != nil || parsed.Host == "" {
+		return "", ""
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
 		return "", ""
 	}
 	origin := parsed.Scheme + "://" + parsed.Host
@@ -256,7 +270,13 @@ func (x evidenceExtractor) probeLegalPage(ctx context.Context, seedURL, seedText
 		probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
 		text, err := x.fetch.Fetch(probeCtx, origin+path)
 		cancel()
-		if err != nil || len([]rune(text)) < minReadableRunes || text == seedText {
+		if err != nil {
+			if !errors.Is(err, webread.ErrRobotsDisallowed) && !errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+				slog.WarnContext(ctx, "legal-page probe failed", "url", origin+path, "err", err)
+			}
+			continue
+		}
+		if len([]rune(text)) < minReadableRunes || text == seedText {
 			continue
 		}
 		return origin + path, text
