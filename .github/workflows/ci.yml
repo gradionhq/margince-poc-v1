@@ -367,12 +367,32 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Boot the dev stack and migrate
         run: make db-up && make migrate
+      # The deployment configuration (A107/ADR-0061): the api bootstraps the
+      # demo organization itself at boot; the credentials match seed-dev.sh's
+      # demo defaults (admin@demo.test / demo-password-123 — throwaway CI-only
+      # values, same posture as the compose stack's dev DSNs).
+      - name: Write the deployment configuration
+        run: |
+          printf '%s' "demo-password-123" > "$RUNNER_TEMP/admin-password"
+          chmod 600 "$RUNNER_TEMP/admin-password"
+          cat > "$RUNNER_TEMP/margince.yaml" <<EOF
+          version: 1
+          organization:
+            name: Demo Workspace
+            base_currency: EUR
+            timezone: Europe/Berlin
+          bootstrap_admin:
+            email: admin@demo.test
+            display_name: Demo Admin
+            password_file: $RUNNER_TEMP/admin-password
+          EOF
       - name: Start the api
         working-directory: backend
         env:
           MARGINCE_ENV: dev
         run: |
           go run ./cmd/api --dsn "postgres://margince_app:margince_app_dev@localhost:55432/margince" \
+            --config "$RUNNER_TEMP/margince.yaml" \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do
             curl -fsS http://localhost:8080/readyz >/dev/null 2>&1 && exit 0

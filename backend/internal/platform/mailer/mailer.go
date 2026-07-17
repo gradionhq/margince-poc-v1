@@ -89,7 +89,7 @@ func (s SMTP) connect(ctx context.Context, addr string) (*smtp.Client, error) {
 		closeQuietly(conn)
 		return nil, fmt.Errorf("mailer: relay %s deadline setup failed: %w", addr, err)
 	}
-	client, err := smtp.NewClient(conn, s.Host)
+	client, err := smtp.NewClient(conn, s.Host) // NOSONAR(go:S5332) -- the exchange is upgraded to TLS right below; a relay without STARTTLS is refused unless it is loopback
 	if err != nil {
 		closeQuietly(conn)
 		return nil, fmt.Errorf("mailer: relay %s greeting failed: %w", addr, err)
