@@ -330,6 +330,98 @@ pending/proposed captured-contact state), `activities-and-timeline` (AT-T01..T05
 6. **D5 wiring** — Gmail UI, IMAP→River. No spec decision needed; can land anytime.
 7. **Graph connector** — the A51 parity gap. Own epic.
 
+---
+
+## 7b. Found by building it (2026-07-17) — the upstream work-list
+
+Branch `refactor/people-resolver-chokepoint` (commit `e5a4911`) implements the PO-F-1/PO-F-2
+resolver: `people/dedupe.go` (both tiers, trigram-restricted candidate sets, deterministic
+lowest-id tie-breaks), `people/namesim.go` (Jaro-Winkler pinned to PO-PARAM-JW-1/2 +
+PO-PARAM-1 suffix strip), migration `0082` (the GIN trigram indexes the formula's candidate
+bound needs). All three of PO-F-1's worked examples reproduce exactly:
+`name_sim(Jon Doe, John Doe) = 0.9667`, `confidence = 0.982` → 🟡, `0.532` → create.
+
+**The branch is PARKED, not shippable.** Nothing calls the resolver yet, and a resolver with
+no callers is dead code under T3/T8. It ships when the wiring lands (§7b.4).
+
+### 7b.1 — BLOCKER: DH-GAP-1 has no storage, so the fuzzy tier has no destination
+
+`specs/subsystems/data-hygiene.md:244` names this itself:
+> PO-F-1/PO-F-2's fuzzy output is defined as "route to a 🟡 review queue", but **no table in
+> the corpus schema stores a queue item** … A candidate-pair table must be added
+> **contract-first**, owned by this chapter when it lands, carrying at least: the pair
+> (entity type + both record ids), the confidence, the per-field match evidence (AC-dedupe-2/3),
+> disposition state (open / merged / not-a-duplicate), and the not-a-duplicate suppression
+> that keeps a dismissed pair out of future sweeps (AC-dedupe-7), under the shared
+> tenancy/provenance/audit conventions (DM-CONV-*).
+> **Whether it is a new table or a specialization of the approval-inbox item store is the
+> ticket's decision**; the queue semantics pinned in this chapter bind either shape.
+
+That last sentence is load-bearing: reusing the approvals inbox (which capture's
+`MergeStager` → `merge_records` already does for exact lead collisions) is a **sanctioned
+candidate shape**, not a workaround. The decision is open.
+
+Blocking because: the owning chapter is `status: planned` with no module in code, and the
+table must be added contract-first (P3). Building it from the build repo would both violate
+P3 and squat on another chapter's ownership.
+
+**Founder decision (2026-07-17): stop and close DH-GAP-1 upstream first**, then build the
+whole chokepoint — both tiers — in one pass against a settled spec.
+
+### 7b.2 — resolved: FUZZY_REVIEW creates the record, it does not withhold it
+
+The two chapters read opposite ways in isolation — PO-F-1's queue shows "both records side
+by side" (both exist), capture.md:139 says a near-match is "**withheld** as a 🟡 merge
+candidate" (sounds like no record). `data-hygiene.md:29` settles it: capture and the importer
+"surface fuzzy candidates into the review queue — **they feed it, they never merge**", and
+the item carries "the pair (entity type + **both record ids**)".
+
+So: **create + queue a candidate pair.** "Withheld" scopes to the *merge*, not the record.
+Worth a clarifying word in capture.md:139 — it is the sentence that misleads.
+
+### 7b.3 — DEFECT: PO-F-1's `org_match = 0.5` tier is unreachable by construction
+
+The formula reads "0.5 if free-text company strings normalize-equal". But `person` has **no
+free-text company column** (`migrations/core/0004_people.up.sql:7-33`). The only
+`company_name` free-text column in the schema is on `lead`
+(`migrations/core/0009_leads.up.sql:12`) — and PO-F-1 explicitly excludes leads: "Leads never
+appear (ADR-0008 segregation)".
+
+So the 0.5 branch can never fire for a person. Implemented as `{1.0, 0.8, 0.0}` rather than
+inventing a column. Upstream must either drop the 0.5 tier from PO-F-1, or pin where a
+person's free-text employer lives — noting that a `person.company_text` column would sit
+awkwardly beside the "employment is an edge, never a company field" pin
+(`people-and-organizations.md:112-116`), which argues for dropping it.
+
+⚠️ Weights: PO-F-1 states "weights sum to 1.0 so `confidence ∈ [0,1]`" — that still holds
+(0.55 + 0.45), since the 0.5 was a value of `org_match`, not a weight. No renormalization
+needed. Gated by `TestDedupeWeightsSumToOne`.
+
+### 7b.4 — the true creation-path inventory (the survey undercounted)
+
+Eight paths, not six. Two more found while reading:
+- `people/person.go:453` `EnsurePersonByEmail` — a **fourth** exact-dedupe spelling (joins
+  `person_email`, `ORDER BY created_at LIMIT 1`, with its own race-recovery on
+  `DuplicateEmailError`).
+- `activities/scheduling_public.go:177` — the public booking surface creates people through
+  a port onto that same method.
+
+So the live inventory is: `CreatePerson` (HTTP+MCP), `EnsurePersonByEmail` (public booking),
+`promote.go:322`, `CreateOrganization` (HTTP+MCP), `company.go:246` (anchor),
+`coldstartprofile.go:145` (cold-start), `capture/sink.go:393` (lead) — with four exact-match
+spellings resolving three different ways (409 / auto-merge / stage-🟡).
+
+### 7b.5 — upstream order for the spec session
+
+1. **DH-GAP-1** — pin the candidate-pair table contract-first (new table vs approval-inbox
+   specialization is the open call). This unblocks the fuzzy tier and the whole chokepoint.
+2. **PO-F-1 `org_match` 0.5** — drop it, or pin where a person's free-text employer lives.
+3. **capture.md:139 "withheld"** — clarify that the record is created and the merge withheld.
+4. **D1** (§4) — amend `capture.md:95` to steady-state + pin the backfill window.
+5. **§3.1** — home the free-mail blocklist in capture (it is asserted but ownerless).
+6. **D4 / UC-E02-02 E4** — unconfident classification: "other" vs `NOT NULL DEFAULT 'prospect'`.
+7. **`capture-classify`** — no §2.x prompt skeleton, no §3.2 threshold row. Routed, unspecified.
+
 ## 8. Open questions for upstream
 
 - What are the window options (3/6/12 months?), and is there a cap?
