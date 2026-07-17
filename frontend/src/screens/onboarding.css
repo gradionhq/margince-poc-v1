@@ -32,29 +32,17 @@
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--borderSubtle);
 }
+/* The real wordmark (the same <Wordmark> the auth screens render, so the
+   theme swap comes for free) — sized down for the top bar. */
 .ob-wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  font-family: var(--f-display);
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: -0.02em;
-  color: var(--textPrimary);
-  text-decoration: none;
   flex: none;
 }
-.ob-wordmark .mk {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: linear-gradient(150deg, var(--wsChipTop), var(--wsChipBottom));
-  color: var(--textOnAccent);
-  display: grid;
-  place-items: center;
-  font-size: 15px;
-  font-weight: 700;
-  box-shadow: var(--shadow-card);
+.ob-wordmark img {
+  width: 116px;
+  max-width: 40vw;
+  height: auto;
 }
 
 /* stepper */
@@ -107,28 +95,6 @@
   height: 1.5px;
   background: var(--borderSubtle);
 }
-.ob-skip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--textTertiary);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  padding: 7px 12px;
-  border-radius: var(--r-sm);
-  text-decoration: none;
-}
-.ob-skip:hover {
-  background: var(--bgHover);
-  color: var(--textSecondary);
-}
-.ob-skip svg {
-  width: 15px;
-  height: 15px;
-}
-
 /* wizard column + panels */
 .wiz {
   max-width: 660px;
@@ -186,10 +152,6 @@
   width: 14px;
   height: 14px;
   flex: none;
-}
-.trustpill.brand {
-  color: var(--accent);
-  background: var(--accentLight);
 }
 .trust-row {
   display: flex;
@@ -460,38 +422,6 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
-}
-
-/* migrate affordance */
-.migrate {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-top: 26px;
-  padding: 15px 17px;
-  border: 1px dashed var(--borderStrong);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-}
-.migrate .mig-l {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: var(--textSecondary);
-  flex: 1;
-  min-width: 220px;
-}
-.migrate .mig-l b {
-  color: var(--textPrimary);
-  font-weight: 600;
-}
-.migrate .mig-l svg {
-  width: 18px;
-  height: 18px;
-  color: var(--textTertiary);
-  flex: none;
 }
 
 /* step 2 confirm fields */

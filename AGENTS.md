@@ -40,6 +40,36 @@ make dev                # full local stack: db + api (:8080) + worker + Vite SPA
 make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
 ```
 
+### EXACTLY ONE dev stack at a time (non-negotiable)
+
+**Before starting a stack, stop every stack that is already running.** A second
+`make dev` refuses the port, but the far worse case is the one that does NOT
+fail: an `api` binary started from an earlier branch keeps serving :8080 happily
+while Vite hot-reloads the code you just wrote. The SPA then calls endpoints the
+running binary has never heard of, and the app fails in ways that look like your
+bug and are not — an old server is indistinguishable from a broken feature.
+
+```
+make dev-stop           # always FIRST — stops :8080 + :5173
+lsof -ti:8080,5173       # must print nothing before you start
+make dev                 # then, and only then, ONE stack
+```
+
+The api is a compiled binary: **Vite hot-reloads the frontend, the API does
+not.** Any backend change — a new endpoint, a migration, a handler fix — needs
+`make dev-stop && make dev`. Restarting is the only way your Go code reaches the
+browser.
+
+`DEV_SLUG=x` exists for running an isolated stack (its own database and ports)
+*alongside* someone else's — use it rather than killing a colleague's stack, and
+tear it down with `DEV_SLUG=x make dev-stop DROP=1` when done. It is not a
+licence to leave several running: know which stack the browser is talking to.
+
+This repo's working tree is often shared with parallel agent sessions that
+switch branches under you. Before you trust ANY manual test, confirm both:
+`git branch --show-current` is the branch you think it is, and the api on :8080
+was started after your last backend change.
+
 `check-q` (quiet), `check-go` (backend-only), `fe-typecheck`, `fe-uat`
 (change-scoped Storybook render gate), and `infra-up`/`infra-down` round out
 the golden-command set. Full table:

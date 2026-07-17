@@ -5408,17 +5408,24 @@ export interface components {
             updated_at?: string;
         };
         /**
-         * @description The company form's body. An omitted field is left as it was; a field sent as an empty string is
-         *     cleared. `display_name` is required on every save — the form cannot save a nameless company.
+         * @description The company form's body. The identity block is REQUIRED — an installation that will not say who
+         *     it legally is cannot invoice, cannot meet its GoBD retention duties, and leaves every downstream
+         *     feature guessing. A read-back fills what it can quote; whatever it cannot, the human types. The
+         *     positioning fields are optional: they can be discovered later, the legal facts cannot.
+         *
+         *     Among the optional fields, an omitted one is left as it was and one sent empty is cleared.
          */
         CompanyProfileInput: {
             display_name: string;
+            /** @description The registered legal entity. */
+            legal_name: string;
+            /** @description The registered address as one formatted line. */
+            registered_address: string;
+            /** @description VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B). */
+            register_vat: string;
+            industry: string;
             /** @description The company's own domain or full URL; stored as the bare domain. */
             website?: string | null;
-            legal_name?: string | null;
-            registered_address?: string | null;
-            register_vat?: string | null;
-            industry?: string | null;
             icp?: string | null;
             value_proposition?: string | null;
             usp?: string | null;

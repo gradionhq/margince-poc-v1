@@ -4801,18 +4801,28 @@ type CompanyProfile struct {
 	Website *string `json:"website,omitempty"`
 }
 
-// CompanyProfileInput The company form's body. An omitted field is left as it was; a field sent as an empty string is
-// cleared. `display_name` is required on every save — the form cannot save a nameless company.
+// CompanyProfileInput The company form's body. The identity block is REQUIRED — an installation that will not say who
+// it legally is cannot invoice, cannot meet its GoBD retention duties, and leaves every downstream
+// feature guessing. A read-back fills what it can quote; whatever it cannot, the human types. The
+// positioning fields are optional: they can be discovered later, the legal facts cannot.
+//
+// Among the optional fields, an omitted one is left as it was and one sent empty is cleared.
 type CompanyProfileInput struct {
-	BuyingCenter      *string `json:"buying_center,omitempty"`
-	BuyingIntents     *string `json:"buying_intents,omitempty"`
-	DisplayName       string  `json:"display_name"`
-	History           *string `json:"history,omitempty"`
-	Icp               *string `json:"icp,omitempty"`
-	Industry          *string `json:"industry,omitempty"`
-	LegalName         *string `json:"legal_name,omitempty"`
-	RegisterVat       *string `json:"register_vat,omitempty"`
-	RegisteredAddress *string `json:"registered_address,omitempty"`
+	BuyingCenter  *string `json:"buying_center,omitempty"`
+	BuyingIntents *string `json:"buying_intents,omitempty"`
+	DisplayName   string  `json:"display_name"`
+	History       *string `json:"history,omitempty"`
+	Icp           *string `json:"icp,omitempty"`
+	Industry      string  `json:"industry"`
+
+	// LegalName The registered legal entity.
+	LegalName string `json:"legal_name"`
+
+	// RegisterVat VAT ID / commercial register entry (e.g. DE123456789, HRB 12345 B).
+	RegisterVat string `json:"register_vat"`
+
+	// RegisteredAddress The registered address as one formatted line.
+	RegisteredAddress string  `json:"registered_address"`
 	Usp               *string `json:"usp,omitempty"`
 	ValueProposition  *string `json:"value_proposition,omitempty"`
 

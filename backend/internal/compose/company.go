@@ -74,9 +74,20 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	if strings.TrimSpace(req.DisplayName) == "" {
-		httperr.Write(w, r, httperr.Validation("display_name", "empty", "a company needs a name"))
-		return
+	// The identity block is what the installation IS — a whitespace-only
+	// answer is not an answer, so each is named individually rather than
+	// refused as one lump the human has to guess their way through.
+	for _, required := range []struct{ field, value, detail string }{
+		{"display_name", req.DisplayName, "a company needs a name"},
+		{fieldLegalName, req.LegalName, "name the registered legal entity"},
+		{fieldRegisteredAddress, req.RegisteredAddress, "give the registered address"},
+		{fieldRegisterVat, req.RegisterVat, "give the VAT ID or commercial register entry"},
+		{fieldIndustry, req.Industry, "say which industry this company is in"},
+	} {
+		if strings.TrimSpace(required.value) == "" {
+			httperr.Write(w, r, httperr.Validation(required.field, "empty", required.detail))
+			return
+		}
 	}
 	if req.Website != nil && strings.TrimSpace(*req.Website) != "" && !parseableWebsite(*req.Website) {
 		httperr.Write(w, r, httperr.Validation("website", "invalid", "website must be a domain (acme.com) or an absolute http(s) URL"))
@@ -87,10 +98,10 @@ func (h companyHandlers) PutCompany(w http.ResponseWriter, r *http.Request) {
 		DisplayName: strings.TrimSpace(req.DisplayName),
 		Website:     req.Website,
 		Fields: map[string]*string{
-			fieldLegalName:         req.LegalName,
-			fieldRegisteredAddress: req.RegisteredAddress,
-			fieldRegisterVat:       req.RegisterVat,
-			fieldIndustry:          req.Industry,
+			fieldLegalName:         &req.LegalName,
+			fieldRegisteredAddress: &req.RegisteredAddress,
+			fieldRegisterVat:       &req.RegisterVat,
+			fieldIndustry:          &req.Industry,
 			fieldICP:               req.Icp,
 			fieldValueProposition:  req.ValueProposition,
 			fieldUSP:               req.Usp,

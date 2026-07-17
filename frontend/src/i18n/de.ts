@@ -741,9 +741,7 @@ export const de = {
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
 
-  "ob.title": "Willkommen bei Margince",
-  "ob.sub":
-    "erst der Nutzen — dein Postfach verbindest du zuletzt, nicht zuerst",
+  "ob.title": "Margince einrichten",
   "ob.company": "Firma",
   "ob.voice": "Stimme",
   "ob.results": "Ergebnisse",
@@ -753,40 +751,31 @@ export const de = {
   "ob.back": "Zurück",
   "ob.finish": "In den Workspace",
   "ob.skipStep": "Schritt überspringen",
-  "ob.skipSetup": "Einrichtung überspringen",
-  "ob.skipSetupHint":
-    "Direkt in ein leeres CRM — die Einrichtung kannst du jederzeit in den Einstellungen nachholen",
 
-  "ob.s1.kick": "Schritt 1 von 4 · dauert 2 Minuten",
-  "ob.s1.title": "Lass uns dein CRM einrichten.",
-  "ob.s1.titleEm": "Beginne mit deiner Firma.",
+  "ob.s1.kick": "Schritt 1 von 4",
+  "ob.s1.title": "Deine Firma",
   "ob.s1.sub":
-    "Schreib das selbst, oder füg deine Website ein und wir füllen aus, was wir von dort zitieren können. Gespeichert wird erst, wenn du weitergehst — bis dahin gehört hier jedes Wort dir.",
+    "Trag das hier ein, oder füg deine Website ein — dann füllen wir aus, was wir von dort zitieren können. Gespeichert wird erst, wenn du weitergehst.",
   "ob.s1.urlPlaceholder": "deinefirma.de",
-  "ob.s1.identityLabel": "Deine Firma",
+  "ob.s1.identityLabel": "Firmendaten",
   "ob.s1.positioningLabel": "Was du verkaufst — und an wen",
-  "ob.s1.nameRequired": "Gib deiner Firma einen Namen — der Rest hat Zeit.",
+  "ob.s1.fieldRequired": "Pflichtfeld.",
+  "ob.s1.requiredMissing": "Diese Felder fehlen noch: {fields}",
   "ob.s1.saving": "Wird gespeichert…",
   "ob.s1.saveFailed": "Deine Firma konnte nicht gespeichert werden",
   "ob.s1.savedNote":
     "In deinem Workspace gespeichert. Ändere hier etwas und geh weiter — dann wird erneut gespeichert.",
   "ob.s1.omitLabel": "Nichts erfunden",
   "ob.s1.omitBody":
-    "Wir haben nur die Felder gefüllt, die wir von deiner Seite zitieren können, und deine eigenen Worte in Ruhe gelassen. Der Rest bleibt leer — den schreibst du.",
+    "Wir haben nur gefüllt, was wir von deiner Seite zitieren können. Den Rest schreibst du.",
   "ob.readGo": "Meine Website einlesen",
   "ob.reading": "Wird gelesen…",
   "ob.readAgain": "Erneut einlesen",
   "ob.trustPublic":
     "Wir lesen nur deine öffentliche Website. Kein Login nötig.",
-  "ob.trustAI":
-    "Läuft auf der eingebauten KI von Margince — kein API-Key, kein Modell-Setup.",
   "ob.urlWillRead": "Wir lesen {host}",
   "ob.urlInvalid":
     "Das sieht nicht nach einer Web-Adresse aus — versuch z. B. {example}",
-  "ob.migrateLead":
-    "Nutzt du schon ein anderes CRM? Importier stattdessen deine Daten — Kontakte, Firmen und offene Deals kommen mit.",
-  "ob.fromHubspot": "Aus HubSpot",
-  "ob.fromSalesforce": "Aus Salesforce",
   "ob.readFromSite": "von der Website gelesen",
   "ob.failTitle": "Von dieser Seite ließ sich nicht genug lesen",
   "ob.failBody":

@@ -11,7 +11,6 @@ import {
   Check,
   CheckCircle2,
   Circle,
-  Database,
   FileText,
   GitBranch,
   Info,
@@ -47,6 +46,7 @@ import {
 } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { Wordmark } from "./auth";
 import { coldFieldLabel, problemMessage } from "./common";
 import { confidenceLevel } from "./inbox";
 import "./onboarding.css";
@@ -99,6 +99,19 @@ type CompanyFieldName =
   | (typeof IDENTITY_FIELDS)[number]
   | (typeof POSITIONING_FIELDS)[number];
 type CompanyForm = Record<CompanyFieldName, string>;
+
+// The contract's CompanyProfileInput.required (crm.yaml), mirrored here so the
+// form refuses what the server would 422 anyway: an installation that will not
+// say who it legally is cannot invoice and cannot meet its retention duties.
+// The positioning fields stay optional — they can be discovered later, the
+// legal facts cannot.
+const REQUIRED_FIELDS = [
+  "display_name",
+  "legal_name",
+  "registered_address",
+  "register_vat",
+  "industry",
+] as const satisfies readonly CompanyFieldName[];
 
 // The read-back can only ground the contract's ColdStartField names — website
 // and display_name are always the human's to give.
@@ -260,7 +273,7 @@ export function OnboardingScreen() {
   // Company-step state lives HERE, not in the step component: stepping back
   // and forward must not destroy what the user typed.
   const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
-  const [nameAttempted, setNameAttempted] = useState(false);
+  const [saveAttempted, setSaveAttempted] = useState(false);
   const [companySaved, setCompanySaved] = useState(false);
 
   const norm = useMemo(
@@ -341,6 +354,10 @@ export function OnboardingScreen() {
         body: {
           ...draft.values,
           display_name: draft.values.display_name.trim(),
+          legal_name: draft.values.legal_name.trim(),
+          registered_address: draft.values.registered_address.trim(),
+          register_vat: draft.values.register_vat.trim(),
+          industry: draft.values.industry.trim(),
         },
       });
       if (error) {
@@ -357,10 +374,14 @@ export function OnboardingScreen() {
     },
   });
 
-  const nameMissing = draft.values.display_name.trim() === "";
+  // The company step is mandatory: every required field must carry a value
+  // before Continue will save, and there is no way past it that does not.
+  const missingRequired = REQUIRED_FIELDS.filter(
+    (field) => draft.values[field].trim() === "",
+  );
   const saveCompany = () => {
-    setNameAttempted(true);
-    if (nameMissing) {
+    setSaveAttempted(true);
+    if (missingRequired.length > 0) {
       return;
     }
     save.mutate();
@@ -369,10 +390,7 @@ export function OnboardingScreen() {
   return (
     <div className="ob-page">
       <div className="ob-top">
-        <span className="ob-wordmark">
-          <span className="mk">M</span>
-          {t("auth.title")}
-        </span>
+        <Wordmark alt={t("auth.title")} className="ob-wordmark" />
         <nav className="stepper" aria-label={t("ob.title")}>
           {STEPS.map((s, i) => {
             const state = stepState(i, step);
@@ -392,14 +410,6 @@ export function OnboardingScreen() {
             );
           })}
         </nav>
-        <button
-          type="button"
-          className="ob-skip"
-          title={t("ob.skipSetupHint")}
-          onClick={() => navigate({ screen: "home" })}
-        >
-          <SkipForward aria-hidden /> {t("ob.skipSetup")}
-        </button>
       </div>
 
       <div className="wiz">
@@ -411,7 +421,7 @@ export function OnboardingScreen() {
             read={read}
             saved={companySaved}
             saveError={save.isError ? save.error.message : null}
-            nameError={nameAttempted && nameMissing}
+            missingRequired={saveAttempted ? missingRequired : []}
           />
         )}
         {step === 1 && (
@@ -512,7 +522,7 @@ function CompanyStep({
   read,
   saved,
   saveError,
-  nameError,
+  missingRequired,
 }: Readonly<{
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
@@ -520,7 +530,7 @@ function CompanyStep({
   read: UseMutationResult<ColdReadback, Error, void>;
   saved: boolean;
   saveError: string | null;
-  nameError: boolean;
+  missingRequired: readonly CompanyFieldName[];
 }>) {
   const t = useT();
   const grounded = Object.keys(draft.grounded).length > 0;
@@ -528,9 +538,7 @@ function CompanyStep({
   return (
     <section className="ob-panel">
       <div className="kick">{t("ob.s1.kick")}</div>
-      <h1 className="ttl">
-        {t("ob.s1.title")} <span className="em">{t("ob.s1.titleEm")}</span>
-      </h1>
+      <h1 className="ttl">{t("ob.s1.title")}</h1>
       <p className="ob-sub">{t("ob.s1.sub")}</p>
 
       <WebsiteReadBar
@@ -546,17 +554,6 @@ function CompanyStep({
           <span className="trustpill">
             <ShieldCheck aria-hidden /> {t("ob.trustPublic")}
           </span>
-          <span className="trustpill brand">
-            <Sparkles aria-hidden /> {t("ob.trustAI")}
-          </span>
-        </div>
-      )}
-
-      {!grounded && !read.isError && (
-        <div className="migrate">
-          <div className="mig-l">
-            <Database aria-hidden /> <span>{t("ob.migrateLead")}</span>
-          </div>
         </div>
       )}
 
@@ -594,6 +591,17 @@ function CompanyStep({
         </div>
       )}
 
+      {missingRequired.length > 0 && (
+        <div className="urlnote err" style={{ marginTop: "var(--space-3)" }}>
+          <Circle aria-hidden />{" "}
+          {t("ob.s1.requiredMissing", {
+            fields: missingRequired
+              .map((field) => coldFieldLabel(field, t))
+              .join(", "),
+          })}
+        </div>
+      )}
+
       <div className="seclabel" style={{ margin: "22px 0 0" }}>
         {t("ob.s1.identityLabel")}
       </div>
@@ -604,10 +612,9 @@ function CompanyStep({
           value={draft.values[field]}
           grounded={groundingOf(draft, field)}
           edited={draft.edited.has(field)}
+          required={isRequired(field)}
           error={
-            field === "display_name" && nameError
-              ? t("ob.s1.nameRequired")
-              : null
+            missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
           }
           onChange={(v) => setField(field, v)}
         />
@@ -623,6 +630,7 @@ function CompanyStep({
           value={draft.values[field]}
           grounded={groundingOf(draft, field)}
           edited={draft.edited.has(field)}
+          required={false}
           error={null}
           multiline
           onChange={(v) => setField(field, v)}
@@ -725,11 +733,16 @@ function groundingOf(
   return draft.grounded[field as ColdField["field"]] ?? null;
 }
 
+function isRequired(field: CompanyFieldName): boolean {
+  return (REQUIRED_FIELDS as readonly CompanyFieldName[]).includes(field);
+}
+
 function CompanyFormField({
   field,
   value,
   grounded,
   edited,
+  required,
   error,
   multiline,
   onChange,
@@ -738,6 +751,7 @@ function CompanyFormField({
   value: string;
   grounded: ColdField | null;
   edited: boolean;
+  required: boolean;
   error: string | null;
   multiline?: boolean;
   onChange: (v: string) => void;
@@ -748,7 +762,8 @@ function CompanyFormField({
   return (
     <div className="ob-field">
       <label htmlFor={id}>
-        {coldFieldLabel(field, t)} {level && <ConfidenceMeter level={level} />}
+        {coldFieldLabel(field, t)}
+        {required ? " *" : ""} {level && <ConfidenceMeter level={level} />}
         {grounded && (
           <span className="rfprov">
             <Bot aria-hidden /> {t("ob.readFromSite")}
@@ -761,6 +776,7 @@ function CompanyFormField({
           id={id}
           className="ob-in"
           value={value}
+          required={required}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
@@ -768,6 +784,7 @@ function CompanyFormField({
           id={id}
           className="ob-in"
           value={value}
+          required={required}
           onChange={(e) => onChange(e.target.value)}
         />
       )}

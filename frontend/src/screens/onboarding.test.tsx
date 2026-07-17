@@ -14,8 +14,36 @@ import { OnboardingScreen } from "./onboarding";
 
 // Onboarding honesty pins: the company step is a form the admin can fill by
 // hand end to end; the website read-back only PRE-FILLS it (never clobbers,
-// never guesses, never stages); Save is the confirmation and needs a name; and
-// the step-3 results tell the truth about a skipped voice step.
+// never guesses, never stages); Save is the confirmation and needs every field
+// the contract requires; the company step cannot be skipped; and the step-3
+// results tell the truth about a skipped voice step.
+
+// The five fields crm.yaml's CompanyProfileInput marks required — the form
+// refuses a save without them, so every test that saves must fill them.
+const REQUIRED_LABELS = [
+  /Company name/,
+  /Registered legal name/,
+  /Registered address/,
+  /Register \/ VAT ID/,
+  /Industry/,
+] as const;
+
+async function fillRequired() {
+  await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+  await userEvent.type(
+    screen.getByLabelText(/Registered legal name/),
+    "Gradion GmbH",
+  );
+  await userEvent.type(
+    screen.getByLabelText(/Registered address/),
+    "Hauptstrasse 1, 10115 Berlin",
+  );
+  await userEvent.type(
+    screen.getByLabelText(/Register \/ VAT ID/),
+    "DE123456789",
+  );
+  await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
+}
 
 afterEach(() => {
   cleanup();
@@ -71,6 +99,9 @@ const savedProfile = {
   display_name: "Gradion",
   website: "gradion.com",
   legal_name: "Gradion GmbH",
+  registered_address: "Hauptstrasse 1, 10115 Berlin",
+  register_vat: "DE123456789",
+  industry: "Robotics",
 };
 
 type Route = { url: string; body: unknown; status?: number };
@@ -127,7 +158,7 @@ describe("the company step is a form, not a read-back gate", () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
 
-    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await fillRequired();
     await userEvent.type(
       screen.getByLabelText(/Ideal customer/),
       "Mid-market manufacturers",
@@ -140,24 +171,98 @@ describe("the company step is a form, not a read-back gate", () => {
     const put = requestTo(calls, "/company", "PUT") as Request;
     const body = (await put.clone().json()) as Record<string, string>;
     expect(body.display_name).toBe("Gradion");
+    expect(body.legal_name).toBe("Gradion GmbH");
+    expect(body.registered_address).toBe("Hauptstrasse 1, 10115 Berlin");
+    expect(body.register_vat).toBe("DE123456789");
+    expect(body.industry).toBe("Robotics");
     expect(body.icp).toBe("Mid-market manufacturers");
     // Nothing is staged and nothing is approved — the form IS the 🟡 gate.
     expect(calls.some((r) => r.url.includes("/approvals"))).toBe(false);
     expect(calls.some((r) => r.url.includes("/coldstart/preview"))).toBe(false);
   });
 
-  it("an empty company name blocks the save and says so", async () => {
+  it("an empty form blocks the save and names every field that is missing", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
 
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     expect(
-      screen.getByText(/Give your company a name — everything else can wait\./),
+      screen.getByText(
+        "Fill these in before you continue: Company name, Registered legal name, Registered address, Register / VAT ID, Industry",
+      ),
     ).toBeTruthy();
     expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
     // still on the company step
     expect(screen.getByLabelText(/Ideal customer/)).toBeTruthy();
+  });
+
+  it("a partly filled form names only what is still missing, and saves once it is complete", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+
+    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await userEvent.type(
+      screen.getByLabelText(/Registered legal name/),
+      "Gradion GmbH",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    expect(
+      screen.getByText(
+        "Fill these in before you continue: Registered address, Register / VAT ID, Industry",
+      ),
+    ).toBeTruthy();
+    expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
+
+    await userEvent.type(
+      screen.getByLabelText(/Registered address/),
+      "Hauptstrasse 1, 10115 Berlin",
+    );
+    await userEvent.type(
+      screen.getByLabelText(/Register \/ VAT ID/),
+      "DE123456789",
+    );
+    await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    await waitFor(() =>
+      expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),
+    );
+  });
+
+  it("whitespace alone does not satisfy a required field — the server would 422 it", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+
+    await fillRequired();
+    await userEvent.clear(screen.getByLabelText(/Industry/));
+    await userEvent.type(screen.getByLabelText(/Industry/), "   ");
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    expect(
+      screen.getByText("Fill these in before you continue: Industry"),
+    ).toBeTruthy();
+    expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
+  });
+
+  it("marks every required field, and only those, with the form-wide required marker", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+
+    for (const label of REQUIRED_LABELS) {
+      expect((screen.getByLabelText(label) as HTMLInputElement).required).toBe(
+        true,
+      );
+    }
+    // Positioning fields can be discovered later — they are not gated.
+    expect(
+      (screen.getByLabelText(/Ideal customer/) as HTMLTextAreaElement).required,
+    ).toBe(false);
+    expect(
+      (screen.getByRole("textbox", { name: "Website" }) as HTMLInputElement)
+        .required,
+    ).toBe(false);
   });
 
   it("renders the human label for every field, never the raw contract key", async () => {
@@ -169,6 +274,24 @@ describe("the company step is a form, not a read-back gate", () => {
     expect(screen.getByLabelText(/Ideal customer/)).toBeTruthy();
     expect(screen.queryByText("legal_name")).toBeNull();
     expect(screen.queryByText("icp")).toBeNull();
+  });
+});
+
+describe("the company step is mandatory", () => {
+  it("offers no way past it — no skip on the step, and no setup-level skip", async () => {
+    const calls = stubApi();
+    render(<OnboardingScreen />);
+
+    // The voice/connect steps keep their skip; the company step has none, and
+    // there is no setup-wide escape hatch beside the stepper either.
+    expect(screen.queryByRole("button", { name: /Skip/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Skip/i })).toBeNull();
+
+    // The only forward control is Continue, and it saves rather than bypasses.
+    await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    expect(requestTo(calls, "/company", "PUT")).toBeUndefined();
+    expect(window.location.hash).toBe("");
+    expect(screen.getByLabelText(/Ideal customer/)).toBeTruthy();
   });
 });
 
@@ -224,6 +347,15 @@ describe("the website read-back pre-fills the form", () => {
     expect(screen.getAllByText("typed by you").length).toBeGreaterThan(0);
 
     await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await userEvent.type(
+      screen.getByLabelText(/Registered address/),
+      "Hauptstrasse 1, 10115 Berlin",
+    );
+    await userEvent.type(
+      screen.getByLabelText(/Register \/ VAT ID/),
+      "DE123456789",
+    );
+    await userEvent.type(screen.getByLabelText(/Industry/), "Robotics");
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await waitFor(() =>
       expect(requestTo(calls, "/company", "PUT")).toBeTruthy(),
@@ -294,7 +426,7 @@ describe("saving the company", () => {
     ]);
     render(<OnboardingScreen />);
 
-    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await fillRequired();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
 
     expect(await screen.findByText("Couldn't save your company")).toBeTruthy();
@@ -308,7 +440,7 @@ describe("step-3 honesty about the voice step", () => {
     stubApi();
     render(<OnboardingScreen />);
 
-    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await fillRequired();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     // now on the voice step — skip it
     await userEvent.click(
@@ -331,7 +463,7 @@ describe("connect step is skippable", () => {
     stubApi();
     render(<OnboardingScreen />);
 
-    await userEvent.type(screen.getByLabelText(/Company name/), "Gradion");
+    await fillRequired();
     await userEvent.click(screen.getByRole("button", { name: /Continue/ }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip this step" }),

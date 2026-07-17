@@ -726,8 +726,7 @@ export const en = {
   "stage.semWon": "Won",
   "stage.semLost": "Lost",
 
-  "ob.title": "Welcome to Margince",
-  "ob.sub": "value first — connecting your mailbox comes last, not first",
+  "ob.title": "Set up Margince",
   "ob.company": "Company",
   "ob.voice": "Voice",
   "ob.results": "Results",
@@ -737,39 +736,30 @@ export const en = {
   "ob.back": "Back",
   "ob.finish": "Into the workspace",
   "ob.skipStep": "Skip this step",
-  "ob.skipSetup": "Skip setup",
-  "ob.skipSetupHint":
-    "Go straight into an empty CRM — you can run setup any time from Settings",
 
-  "ob.s1.kick": "Step 1 of 4 · takes 2 minutes",
-  "ob.s1.title": "Let's set up your CRM.",
-  "ob.s1.titleEm": "Start with your company.",
+  "ob.s1.kick": "Step 1 of 4",
+  "ob.s1.title": "Your company",
   "ob.s1.sub":
-    "Write this yourself, or paste your website and we'll fill in what we can quote from it. Nothing is saved until you continue — every word here is yours to change first.",
+    "Type this in, or paste your website and we'll fill what we can quote from it. Nothing is saved until you continue.",
   "ob.s1.urlPlaceholder": "yourcompany.com",
-  "ob.s1.identityLabel": "Your company",
+  "ob.s1.identityLabel": "Company details",
   "ob.s1.positioningLabel": "What you sell, and to whom",
-  "ob.s1.nameRequired": "Give your company a name — everything else can wait.",
+  "ob.s1.fieldRequired": "Required.",
+  "ob.s1.requiredMissing": "Fill these in before you continue: {fields}",
   "ob.s1.saving": "Saving…",
   "ob.s1.saveFailed": "Couldn't save your company",
   "ob.s1.savedNote":
     "Saved to your workspace. Change anything here and continue to save it again.",
   "ob.s1.omitLabel": "Nothing was invented",
   "ob.s1.omitBody":
-    "We filled only the fields we could quote from your site, and left your own words alone. The rest stayed blank — they're yours to write.",
+    "We filled only what we could quote from your site. The rest is yours to write.",
   "ob.readGo": "Read my website",
   "ob.reading": "Reading…",
   "ob.readAgain": "Read again",
   "ob.trustPublic": "We only read your public website. No login required.",
-  "ob.trustAI":
-    "Runs on Margince's built-in AI — no API key or model setup needed.",
   "ob.urlWillRead": "We'll read {host}",
   "ob.urlInvalid":
     "That doesn't look like a website address — try e.g. {example}",
-  "ob.migrateLead":
-    "Already using another CRM? Import your data instead — bring contacts, companies and open deals across.",
-  "ob.fromHubspot": "From HubSpot",
-  "ob.fromSalesforce": "From Salesforce",
   "ob.readFromSite": "read from site",
   "ob.failTitle": "Couldn't read enough from this page",
   "ob.failBody":
