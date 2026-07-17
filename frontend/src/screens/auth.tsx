@@ -187,15 +187,13 @@ export function AvailabilityScreen({
 // Two source images (dark ink for the light theme, white for dark) swap
 // via CSS on the data-theme toggle — no JS theme read needed.
 function Wordmark({ alt }: Readonly<{ alt: string }>) {
+  // The container carries the ONE accessible name: the theme swap hides
+  // one <img> with display:none, so a name on either image alone would
+  // vanish in the other theme.
   return (
-    <span className="auth-wordmark">
-      <img className="auth-wordmark-light" src={wordmarkDark} alt={alt} />
-      <img
-        className="auth-wordmark-dark"
-        src={wordmarkWhite}
-        alt=""
-        aria-hidden
-      />
+    <span className="auth-wordmark" role="img" aria-label={alt}>
+      <img className="auth-wordmark-light" src={wordmarkDark} alt="" />
+      <img className="auth-wordmark-dark" src={wordmarkWhite} alt="" />
     </span>
   );
 }
@@ -379,12 +377,8 @@ function LoginForm({
               type="button"
               className="auth-reveal"
               aria-pressed={showPassword}
-              aria-label={
-                showPassword ? t("auth.hidePassword") : t("auth.showPassword")
-              }
-              title={
-                showPassword ? t("auth.hidePassword") : t("auth.showPassword")
-              }
+              aria-label={t("auth.showPassword")}
+              title={t("auth.showPassword")}
               onClick={() => setShowPassword((v) => !v)}
             >
               {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
