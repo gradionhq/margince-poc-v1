@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -22,18 +23,20 @@ import (
 )
 
 // ConnectionView is one row of the caller's standing capture connections,
-// for the list surface (listConnectors). It carries only status + cursor —
-// never the credential, which lives in the vault behind credential_ref.
+// for the list surface (listConnectors). It carries only status + cursor +
+// the watch deadline — never the credential, which lives in the vault behind
+// credential_ref.
 type ConnectionView struct {
-	ID        ids.UUID
-	Connector string
-	Status    string   // 'active' | 'revoked' | 'error' (connector_connection.status)
-	Cursor    []byte   // opaque incremental-sync watermark, or nil
-	Scopes    []string // the scopes frozen at grant time
+	ID             ids.UUID
+	Provider       string
+	Status         string     // connected | disconnected | error | reauth_required (capture_connection.status)
+	Cursor         []byte     // the incremental-sync watermark (jsonb bytes), or nil
+	WatchExpiresAt *time.Time // push/delta subscription renewal deadline, or nil
+	Scopes         []string   // the scopes frozen at grant time
 }
 
 // Connections lists the CALLING human's own standing connections in the
-// current workspace (RLS scopes the read to the workspace; granted_by scopes
+// current workspace (RLS scopes the read to the workspace; user_id scopes
 // it to this human — capture is per-user, RC-8).
 func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	actor, ok := principal.Actor(ctx)
@@ -43,16 +46,16 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	var out []ConnectionView
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, connector, status, cursor, scopes FROM connector_connection
-			WHERE granted_by = $1
-			ORDER BY connector`, actor.UserID)
+			SELECT id, provider, status, sync_cursor, watch_expires_at, scopes FROM capture_connection
+			WHERE user_id = $1 AND archived_at IS NULL
+			ORDER BY provider`, actor.UserID)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var v ConnectionView
-			if err := rows.Scan(&v.ID, &v.Connector, &v.Status, &v.Cursor, &v.Scopes); err != nil {
+			if err := rows.Scan(&v.ID, &v.Provider, &v.Status, &v.Cursor, &v.WatchExpiresAt, &v.Scopes); err != nil {
 				return err
 			}
 			out = append(out, v)
@@ -65,10 +68,10 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	return out, nil
 }
 
-// Disconnect revokes the CALLING human's connection for connector name in the
-// current workspace: it flips status to 'revoked' so the poller stops
-// selecting it (DueConnections filters on 'active'). Idempotent — a missing
-// or already-revoked connection is a no-op, not an error. Already-captured
+// Disconnect disconnects the CALLING human's connection for provider name in
+// the current workspace: it flips status to 'disconnected' so the poller stops
+// selecting it (DueConnections filters on 'connected'). Idempotent — a missing
+// or already-disconnected connection is a no-op, not an error. Already-captured
 // activities are retained; capture simply stops. The stored credential is
 // left for a follow-up vault sweep (revocation upstream is the real cut-off).
 func (r *Registry) Disconnect(ctx context.Context, name string) error {
@@ -78,23 +81,23 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 	}
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			UPDATE connector_connection SET status = 'revoked'
-			WHERE granted_by = $1 AND connector = $2 AND status <> 'revoked'`,
+			UPDATE capture_connection SET status = 'disconnected'
+			WHERE user_id = $1 AND provider = $2 AND status <> 'disconnected'`,
 			actor.UserID, name)
 		return err
 	})
 }
 
-// DueConnection names one active connection to sync, with the workspace it
+// DueConnection names one connected connection to sync, with the workspace it
 // lives in — the poller sets that workspace's GUC before calling SyncOnce.
 type DueConnection struct {
 	Workspace ids.WorkspaceID
 	ID        ids.UUID
 }
 
-// DueConnections lists every active connection for connector name across the
+// DueConnections lists every connected connection for provider name across the
 // whole fleet, so the background poller can drive one SyncOnce per
-// connection. connector_connection is RLS-scoped, so this walks each
+// connection. capture_connection is RLS-scoped, so this walks each
 // workspace under its own GUC — the same fleet-walk shape as
 // BackfillCredentials. One workspace's failure does not starve the rest.
 func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnection, error) {
@@ -114,8 +117,8 @@ func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnec
 		ws := ids.From[ids.WorkspaceKind](wsID)
 		err := database.WithWorkspaceTx(wsCtx, r.pool, func(tx pgx.Tx) error {
 			rows, err := tx.Query(wsCtx, `
-				SELECT id FROM connector_connection
-				WHERE connector = $1 AND status = 'active'`, name)
+				SELECT id FROM capture_connection
+				WHERE provider = $1 AND status = 'connected' AND archived_at IS NULL`, name)
 			if err != nil {
 				return err
 			}

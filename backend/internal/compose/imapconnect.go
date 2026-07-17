@@ -6,7 +6,7 @@ package compose
 // The one-shot IMAP pull (connectImap): dial a user's mailbox with the
 // posted credentials, capture the most recent messages as email activities,
 // and return a summary. The credentials are transient — used for this call
-// only, never persisted (no connector_connection row) and never logged. The
+// only, never persisted (no capture_connection row) and never logged. The
 // write lands through the capture Sink under the caller's LIVE authority
 // swapped to the connector principal (Registry.RunTransient), so audit +
 // outbox hold. This file owns only the transport: decode, build the

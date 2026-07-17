@@ -37,7 +37,9 @@ type exclusionFake struct{ skipped, captured int }
 
 func (m *exclusionFake) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
-		Name: "exclfake", Version: "1.0.0",
+		// Persisted as capture_connection.provider → must be in the CAP-DDL-2 set;
+		// the emitted rows keep their own 'graph' provenance (unconstrained).
+		Name: "graph", Version: "1.0.0",
 		Scopes:   []principal.Scope{principal.ScopeRead},
 		RiskTier: mcp.TierGreen,
 		Produces: []datasource.EntityType{datasource.EntityActivity},
@@ -52,18 +54,18 @@ func (m *exclusionFake) Sync(ctx context.Context, _ connector.Auth, cursor conne
 	records := []connector.NormalizedRecord{
 		{
 			EntityType: datasource.EntityActivity,
-			NaturalKey: connector.NaturalKey{SourceSystem: "exclfake", SourceID: "msg-personal"},
+			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-personal"},
 			Fields:     capture.ActivityFields{Kind: "email", Subject: "Dinner Sunday?", OccurredAt: time.Now().UTC(), Direction: "inbound"},
-			Source:     "exclfake", CapturedBy: "connector:exclfake",
-			Raw:   []byte(`{"provider":"exclfake","message_id":"msg-personal"}`),
+			Source:     "graph", CapturedBy: "connector:graph",
+			Raw:   []byte(`{"provider":"graph","message_id":"msg-personal"}`),
 			Match: connector.ExclusionAttrs{SenderDomain: "personal-family.example", RecipientDomains: []string{"myco.test"}},
 		},
 		{
 			EntityType: datasource.EntityActivity,
-			NaturalKey: connector.NaturalKey{SourceSystem: "exclfake", SourceID: "msg-work"},
+			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-work"},
 			Fields:     capture.ActivityFields{Kind: "email", Subject: "Quote request", OccurredAt: time.Now().UTC(), Direction: "inbound"},
-			Source:     "exclfake", CapturedBy: "connector:exclfake",
-			Raw:   []byte(`{"provider":"exclfake","message_id":"msg-work"}`),
+			Source:     "graph", CapturedBy: "connector:graph",
+			Raw:   []byte(`{"provider":"graph","message_id":"msg-work"}`),
 			Match: connector.ExclusionAttrs{SenderDomain: "acme.test", RecipientDomains: []string{"myco.test"}},
 		},
 	}
@@ -77,7 +79,7 @@ func (m *exclusionFake) Sync(ctx context.Context, _ connector.Auth, cursor conne
 		}
 		m.captured++
 	}
-	return connector.Cursor("done"), nil
+	return connector.Cursor(`{"done":true}`), nil // sync_cursor is jsonb
 }
 
 func (m *exclusionFake) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
@@ -104,7 +106,7 @@ func TestCaptureExclusionGateProducesZeroRowsAndOneSkipEvent(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "exclfake", connector.Auth("token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,13 +122,13 @@ func TestCaptureExclusionGateProducesZeroRowsAndOneSkipEvent(t *testing.T) {
 	// and only its raw original was stored.
 	var activities, personalActs, raws int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'exclfake'`).Scan(&activities); err != nil {
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'graph'`).Scan(&activities); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_id = 'msg-personal'`).Scan(&personalActs); err != nil {
 			return err
 		}
-		return tx.QueryRow(context.Background(), `SELECT count(*) FROM raw_capture WHERE source_system = 'exclfake'`).Scan(&raws)
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM raw_capture WHERE source_system = 'graph'`).Scan(&raws)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +151,7 @@ func TestCaptureExclusionGateProducesZeroRowsAndOneSkipEvent(t *testing.T) {
 	}
 	var replayActs, replayPersonal int
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'exclfake'`).Scan(&replayActs); err != nil {
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_system = 'graph'`).Scan(&replayActs); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE source_id = 'msg-personal'`).Scan(&replayPersonal)

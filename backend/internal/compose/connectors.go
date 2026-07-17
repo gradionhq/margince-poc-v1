@@ -226,15 +226,17 @@ func (h connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// toContractConnection maps a registry connection row onto the wire shape,
-// translating the storage status vocabulary (active/revoked/error) into the
-// contract's (connected/disconnected/error). The credential is never present.
+// toContractConnection maps a registry connection row onto the wire shape.
+// Storage now uses the contract's own status vocabulary (CAP-DDL-2 reconciled
+// capture_connection to it), so status is a straight cast — no translation. The
+// credential is never present.
 func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnection {
 	c := crmcontracts.CaptureConnection{
-		Id:       openapi_types.UUID(v.ID),
-		Provider: crmcontracts.CaptureConnectionProvider(v.Connector),
-		Status:   connectionStatus(v.Status),
-		Scopes:   v.Scopes,
+		Id:             openapi_types.UUID(v.ID),
+		Provider:       crmcontracts.CaptureConnectionProvider(v.Provider),
+		Status:         crmcontracts.CaptureConnectionStatus(v.Status),
+		Scopes:         v.Scopes,
+		WatchExpiresAt: v.WatchExpiresAt,
 	}
 	if c.Scopes == nil {
 		c.Scopes = []string{}
@@ -244,17 +246,4 @@ func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnecti
 		c.SyncCursor = &s
 	}
 	return c
-}
-
-func connectionStatus(storage string) crmcontracts.CaptureConnectionStatus {
-	switch storage {
-	case "active":
-		return crmcontracts.Connected
-	case "revoked":
-		return crmcontracts.Disconnected
-	case "error":
-		return crmcontracts.Error
-	default:
-		return crmcontracts.CaptureConnectionStatus(storage)
-	}
 }

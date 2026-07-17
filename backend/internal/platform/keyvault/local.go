@@ -39,7 +39,7 @@ type Config struct {
 // operational vault_secret table. The table carries NO workspace_id — the
 // workspace lives in the ref and in the GCM AAD, so isolation is a
 // cryptographic and structural property of the ref, not RLS. It never writes
-// a domain row: the connector_connection row (with its credential_ref) is the
+// a domain row: the capture_connection row (with its credential_ref) is the
 // domain mutation, committed through storekit by the calling module.
 type localVault struct {
 	aead cipher.AEAD

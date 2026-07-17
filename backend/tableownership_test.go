@@ -93,7 +93,7 @@ var tableOwners = map[string]string{
 	"preference_token":     "internal/modules/consent",
 	// capture
 	"raw_capture":            "internal/modules/capture",
-	"connector_connection":   "internal/modules/capture",
+	"capture_connection":     "internal/modules/capture",
 	"capture_exclusion_rule": "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
