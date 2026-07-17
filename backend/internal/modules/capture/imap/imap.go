@@ -130,13 +130,14 @@ func AuthRequestFrom(creds Credentials) (connector.AuthRequest, error) {
 
 // ErrLoginRejected marks an authentication failure the server reported
 // (bad user/password/host). The transport maps it to an actionable 422
-// without echoing the provider's raw message.
-var ErrLoginRejected = errors.New("imap: the mailbox rejected these credentials")
+// without echoing the provider's raw message. Wraps the shared connector
+// vocabulary so the registry parks, not retries (ADR-0063).
+var ErrLoginRejected = fmt.Errorf("imap: the mailbox rejected these credentials: %w", connector.ErrAuthRejected)
 
 // ErrUnreachable marks a transport-level failure reaching the server
 // (DNS, TCP, TLS, timeout). The transport maps it to a 502 without
-// leaking the underlying network detail.
-var ErrUnreachable = errors.New("imap: could not reach the mail server")
+// leaking the underlying network detail; the registry backs off and retries.
+var ErrUnreachable = fmt.Errorf("imap: could not reach the mail server: %w", connector.ErrUnreachable)
 
 func (c *Connector) Descriptor() connector.Descriptor {
 	return connector.Descriptor{

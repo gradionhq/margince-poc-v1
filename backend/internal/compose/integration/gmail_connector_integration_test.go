@@ -154,12 +154,31 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 		t.Fatalf("Connections = %+v, want one connected gmail", views)
 	}
 
+	// Pacing (ADR-0063): the sync that just succeeded scheduled the next one
+	// an interval out, so the connection is NOT due right now — a frequent
+	// dispatcher scan never means frequent provider calls.
 	due, err := registry.DueConnections(context.Background(), "gmail")
 	if err != nil {
 		t.Fatalf("DueConnections: %v", err)
 	}
+	if len(due) != 0 {
+		t.Fatalf("DueConnections right after a successful sync = %+v, want none (paced out)", due)
+	}
+	// Once the pacing clock passes, the same connection is due again.
+	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE capture_sync_state SET next_sync_at = now() - interval '1 second' WHERE connection_id = $1`, connID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	due, err = registry.DueConnections(context.Background(), "gmail")
+	if err != nil {
+		t.Fatalf("DueConnections: %v", err)
+	}
 	if len(due) != 1 || due[0].ID != connID {
-		t.Fatalf("DueConnections = %+v, want the one connection %s", due, connID)
+		t.Fatalf("DueConnections past the pacing clock = %+v, want the one connection %s", due, connID)
 	}
 
 	if err := registry.Disconnect(grantCtx, "gmail"); err != nil {

@@ -238,7 +238,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		gmailReg = compose.GmailPollRegistry(pool, vault, compose.GmailConfig{
 			ClientID:     cfg.gmailClientID,
 			ClientSecret: cfg.gmailClientSecret,
-		})
+		}).WithSyncInterval(cfg.gmailSyncInterval)
 	}
 	watchCfg := compose.GmailWatchConfig{
 		Interval:    cfg.gmailWatchInterval,
@@ -254,8 +254,8 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,
 		GmailRegistry:     gmailReg,
-		GmailInterval:     cfg.gmailSyncInterval,
-		GmailWatch:        watchCfg,
+
+		GmailWatch: watchCfg,
 		// The deep-read worker registers regardless: without a model path
 		// (nil ColdStart) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.

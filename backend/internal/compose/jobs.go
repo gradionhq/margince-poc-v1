@@ -12,9 +12,11 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -24,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -60,6 +63,11 @@ func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowU
 	return w.reconciler.Reconcile(ctx)
 }
 
+// dispatchScanInterval is the due-scan cadence — an indexed one-row-per-due
+// query, deliberately decoupled from per-connection pacing (the sidecar's
+// next_sync_at owns that).
+const dispatchScanInterval = 30 * time.Second
+
 // GmailWatchConfig configures the Gmail push-watch maintenance pass. Topic is
 // the Pub/Sub topic Gmail publishes change notifications to (empty disables the
 // pass entirely — capture stays on the poll); Interval is the scan cadence; and
@@ -70,18 +78,19 @@ type GmailWatchConfig struct {
 	RenewWithin time.Duration
 }
 
-// GmailSyncArgs schedules one incremental-sync pass over every active Gmail
-// connection (capture.md CAP-WIRE-N-1: capture rides provider delta, driven
-// here by a poll rather than a push watch in this slice).
+// GmailSyncArgs schedules one DISPATCH pass: scan the fleet for due Gmail
+// connections (the sidecar's backoff/pacing gate, ADR-0063) and enqueue one
+// CaptureSyncArgs job per connection. The dispatcher never syncs inline —
+// per-connection jobs isolate failures and kill head-of-line blocking.
 type GmailSyncArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (GmailSyncArgs) Kind() string { return "gmail_sync" }
 
-// gmailSyncWorker walks the fleet's active Gmail connections and runs one
-// incremental SyncOnce per connection under that connection's workspace. A
-// single connection's failure is logged and skipped, never aborting the pass;
-// only a fleet-enumeration failure is returned (so River retries the tick).
+// gmailSyncWorker is the dispatcher: due-scan, then one insert per
+// connection. Uniqueness on the connection id means a still-running or
+// already-queued sync is not double-enqueued; only a fleet-enumeration
+// failure is returned (so River retries the tick).
 type gmailSyncWorker struct {
 	river.WorkerDefaults[GmailSyncArgs]
 	registry *capture.Registry
@@ -90,13 +99,57 @@ type gmailSyncWorker struct {
 
 func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs]) error {
 	due, enumErr := w.registry.DueConnections(ctx, "gmail")
+	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
-		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
-		if err := w.registry.SyncOnce(wsCtx, d.ID); err != nil {
-			w.log.WarnContext(ctx, "gmail connection sync failed", "connection", d.ID.String(), "err", err)
+		if _, err := client.Insert(ctx, CaptureSyncArgs{
+			Workspace:    d.Workspace.String(),
+			ConnectionID: d.ID.String(),
+			Provider:     "gmail",
+		}, &river.InsertOpts{
+			UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+		}); err != nil {
+			w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "err", err)
 		}
 	}
 	return enumErr
+}
+
+// CaptureSyncArgs syncs ONE connection. Unique by args while incomplete, so
+// the dispatcher and the (future) push webhook can both enqueue without
+// double-running a mailbox.
+type CaptureSyncArgs struct {
+	Workspace    string `json:"workspace"`
+	ConnectionID string `json:"connection_id"`
+	Provider     string `json:"provider"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureSyncArgs) Kind() string { return "capture_sync" }
+
+// captureSyncWorker runs one SyncOnce under the connection's workspace. A
+// sync failure returns nil after the registry has recorded it: the sidecar's
+// backoff owns the retry cadence (ADR-0063) — a River retry would bypass it.
+type captureSyncWorker struct {
+	river.WorkerDefaults[CaptureSyncArgs]
+	registry *capture.Registry
+	log      *slog.Logger
+}
+
+func (w *captureSyncWorker) Work(ctx context.Context, job *river.Job[CaptureSyncArgs]) error {
+	ws, err := ids.Parse(job.Args.Workspace)
+	if err != nil {
+		return fmt.Errorf("capture_sync: workspace id: %w", err)
+	}
+	conn, err := ids.Parse(job.Args.ConnectionID)
+	if err != nil {
+		return fmt.Errorf("capture_sync: connection id: %w", err)
+	}
+	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	if err := w.registry.SyncOnce(wsCtx, conn); err != nil {
+		w.log.WarnContext(ctx, "capture connection sync failed",
+			"connection", job.Args.ConnectionID, "provider", job.Args.Provider, "err", err)
+	}
+	return nil
 }
 
 // TimeScanArgs schedules one clock-trigger scan pass (Task 14a): the
@@ -186,7 +239,6 @@ type JobRunnerConfig struct {
 	ReconcileInterval time.Duration
 	TimeScanInterval  time.Duration
 	GmailRegistry     *capture.Registry
-	GmailInterval     time.Duration
 	GmailWatch        GmailWatchConfig
 	// DeepReadBrain is the model lane the site deep-read job extracts with
 	// (the worker's modelPath.ColdStart — the same lane the api's quick
@@ -203,8 +255,11 @@ type JobRunnerConfig struct {
 // the old ticker's boot-time first pass.
 //
 // When cfg.GmailRegistry is non-nil (the deployment configured the Gmail
-// OAuth app), a Gmail incremental-sync poll is added on cfg.GmailInterval —
-// leader-elected like the sweeps, so replicas never double-poll. When a
+// OAuth app), the sync DISPATCHER is added on a fixed 30s scan — a cheap
+// indexed due-scan enqueueing one per-connection job per due row; the
+// per-connection pacing (--gmail-sync-interval) lives in the registry's
+// scheduling sidecar, so a frequent scan never means frequent provider
+// calls. Leader-elected like the sweeps, so replicas never double-poll. When a
 // Pub/Sub topic is also configured (cfg.GmailWatch.Topic != ""), a push-watch
 // maintenance pass is added on cfg.GmailWatch.Interval that registers/renews
 // Gmail watches nearing expiry; without a topic the watch job is absent by
@@ -238,8 +293,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 
 	if cfg.GmailRegistry != nil {
 		river.AddWorker(workers, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
+		river.AddWorker(workers, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
+		// The dispatcher tick is a cheap indexed due-scan; per-connection
+		// pacing lives in the sidecar (next_sync_at = success + interval),
+		// so a frequent scan does not mean frequent provider calls.
 		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(cfg.GmailInterval),
+			river.PeriodicInterval(dispatchScanInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
