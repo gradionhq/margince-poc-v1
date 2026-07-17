@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
@@ -25,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -42,6 +42,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
 )
@@ -60,7 +61,7 @@ type Server struct {
 	collectionsHandlers
 	signalsHandlers
 	privacyHandlers
-	agentsHandlers
+	automationHandlers
 	voiceHandlers
 	reportHandlers
 	briefs.Handlers
@@ -123,6 +124,17 @@ var _ crmcontracts.ServerInterface = Server{}
 // Option customizes the wiring for one process role; everything not
 // optioned keeps its safe default.
 type Option func(*Server, *pgxpool.Pool)
+
+// WithPasswordReset wires the A74 forgot-password flow onto the identity
+// surface: the operator's transactional mailer plus the public base URL
+// the emailed link points at. Without it the reset endpoints answer
+// their explicit 501 and the capabilities probe reports
+// password_reset=false (A107 — the login UI renders only what works).
+func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
+	}
+}
 
 // WithBusReady adds the event-bus probe to /readyz. The api role passes
 // it when it runs the inline relay: a process that must ship events is
@@ -271,11 +283,11 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// newServer carries the full note): active cf_* deal columns ride
 	// deal payloads on both surfaces.
 	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
-	// On workspace bootstrap, deals seeds its per-workspace defaults
-	// (the default pipeline) — composed here so neither module imports
-	// the other.
+	// Bootstrap happens at boot from deployment configuration
+	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
+	// serves the already-bound singleton organization.
 	identitySvc := identity.NewService(pool)
-	authH := identity.NewHandlers(identitySvc, workspaceSeed(dealsH))
+	authH := identity.NewHandlers(identitySvc)
 
 	srv := newServer(pool, log, authH, dealsH)
 	for _, opt := range opts {
@@ -286,35 +298,6 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux := operationalMux(srv, pool, log, authH, api)
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
-}
-
-// workspaceSeed is the workspace-bootstrap hook identity runs: it seeds
-// every module's per-workspace defaults in ONE transaction (C5) — the
-// default pipeline and the consent purpose catalog stand or fall
-// together.
-func workspaceSeed(dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
-	return func(ctx context.Context, tx pgx.Tx) error {
-		if err := dealsH.SeedWorkspaceDefaultsTx(ctx, tx); err != nil {
-			return err
-		}
-		if err := consent.SeedDefaultPurposesTx(ctx, tx); err != nil {
-			return err
-		}
-		if err := consent.SeedDefaultRetentionTx(ctx, tx); err != nil {
-			return err
-		}
-		if err := agents.SeedStarterAutomationsTx(ctx, tx); err != nil {
-			return err
-		}
-		// The admin's public booking page: the workspace's only user at
-		// seed time IS the bootstrap admin (RLS scopes the read).
-		var adminID ids.UserID
-		if err := tx.QueryRow(ctx, `SELECT id FROM app_user ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
-			return err
-		}
-		_, err := activities.SeedBookingPageTx(ctx, tx, adminID)
-		return err
-	}
 }
 
 // newServer assembles the module handler sets. Every cross-module edge
@@ -346,11 +329,11 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The warm room ranks its contact edges by the §4 relationship
 		// strength owned by people; injected through the adapter below so
 		// signals never imports its sibling.
-		signalsHandlers: signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
-		privacyHandlers: privacy.NewHandlers(pool),
-		agentsHandlers:  agents.NewHandlers(pool),
-		voiceHandlers:   ai.NewHandlers(pool),
-		reportHandlers:  reportHandlers{engine: newReportEngine(pool)},
+		signalsHandlers:    signals.NewHandlers(pool, signalStrength{people: people.NewStore(pool)}),
+		privacyHandlers:    privacy.NewHandlers(pool),
+		automationHandlers: automation.NewHandlers(pool),
+		voiceHandlers:      ai.NewHandlers(pool),
+		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),

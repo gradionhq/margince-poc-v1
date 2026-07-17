@@ -22,14 +22,7 @@ import (
 func TestMalformedCursorAnswers4xxEverywhere(t *testing.T) {
 	e := setup(t)
 
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Cursor Probe",
-		"admin_email":        "admin@cursor.test",
-		"admin_display_name": "Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap = %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Cursor Probe", "admin@cursor.test", "Admin")
 	e.slug = "cursor-probe"
 
 	// /lists/{id}/members needs a real list to point at.

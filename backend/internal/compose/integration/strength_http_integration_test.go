@@ -68,7 +68,7 @@ func seedStrengthPersonWithActivities(t *testing.T, e *env) string {
 func TestPersonStrengthHTTPReconciles(t *testing.T) {
 	e := setup(t)
 	e.slug = "strength-e2e"
-	bootstrapWorkspaceSession(t, e, "Strength E2E", "admin@strength.test")
+	bootstrapWorkspaceSession(t, e, "Strength E2E", "admin@strength.test", "Admin")
 	personID := seedStrengthPersonWithActivities(t, e)
 
 	var wire strengthWire
@@ -108,7 +108,7 @@ func TestPersonStrengthHTTPReconciles(t *testing.T) {
 func TestPersonStrengthHTTPMissingIs404(t *testing.T) {
 	e := setup(t)
 	e.slug = "strength-404"
-	bootstrapWorkspaceSession(t, e, "Strength 404", "admin@strength404.test")
+	bootstrapWorkspaceSession(t, e, "Strength 404", "admin@strength404.test", "Admin")
 
 	if status := e.call(t, "GET", "/v1/people/"+ids.NewV7().String()+"/strength", nil, nil, nil); status != http.StatusNotFound {
 		t.Errorf("missing person strength = %d, want 404", status)
@@ -121,7 +121,7 @@ func TestPersonStrengthHTTPMissingIs404(t *testing.T) {
 func TestOrganizationStrengthHTTPReconciles(t *testing.T) {
 	e := setup(t)
 	e.slug = "org-strength-e2e"
-	bootstrapWorkspaceSession(t, e, "Org Strength E2E", "admin@orgstrength.test")
+	bootstrapWorkspaceSession(t, e, "Org Strength E2E", "admin@orgstrength.test", "Admin")
 
 	var org struct {
 		ID string `json:"id"`
@@ -152,7 +152,7 @@ func TestOrganizationStrengthHTTPReconciles(t *testing.T) {
 func TestOrganizationStrengthHTTPMissingIs404(t *testing.T) {
 	e := setup(t)
 	e.slug = "org-strength-404"
-	bootstrapWorkspaceSession(t, e, "Org Strength 404", "admin@orgstrength404.test")
+	bootstrapWorkspaceSession(t, e, "Org Strength 404", "admin@orgstrength404.test", "Admin")
 
 	if status := e.call(t, "GET", "/v1/organizations/"+ids.NewV7().String()+"/strength", nil, nil, nil); status != http.StatusNotFound {
 		t.Errorf("missing organization strength = %d, want 404", status)

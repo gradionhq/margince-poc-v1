@@ -76,7 +76,7 @@ Four process-role binaries, all wired through
 `cmd/migrate` (up|down), `cmd/mcp` (the A1 stdio server).
 
 MCP (Surface A1): mint a passport (`POST /v1/passports`, session-authed),
-then `MARGINCE_PASSPORT_TOKEN=mgp_… mcp --workspace <slug> --dsn …`
+then `MARGINCE_PASSPORT_TOKEN=mgp_… mcp --dsn …`
 serves the tool surface over stdio. The same token is a REST Bearer
 credential; a passport on REST is governed exactly like MCP (ADR-0055,
 superseding the old "read-only on REST" C1 rule) — 🟢 mutations
@@ -87,8 +87,11 @@ revocation binds mid-session.
 Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen
 tool chain is pure Go, in its own module `backend/tools/`).
 
-Local API calls need the workspace header (prod uses the subdomain):
-`curl http://localhost:8080/v1/me -H 'X-Workspace-Slug: <slug>' --cookie 'crm_session=…'`
+One installation serves one organization (A107/ADR-0061): the server
+resolves its singleton organization itself — no request selects a tenant:
+`curl http://localhost:8080/v1/me --cookie 'crm_session=…'`. First boot
+bootstraps the organization + admin from `margince.yaml` (`--config` /
+`MARGINCE_CONFIG`); `make dev` writes a demo one automatically.
 
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus
@@ -140,7 +143,7 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
   activity link-walk), `events` (outbox relay/subscriber/dedupe),
   `dbmigrate`, `httperr` (RFC 7807 + wire helpers), `httpserver` (chassis).
-- `internal/modules/` — sixteen bounded capabilities, flat by default per
+- `internal/modules/` — seventeen bounded capabilities, flat by default per
   ADR-0054 §3 (store + mapping + transport + provider in one package),
   growing subpackages only when a named trigger fires (split for a reason, never symmetry); a module NEVER
   imports a sibling: `identity` (workspaces, users, sessions, passports;
@@ -153,6 +156,10 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   the authority object), `agents` (the governed tool
   surface: registry, admission gate, stdio/hosted transports, the
   Surface-B loop — reaches records only through the datasource seam),
+  `automation` (the closed 7×7 trigger/action catalog, ADR-0035: the
+  registry, the per-workspace standing automation store, and the
+  deterministic trigger runtime — event matcher and clock time-scan
+  converging on one path, gated at both author-time and match-time),
   `ai` (the model runtime behind ports/model: Anthropic BYOK, Ollama,
   the offline fake, routing + budget + secret-stripping), `search`
   (row-scoped retrieval: FTS + pgvector/RRF hybrid + context graph),

@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // --- update_record (🟢 write — human-edited fields split off as 🟡) ---
@@ -105,7 +106,7 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		if err != nil {
 			return nil, err
 		}
-		return nil, &StagedApprovalError{ApprovalID: id}
+		return nil, &workflow.StagedApprovalError{ApprovalID: id}
 	}
 
 	// Mixed patch: the green remainder lands first, then the residue is

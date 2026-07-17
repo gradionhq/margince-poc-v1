@@ -21,6 +21,7 @@ vendors:
   oapi:   { in: github.com/oapi-codegen/** }
   redis:  { in: github.com/redis/** }
   xcrypto: { in: golang.org/x/crypto/** }
+  xterm:   { in: golang.org/x/term }
   yaml:   { in: gopkg.in/** }
   emersion: { in: github.com/emersion/** }
   river:  { in: github.com/riverqueue/** }
@@ -46,6 +47,7 @@ components:
   customfields: { in: internal/modules/customfields }
   quotas:      { in: internal/modules/quotas }
   agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
+  automation:  { in: internal/modules/automation }
   de:          { in: internal/modules/de }
   compose:     { in: [internal/compose, internal/compose/**] }
   migrations:  { in: migrations }
@@ -62,7 +64,8 @@ deps:
     canUse: [chi, oapi]
   platform:
     mayDependOn: [platform, contracts, migrations]
-    canUse: [pgx, chi, oapi, redis, river, minio]
+    # yaml: the deployment configuration file (deployconfig, A107/ADR-0061).
+    canUse: [pgx, chi, oapi, redis, river, minio, yaml]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:
@@ -113,8 +116,11 @@ deps:
   agents:
     mayDependOn: [agents, contracts, platform]
     canUse: [pgx, oapi]
+  automation:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   compose:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
     canUse: [pgx, chi, oapi, river]
   migrations:
     mayDependOn: [platform]
@@ -126,5 +132,5 @@ deps:
   root:
     canUse: [yaml]
   cmd:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
-    canUse: [pgx, redis]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
+    canUse: [pgx, redis, xterm]

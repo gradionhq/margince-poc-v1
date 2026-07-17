@@ -7,7 +7,7 @@ package integration
 
 // The keyvault seam end to end: a connector credential is
 // sealed in the vault at Connect and resolved from it at Sync, so the
-// connector_connection row carries an opaque credential_ref, never the
+// capture_connection row carries an opaque credential_ref, never the
 // credential bytes. Proven on real Postgres with the local (AES-256-GCM)
 // provider: the round-trip, cross-workspace ref isolation, a wrong root key
 // failing without leaking plaintext, and the additive backfill of a legacy
@@ -55,7 +55,8 @@ type authAssertingFake struct {
 
 func (f *authAssertingFake) Descriptor() connector.Descriptor {
 	return connector.Descriptor{
-		Name: "authfake", Version: "1.0.0",
+		// Persisted as capture_connection.provider → must be in the CAP-DDL-2 set.
+		Name: "graph", Version: "1.0.0",
 		Scopes:   []principal.Scope{principal.ScopeRead},
 		RiskTier: mcp.TierGreen,
 	}
@@ -83,7 +84,7 @@ func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
 	registry.Register(&authAssertingFake{})
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "authfake", connector.Auth("granted-token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +93,7 @@ func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
 	var authBytes []byte
 	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT credential_ref, auth FROM connector_connection WHERE id = $1`, connID).
+			`SELECT credential_ref, auth FROM capture_connection WHERE id = $1`, connID).
 			Scan(&credentialRef, &authBytes)
 	})
 	if err != nil {
@@ -122,7 +123,7 @@ func TestSyncResolvesCredentialFromVault(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "authfake", connector.Auth("granted-token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,10 +193,11 @@ func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
 	fake := &authAssertingFake{}
 	registry.Register(fake)
 
-	// A legacy row: the credential lives in the auth bytea column, no ref.
+	// A legacy row: a connected connection whose credential still lives in the
+	// auth bytea column, no vault ref yet.
 	connID := e.seed(t, `
-		INSERT INTO connector_connection (id, workspace_id, connector, granted_by, scopes, auth)
-		VALUES ($1, $2, 'authfake', $3, $4, $5)`,
+		INSERT INTO capture_connection (id, workspace_id, provider, user_id, scopes, status, auth)
+		VALUES ($1, $2, 'graph', $3, $4, 'connected', $5)`,
 		e.Rep1, []string{string(principal.ScopeRead)}, []byte("granted-token"))
 
 	migrated, err := registry.BackfillCredentials(context.Background())
@@ -211,7 +213,7 @@ func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
 	var authBytes []byte
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT credential_ref, auth FROM connector_connection WHERE id = $1`, connID).
+			`SELECT credential_ref, auth FROM capture_connection WHERE id = $1`, connID).
 			Scan(&credentialRef, &authBytes)
 	})
 	if err != nil {

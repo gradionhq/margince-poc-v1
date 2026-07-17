@@ -48,6 +48,7 @@ var tableOwners = map[string]string{
 	"team_membership":          "internal/modules/identity",
 	"session":                  "internal/modules/identity",
 	"passport":                 "internal/modules/identity",
+	"auth_token":               "internal/modules/identity",
 	"role":                     "internal/modules/identity",
 	"role_assignment":          "internal/modules/identity",
 	"record_grant":             "internal/modules/identity",
@@ -93,7 +94,7 @@ var tableOwners = map[string]string{
 	"preference_token":     "internal/modules/consent",
 	// capture
 	"raw_capture":            "internal/modules/capture",
-	"connector_connection":   "internal/modules/capture",
+	"capture_connection":     "internal/modules/capture",
 	"capture_exclusion_rule": "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
@@ -102,10 +103,11 @@ var tableOwners = map[string]string{
 	"voice_profile":       "internal/modules/ai",
 	"voice_corpus_source": "internal/modules/ai",
 	// agents (incl. the runner subpackage)
-	"agent_run":    "internal/modules/agents",
-	"runner_job":   "internal/modules/agents",
-	"workflow_run": "internal/modules/agents",
-	"automation":   "internal/modules/agents",
+	"agent_run":  "internal/modules/agents",
+	"runner_job": "internal/modules/agents",
+	// automation (the deterministic trigger-and-action catalog)
+	"workflow_run": "internal/modules/automation",
+	"automation":   "internal/modules/automation",
 	// signals (the warm-room signal spine + its append-only resolution log)
 	"signal":            "internal/modules/signals",
 	"signal_resolution": "internal/modules/signals",

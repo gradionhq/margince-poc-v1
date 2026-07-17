@@ -53,17 +53,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	e := setup(t)
 	e.slug = "runner-e2e"
 
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "Runner E2E", "admin_email": "runner@fable.test",
-		"admin_display_name": "Runner Admin", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "runner@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Runner E2E", "runner@fable.test", "Admin")
 
 	var minted struct {
 		PassportID string `json:"passport_id"`

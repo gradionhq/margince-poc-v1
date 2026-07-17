@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -36,6 +37,11 @@ type fakeAPI struct {
 	raws               map[string][]byte
 	historyCalls       int
 	listCalls          int
+	watchHistoryID     string
+	watchExpiry        time.Time
+	watchErr           error
+	watchCalls         int
+	watchTopic         string
 }
 
 func (f *fakeAPI) Profile(context.Context, string) (string, string, error) {
@@ -53,6 +59,15 @@ func (f *fakeAPI) History(context.Context, string, string) ([]string, string, er
 		return nil, "", f.historyErr
 	}
 	return f.added, f.addedHistoryID, nil
+}
+
+func (f *fakeAPI) Watch(_ context.Context, _, topic string) (string, time.Time, error) {
+	f.watchCalls++
+	f.watchTopic = topic
+	if f.watchErr != nil {
+		return "", time.Time{}, f.watchErr
+	}
+	return f.watchHistoryID, f.watchExpiry, nil
 }
 
 func (f *fakeAPI) GetRaw(_ context.Context, _, id string) ([]byte, error) {
@@ -220,6 +235,41 @@ func TestSyncHistoryGoneFallsBackToList(t *testing.T) {
 		t.Errorf("cursor should re-anchor at profile historyId 55555, got %q", hid)
 	}
 }
+
+func TestWatchRegistersAndReturnsExpiry(t *testing.T) {
+	exp := time.UnixMilli(1431990098200)
+	api := &fakeAPI{watchHistoryID: "99999", watchExpiry: exp}
+	c := New(fakeOAuth{access: "access-1"}, api)
+
+	res, err := c.Watch(context.Background(), authBytes(t), "projects/p/topics/gmail-push")
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if res.HistoryID != "99999" {
+		t.Errorf("HistoryID = %q, want 99999", res.HistoryID)
+	}
+	if !res.ExpiresAt.Equal(exp) {
+		t.Errorf("ExpiresAt = %v, want %v", res.ExpiresAt, exp)
+	}
+	if api.watchTopic != "projects/p/topics/gmail-push" {
+		t.Errorf("topic passed to Gmail = %q, want the configured topic", api.watchTopic)
+	}
+	if api.watchCalls != 1 {
+		t.Errorf("watch called %d times, want 1", api.watchCalls)
+	}
+}
+
+func TestWatchPropagatesProviderError(t *testing.T) {
+	api := &fakeAPI{watchErr: ErrAuthRejected}
+	c := New(fakeOAuth{access: "access-1"}, api)
+	if _, err := c.Watch(context.Background(), authBytes(t), "projects/p/topics/gmail-push"); !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("want ErrAuthRejected propagated, got %v", err)
+	}
+}
+
+// The Gmail connector satisfies the optional push-watch seam the registry's
+// renewal scan invokes.
+var _ connector.Watcher = (*Connector)(nil)
 
 func TestNormalizeSkipsAutomatedMail(t *testing.T) {
 	c := New(fakeOAuth{}, &fakeAPI{})

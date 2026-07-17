@@ -4478,6 +4478,24 @@ type AuditLogEntryAction string
 // AuditLogEntryActorType defines model for AuditLogEntry.ActorType.
 type AuditLogEntryActorType string
 
+// AuthCapabilities defines model for AuthCapabilities.
+type AuthCapabilities struct {
+	// OidcProviders Operational OIDC providers (empty until the OIDC flow ships).
+	OidcProviders []struct {
+		// Key Stable provider key, e.g. `google`.
+		Key string `json:"key"`
+
+		// Label Button label, e.g. `Continue with Google`.
+		Label string `json:"label"`
+	} `json:"oidc_providers"`
+
+	// Password Email + password login is enabled.
+	Password bool `json:"password"`
+
+	// PasswordReset The A74 reset flow can complete end to end (outbound email configured + healthy).
+	PasswordReset bool `json:"password_reset"`
+}
+
 // Automation A configured automation instance (feedback/14).
 type Automation struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -4587,19 +4605,6 @@ type AutomationRunOutcome string
 
 // AutomationRunTier The tier that fired for this run.
 type AutomationRunTier string
-
-// BootstrapWorkspaceRequest defines model for BootstrapWorkspaceRequest.
-type BootstrapWorkspaceRequest struct {
-	AdminDisplayName string              `json:"admin_display_name"`
-	AdminEmail       openapi_types.Email `json:"admin_email"`
-
-	// AdminPassword Hashed server-side (Argon2id/bcrypt); never stored or logged in plaintext.
-	AdminPassword string `json:"admin_password"`
-
-	// Timezone IANA zone for the first user.
-	Timezone      *string `json:"timezone,omitempty"`
-	WorkspaceName string  `json:"workspace_name"`
-}
 
 // BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
 type BriefSnoozeRequest struct {
@@ -5710,11 +5715,8 @@ type ListMemberListResponse struct {
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
-	Email openapi_types.Email `json:"email"`
-
-	// MfaCode TOTP code; supply when the workspace requires MFA (else first call returns 403 mfa_required).
-	MfaCode  *string `json:"mfa_code,omitempty"`
-	Password string  `json:"password"`
+	Email    openapi_types.Email `json:"email"`
+	Password string              `json:"password"`
 }
 
 // MeResponse defines model for MeResponse.
@@ -7720,6 +7722,17 @@ type ListAuditLogParams struct {
 	To     *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// RequestPasswordResetJSONBody defines parameters for RequestPasswordReset.
+type RequestPasswordResetJSONBody struct {
+	Email openapi_types.Email `json:"email"`
+}
+
+// ResetPasswordJSONBody defines parameters for ResetPassword.
+type ResetPasswordJSONBody struct {
+	NewPassword string `json:"new_password"`
+	Token       string `json:"token"`
+}
+
 // ListAutomationsParams defines parameters for ListAutomations.
 type ListAutomationsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -9283,8 +9296,14 @@ type UploadAttachmentMultipartRequestBody UploadAttachmentMultipartBody
 // AcceptAttachmentExtractionJSONRequestBody defines body for AcceptAttachmentExtraction for application/json ContentType.
 type AcceptAttachmentExtractionJSONRequestBody = AcceptExtractionRequest
 
+// RequestPasswordResetJSONRequestBody defines body for RequestPasswordReset for application/json ContentType.
+type RequestPasswordResetJSONRequestBody RequestPasswordResetJSONBody
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
+
+// ResetPasswordJSONRequestBody defines body for ResetPassword for application/json ContentType.
+type ResetPasswordJSONRequestBody ResetPasswordJSONBody
 
 // CreateAutomationJSONRequestBody defines body for CreateAutomation for application/json ContentType.
 type CreateAutomationJSONRequestBody = CreateAutomationRequest
@@ -9483,9 +9502,6 @@ type IngestVoiceCorpusSourceJSONRequestBody = IngestVoiceCorpusSourceRequest
 
 // UpdateVoiceCorpusSourceJSONRequestBody defines body for UpdateVoiceCorpusSource for application/json ContentType.
 type UpdateVoiceCorpusSourceJSONRequestBody = UpdateVoiceCorpusSourceRequest
-
-// BootstrapWorkspaceJSONRequestBody defines body for BootstrapWorkspace for application/json ContentType.
-type BootstrapWorkspaceJSONRequestBody = BootstrapWorkspaceRequest
 
 // Getter for additional properties for Address. Returns the specified
 // element and whether it was found
@@ -14388,12 +14404,21 @@ type ServerInterface interface {
 	// Read the human+agent-attributable audit log (Settings governance view).
 	// (GET /audit-log)
 	ListAuditLog(w http.ResponseWriter, r *http.Request, params ListAuditLogParams)
-	// Authenticate with email + password (+ MFA when required) and open a session.
+	// Which authentication methods are operational (drives the login UI).
+	// (GET /auth/capabilities)
+	GetAuthCapabilities(w http.ResponseWriter, r *http.Request)
+	// Request a password-reset email.
+	// (POST /auth/forgot-password)
+	RequestPasswordReset(w http.ResponseWriter, r *http.Request)
+	// Authenticate with email + password and open a session.
 	// (POST /auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
 	// End the current session and clear the cookie.
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
+	// Redeem a reset token and set a new password.
+	// (POST /auth/reset-password)
+	ResetPassword(w http.ResponseWriter, r *http.Request)
 	// List the workspace's configured automation instances.
 	// (GET /automations)
 	ListAutomations(w http.ResponseWriter, r *http.Request, params ListAutomationsParams)
@@ -14883,9 +14908,6 @@ type ServerInterface interface {
 	// Flip a source's manifest opt-out (excluded) or its weight.
 	// (PATCH /voice-profiles/{id}/sources/{sourceId})
 	UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID)
-	// Bootstrap a workspace and its first admin user (ADR-0043).
-	// (POST /workspaces)
-	BootstrapWorkspace(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -15018,7 +15040,19 @@ func (_ Unimplemented) ListAuditLog(w http.ResponseWriter, r *http.Request, para
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Authenticate with email + password (+ MFA when required) and open a session.
+// Which authentication methods are operational (drives the login UI).
+// (GET /auth/capabilities)
+func (_ Unimplemented) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Request a password-reset email.
+// (POST /auth/forgot-password)
+func (_ Unimplemented) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Authenticate with email + password and open a session.
 // (POST /auth/login)
 func (_ Unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -15027,6 +15061,12 @@ func (_ Unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 // End the current session and clear the cookie.
 // (POST /auth/logout)
 func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Redeem a reset token and set a new password.
+// (POST /auth/reset-password)
+func (_ Unimplemented) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16005,12 +16045,6 @@ func (_ Unimplemented) IngestVoiceCorpusSource(w http.ResponseWriter, r *http.Re
 // Flip a source's manifest opt-out (excluded) or its weight.
 // (PATCH /voice-profiles/{id}/sources/{sourceId})
 func (_ Unimplemented) UpdateVoiceCorpusSource(w http.ResponseWriter, r *http.Request, id Id, sourceId openapi_types.UUID) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Bootstrap a workspace and its first admin user (ADR-0043).
-// (POST /workspaces)
-func (_ Unimplemented) BootstrapWorkspace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17141,6 +17175,34 @@ func (siw *ServerInterfaceWrapper) ListAuditLog(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetAuthCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAuthCapabilities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestPasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestPasswordReset(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Login operation middleware
 func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
 
@@ -17166,6 +17228,20 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetPassword operation middleware
+func (siw *ServerInterfaceWrapper) ResetPassword(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetPassword(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -25496,20 +25572,6 @@ func (siw *ServerInterfaceWrapper) UpdateVoiceCorpusSource(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
-// BootstrapWorkspace operation middleware
-func (siw *ServerInterfaceWrapper) BootstrapWorkspace(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.BootstrapWorkspace(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -25687,10 +25749,19 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/audit-log", wrapper.ListAuditLog)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/capabilities", wrapper.GetAuthCapabilities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/forgot-password", wrapper.RequestPasswordReset)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/login", wrapper.Login)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/logout", wrapper.Logout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/reset-password", wrapper.ResetPassword)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/automations", wrapper.ListAutomations)
@@ -26180,9 +26251,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/voice-profiles/{id}/sources/{sourceId}", wrapper.UpdateVoiceCorpusSource)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/workspaces", wrapper.BootstrapWorkspace)
 	})
 
 	return r

@@ -20,7 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -125,7 +125,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 
 // dispatchActivityCaptured hands one activity.captured envelope to the
 // system workflow lane, the way the relay would deliver it.
-func dispatchActivityCaptured(t *testing.T, engine *agents.WorkflowEngine, ws ids.UUID, eventID, activityID ids.UUID) {
+func dispatchActivityCaptured(t *testing.T, engine *automation.WorkflowEngine, ws ids.UUID, eventID, activityID ids.UUID) {
 	t.Helper()
 	if err := engine.HandleEvent(context.Background(), kevents.Envelope{
 		EventID: eventID, Type: "activity.captured", WorkspaceID: ws,

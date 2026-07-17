@@ -9,15 +9,14 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -30,29 +29,46 @@ const sessionCookie = "crm_session"
 // the contract plus the middleware that authenticates everything else.
 type Handlers struct {
 	svc *Service
-	// seedDefaults lets other modules lay down their per-workspace defaults
-	// INSIDE the bootstrap transaction, composed at the root — identity
-	// never imports them. Running in-transaction makes tenant creation
-	// atomic: a seed failure rolls the whole workspace back (C5).
-	seedDefaults func(ctx context.Context, tx pgx.Tx) error
+	// resetMailer + resetBaseURL wire the A74 forgot-password flow; nil
+	// mailer means the flow is absent — the endpoints answer 501 and the
+	// capabilities probe reports password_reset=false, so the login UI
+	// never renders a link this surface cannot honor (A107).
+	resetMailer  mailer.Mailer
+	resetBaseURL string
+	// resetSendStarted is a test seam: the async reset send signals here
+	// when it finishes, so a test can wait for the captured mail without
+	// sleeping. Nil in production.
+	resetSendStarted func()
 
 	// The unauthenticated endpoints carry their own throttles: login
-	// attempts cost a full Argon2 verification each and bootstrap mints
-	// whole tenants. Fixed windows, in-process (single-binary scope; see
-	// platform/ratelimit).
-	loginFailures  *ratelimit.Limiter // 10 failures/min per (email, IP)
-	loginPerIP     *ratelimit.Limiter // 30/min per client IP
-	bootstrapPerIP *ratelimit.Limiter // 3/hour per client IP
+	// attempts cost a full Argon2 verification each and reset requests
+	// cost the operator an outbound mail. Fixed windows, in-process
+	// (single-binary scope; see platform/ratelimit).
+	loginFailures *ratelimit.Limiter // 10 failures/min per (email, IP)
+	loginPerIP    *ratelimit.Limiter // 30/min per client IP
+	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
+	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
 }
 
-func NewHandlers(svc *Service, seedDefaults func(ctx context.Context, tx pgx.Tx) error) Handlers {
+// NewHandlers builds the identity transport surface over its service.
+func NewHandlers(svc *Service) Handlers {
 	return Handlers{
-		svc:            svc,
-		seedDefaults:   seedDefaults,
-		loginFailures:  ratelimit.New(10, time.Minute),
-		loginPerIP:     ratelimit.New(30, time.Minute),
-		bootstrapPerIP: ratelimit.New(3, time.Hour),
+		svc:           svc,
+		loginFailures: ratelimit.New(10, time.Minute),
+		loginPerIP:    ratelimit.New(30, time.Minute),
+		resetPerEmail: ratelimit.New(3, time.Hour),
+		resetPerIP:    ratelimit.New(30, time.Hour),
 	}
+}
+
+// WithPasswordReset wires the forgot-password flow: the outbound-email
+// transport and the public base the emailed link points at. Wired by
+// the composition root when (and only when) the operator configured
+// email — absent it the flow stays its explicit 501.
+func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handlers {
+	h.resetMailer = m
+	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
+	return h
 }
 
 // clientIP is the throttle key for unauthenticated calls. RemoteAddr is
@@ -68,45 +84,25 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// BootstrapWorkspace implements (POST /workspaces): tenant + first admin
-// + session in one transaction. Unauthenticated by design.
-func (h Handlers) BootstrapWorkspace(w http.ResponseWriter, r *http.Request) {
-	if !h.bootstrapPerIP.Allow(clientIP(r)) {
-		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
-		return
+// GetAuthCapabilities implements (GET /auth/capabilities): the anonymous
+// probe the login UI renders from (A107/ADR-0061). It reports exactly the
+// operational methods — a disabled provider button or a dead
+// "Forgot password?" link is a misleading affordance — and discloses
+// nothing beyond what the login UI needs.
+func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
+	caps := crmcontracts.AuthCapabilities{
+		Password:      true,
+		PasswordReset: h.resetMailer != nil,
 	}
-	var req crmcontracts.BootstrapWorkspaceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httperr.Write(w, r, httperr.Validation("body", "malformed_json", err.Error()))
-		return
-	}
-	if req.WorkspaceName == "" || req.AdminEmail == "" || len(req.AdminPassword) < 12 {
-		httperr.Write(w, r, httperr.Validation("admin_password", "too_short", "workspace_name, admin_email and a ≥12-char admin_password are required"))
-		return
-	}
-
-	// The seed runs INSIDE the bootstrap transaction, so if it fails the
-	// tenant, admin, and roles all roll back with it — the client sees an
-	// error and no partial workspace is left behind to collide on retry (C5).
-	id, token, err := h.svc.Bootstrap(r.Context(), BootstrapInput{
-		WorkspaceName: req.WorkspaceName,
-		Slug:          slugify(req.WorkspaceName),
-		AdminEmail:    string(req.AdminEmail),
-		AdminName:     req.AdminDisplayName,
-		AdminPassword: req.AdminPassword,
-		Timezone:      deref(req.Timezone),
-	}, h.seedDefaults)
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-
-	setSessionCookie(w, token)
-	httperr.WriteJSON(w, http.StatusCreated, meResponse(id))
+	caps.OidcProviders = make([]struct {
+		Key   string `json:"key"`
+		Label string `json:"label"`
+	}, 0)
+	httperr.WriteJSON(w, http.StatusOK, caps)
 }
 
-// Login implements (POST /auth/login). The route is public; the workspace
-// comes from the resolver middleware (subdomain slug / dev header).
+// Login implements (POST /auth/login). The route is public; the singleton
+// organization is bound by the middleware (installation.go).
 func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req crmcontracts.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -347,28 +343,6 @@ func isMutating(method string) bool {
 	return restScope(method) != principal.ScopeRead
 }
 
-// workspaceSlug resolves the tenant slug: production uses the
-// {workspace}.api.gradion.com host; local development uses the
-// X-Workspace-Slug header (documented in AGENTS.md), honored ONLY under
-// MARGINCE_ENV=dev — a client-controlled tenant selector must never be
-// live in production, even while the RLS-scoped session lookup makes it
-// unexploitable today (defense in depth).
-func workspaceSlug(r *http.Request) string {
-	if os.Getenv("MARGINCE_ENV") == "dev" {
-		if slug := r.Header.Get("X-Workspace-Slug"); slug != "" {
-			return slug
-		}
-	}
-	host := r.Host
-	if i := strings.IndexByte(host, ':'); i >= 0 {
-		host = host[:i]
-	}
-	if strings.HasSuffix(host, ".api.gradion.com") {
-		return strings.TrimSuffix(host, ".api.gradion.com")
-	}
-	return ""
-}
-
 func setSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token,
@@ -403,25 +377,4 @@ func meResponse(id Identity) crmcontracts.MeResponse {
 		Roles: roles,
 		Teams: teams,
 	}
-}
-
-func slugify(name string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == ' ' || r == '-' || r == '_':
-			b.WriteByte('-')
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-func deref[T any](p *T) T {
-	if p == nil {
-		var zero T
-		return zero
-	}
-	return *p
 }

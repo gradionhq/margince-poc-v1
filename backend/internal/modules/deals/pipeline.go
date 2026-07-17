@@ -245,6 +245,37 @@ func (s *Store) SeedDefaultsTx(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 
+// StageSeed is one configured open stage of the bootstrap pipeline
+// (A107/ADR-0061: the deployment file may shape the default pipeline).
+type StageSeed struct {
+	Name           string
+	WinProbability int
+}
+
+// SeedPipelineTx provisions a configured default pipeline in the caller's
+// bootstrap transaction. The configuration names only the OPEN stages —
+// the Won/Lost terminal pair is appended here because stage semantics are
+// a module invariant (the won/lost tier resolution and FX freeze hang off
+// them), never an operator choice. Validated with the same rules as an
+// authenticated pipeline change: createPipelineTx rejects what a runtime
+// create would reject.
+func (s *Store) SeedPipelineTx(ctx context.Context, tx pgx.Tx, name string, open []StageSeed) error {
+	stages := make([]StageInput, 0, len(open)+2)
+	for i, st := range open {
+		stages = append(stages, StageInput{
+			Name: st.Name, Position: i + 1, Semantic: "open", WinProbability: st.WinProbability,
+		})
+	}
+	stages = append(stages,
+		StageInput{Name: "Won", Position: len(open) + 1, Semantic: "won", WinProbability: 100},
+		StageInput{Name: "Lost", Position: len(open) + 2, Semantic: "lost", WinProbability: 0},
+	)
+	_, err := createPipelineTx(ctx, tx, CreatePipelineInput{
+		Name: name, IsDefault: true, Position: 0, Stages: stages,
+	})
+	return err
+}
+
 // StageSemantic resolves one live stage's semantic + pipeline — the
 // admission gate's input for the advance_deal tier resolver: won/lost is
 // a property of the TARGET STAGE's configuration, never of the request

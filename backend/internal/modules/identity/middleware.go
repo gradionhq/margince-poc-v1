@@ -3,10 +3,11 @@
 
 package identity
 
-// The HTTP admission middleware fronting /v1: workspace resolution (slug →
-// GUC) and session authentication (cookie → Principal), with the public-path
-// and session-less connector-callback exemptions. Split out of handlers.go so
-// each file stays one concept (and under the 500-LOC cap); the per-principal
+// The HTTP admission middleware fronting /v1: singleton-organization
+// binding (installation → GUC, A107/ADR-0061) and session authentication
+// (cookie → Principal), with the public-path and session-less
+// connector-callback exemptions. Split out of handlers.go so each file
+// stays one concept (and under the 500-LOC cap); the per-principal
 // hand-offs (serveAsAgent/serveAsHuman) and helpers stay in handlers.go.
 
 import (
@@ -15,16 +16,17 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // publicPaths need no session; every other /v1 path 401s without one
 // (the middleware only fronts the API — static assets never reach it).
 var publicPaths = map[string]bool{
-	"/v1/workspaces":  true,
-	"/v1/auth/login":  true,
-	"/v1/auth/logout": true,
+	"/v1/auth/capabilities":    true,
+	"/v1/auth/login":           true,
+	"/v1/auth/logout":          true,
+	"/v1/auth/forgot-password": true,
+	"/v1/auth/reset-password":  true,
 	// The OAuth AS endpoints authenticate by their own means: DCR is
 	// open (public clients + PKCE), token exchange proves possession via
 	// the code + verifier. authorize is NOT here — it demands a session.
@@ -48,32 +50,38 @@ func isConnectorOAuthCallback(path string) bool {
 	return ok && provider != "" && !strings.Contains(provider, "/")
 }
 
-// Middleware chains workspace resolution and session authentication:
-// slug → workspace GUC context; cookie → Principal. Public paths still
-// get the workspace bound (login needs it), just no session requirement.
+// Middleware chains organization binding and session authentication: the
+// installation's singleton workspace → GUC context; cookie → Principal.
+// One installation serves one organization (A107/ADR-0061), so no request
+// selects a tenant — the server resolves it. Public paths still get the
+// workspace bound (login needs it), just no session requirement.
 func (h Handlers) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		if slug := workspaceSlug(r); slug != "" {
-			wsID, err := h.svc.ResolveWorkspace(ctx, slug)
-			if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-				httperr.Write(w, r, err)
-				return
-			}
-			if err == nil {
-				ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
-			}
+		wsID, err := h.svc.InstallationWorkspace(ctx)
+		switch {
+		case errors.Is(err, ErrNotBootstrapped), errors.Is(err, ErrMultipleWorkspaces):
+			// An availability state, not an authentication one: the
+			// installation cannot serve until an operator bootstraps it
+			// (or resolves the invariant violation). Named plainly — the
+			// condition is operator-facing and discloses no tenant data.
+			httperr.ServiceUnavailable(w, r, "installation not ready: "+err.Error())
+			return
+		case err != nil:
+			httperr.Write(w, r, err)
+			return
 		}
+		ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 
 		if publicPaths[r.URL.Path] {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		// The anonymous booking surface has neither session nor workspace
-		// header — its slug IS the tenant resolver. Everything else about
-		// the request (workspace binding, principal, rate limits) is the
-		// public-booking middleware's job, composed downstream.
+		// The anonymous booking surface needs no session; the singleton
+		// organization is already bound above. Everything else about the
+		// request (principal, rate limits) is the public-booking
+		// middleware's job, composed downstream.
 		if strings.HasPrefix(r.URL.Path, "/v1/public/") {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -85,11 +93,6 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// it before persisting. So it passes the session/workspace gate here.
 		if isConnectorOAuthCallback(r.URL.Path) {
 			next.ServeHTTP(w, r.WithContext(ctx))
-			return
-		}
-
-		if _, ok := principal.WorkspaceID(ctx); !ok {
-			httperr.Unauthorized(w, r, "unknown workspace")
 			return
 		}
 

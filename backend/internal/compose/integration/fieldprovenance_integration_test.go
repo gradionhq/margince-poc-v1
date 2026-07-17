@@ -34,7 +34,7 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "mailfake", connector.Auth("token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func assertCaptureStampedBothObjectTypes(t *testing.T, e *searchEnv) {
 	types := map[string]bool{}
 	for _, s := range stamps {
 		types[s.objectType] = true
-		if s.capturedBy != "connector:mailfake" {
+		if s.capturedBy != "connector:graph" {
 			t.Fatalf("field stamp names %q, want the connector identity", s.capturedBy)
 		}
 	}

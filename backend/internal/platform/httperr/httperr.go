@@ -159,6 +159,13 @@ func Unauthorized(w http.ResponseWriter, r *http.Request, detail string) {
 	writeProblem(w, problem{Status: http.StatusUnauthorized, Code: "unauthorized", Detail: detail})
 }
 
+// ServiceUnavailable is the shared 503 for availability states — the
+// installation cannot serve (e.g. not yet bootstrapped), which is an
+// operator condition, never an authentication failure.
+func ServiceUnavailable(w http.ResponseWriter, r *http.Request, detail string) {
+	writeProblem(w, problem{Status: http.StatusServiceUnavailable, Code: "service_unavailable", Detail: detail})
+}
+
 // NotImplemented marks a contract operation that exists on the surface
 // but has no implementation yet — explicit 501, never a silent 404.
 func NotImplemented(w http.ResponseWriter, r *http.Request, op string) {

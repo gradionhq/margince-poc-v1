@@ -57,19 +57,23 @@ func main() {
 
 // workerConfig is the parsed boot configuration of the worker process.
 type workerConfig struct {
-	dsn               string
-	redisAddr         string
-	routingPath       string
-	fakeBrain         bool
-	runnerInterval    time.Duration
-	retentionInterval time.Duration
-	closeDateInterval time.Duration
-	reconcileInterval time.Duration
-	gmailClientID     string
-	gmailClientSecret string
-	gmailSyncInterval time.Duration
-	logLevel          string
-	logFormat         string
+	dsn                string
+	redisAddr          string
+	routingPath        string
+	fakeBrain          bool
+	runnerInterval     time.Duration
+	retentionInterval  time.Duration
+	closeDateInterval  time.Duration
+	reconcileInterval  time.Duration
+	timeScanInterval   time.Duration
+	gmailClientID      string
+	gmailClientSecret  string
+	gmailSyncInterval  time.Duration
+	gmailPubsubTopic   string
+	gmailWatchInterval time.Duration
+	gmailWatchRenew    time.Duration
+	logLevel           string
+	logFormat          string
 }
 
 // parseWorkerFlags parses and validates the boot flags; the DSN is the
@@ -86,9 +90,13 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
+	fs.DurationVar(&cfg.timeScanInterval, "time-scan-interval", time.Hour, "clock-trigger scan interval (no_activity_reminder et al., Task 14)")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
 	fs.DurationVar(&cfg.gmailSyncInterval, "gmail-sync-interval", 2*time.Minute, "Gmail incremental-sync poll interval")
+	fs.StringVar(&cfg.gmailPubsubTopic, "gmail-pubsub-topic", os.Getenv("MARGINCE_GMAIL_PUBSUB_TOPIC"), "Gmail Pub/Sub topic (projects/<p>/topics/<t>); enables the push-watch register+renew job. Empty leaves capture on the poll.")
+	fs.DurationVar(&cfg.gmailWatchInterval, "gmail-watch-interval", 6*time.Hour, "Gmail push-watch maintenance scan interval")
+	fs.DurationVar(&cfg.gmailWatchRenew, "gmail-watch-renew-within", 48*time.Hour, "renew a Gmail watch this far ahead of its 7-day expiry")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -184,7 +192,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
-// backfillConnectorCredentials migrates any legacy connector_connection rows
+// backfillConnectorCredentials migrates any legacy capture_connection rows
 // whose credential still lives in the auth bytea column onto the keyvault.
 // It runs once at boot when a vault is configured and is
 // idempotent — a row already carrying a credential_ref is skipped — so
@@ -232,7 +240,23 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 			ClientSecret: cfg.gmailClientSecret,
 		})
 	}
-	runner, err := compose.NewJobRunner(pool, logger, cfg.closeDateInterval, cfg.reconcileInterval, gmailReg, cfg.gmailSyncInterval)
+	watchCfg := compose.GmailWatchConfig{
+		Interval:    cfg.gmailWatchInterval,
+		RenewWithin: cfg.gmailWatchRenew,
+	}
+	// The watch job only runs where a Pub/Sub topic is configured AND the Gmail
+	// app is wired (gmailReg != nil); otherwise capture stays on the poll.
+	if gmailReg != nil {
+		watchCfg.Topic = cfg.gmailPubsubTopic
+	}
+	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		CloseDateInterval: cfg.closeDateInterval,
+		ReconcileInterval: cfg.reconcileInterval,
+		TimeScanInterval:  cfg.timeScanInterval,
+		GmailRegistry:     gmailReg,
+		GmailInterval:     cfg.gmailSyncInterval,
+		GmailWatch:        watchCfg,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -240,11 +264,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		return nil, err
 	}
 	gmailNote := "gmail sync off (unconfigured)"
-	if gmailReg != nil {
-		gmailNote = fmt.Sprintf("gmail sync every %s", cfg.gmailSyncInterval)
+	switch {
+	case gmailReg != nil && watchCfg.Topic != "":
+		gmailNote = fmt.Sprintf("gmail sync every %s, watch renew every %s", cfg.gmailSyncInterval, cfg.gmailWatchInterval)
+	case gmailReg != nil:
+		gmailNote = fmt.Sprintf("gmail sync every %s (watch off: no pubsub topic)", cfg.gmailSyncInterval)
 	}
-	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval, gmailNote)
+	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s)\n",
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailNote)
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.

@@ -18,7 +18,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -46,6 +48,12 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 	})
 	mux.HandleFunc("/messages", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"messages": []map[string]string{{"id": "m1"}}})
+	})
+	mux.HandleFunc("/watch", func(w http.ResponseWriter, _ *http.Request) {
+		// A watch that expires 7 days out (Gmail's cap), as the ms-since-epoch
+		// string Gmail returns — so a renewed connection is no longer "due".
+		exp := time.Now().Add(7 * 24 * time.Hour).UnixMilli()
+		writeJSON(w, map[string]any{"historyId": "1001", "expiration": strconv.FormatInt(exp, 10)})
 	})
 	mux.HandleFunc("/messages/m1", func(w http.ResponseWriter, _ *http.Request) {
 		rfc822 := "From: Alice <alice@acme.com>\r\n" +
@@ -128,7 +136,7 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	// The cursor advanced to the mailbox historyId anchored at first sync.
 	var cursor []byte
 	err = database.WithWorkspaceTx(grantCtx, e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), `SELECT cursor FROM connector_connection WHERE id = $1`, connID).Scan(&cursor)
+		return tx.QueryRow(context.Background(), `SELECT sync_cursor FROM capture_connection WHERE id = $1`, connID).Scan(&cursor)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -142,8 +150,8 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connections: %v", err)
 	}
-	if len(views) != 1 || views[0].Connector != "gmail" || views[0].Status != "active" {
-		t.Fatalf("Connections = %+v, want one active gmail", views)
+	if len(views) != 1 || views[0].Provider != "gmail" || views[0].Status != "connected" {
+		t.Fatalf("Connections = %+v, want one connected gmail", views)
 	}
 
 	due, err := registry.DueConnections(context.Background(), "gmail")
@@ -161,8 +169,8 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connections after disconnect: %v", err)
 	}
-	if len(after) != 1 || after[0].Status != "revoked" {
-		t.Fatalf("after disconnect Connections = %+v, want status revoked", after)
+	if len(after) != 1 || after[0].Status != "disconnected" {
+		t.Fatalf("after disconnect Connections = %+v, want status disconnected", after)
 	}
 	if due2, _ := registry.DueConnections(context.Background(), "gmail"); len(due2) != 0 {
 		t.Fatalf("DueConnections after disconnect = %+v, want empty (poller skips revoked)", due2)

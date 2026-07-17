@@ -2,10 +2,8 @@
 #
 # seed-dev.sh — create/refresh the demo workspace through the public API.
 #
-# The seed is an API client, not a SQL fixture, on purpose: workspace
-# bootstrap is a cross-module transaction (identity + the role policy
-# documents + the deals pipeline seed + consent defaults), passwords are
-# salted Argon2id, and every record write must commit domain row +
+# The seed is an API client, not a SQL fixture, on purpose: passwords
+# are salted Argon2id, and every record write must commit domain row +
 # audit_log + event_outbox in one transaction. A SQL fixture would
 # duplicate all of that and silently drift from the schema; the API
 # cannot.
@@ -15,10 +13,9 @@
 # that already exists answers 409 on its natural key (person email, org
 # domain, deal name checked via list), which counts as "already seeded".
 #
-# POST /v1/workspaces is rate-limited (3/hour/IP, in-memory — an api
-# restart resets it) and its 429 surfaces as "budget exceeded"; this
-# script only bootstraps when login fails, so re-runs never burn an
-# attempt.
+# Bootstrap happens at api boot from the deployment configuration
+# (A107/ADR-0061: `make dev` writes .tmp/dev/*/margince.yaml with these
+# demo credentials) — this script only signs in and seeds records.
 
 set -euo pipefail
 
@@ -39,15 +36,14 @@ trap 'rm -rf "$workdir"' EXIT
 
 SESSION=""
 
-# The X-Workspace-Slug header resolves the tenant only under
-# MARGINCE_ENV=dev (make dev sets it); prod resolves by subdomain.
+# One installation serves one organization (A107/ADR-0061): the server
+# resolves the tenant itself — no header selects it.
 # A transport failure (refused, timeout) prints status 000 and must not
 # trip set -e — the caller's status handling owns the error message.
 api() { # api <method> <path> [json-body] — prints the HTTP status, body lands in $workdir/body
   local method="$1" path="$2" data="${3:-}"
   curl -sS --max-time 30 -o "$workdir/body" -D "$workdir/headers" -w '%{http_code}' \
     -X "$method" "$API_BASE/v1$path" \
-    -H "X-Workspace-Slug: $WORKSPACE_SLUG" \
     -H 'Content-Type: application/json' \
     ${SESSION:+--cookie "crm_session=$SESSION"} \
     ${data:+--data "$data"} || true
@@ -70,30 +66,12 @@ status="$(api POST /auth/login "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_P
 case "$status" in
   200)
     capture_session
-    echo "  OK: workspace exists, logged in as $ADMIN_EMAIL"
+    echo "  OK: logged in as $ADMIN_EMAIL"
     ;;
   *)
-    # No login → bootstrap. slugify("Demo Workspace") is exactly the
-    # demo-workspace slug the login above and verify-boot.sh assume.
-    status="$(api POST /workspaces "$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
-      '{workspace_name:"Demo Workspace",admin_email:$e,admin_password:$p,admin_display_name:"Demo Admin"}')")"
-    case "$status" in
-      201)
-        capture_session
-        echo "  OK: bootstrapped workspace + admin $ADMIN_EMAIL"
-        ;;
-      429)
-        fail "workspace bootstrap is rate-limited (3/hour/IP, counted before validation; the 429 reads as \"budget exceeded\"). The limiter is in-memory — restart the api and re-run."
-        ;;
-      409)
-        fail "workspace '$WORKSPACE_SLUG' exists but the demo credentials don't log in — reset it (make seed-reset) and re-run"
-        ;;
-      *)
-        echo "  response body:" >&2
-        cat "$workdir/body" >&2
-        fail "POST /v1/workspaces returned HTTP $status"
-        ;;
-    esac
+    echo "  response body:" >&2
+    cat "$workdir/body" >&2
+    fail "login as $ADMIN_EMAIL returned HTTP $status — the api bootstraps the demo organization at boot from its margince.yaml (make dev writes it); if the credentials changed, reset the dev database and restart the stack"
     ;;
 esac
 

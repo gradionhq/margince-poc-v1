@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -14,13 +15,17 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/term"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -36,13 +41,14 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: migrate <up|down> --dsn <dsn> [--steps n]")
+		return errors.New("usage: migrate <up|down|reset-password> --dsn <dsn> [--steps n] [--email <address>]")
 	}
 	direction := args[0]
 
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (owner role)")
 	steps := fs.Int("steps", 1, "migrations to revert (down only)")
+	email := fs.String("email", "", "user email (reset-password only)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -106,7 +112,107 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		_, _ = fmt.Fprintf(stdout, "reverted %d migration(s)\n", reverted)
 		return nil
+	case "reset-password":
+		return resetPassword(ctx, conn, *email, os.Stdin, stdout)
 	default:
-		return fmt.Errorf("migrate: unknown direction %q (want up or down)", direction)
+		return fmt.Errorf("migrate: unknown direction %q (want up, down or reset-password)", direction)
 	}
+}
+
+// resetPassword is the operator-only recovery path (A107/ADR-0061 §9.1):
+// reset a named user's password directly against the database — the
+// fallback when outbound email is not configured, and the way back in
+// when the administrator is locked out. The new password arrives on
+// stdin, never argv (the process table is world-readable). This binary
+// is the operator surface: the schema role that runs migrations is the
+// authority the recovery path requires, and no HTTP route exists for it.
+func resetPassword(ctx context.Context, conn *pgx.Conn, email string, stdin io.Reader, stdout io.Writer) error {
+	if email == "" {
+		return errors.New("migrate reset-password: --email is required")
+	}
+	if _, err := fmt.Fprint(stdout, "new password (min 12 chars): "); err != nil {
+		return fmt.Errorf("migrate reset-password: writing the prompt: %w", err)
+	}
+	newPassword, err := readPassword(stdin, stdout)
+	if err != nil {
+		return err
+	}
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	//craft:ignore swallowed-errors error-path safety net only — the Commit below is checked, after which this rollback is a designed no-op
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Bind the installation's singleton organization (FORCE RLS applies
+	// to the owner role too). More than one active workspace is the same
+	// operator-led-migration refusal every process role gives.
+	wsID, err := singletonWorkspace(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, wsID.String()); err != nil {
+		return err
+	}
+	if err := identity.OperatorResetPassword(ctx, tx, wsID, email, newPassword); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "password reset for %s; all their sessions are revoked\n", email); err != nil {
+		return fmt.Errorf("migrate reset-password: writing the confirmation: %w", err)
+	}
+	return nil
+}
+
+// singletonWorkspace resolves the one active organization — the same
+// 0/1/>1 state machine every process role applies (A107/ADR-0061).
+func singletonWorkspace(ctx context.Context, tx pgx.Tx) (ids.WorkspaceID, error) {
+	rows, err := tx.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL LIMIT 2`)
+	if err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	defer rows.Close()
+	var found []ids.WorkspaceID
+	for rows.Next() {
+		var id ids.WorkspaceID
+		if err := rows.Scan(&id); err != nil {
+			return ids.WorkspaceID{}, err
+		}
+		found = append(found, id)
+	}
+	if err := rows.Err(); err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	switch len(found) {
+	case 0:
+		return ids.WorkspaceID{}, errors.New("migrate reset-password: no active organization — bootstrap the installation first")
+	case 1:
+		return found[0], nil
+	default:
+		return ids.WorkspaceID{}, errors.New("migrate reset-password: more than one active workspace — resolve the single-organization invariant first")
+	}
+}
+
+// readPassword takes the new password from stdin — hidden (no echo, no
+// terminal recording) when stdin is a real terminal, plain reads for
+// pipes and tests.
+func readPassword(stdin io.Reader, stdout io.Writer) (string, error) {
+	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		raw, err := term.ReadPassword(int(f.Fd()))
+		if err != nil {
+			return "", fmt.Errorf("migrate reset-password: reading the new password: %w", err)
+		}
+		if _, err := fmt.Fprintln(stdout); err != nil {
+			return "", fmt.Errorf("migrate reset-password: writing the prompt newline: %w", err)
+		}
+		return string(raw), nil
+	}
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("migrate reset-password: reading the new password: %w", err)
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }

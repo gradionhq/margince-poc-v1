@@ -8,38 +8,14 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { AuthScreen, deriveWorkspaceSlug } from "./auth";
+import { AuthScreen, AvailabilityScreen } from "./auth";
 
-// Signup+login first-run screen: the dev slug the client derives MUST equal the
-// server's identity.slugify output (else the workspace won't resolve), and a
-// successful signup persists that slug and moves the user into onboarding.
-
-// jsdom serves an opaque origin, where window.localStorage is null; the app
-// client tolerates that (optional chaining), but the persistence assertion
-// needs a real store, so back it with an in-memory one for the test.
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key, value) => {
-      map.set(key, String(value));
-    },
-    removeItem: (key) => {
-      map.delete(key);
-    },
-    clear: () => map.clear(),
-    key: (index) => Array.from(map.keys())[index] ?? null,
-    get length() {
-      return map.size;
-    },
-  };
-}
-
-beforeEach(() => {
-  vi.stubGlobal("localStorage", memoryStorage());
-});
+// The unauthenticated surface (A107/ADR-0061 §12): login is the default —
+// no signup mode, no workspace field, no tenant selector on the wire — and
+// the forgot-password flow renders exactly when the capabilities probe
+// reports it operational.
 
 afterEach(() => {
   cleanup();
@@ -58,57 +34,249 @@ const render = (ui: ReactNode) => {
   );
 };
 
-describe("deriveWorkspaceSlug mirrors the server slugify", () => {
-  // Each pair is the exact output the Go identity.slugify produces — keep them
-  // in lock-step: lowercase, keep [a-z0-9], map space/-/_ to '-', trim '-'.
-  const cases: Array<[string, string]> = [
-    ["Acme Corp", "acme-corp"],
-    ["  Gradion  ", "gradion"],
-    ["Müller GmbH", "mller-gmbh"],
-    ["Acme_Corp 2", "acme-corp-2"],
-    ["-Hello-", "hello"],
-    ["A & B", "a--b"],
-    ["ALL CAPS", "all-caps"],
-  ];
-  for (const [input, expected] of cases) {
-    it(`"${input}" -> "${expected}"`, () => {
-      expect(deriveWorkspaceSlug(input)).toBe(expected);
-    });
-  }
-});
+// stubApi answers GET /auth/capabilities from `capabilities` and records
+// every other call for the test to assert on.
+function stubApi(
+  capabilities: { password: boolean; password_reset: boolean },
+  respond: (request: Request) => Response | Promise<Response>,
+) {
+  const calls: Request[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: Request | string | URL) => {
+      const request = input instanceof Request ? input : new Request(input);
+      if (new URL(request.url).pathname.endsWith("/auth/capabilities")) {
+        return new Response(
+          JSON.stringify({ ...capabilities, oidc_providers: [] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      calls.push(request);
+      return respond(request);
+    }),
+  );
+  return calls;
+}
 
-describe("AuthScreen signup", () => {
-  it("posts the workspace, persists the derived slug, enters onboarding", async () => {
-    const fetchMock = vi.fn(
-      async (_input: Request | string | URL) =>
-        new Response(JSON.stringify({ user: {}, roles: [], teams: [] }), {
-          status: 201,
-          headers: { "Content-Type": "application/json" },
-        }),
+const ok = (status: number, body?: unknown) =>
+  new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+describe("AuthScreen login", () => {
+  it("is a login form — no signup mode, no workspace field, Enter submits, no tenant header", async () => {
+    const calls = stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
     );
-    vi.stubGlobal("fetch", fetchMock);
     const onAuthed = vi.fn();
-
     render(<AuthScreen onAuthed={onAuthed} />);
 
-    await userEvent.type(screen.getByLabelText("Workspace name"), "Acme Corp");
-    await userEvent.type(screen.getByLabelText("Your name"), "Dana Admin");
-    await userEvent.type(screen.getByLabelText("Email"), "dana@acme.test");
+    expect(screen.queryByLabelText(/workspace/i)).toBeNull();
+    expect(screen.queryByText(/create/i)).toBeNull();
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    // Enter inside the real <form> submits — no button click needed.
     await userEvent.type(
       screen.getByLabelText("Password"),
-      "correct-horse-battery",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Create workspace" }),
+      "correct-horse-battery{enter}",
     );
 
     await waitFor(() => expect(onAuthed).toHaveBeenCalled());
+    const request = calls[0];
+    expect(String(request?.url)).toContain("/v1/auth/login");
+    expect(request?.headers.has("X-Workspace-Slug")).toBe(false);
+  });
 
-    const request = fetchMock.mock.calls[0]?.[0] as Request | undefined;
-    expect(String(request?.url)).toContain("/v1/workspaces");
-    expect(globalThis.localStorage.getItem("margince.workspaceSlug")).toBe(
-      "acme-corp",
+  it("answers bad credentials with the one non-enumerating message, keeps the email, clears the password", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(401, {
+        title: "unauthorized",
+        detail: "invalid email or password",
+      }),
     );
-    expect(window.location.hash).toBe("#/onboarding");
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(screen.getByLabelText("Password"), "wrong{enter}");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "We couldn't sign you in. Check your email and password and try again.",
+    );
+    expect(screen.getByLabelText("Email address")).toHaveProperty(
+      "value",
+      "ada@example.com",
+    );
+    // §9.2: a rejected credential clears the password for the retry.
+    expect(screen.getByLabelText("Password")).toHaveProperty("value", "");
+  });
+
+  it("presents rate limiting as its own actionable state, never a credential error", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(429, { title: "budget exceeded" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Too many sign-in attempts. Wait a moment and try again.",
+    );
+  });
+
+  it("presents a server outage as connectivity, not wrong credentials", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(500, { title: "boom" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Margince couldn't be reached");
+  });
+
+  it("restores a deep link after login instead of forcing home", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
+    );
+    window.location.hash = "#/deals/d-42";
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "correct-horse-battery{enter}",
+    );
+
+    await waitFor(() => expect(window.location.hash).toBe("#/deals/d-42"));
+  });
+
+  it("renders the session notices the boundary hands it", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} notice="session-expired" />);
+    expect(
+      await screen.findByText(
+        "Your session expired. Sign in again to continue.",
+      ),
+    ).toBeTruthy();
+    cleanup();
+
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} notice="signed-out" />);
+    expect(await screen.findByText("You have been signed out.")).toBeTruthy();
+  });
+
+  it("hides the forgot-password link when the capability is off, shows it when on", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email address");
+    expect(screen.queryByText("Forgot password?")).toBeNull();
+    cleanup();
+
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(await screen.findByText("Forgot password?")).toBeTruthy();
+  });
+});
+
+describe("AuthScreen forgot password", () => {
+  it("requests the reset and confirms neutrally", async () => {
+    const calls = stubApi({ password: true, password_reset: true }, () =>
+      ok(202),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.click(await screen.findByText("Forgot password?"));
+    await userEvent.type(
+      screen.getByLabelText("Email address"),
+      "ada@example.com{enter}",
+    );
+
+    expect(await screen.findByText("Check your inbox")).toBeTruthy();
+    expect(String(calls[0]?.url)).toContain("/v1/auth/forgot-password");
+  });
+});
+
+describe("AuthScreen reset deep link", () => {
+  it("redeems the emailed token and lands back at sign-in", async () => {
+    const calls = stubApi({ password: true, password_reset: true }, () =>
+      ok(204),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/reset-password",
+      search: "?token=raw-reset-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(await screen.findByText("Password updated")).toBeTruthy();
+    const request = calls[0];
+    expect(String(request?.url)).toContain("/v1/auth/reset-password");
+    expect(await request?.text()).toContain("raw-reset-token");
+  });
+
+  it("offers a fresh link on a spent token — one neutral refusal", async () => {
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid, used, or expired" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/reset-password",
+      search: "?token=spent-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText("That reset link is invalid, used, or expired."),
+    ).toBeTruthy();
+    expect(screen.getByText("Request a new link")).toBeTruthy();
+  });
+});
+
+describe("AvailabilityScreen", () => {
+  it("presents connectivity and installation problems as availability with a retry", async () => {
+    const onRetry = vi.fn();
+    render(<AvailabilityScreen kind="connection" onRetry={onRetry} />);
+    expect(screen.getByText("Margince couldn't be reached")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalled();
+    cleanup();
+
+    render(<AvailabilityScreen kind="installation" onRetry={vi.fn()} />);
+    expect(screen.getByText("Installation not ready")).toBeTruthy();
+    // No credential fields: this is not a login problem.
+    expect(screen.queryByLabelText("Email address")).toBeNull();
   });
 });

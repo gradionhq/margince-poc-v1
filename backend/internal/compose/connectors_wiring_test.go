@@ -53,6 +53,9 @@ func (stubGmailAPI) History(context.Context, string, string) ([]string, string, 
 	return nil, "1", nil
 }
 func (stubGmailAPI) GetRaw(context.Context, string, string) ([]byte, error) { return nil, nil }
+func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, error) {
+	return "1", time.Time{}, nil
+}
 
 // The account-linking-CSRF defence: the callback must have the oauth_csrf
 // cookie matching the nonce in the signed state before it exchanges the code.
@@ -157,27 +160,27 @@ func TestWithGmailCaptureWiresOrSkips(t *testing.T) {
 	}
 }
 
-func TestConnectionStatusAndContractMapping(t *testing.T) {
-	if got := connectionStatus("active"); got != crmcontracts.Connected {
-		t.Errorf("active → %q, want connected", got)
-	}
-	if got := connectionStatus("revoked"); got != crmcontracts.Disconnected {
-		t.Errorf("revoked → %q, want disconnected", got)
-	}
-	if got := connectionStatus("error"); got != crmcontracts.Error {
-		t.Errorf("error → %q, want error", got)
-	}
-
+func TestContractMapping(t *testing.T) {
+	// Storage now uses the contract's own status vocabulary (CAP-DDL-2), so
+	// status is a straight cast — no translation. Cursor + watch deadline surface.
 	id := ids.MustParse("11111111-1111-1111-1111-111111111111")
+	watch := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	c := toContractConnection(capture.ConnectionView{
-		ID: id, Connector: "gmail", Status: "active",
-		Cursor: []byte(`{"history_id":"7"}`), Scopes: []string{"read"},
+		ID: id, Provider: "gmail", Status: "connected",
+		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, Scopes: []string{"read"},
 	})
 	if c.Provider != "gmail" || c.Status != crmcontracts.Connected || c.SyncCursor == nil || *c.SyncCursor != `{"history_id":"7"}` {
 		t.Errorf("mapping wrong: %+v", c)
 	}
+	if c.WatchExpiresAt == nil || !c.WatchExpiresAt.Equal(watch) {
+		t.Errorf("watch_expires_at not surfaced: %+v", c.WatchExpiresAt)
+	}
+	// The reauth_required status also passes straight through.
+	if got := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "reauth_required"}); got.Status != crmcontracts.ReauthRequired {
+		t.Errorf("reauth_required → %q, want reauth_required", got.Status)
+	}
 	// A row with no scopes maps to an empty slice, never null.
-	if c2 := toContractConnection(capture.ConnectionView{Connector: "gmail", Status: "active"}); c2.Scopes == nil {
+	if c2 := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "connected"}); c2.Scopes == nil {
 		t.Error("nil scopes should map to an empty slice")
 	}
 }

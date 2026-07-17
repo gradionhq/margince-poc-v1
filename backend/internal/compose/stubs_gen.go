@@ -104,12 +104,24 @@ func (stubs) ListAuditLog(w nethttp.ResponseWriter, r *nethttp.Request, params c
 	httperr.NotImplemented(w, r, "ListAuditLog")
 }
 
+func (stubs) GetAuthCapabilities(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetAuthCapabilities")
+}
+
+func (stubs) RequestPasswordReset(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "RequestPasswordReset")
+}
+
 func (stubs) Login(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "Login")
 }
 
 func (stubs) Logout(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "Logout")
+}
+
+func (stubs) ResetPassword(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ResetPassword")
 }
 
 func (stubs) ListAutomations(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListAutomationsParams) {
@@ -762,8 +774,4 @@ func (stubs) IngestVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Reques
 
 func (stubs) UpdateVoiceCorpusSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, sourceId openapi_types.UUID) {
 	httperr.NotImplemented(w, r, "UpdateVoiceCorpusSource")
-}
-
-func (stubs) BootstrapWorkspace(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "BootstrapWorkspace")
 }

@@ -150,7 +150,7 @@ func assertOfferTotalsAreDerived(t *testing.T, e *env, dealID string) {
 func TestOfferProductSnapshotAndDerivedTotals(t *testing.T) {
 	e := setup(t)
 	e.slug = "offers-e2e"
-	bootstrapWorkspaceSession(t, e, "Offers E2E", "offers@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offers E2E", "offers@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 	productID := createRateCardProduct(t, e)
 	assertOfferTotalsAreDerived(t, e, dealID)
@@ -251,7 +251,7 @@ func exerciseDraftLineWrites(t *testing.T, e *env, offer offerBody) {
 func TestOfferLifecycleSendAcceptRegenerate(t *testing.T) {
 	e := setup(t)
 	e.slug = "offers-life"
-	bootstrapWorkspaceSession(t, e, "Offers Life", "life@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offers Life", "life@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 
 	var wsID string
@@ -422,7 +422,7 @@ func assertOfferEventTrail(t *testing.T, e *env) {
 func TestOfferAgentSendRequiresApproval(t *testing.T) {
 	e := setup(t)
 	e.slug = "offers-agent"
-	bootstrapWorkspaceSession(t, e, "Offers Agent", "agent@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offers Agent", "agent@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 
 	var minted struct {

@@ -23,14 +23,7 @@ import (
 func TestIdempotencyKeyReplay(t *testing.T) {
 	e := setup(t)
 
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Idem Probe",
-		"admin_email":        "admin@idem.test",
-		"admin_display_name": "Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap = %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Idem Probe", "admin@idem.test", "Admin")
 	e.slug = "idem-probe"
 
 	keyed := map[string]string{"Idempotency-Key": "lead-retry-1"}
@@ -134,14 +127,7 @@ func TestIdempotencyKeyReplay_createQuota(t *testing.T) {
 func TestIdempotencyKeyReplay_logActivity(t *testing.T) {
 	e := setup(t)
 
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Idem Activity",
-		"admin_email":        "admin@idem-act.test",
-		"admin_display_name": "Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap = %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Idem Activity", "admin@idem-act.test", "Admin")
 	e.slug = "idem-activity"
 
 	var person anyMap

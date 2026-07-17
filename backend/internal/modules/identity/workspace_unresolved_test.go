@@ -3,12 +3,13 @@
 
 package identity
 
-// The public auth paths stay reachable when the tenant slug resolves to
-// nothing (the middleware binds no workspace so bootstrap keeps working).
-// Each of them must answer its protocol's client error, never a 500 —
-// and the credential surfaces must not disclose whether the workspace
-// exists: a login or code exchange against a tenant that isn't there
-// reads exactly like one against bad credentials.
+// The public auth paths stay defensive when no workspace is bound on the
+// context (the middleware refuses pre-bootstrap requests, but the
+// handlers must not depend on that). Each of them must answer its
+// protocol's client error, never a 500 — and the credential surfaces
+// must not disclose whether the organization exists: a login or code
+// exchange against a not-yet-bootstrapped installation reads exactly
+// like one against bad credentials.
 
 import (
 	"encoding/json"
@@ -22,7 +23,7 @@ import (
 func workspacelessHandlers() Handlers {
 	// The guards under test fire before any SQL, so a zero Service (nil
 	// pool) proves no database round-trip happens on these paths.
-	return NewHandlers(&Service{}, nil)
+	return NewHandlers(&Service{})
 }
 
 func TestLoginAgainstUnresolvedWorkspaceReadsLikeBadCredentials(t *testing.T) {
