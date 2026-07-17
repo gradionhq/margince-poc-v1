@@ -39,7 +39,7 @@ import {
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
-import { Button } from "../design-system/atoms";
+import { Button, TextInput } from "../design-system/atoms";
 import {
   ConfidenceMeter,
   EvidenceChip,
@@ -597,40 +597,41 @@ function CompanyStep({
         </div>
       )}
 
-      <div className="seclabel" style={{ margin: "22px 0 0" }}>
-        {t("ob.s1.identityLabel")}
-      </div>
-      {IDENTITY_FIELDS.map((field) => (
-        <CompanyFormField
-          key={field}
-          field={field}
-          value={draft.values[field]}
-          grounded={groundingOf(draft, field)}
-          edited={draft.edited.has(field)}
-          required={isRequired(field)}
-          error={
-            missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
-          }
-          onChange={(v) => setField(field, v)}
-        />
-      ))}
+      {/* One .form-stack carries the whole form at the house 8/12 rhythm; the
+          two groups are separated by labeled dividers (the create-form
+          pattern), not by per-field margins. */}
+      <div className="form-stack ob-companyform">
+        <p className="form-divider t-label">{t("ob.s1.identityLabel")}</p>
+        {IDENTITY_FIELDS.map((field) => (
+          <CompanyFormField
+            key={field}
+            field={field}
+            value={draft.values[field]}
+            grounded={groundingOf(draft, field)}
+            edited={draft.edited.has(field)}
+            required={isRequired(field)}
+            error={
+              missingRequired.includes(field) ? t("ob.s1.fieldRequired") : null
+            }
+            onChange={(v) => setField(field, v)}
+          />
+        ))}
 
-      <div className="seclabel" style={{ margin: "26px 0 0" }}>
-        {t("ob.s1.positioningLabel")}
+        <p className="form-divider t-label">{t("ob.s1.positioningLabel")}</p>
+        {POSITIONING_FIELDS.map((field) => (
+          <CompanyFormField
+            key={field}
+            field={field}
+            value={draft.values[field]}
+            grounded={groundingOf(draft, field)}
+            edited={draft.edited.has(field)}
+            required={false}
+            error={null}
+            multiline
+            onChange={(v) => setField(field, v)}
+          />
+        ))}
       </div>
-      {POSITIONING_FIELDS.map((field) => (
-        <CompanyFormField
-          key={field}
-          field={field}
-          value={draft.values[field]}
-          grounded={groundingOf(draft, field)}
-          edited={draft.edited.has(field)}
-          required={false}
-          error={null}
-          multiline
-          onChange={(v) => setField(field, v)}
-        />
-      ))}
     </section>
   );
 }
@@ -754,9 +755,14 @@ function CompanyFormField({
   const t = useT();
   const id = `co-${field}`;
   const level = grounded ? confidenceLevel(grounded.confidence) : null;
+  // The design-system field shape (create.tsx RecordFormBody is the reference):
+  // .field + .t-label + .input/.textarea. The trust adornments (confidence,
+  // read-from-site, typed-by-you) ride the label; the evidence chip sits under
+  // the control. Onboarding gets no bespoke input styling — the form must read
+  // as the same product as every other screen.
   return (
-    <div className="ob-field">
-      <label htmlFor={id}>
+    <div className="field">
+      <label className="t-label" htmlFor={id}>
         {coldFieldLabel(field, t)}
         {required ? " *" : ""} {level && <ConfidenceMeter level={level} />}
         {grounded && (
@@ -769,17 +775,18 @@ function CompanyFormField({
       {multiline ? (
         <textarea
           id={id}
-          className="ob-in"
+          className="textarea"
           value={value}
           required={required}
+          aria-invalid={error ? true : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
-        <input
+        <TextInput
           id={id}
-          className="ob-in"
           value={value}
           required={required}
+          aria-invalid={error ? true : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       )}
@@ -1431,47 +1438,47 @@ function ConnectStep() {
           </p>
 
           <div className="imap-form">
-            <label className="ob-field full">
+            <label className="field full">
               {t("ob.s4.imapHost")}
               <input
-                className="ob-in"
+                className="input"
                 value={host}
                 placeholder={t("ob.s4.imapHostPlaceholder")}
                 onChange={(e) => setHostVal(e.target.value)}
               />
             </label>
-            <label className="ob-field full">
+            <label className="field full">
               {t("ob.s4.imapEmail")}
               <input
-                className="ob-in"
+                className="input"
                 type="email"
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </label>
-            <label className="ob-field full">
+            <label className="field full">
               {t("ob.s4.imapPassword")}
               <input
-                className="ob-in"
+                className="input"
                 type="password"
                 autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </label>
-            <label className="ob-field">
+            <label className="field">
               {t("ob.s4.imapMailbox")}
               <input
-                className="ob-in"
+                className="input"
                 value={mailbox}
                 onChange={(e) => setMailbox(e.target.value)}
               />
             </label>
-            <label className="ob-field">
+            <label className="field">
               {t("ob.s4.imapMax")}
               <input
-                className="ob-in"
+                className="input"
                 type="number"
                 min={1}
                 max={200}
