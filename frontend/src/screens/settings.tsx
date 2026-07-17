@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
-import { api, setWorkspaceSlug, workspaceSlug } from "../api/client";
+import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
@@ -81,12 +81,7 @@ type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
-      return (
-        <>
-          <IdentityCard />
-          <WorkspaceCard />
-        </>
-      );
+      return <IdentityCard />;
     case "ai":
       return (
         <>
@@ -182,45 +177,6 @@ function IdentityCard() {
       >
         {t("auth.signOut")}
       </Button>
-    </section>
-  );
-}
-
-function WorkspaceCard() {
-  const t = useT();
-  const inputId = useId();
-  const [slug, setSlug] = useState(workspaceSlug() ?? "");
-  const [saved, setSaved] = useState(false);
-  return (
-    <section className="card" style={{ marginBottom: 14 }}>
-      <SectionHeader
-        title={t("settings.workspace")}
-        sub={t("settings.workspaceSub")}
-      />
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <span className="t-label" id={inputId}>
-          {t("settings.slug")}
-        </span>
-        <TextInput
-          aria-labelledby={inputId}
-          value={slug}
-          onChange={(event) => {
-            setSlug(event.target.value);
-            setSaved(false);
-          }}
-        />
-        <Button
-          small
-          variant="primary"
-          onClick={() => {
-            setWorkspaceSlug(slug.trim());
-            setSaved(true);
-          }}
-        >
-          {t("trust.save")}
-        </Button>
-        {saved && <span className="t-caption">{t("settings.saved")}</span>}
-      </div>
     </section>
   );
 }

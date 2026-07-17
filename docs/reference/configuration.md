@@ -21,6 +21,7 @@ stdio protocol channel). Log lines carry the per-request
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file (A107/ADR-0061: bootstrap + auth — organization, bootstrap_admin, seeds, email; strict decoding, secrets as `*_file` references). A missing file boots an existing installation; bootstrapping an empty database requires `organization` + `bootstrap_admin` |
 | `--schema-dsn` | `MARGINCE_SCHEMA_DSN` | — | Postgres DSN, **owner** role, for the customfields runtime-DDL pool; unset = `createCustomField`/`updateCustomFieldOptions` answer 501 |
 | `--addr` | — | `:8080` | listen address |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
@@ -128,7 +129,6 @@ probe.
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
-| `--workspace` | `MARGINCE_WORKSPACE` | — (required for stdio) | workspace slug the passport belongs to |
 | `--listen` | — | — | serve the hosted A2 transport on this address instead of stdio |
 
 The stdio transport additionally requires the env var
@@ -150,7 +150,7 @@ migrate <up|down> --dsn <owner-dsn> [--steps n]
 
 | Var | Used by | Meaning |
 |---|---|---|
-| `MARGINCE_ENV` | api (identity handlers) | `dev` enables dev-only trust switches (the `X-Workspace-Slug` header). The Makefile exports `dev`; production must not set it. |
+| `MARGINCE_ENV` | api (identity handlers) | `dev` enables dev-only trust switches. The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
 

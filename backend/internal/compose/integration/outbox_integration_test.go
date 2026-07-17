@@ -121,14 +121,7 @@ func TestWriteStagesOneCompleteEnvelope(t *testing.T) {
 
 func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	e := setup(t)
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Fable E2E",
-		"admin_email":        "ada@example.com",
-		"admin_display_name": "Ada Admin",
-		"admin_password":     "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap status = %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Admin")
 
 	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 		"email": "ada@example.com", "password": "wrong-password-entirely",

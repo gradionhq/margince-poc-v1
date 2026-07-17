@@ -21,23 +21,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workspaces": {
+    "/auth/capabilities": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Bootstrap a workspace and its first admin user (ADR-0043).
-         * @description Creates a workspace **and** its first admin `app_user` in one transaction, then opens
-         *     an interactive session (sets the `crm_session` cookie). Unauthenticated — this is how a
-         *     new tenant comes into existence. Email/password is the baseline (ADR-0043); SSO is added
-         *     later per workspace. Audited as an auth event (`features/04 §7`/P12).
+         * Which authentication methods are operational (drives the login UI).
+         * @description Anonymous, minimal capability probe (A107/ADR-0061). The login UI renders exactly
+         *     the methods reported here — a disabled provider button or a dead "Forgot password?"
+         *     link is a misleading affordance. `password_reset` is true only when the operator's
+         *     system-email channel (A74/ADR-0056) is configured and healthy. An OIDC provider is
+         *     listed only when its end-to-end flow is wired and healthy. Discloses nothing beyond
+         *     what the login UI needs — no secrets, endpoints, allowlists, or bootstrap state.
          */
-        post: operations["bootstrapWorkspace"];
+        get: operations["getAuthCapabilities"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -54,12 +56,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Authenticate with email + password (+ MFA when required) and open a session.
+         * Authenticate with email + password and open a session.
          * @description Baseline interactive sign-in (ADR-0043). On success mints an opaque server-side session
-         *     and sets the `crm_session` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/`). When the
-         *     workspace requires MFA, a first call without `mfa_code` returns `403 code: mfa_required`;
-         *     when SSO-enforced, password login returns `403 code: sso_enforced`. Every attempt
-         *     (success/failure/lockout/MFA challenge) is audited (`features/04 §7`).
+         *     and sets the `crm_session` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/`). Accepts
+         *     email + password only — no tenant selector (A107/ADR-0061). Failures are neutral (no
+         *     account enumeration), rate-limited, and verified at full cost either way. The MFA and
+         *     SSO-enforced challenge states return with their complete flows (ADR-0043 Amendment 2).
+         *     Every attempt (success/failure/lockout) is audited (`features/04 §7`).
          */
         post: operations["login"];
         delete?: never;
@@ -82,6 +85,48 @@ export interface paths {
          * @description Deletes the current `session` row and clears `crm_session`. Idempotent. Audited.
          */
         post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a password-reset email.
+         * @description Emails a single-use, short-TTL reset link to the address if it maps to an account.
+         *     **Always returns 202** regardless of whether the address exists (no account enumeration).
+         *     Audited.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a reset token and set a new password.
+         * @description Validates the single-use token (`auth_token` purpose=`password_reset`), sets the new password, marks the token used, and invalidates existing sessions. An expired, consumed, or unknown token produces one neutral error. Audited.
+         */
+        post: operations["resetPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4795,25 +4840,23 @@ export interface components {
             /** Format: date-time */
             archived_at?: string | null;
         };
-        BootstrapWorkspaceRequest: {
-            workspace_name: string;
-            /** Format: email */
-            admin_email: string;
-            /** @description Hashed server-side (Argon2id/bcrypt); never stored or logged in plaintext. */
-            admin_password: string;
-            admin_display_name: string;
-            /**
-             * @description IANA zone for the first user.
-             * @default UTC
-             */
-            timezone: string;
+        AuthCapabilities: {
+            /** @description Email + password login is enabled. */
+            password: boolean;
+            /** @description The A74 reset flow can complete end to end (outbound email configured + healthy). */
+            password_reset: boolean;
+            /** @description Operational OIDC providers (empty until the OIDC flow ships). */
+            oidc_providers: {
+                /** @description Stable provider key, e.g. `google`. */
+                key: string;
+                /** @description Button label, e.g. `Continue with Google`. */
+                label: string;
+            }[];
         };
         LoginRequest: {
             /** Format: email */
             email: string;
             password: string;
-            /** @description TOTP code; supply when the workspace requires MFA (else first call returns 403 mfa_required). */
-            mfa_code?: string | null;
         };
         MeResponse: {
             user: components["schemas"]["User"];
@@ -6719,40 +6762,24 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
-    bootstrapWorkspace: {
+    getAuthCapabilities: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BootstrapWorkspaceRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Workspace + first admin created; session cookie set. */
-            201: {
-                headers: {
-                    /** @description crm_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/ */
-                    "Set-Cookie"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MeResponse"];
-                };
-            };
-            /** @description Email or workspace already exists. */
-            409: {
+            /** @description The operational authentication methods. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Problem"];
+                    "application/json": components["schemas"]["AuthCapabilities"];
                 };
             };
-            422: components["responses"]["ValidationError"];
         };
     };
     login: {
@@ -6788,15 +6815,6 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
-            /** @description MFA required (`mfa_required`) or password login disabled by SSO-enforced mode (`sso_enforced`). */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
             422: components["responses"]["ValidationError"];
         };
     };
@@ -6819,6 +6837,85 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description If the address maps to an account, a reset email is sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                    new_password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Password changed; existing sessions invalidated. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid, used, or expired token (one neutral error for all three). */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listPassports: {

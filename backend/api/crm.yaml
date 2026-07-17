@@ -84,12 +84,13 @@ info:
     email: lars@gradion.com
 
 servers:
-  - url: https://{workspace}.api.gradion.com/v1
-    description: Per-workspace production host
-    variables:
-      workspace:
-        default: demo
-        description: Workspace slug (tenant). Tenant is also asserted from the JWT claims.
+  - url: https://crm.example.com/v1
+    description: >
+      The installation host (operator-chosen). One installation serves one organization
+      (A107/ADR-0061): the server resolves its singleton organization itself — no
+      per-workspace subdomain, header, or other request-level tenant selection exists.
+      Sessions and bearer credentials are still checked against the bound workspace id
+      as defense in depth.
   - url: http://localhost:8080/v1
     description: Local development
 
@@ -170,55 +171,46 @@ paths:
                     teams: [018f3a1b-0000-7000-8000-0000000000ab]
         '401': { $ref: '#/components/responses/Unauthorized' }
 
-  # ----------------------------- /workspaces --------------------------------
-  /workspaces:
-    post:
-      tags: [Identity]
-      operationId: bootstrapWorkspace
-      x-agent-access: auth-bootstrap
-      summary: Bootstrap a workspace and its first admin user (ADR-0043).
-      description: |
-        Creates a workspace **and** its first admin `app_user` in one transaction, then opens
-        an interactive session (sets the `crm_session` cookie). Unauthenticated — this is how a
-        new tenant comes into existence. Email/password is the baseline (ADR-0043); SSO is added
-        later per workspace. Audited as an auth event (`features/04 §7`/P12).
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/BootstrapWorkspaceRequest' }
-      responses:
-        '201':
-          description: Workspace + first admin created; session cookie set.
-          headers:
-            Set-Cookie:
-              schema: { type: string }
-              description: 'crm_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/'
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/MeResponse' }
-        '409':
-          description: Email or workspace already exists.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Problem' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
   # ------------------------------- /auth ------------------------------------
+  # There is NO public tenant-provisioning endpoint (A107/ADR-0061): the organization and
+  # its first admin are created at API boot from the deployment configuration file
+  # (`margince.yaml`), atomically, under the singleton-organization invariant. The former
+  # unauthenticated `POST /workspaces` (ADR-0043 §4) is superseded by ADR-0043 Amendment 2.
+  /auth/capabilities:
+    get:
+      tags: [Identity]
+      operationId: getAuthCapabilities
+      security: []
+      x-agent-access: human-only
+      summary: Which authentication methods are operational (drives the login UI).
+      description: |
+        Anonymous, minimal capability probe (A107/ADR-0061). The login UI renders exactly
+        the methods reported here — a disabled provider button or a dead "Forgot password?"
+        link is a misleading affordance. `password_reset` is true only when the operator's
+        system-email channel (A74/ADR-0056) is configured and healthy. An OIDC provider is
+        listed only when its end-to-end flow is wired and healthy. Discloses nothing beyond
+        what the login UI needs — no secrets, endpoints, allowlists, or bootstrap state.
+      responses:
+        '200':
+          description: The operational authentication methods.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthCapabilities' }
+
   /auth/login:
     post:
       tags: [Identity]
       operationId: login
       security: []   # pre-auth endpoint — no prior credential required
       x-agent-access: auth-bootstrap
-      summary: Authenticate with email + password (+ MFA when required) and open a session.
+      summary: Authenticate with email + password and open a session.
       description: |
         Baseline interactive sign-in (ADR-0043). On success mints an opaque server-side session
-        and sets the `crm_session` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/`). When the
-        workspace requires MFA, a first call without `mfa_code` returns `403 code: mfa_required`;
-        when SSO-enforced, password login returns `403 code: sso_enforced`. Every attempt
-        (success/failure/lockout/MFA challenge) is audited (`features/04 §7`).
+        and sets the `crm_session` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/`). Accepts
+        email + password only — no tenant selector (A107/ADR-0061). Failures are neutral (no
+        account enumeration), rate-limited, and verified at full cost either way. The MFA and
+        SSO-enforced challenge states return with their complete flows (ADR-0043 Amendment 2).
+        Every attempt (success/failure/lockout) is audited (`features/04 §7`).
       requestBody:
         required: true
         content:
@@ -236,11 +228,6 @@ paths:
               schema: { $ref: '#/components/schemas/MeResponse' }
         '401':
           description: Invalid credentials.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Problem' }
-        '403':
-          description: 'MFA required (`mfa_required`) or password login disabled by SSO-enforced mode (`sso_enforced`).'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -262,6 +249,73 @@ paths:
               schema: { type: string }
               description: 'crm_session=; Max-Age=0; HttpOnly; Secure; SameSite=Strict; Path=/'
         '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # --------- Account recovery (A74 / ADR-0056; UI-gated by A107 capabilities) ---------
+  # Password reset over the operator's system-email channel. Both ops are pre-auth,
+  # rate-limited, enumeration-resistant, and audited. Tokens are single-use, hashed at
+  # rest (`auth_token`), short-TTL. Available only when outbound email is configured —
+  # the login UI shows the flow iff `GET /auth/capabilities` reports `password_reset`.
+  /auth/forgot-password:
+    post:
+      tags: [Identity]
+      operationId: requestPasswordReset
+      security: []
+      x-agent-access: human-only
+      summary: Request a password-reset email.
+      description: |
+        Emails a single-use, short-TTL reset link to the address if it maps to an account.
+        **Always returns 202** regardless of whether the address exists (no account enumeration).
+        Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202': { description: 'If the address maps to an account, a reset email is sent.' }
+        '429':
+          description: Rate-limited.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/reset-password:
+    post:
+      tags: [Identity]
+      operationId: resetPassword
+      security: []
+      x-agent-access: human-only
+      summary: Redeem a reset token and set a new password.
+      description: 'Validates the single-use token (`auth_token` purpose=`password_reset`), sets the new password, marks the token used, and invalidates existing sessions. An expired, consumed, or unknown token produces one neutral error. Audited.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, new_password]
+              properties:
+                token: { type: string, minLength: 1 }
+                new_password: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        '204': { description: Password changed; existing sessions invalidated. }
+        '401':
+          description: 'Invalid, used, or expired token (one neutral error for all three).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: Rate-limited.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------------------ /passports --------------------------------
   /passports:
@@ -5791,7 +5845,8 @@ components:
         `crm_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/`. The server stores only
         `SHA-256(token)` (`session.token_hash`) and authenticates iff the row is un-revoked and
         within idle + absolute expiry. Same `Authorize()` enforcement as the bearer path — no
-        bypass. `/workspaces`, `/auth/login` are unauthenticated (`security: []`); they *mint* it.
+        bypass. `/auth/login` is unauthenticated (`security: []`); it *mints* it. The first admin
+        is created at boot from deployment configuration (A107/ADR-0061) — no public bootstrap.
 
   # --------------------------- shared parameters ----------------------------
   parameters:
@@ -7436,16 +7491,21 @@ components:
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
 
-    BootstrapWorkspaceRequest:
+    AuthCapabilities:
       type: object
-      additionalProperties: false
-      required: [workspace_name, admin_email, admin_password, admin_display_name]
+      required: [password, password_reset, oidc_providers]
       properties:
-        workspace_name:     { type: string, minLength: 1, maxLength: 200 }
-        admin_email:        { type: string, format: email }
-        admin_password:     { type: string, minLength: 12, maxLength: 256, description: Hashed server-side (Argon2id/bcrypt); never stored or logged in plaintext. }
-        admin_display_name: { type: string, minLength: 1, maxLength: 200 }
-        timezone:           { type: string, default: 'UTC', description: IANA zone for the first user. }
+        password: { type: boolean, description: Email + password login is enabled. }
+        password_reset: { type: boolean, description: The A74 reset flow can complete end to end (outbound email configured + healthy). }
+        oidc_providers:
+          type: array
+          description: Operational OIDC providers (empty until the OIDC flow ships).
+          items:
+            type: object
+            required: [key, label]
+            properties:
+              key: { type: string, description: 'Stable provider key, e.g. `google`.' }
+              label: { type: string, description: 'Button label, e.g. `Continue with Google`.' }
 
     LoginRequest:
       type: object
@@ -7454,7 +7514,6 @@ components:
       properties:
         email:    { type: string, format: email }
         password: { type: string, minLength: 1, maxLength: 256 }
-        mfa_code: { type: [string, 'null'], description: TOTP code; supply when the workspace requires MFA (else first call returns 403 mfa_required). }
 
     MeResponse:
       type: object

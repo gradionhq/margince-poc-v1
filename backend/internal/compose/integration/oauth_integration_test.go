@@ -51,17 +51,7 @@ func setupOAuth(t *testing.T) *oauthEnv {
 	t.Helper()
 	e := setup(t)
 	e.slug = "oauth-e2e"
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name": "OAuth E2E", "admin_email": "granter@fable.test",
-		"admin_display_name": "Granter", "admin_password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("bootstrap → %d", status)
-	}
-	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
-		"email": "granter@fable.test", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusOK {
-		t.Fatalf("login → %d", status)
-	}
+	bootstrapWorkspaceSession(t, e, "OAuth E2E", "granter@fable.test", "Admin")
 
 	var registered struct {
 		ClientID string `json:"client_id"`
@@ -101,7 +91,6 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Workspace-Slug", o.slug)
 	resp, err := o.client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +115,6 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 		t.Fatal(err)
 	}
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	post.Header.Set("X-Workspace-Slug", o.slug)
 	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	defer func() { o.client.CheckRedirect = nil }()
 	resp, err = o.client.Do(post)
@@ -171,7 +159,6 @@ func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any)
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("X-Workspace-Slug", o.slug)
 	resp, err := o.client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +225,6 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	}
 	// GET answers the form, never a redirect carrying a code.
 	req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
-	req.Header.Set("X-Workspace-Slug", o.slug)
 	resp, err := o.client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +242,6 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	form.Set("consent", "forged")
 	post, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	post.Header.Set("X-Workspace-Slug", o.slug)
 	resp, err = o.client.Do(post)
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +253,6 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	// A browser-stamped cross-site POST is refused outright.
 	post2, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	post2.Header.Set("X-Workspace-Slug", o.slug)
 	post2.Header.Set("Sec-Fetch-Site", "cross-site")
 	resp, err = o.client.Do(post2)
 	if err != nil {
@@ -306,7 +290,6 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 			q[k] = vs
 		}
 		req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
-		req.Header.Set("X-Workspace-Slug", o.slug)
 		resp, err := o.client.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -361,7 +344,7 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	var wsRaw string
-	if err := o.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = 'oauth-e2e'`).Scan(&wsRaw); err != nil {
+	if err := o.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, o.slug).Scan(&wsRaw); err != nil {
 		t.Fatal(err)
 	}
 	wsID, err := ids.Parse(wsRaw)
@@ -402,7 +385,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	authSvc := identity.NewService(pool)
 	registry := compose.NewRegistry(pool)
 	authenticate := func(r *http.Request) (context.Context, error) {
-		wsID, err := authSvc.ResolveWorkspace(r.Context(), o.slug)
+		wsID, err := authSvc.InstallationWorkspace(r.Context())
 		if err != nil {
 			return nil, err
 		}

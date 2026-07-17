@@ -8,8 +8,13 @@
 // Passport token from the environment (never a flag — argv is
 // world-readable in `ps`). The agent client config points here:
 //
-//	{"command": "mcp", "args": ["--workspace", "acme"],
+//	{"command": "mcp",
 //	 "env": {"MARGINCE_PASSPORT_TOKEN": "mgp_…", "MARGINCE_DSN": "…"}}
+//
+// One installation serves one organization (A107/ADR-0061): the process
+// resolves the singleton itself and refuses to start pre-bootstrap — a
+// passport can only be minted by an already-authenticated human, and
+// before bootstrap no such human exists. There is no tenant selector.
 //
 // A2 (--listen): the hosted streamable-HTTP server. Tokens arrive as
 // Bearer credentials minted by the /oauth flow (they ARE passport
@@ -60,7 +65,6 @@ func main() {
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
-	workspace := fs.String("workspace", os.Getenv("MARGINCE_WORKSPACE"), "workspace slug the passport belongs to")
 	listen := fs.String("listen", "", "serve the hosted A2 transport on this address instead of stdio")
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "diagnostic verbosity: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "diagnostic encoding: text|json")
@@ -88,23 +92,28 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	auth := identity.NewService(pool)
 	registry := compose.NewRegistry(pool)
 
-	if *listen != "" {
-		return serveHosted(ctx, *listen, auth, registry, *workspace, logger)
+	// Bind the singleton organization before serving anything: an MCP
+	// process against a pre-bootstrap database is an operator error, not
+	// a wait state — no human exists yet who could have granted the
+	// passport this transport authenticates with.
+	wsID, err := auth.InstallationWorkspace(ctx)
+	if errors.Is(err, identity.ErrNotBootstrapped) {
+		return errors.New("mcp: the installation is not bootstrapped — start the API with a margince.yaml first")
+	}
+	if err != nil {
+		return err
 	}
 
-	if *workspace == "" {
-		return errors.New("mcp: --workspace or MARGINCE_WORKSPACE required")
+	if *listen != "" {
+		return serveHosted(ctx, *listen, auth, registry, wsID, logger)
 	}
+
 	token := os.Getenv("MARGINCE_PASSPORT_TOKEN")
 	if token == "" {
 		return errors.New("mcp: MARGINCE_PASSPORT_TOKEN is not set (mint one via POST /passports)")
 	}
 
 	bind := func(ctx context.Context) (context.Context, error) {
-		wsID, err := auth.ResolveWorkspace(ctx, *workspace)
-		if err != nil {
-			return nil, fmt.Errorf("resolving workspace %q: %w", *workspace, err)
-		}
 		ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
 		agent, err := auth.AuthenticateAgent(ctx, token)
 		if err != nil {
@@ -120,7 +129,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("mcp: passport check failed: %w", err)
 	}
 
-	logger.Info("mcp: serving over stdio", "tools", len(registry.Specs()), "workspace", *workspace)
+	logger.Info("mcp: serving over stdio", "tools", len(registry.Specs()), "workspace_id", wsID.String())
 	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
 		WithLogger(logger).
 		Serve(ctx, os.Stdin, stdout)
@@ -146,24 +155,12 @@ func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 }
 
 // serveHosted is the A2 transport: POST /mcp with a Bearer passport
-// token (minted by the /oauth flow or POST /passports). The workspace
-// resolves from the X-Workspace-Slug header in dev, the --workspace
-// default otherwise — production fronts this with per-tenant hosts.
-func serveHosted(ctx context.Context, addr string, auth *identity.Service, registry *agents.Registry, defaultWorkspace string, logger *slog.Logger) error {
+// token (minted by the /oauth flow or POST /passports). The singleton
+// organization was bound at boot — a request never selects a tenant
+// (A107/ADR-0061).
+func serveHosted(ctx context.Context, addr string, auth *identity.Service, registry *agents.Registry, wsID ids.WorkspaceID, logger *slog.Logger) error {
 	authenticate := func(r *http.Request) (context.Context, error) {
-		slug := r.Header.Get("X-Workspace-Slug")
-		if slug == "" {
-			slug = defaultWorkspace
-		}
-		if slug == "" {
-			return nil, errors.New("no workspace: send X-Workspace-Slug or start with --workspace")
-		}
-		reqCtx := r.Context()
-		wsID, err := auth.ResolveWorkspace(reqCtx, slug)
-		if err != nil {
-			return nil, err
-		}
-		reqCtx = principal.WithWorkspaceID(reqCtx, wsID.UUID)
+		reqCtx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if bearer == "" || bearer == r.Header.Get("Authorization") {
 			return nil, errors.New("missing bearer token")

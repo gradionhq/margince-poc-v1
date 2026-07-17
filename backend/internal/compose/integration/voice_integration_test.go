@@ -13,9 +13,16 @@ package integration
 // shut out of mutations, a second tenant sees nothing.
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 type voiceProfileWire struct {
@@ -286,7 +293,11 @@ func TestVoiceProfileMutationsRejectAgents(t *testing.T) {
 }
 
 // ∅-query conformance (B-E07.4 acceptance): a second tenant neither
-// reads nor lists the first tenant's voice profile.
+// reads nor lists the first tenant's voice profile. HTTP can no longer
+// select a tenant (one installation serves one organization,
+// A107/ADR-0061), so tenant B exists only as directly seeded rows and
+// the assertion runs through the store — the same RBAC + row-scope path
+// the HTTP surface drives.
 func TestVoiceProfileIsInvisibleAcrossTenants(t *testing.T) {
 	e := setup(t)
 	e.bootstrapWorkspace(t)
@@ -296,28 +307,42 @@ func TestVoiceProfileIsInvisibleAcrossTenants(t *testing.T) {
 		t.Fatalf("create → %d", status)
 	}
 
-	// A second workspace: bootstrapping switches the session cookie and
-	// the slug header to tenant B.
-	if status := e.call(t, "POST", "/v1/workspaces", anyMap{
-		"workspace_name":     "Voice Two",
-		"admin_email":        "bea@example.com",
-		"admin_display_name": "Bea Boss",
-		"admin_password":     "correct-horse-battery",
-	}, nil, nil); status != http.StatusCreated {
-		t.Fatalf("second workspace → %d", status)
+	// Tenant B: a second workspace + user seeded past the boot invariant
+	// (which binds the process, not the schema — RLS still isolates rows).
+	ctx := context.Background()
+	wsB, userB := ids.NewV7(), ids.NewV7()
+	if _, err := e.owner.Exec(ctx,
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Voice Two', 'voice-two', 'EUR')`, wsB); err != nil {
+		t.Fatal(err)
 	}
-	e.slug = "voice-two"
+	if _, err := e.owner.Exec(ctx,
+		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'bea@example.com', 'Bea Boss')`,
+		userB, wsB); err != nil {
+		t.Fatal(err)
+	}
+	ctxB := principal.WithCorrelationID(principal.WithWorkspaceID(ctx, wsB), ids.NewV7())
+	ctxB = principal.WithActor(ctxB, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + userB.String(), UserID: userB,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"admin"},
+			Objects:  map[string]principal.ObjectGrant{"voice_profile": {Create: true, Read: true, Update: true, Delete: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
 
-	if status := e.call(t, "GET", "/v1/voice-profiles/"+created.ID, nil, nil, nil); status != http.StatusNotFound {
-		t.Fatalf("cross-tenant get → %d, want 404 (existence hidden)", status)
+	store := ai.NewVoiceStore(e.pool)
+	profileID, err := ids.Parse(created.ID)
+	if err != nil {
+		t.Fatalf("created profile id: %v", err)
 	}
-	var listed struct {
-		Data []voiceProfileWire `json:"data"`
+	if _, err := store.GetProfile(ctxB, profileID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("cross-tenant get err = %v, want ErrNotFound (existence hidden)", err)
 	}
-	if status := e.call(t, "GET", "/v1/voice-profiles", nil, nil, &listed); status != http.StatusOK {
-		t.Fatalf("cross-tenant list → %d", status)
+	page, err := store.ListProfiles(ctxB, nil, nil)
+	if err != nil {
+		t.Fatalf("cross-tenant list: %v", err)
 	}
-	if len(listed.Data) != 0 {
-		t.Fatalf("tenant B lists %d foreign profiles, want 0", len(listed.Data))
+	if len(page.Items) != 0 {
+		t.Fatalf("tenant B lists %d foreign profiles, want 0", len(page.Items))
 	}
 }

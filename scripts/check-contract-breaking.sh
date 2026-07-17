@@ -27,8 +27,7 @@ OASDIFF="${OASDIFF:-go run github.com/oasdiff/oasdiff@v1.22.0}"
 # 'pre-live' prints them but passes (for a deliberate spec re-sync).
 CONTRACT_STABILITY="${CONTRACT_STABILITY:-stable}"
 case "$CONTRACT_STABILITY" in
-  stable)   FAIL_ON="ERR" ;;
-  pre-live) FAIL_ON="NONE" ;;
+  stable | pre-live) ;;
   *) echo "check-contract-breaking: unknown CONTRACT_STABILITY='$CONTRACT_STABILITY' (want stable|pre-live)" >&2; exit 2 ;;
 esac
 
@@ -51,12 +50,14 @@ if ! git cat-file -e "$BASE_REF:$CRM_YAML" 2>/dev/null; then
   exit 0
 fi
 
-if $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" --fail-on "$FAIL_ON" -f text; then
-  if [ "$CONTRACT_STABILITY" = pre-live ]; then
-    echo "contract-breaking-check: advisory (CONTRACT_STABILITY=pre-live) — breaking change(s) printed above, if any, are deliberately permitted for this run"
-  else
-    echo "contract-breaking-check: no breaking API changes since $BASE_REF"
-  fi
+if [ "$CONTRACT_STABILITY" = pre-live ]; then
+  # Advisory stance: print every change (oasdiff without --fail-on never
+  # exits non-zero on findings) so the deliberate breaks stay visible in
+  # the log, but do not block.
+  $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" -f text
+  echo "contract-breaking-check: advisory (CONTRACT_STABILITY=pre-live) — breaking change(s) printed above, if any, are deliberately permitted for this run"
+elif $OASDIFF breaking "$BASE_REF:$CRM_YAML" "$CRM_YAML" --fail-on ERR -f text; then
+  echo "contract-breaking-check: no breaking API changes since $BASE_REF"
 else
   echo "contract-breaking-check: breaking API change(s) since $BASE_REF — deprecate instead of removing, or run a deliberate re-sync with CONTRACT_STABILITY=pre-live" >&2
   exit 1

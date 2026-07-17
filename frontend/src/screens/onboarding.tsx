@@ -33,7 +33,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, workspaceSlug } from "../api/client";
+import { api } from "../api/client";
 import { navigate } from "../app/router";
 import { Button } from "../design-system/atoms";
 import {
@@ -1208,9 +1208,6 @@ function ConnectStep() {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            ...(workspaceSlug()
-              ? { "X-Workspace-Slug": workspaceSlug() ?? "" }
-              : {}),
           },
           body: JSON.stringify({
             host: host.trim(),

@@ -143,7 +143,7 @@ func containsDescription(descriptions []string, want string) bool {
 func TestOfferRegenerateHTTP_GroundedAIDraftStagesAndDisclosesWithoutMovingTotals(t *testing.T) {
 	e, fake := setupWithOfferDraft(t)
 	e.slug = "offer-regen-ai"
-	bootstrapWorkspaceSession(t, e, "Offer Regen AI", "offerai@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offer Regen AI", "offerai@fable.test", "Admin")
 	wsID := wsIDBySlug(t, e, e.slug)
 	dealID := offerFixture(t, e)
 	source := seedDealContextActivity(t, e, wsID, dealID,
@@ -196,7 +196,7 @@ func TestOfferRegenerateHTTP_GroundedAIDraftStagesAndDisclosesWithoutMovingTotal
 func TestOfferRegenerateHTTP_UngroundedCandidateFallsBackToMechanicalCloneOnly(t *testing.T) {
 	e, fake := setupWithOfferDraft(t)
 	e.slug = "offer-regen-ungrounded"
-	bootstrapWorkspaceSession(t, e, "Offer Regen Ungrounded", "ungrounded@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offer Regen Ungrounded", "ungrounded@fable.test", "Admin")
 	wsID := wsIDBySlug(t, e, e.slug)
 	dealID := offerFixture(t, e)
 	seedDealContextActivity(t, e, wsID, dealID, "Client mentioned they liked our website.")
@@ -242,7 +242,7 @@ func TestOfferRegenerateHTTP_UngroundedCandidateFallsBackToMechanicalCloneOnly(t
 func TestOfferRegenerateHTTP_NonSentOfferRefusesMechanically(t *testing.T) {
 	e, _ := setupWithOfferDraft(t)
 	e.slug = "offer-regen-not-sent"
-	bootstrapWorkspaceSession(t, e, "Offer Regen Not Sent", "notsent@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offer Regen Not Sent", "notsent@fable.test", "Admin")
 	dealID := offerFixture(t, e)
 	draft := createOfferInCurrency(t, e, dealID, "EUR")
 
@@ -269,7 +269,7 @@ func TestOfferRegenerateHTTP_NonSentOfferRefusesMechanically(t *testing.T) {
 func TestOfferRegenerateHTTP_MalformedModelResponseFallsBackToMechanicalClone(t *testing.T) {
 	e, fake := setupWithOfferDraft(t)
 	e.slug = "offer-regen-malformed"
-	bootstrapWorkspaceSession(t, e, "Offer Regen Malformed", "malformed@fable.test")
+	bootstrapWorkspaceSession(t, e, "Offer Regen Malformed", "malformed@fable.test", "Admin")
 	wsID := wsIDBySlug(t, e, e.slug)
 	dealID := offerFixture(t, e)
 	seedDealContextActivity(t, e, wsID, dealID, "Client asked about a custom rollout plan.")

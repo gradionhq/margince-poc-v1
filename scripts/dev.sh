@@ -197,6 +197,25 @@ up)
     echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
   fi
 
+  # The deployment configuration (A107/ADR-0061): the api bootstraps the
+  # demo organization itself at boot — no public provisioning endpoint
+  # exists. The password file matches seed-dev.sh's demo credentials.
+  deploy_cfg="${rundir}/margince.yaml"
+  admin_pw_file="${rundir}/admin-password"
+  printf '%s' "${ADMIN_PASSWORD:-demo-password-123}" >"$admin_pw_file"
+  chmod 600 "$admin_pw_file"
+  cat >"$deploy_cfg" <<EOF_CFG
+version: 1
+organization:
+  name: Demo Workspace
+  base_currency: EUR
+  timezone: Europe/Berlin
+bootstrap_admin:
+  email: ${ADMIN_EMAIL:-admin@demo.test}
+  display_name: Demo Admin
+  password_file: ${admin_pw_file}
+EOF_CFG
+
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
   # kill. Redis is the ONE shared instance. The api keeps its default inline
@@ -208,7 +227,7 @@ up)
     MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
-    ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" \
+    ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" --config "$deploy_cfg" \
     --redis "localhost:${REDIS_PORT}" \
     "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" >>"$log" 2>&1 &
   be_pid=$!

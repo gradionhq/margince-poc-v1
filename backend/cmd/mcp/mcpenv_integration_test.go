@@ -47,7 +47,7 @@ func startMCP(t *testing.T, token, slug string, svc *identity.Service, pool *pgx
 	registry := compose.NewRegistry(pool)
 
 	bind := func(ctx context.Context) (context.Context, error) {
-		wsID, err := svc.ResolveWorkspace(ctx, slug)
+		wsID, err := svc.InstallationWorkspace(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -185,11 +185,15 @@ func setupMCPEnv(t *testing.T) *mcpEnv {
 	t.Cleanup(pool.Close)
 
 	svc := identity.NewService(pool)
-	admin, _, err := svc.Bootstrap(ctx, identity.BootstrapInput{
-		WorkspaceName: "Agent Test", Slug: "agent-test",
-		AdminEmail: "admin@agent.test", AdminName: "Admin",
+	wsID, _, err := svc.BootstrapInstallation(ctx, &identity.InstallationBootstrap{
+		OrganizationName: "Agent Test",
+		AdminEmail:       "admin@agent.test", AdminName: "Admin",
 		AdminPassword: "correct-horse-battery",
 	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, _, err := svc.Login(principal.WithWorkspaceID(ctx, wsID.UUID), "admin@agent.test", "correct-horse-battery")
 	if err != nil {
 		t.Fatal(err)
 	}

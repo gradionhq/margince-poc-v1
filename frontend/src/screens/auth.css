@@ -1,8 +1,9 @@
 /*
- * First-run auth (signup + login) — a split hero on the funnel's design
- * language (see onboarding.css). Left: brand + value proposition + the three
- * product promises. Right: the form card. Stacks on narrow viewports. Copy
- * comes from the i18n catalogs; colours read tokens (conformance gates).
+ * The unauthenticated surface (A107/ADR-0061 §12): login, forgot-password,
+ * and reset — one centered column (~420 px), neutral background, restrained
+ * brand treatment. No hero, no product claims: the screen's whole job is
+ * authentication. Copy comes from the i18n catalogs; colours read tokens
+ * (conformance gates).
  */
 
 .auth-page {
@@ -11,73 +12,34 @@
   place-items: center;
   padding: 40px 24px;
   background: var(--bgPage);
-  background-image:
-    radial-gradient(circle at 12% -10%, var(--accentLight), transparent 44%),
-    radial-gradient(
-      circle at 100% 0%,
-      color-mix(in srgb, var(--teal) 5%, transparent),
-      transparent 36%
-    );
 }
-.auth-shell {
+.auth-column {
   width: 100%;
-  max-width: 940px;
-  display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  gap: 48px;
-  align-items: center;
-}
-
-.auth-hero {
   max-width: 420px;
-}
-.auth-hero .ob-wordmark {
-  margin-bottom: 28px;
-}
-.auth-hero h1 {
-  font-family: var(--f-display);
-  font-weight: 600;
-  font-size: 32px;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: var(--textPrimary);
-}
-.auth-hero .lede {
-  margin-top: 14px;
-  color: var(--textSecondary);
-  font-size: 15px;
-  line-height: 1.6;
-}
-.auth-bullets {
-  list-style: none;
-  margin: 26px 0 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 22px;
 }
-.auth-bullets li {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  font-size: 14px;
-  color: var(--textContent);
-  line-height: 1.45;
+.auth-wordmark {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--f-display);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--textPrimary);
 }
-.auth-bullets .bi {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--r-full);
-  background: var(--accentLight);
-  color: var(--accent);
+.auth-wordmark .mk {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--bgElevated);
   display: grid;
   place-items: center;
-  flex: none;
-  margin-top: 1px;
-}
-.auth-bullets .bi svg {
-  width: 13px;
-  height: 13px;
+  font-size: 14px;
 }
 
 .auth-card {
@@ -87,7 +49,7 @@
   box-shadow: var(--shadow-card);
   padding: 28px 28px 24px;
 }
-.auth-card h2 {
+.auth-card h1 {
   font-family: var(--f-display);
   font-weight: 600;
   font-size: 20px;
@@ -111,6 +73,12 @@
   flex-direction: column;
   gap: 6px;
 }
+.auth-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
 .auth-field label {
   font-size: 11px;
   font-weight: 600;
@@ -124,6 +92,7 @@
 }
 .auth-input {
   width: 100%;
+  min-height: 44px;
   border: 1px solid var(--borderStrong);
   border-radius: var(--r-sm);
   padding: 11px 13px;
@@ -137,6 +106,14 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accentLight);
 }
+.auth-password-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.auth-password-row .auth-input {
+  flex: 1;
+}
 .auth-actions {
   margin-top: 22px;
   display: flex;
@@ -145,18 +122,27 @@
 }
 .auth-actions .btn {
   width: 100%;
+  min-height: 44px;
   justify-content: center;
 }
-.auth-switch {
+.auth-link {
   background: transparent;
   border: 0;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--textSecondary);
-  padding: 4px;
+  padding: 2px;
+  text-transform: none;
+  letter-spacing: normal;
 }
-.auth-switch:hover {
+.auth-link:hover,
+.auth-link:focus-visible {
   color: var(--accent);
+}
+.auth-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
 .auth-error {
   margin-top: 16px;
@@ -175,21 +161,4 @@
   color: var(--textSecondary);
   margin-top: 3px;
   line-height: 1.45;
-}
-
-@media (max-width: 760px) {
-  .auth-shell {
-    grid-template-columns: 1fr;
-    gap: 28px;
-    max-width: 420px;
-  }
-  .auth-hero {
-    max-width: none;
-  }
-  .auth-hero h1 {
-    font-size: 26px;
-  }
-  .auth-bullets {
-    display: none;
-  }
 }
