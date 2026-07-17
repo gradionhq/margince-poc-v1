@@ -67,3 +67,36 @@ func TestConnectStampsAccountEmail(t *testing.T) {
 		t.Fatalf("account_email = %v, want %q", got, owner)
 	}
 }
+
+func TestResolveByAccountEmailFindsConnected(t *testing.T) {
+	e := setupSearch(t)
+	const owner = "rep@ws.example"
+	connID := connectGmailForPush(t, e, owner)
+
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	due, err := registry.ResolveByAccountEmail(context.Background(), "gmail", owner)
+	if err != nil {
+		t.Fatalf("ResolveByAccountEmail: %v", err)
+	}
+	if len(due) != 1 || due[0].ID != connID {
+		t.Fatalf("ResolveByAccountEmail = %+v, want the one connection %s", due, connID)
+	}
+
+	// An unknown mailbox resolves to nothing.
+	none, err := registry.ResolveByAccountEmail(context.Background(), "gmail", "stranger@nowhere.test")
+	if err != nil {
+		t.Fatalf("ResolveByAccountEmail(unknown): %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("ResolveByAccountEmail(unknown) = %+v, want empty", none)
+	}
+
+	// An empty email is a no-op, not a fleet scan.
+	empty, err := registry.ResolveByAccountEmail(context.Background(), "gmail", "")
+	if err != nil {
+		t.Fatalf("ResolveByAccountEmail(empty): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ResolveByAccountEmail(empty) = %+v, want empty", empty)
+	}
+}

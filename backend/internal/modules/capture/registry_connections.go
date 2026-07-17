@@ -111,6 +111,31 @@ func (r *Registry) DueConnections(ctx context.Context, name string) ([]DueConnec
 	})
 }
 
+// ResolveByAccountEmail lists every connected connection for provider name
+// whose account_email matches, across the whole fleet — the reverse lookup an
+// inbound provider push needs (it carries the mailbox address, not the
+// workspace). It reuses the RLS fleet-walk collectDue shares with the poll and
+// the watch scan: capture_connection is RLS-scoped, so the walk enters each
+// workspace's own GUC before selecting, tagging each hit with its workspace so
+// the caller can drive SyncOnce under the right tenant. An empty email is a
+// no-op (never a full scan). The same mailbox connected in more than one
+// workspace resolves to the full set — each connection has its own cursor.
+func (r *Registry) ResolveByAccountEmail(ctx context.Context, name, accountEmail string) ([]DueConnection, error) {
+	if accountEmail == "" {
+		return nil, nil
+	}
+	return r.collectDue(ctx, func(ctx context.Context, tx pgx.Tx) ([]ids.UUID, error) {
+		rows, err := tx.Query(ctx, `
+			SELECT id FROM capture_connection
+			WHERE provider = $1 AND account_email = $2 AND status = 'connected' AND archived_at IS NULL`,
+			name, accountEmail)
+		if err != nil {
+			return nil, err
+		}
+		return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	})
+}
+
 // collectDue is the RLS fleet-walk the poll (DueConnections) and the watch scan
 // (DueWatches) share: it enumerates every live workspace, enters each one's own
 // GUC, and appends the connection ids the per-workspace selector returns, tagged
