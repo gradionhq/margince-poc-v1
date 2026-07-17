@@ -144,8 +144,22 @@ up)
     set -a; . ./.env.local; set +a
   fi
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    sed "s#provider: anthropic, model: \([^ }]*\)#provider: anthropic, model: \1, api_key: ${ANTHROPIC_API_KEY}#g" \
-      "$routing_src" > "$routing"
+    if grep -qE '^[[:space:]]*api_key:' "$routing_src"; then
+      # The engineer bound their own literal keys — their file wins verbatim
+      # (injecting on top would duplicate the api_key mapping key).
+      cp "$routing_src" "$routing"
+    else
+      # Stamp the key under each anthropic tier's model line, at the tier's own
+      # indentation (the block-style shape config/ai-routing.example.yaml ships).
+      awk -v key="${ANTHROPIC_API_KEY}" '
+        { print }
+        /^[[:space:]]*provider:[[:space:]]*anthropic[[:space:]]*$/ { anthropic = 1 }
+        anthropic && /^[[:space:]]*model:/ {
+          print substr($0, 1, index($0, "model:") - 1) "api_key: " key
+          anthropic = 0
+        }
+      ' "$routing_src" > "$routing"
+    fi
     ai_flag=(--ai-routing "$routing")
     echo "dev: using real Anthropic model for the cold-start read-back (key from .env.local)"
   else
