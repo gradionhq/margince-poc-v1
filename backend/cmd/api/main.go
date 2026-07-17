@@ -40,6 +40,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
@@ -69,6 +70,9 @@ type apiConfig struct {
 	gmailClientID     string
 	gmailClientSecret string
 	connectorStateKey string
+	gmailPushAudience string
+	gmailPushSA       string
+	gmailJWKSURL      string
 }
 
 // parseAPIFlags parses and validates the boot flags; the DSN is the one
@@ -91,6 +95,9 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
 	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail connect flow")
+	fs.StringVar(&cfg.gmailPushAudience, "gmail-push-audience", os.Getenv("MARGINCE_GMAIL_PUSH_AUDIENCE"), "OIDC audience the Gmail Pub/Sub push subscription mints tokens for (this endpoint's public URL); with --gmail-push-service-account, enables POST /hooks/gmail/push")
+	fs.StringVar(&cfg.gmailPushSA, "gmail-push-service-account", os.Getenv("MARGINCE_GMAIL_PUSH_SERVICE_ACCOUNT"), "the Google push service account email that signs Pub/Sub push OIDC tokens; verified as the token's email claim")
+	fs.StringVar(&cfg.gmailJWKSURL, "gmail-jwks-url", os.Getenv("MARGINCE_GMAIL_JWKS_URL"), "override Google's OIDC JWKS URL (default https://www.googleapis.com/oauth2/v3/certs); test/dev only")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
@@ -150,6 +157,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, offerDraft...)
+
+	pushCfg := compose.GmailPushConfig{
+		Audience:       cfg.gmailPushAudience,
+		ServiceAccount: cfg.gmailPushSA,
+		JWKSURL:        cfg.gmailJWKSURL,
+	}
+	if pushCfg.Audience != "" && pushCfg.ServiceAccount != "" {
+		inserter, err := jobs.NewInserter(pool, logger)
+		if err != nil {
+			return fmt.Errorf("api: gmail push inserter: %w", err)
+		}
+		opts = append(opts, compose.WithGmailPush(inserter, pushCfg))
+		_, _ = fmt.Fprintln(stdout, "api gmail Pub/Sub push webhook enabled (POST /hooks/gmail/push)")
+	} else if cfg.gmailPushAudience != "" || cfg.gmailPushSA != "" {
+		_, _ = fmt.Fprintln(stdout, "api gmail push webhook configured but INCOMPLETE — needs both --gmail-push-audience and --gmail-push-service-account; surface stays 501")
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.addr,
