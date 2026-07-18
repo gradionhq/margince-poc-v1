@@ -366,6 +366,43 @@ func TestCrawlSpendsAScarcePageBudgetOnFactPagesBeforeBlogLinks(t *testing.T) {
 	}
 }
 
+func TestCrawlReadsOneLanguagePerDocumentButEveryLegalPage(t *testing.T) {
+	site := &fakeSite{pages: seedOnly()}
+	// The same three documents mounted under four locales, plus one page
+	// that exists ONLY under a locale prefix — that one must still be
+	// read. Legal pages are exempt from the collapse: the multi-entity
+	// conflict guard can only count what it reads, so every locale's
+	// imprint is fetched.
+	for _, path := range []string{"/about", "/imprint", "/pricing"} {
+		site.sitemap = append(site.sitemap, seedURL+path)
+		site.pages[seedURL+path] = fakeSitePage{text: readable("en " + path)}
+		for _, locale := range []string{"/de", "/vi", "/th"} {
+			site.sitemap = append(site.sitemap, seedURL+locale+path)
+			site.pages[seedURL+locale+path] = fakeSitePage{text: readable(locale + path)}
+		}
+	}
+	site.sitemap = append(site.sitemap, seedURL+"/de/karriere")
+	site.pages[seedURL+"/de/karriere"] = fakeSitePage{text: readable("/de/karriere")}
+
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, page := range crawl.Pages {
+		got = append(got, page.URL)
+	}
+	want := []string{
+		seedURL,
+		seedURL + "/imprint", seedURL + "/about", // the probes lead
+		seedURL + "/de/imprint", seedURL + "/vi/imprint", seedURL + "/th/imprint",
+		seedURL + "/pricing", seedURL + "/de/karriere",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("wrong collapse: locale variants must dedupe EXCEPT legal pages:\n got %v\nwant %v", got, want)
+	}
+}
+
 func TestNormalizeCandidateStripsTrackingParamsSoVariantsDedupe(t *testing.T) {
 	plain, ok := normalizeCandidate(seedURL + "/about")
 	if !ok {

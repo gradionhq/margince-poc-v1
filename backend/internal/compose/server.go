@@ -79,6 +79,11 @@ type Server struct {
 	quotasHandlers
 	attachmentExtractionHandlers
 
+	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
+	// when a subscription token is configured — the route is absent
+	// otherwise, never open.
+	gmailPush *gmailPushHandler
+
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.
@@ -444,6 +449,12 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
 	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
+	// Provider push webhooks: unauthenticated by nature (the provider is the
+	// caller), each verified by its own mechanism inside the handler; mounted
+	// only when configured — the route is absent otherwise.
+	if srv.gmailPush != nil {
+		mux.Handle("/webhooks/gmail-push", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
+	}
 	return mux
 }
 
