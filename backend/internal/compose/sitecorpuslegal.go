@@ -3,9 +3,10 @@
 
 package compose
 
-// The deep read's legal-identity gate, split from the corpus call
-// (sitecorpusread.go): the entity census becomes the multi-entity
-// abstention verdict, and legal-trio fields keep their authority rules.
+// The deep read's legal-identity gate: the entity census becomes the
+// multi-entity abstention verdict, and legal-trio fields keep their
+// authority rules — only a shallow legal page testifies, and a disputed
+// entity means no legal identity is proposed at all.
 
 import (
 	"net/url"
@@ -13,6 +14,13 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
+
+// corpusLegalEntity is one entity a legal page names — the census the
+// multi-entity abstention counts.
+type corpusLegalEntity struct {
+	Name      string `json:"name"`
+	SourceURL string `json:"source_url"`
+}
 
 // legalWarningMultipleEntities is the abstention's user-facing warning —
 // one spelling for the worker log, the debug report, and the E2E floor
@@ -23,19 +31,23 @@ const legalWarningMultipleEntities = "disagreeing legal pages: the domain hosts 
 // verdict: more than one normalized-distinct entity → the whole legal
 // trio is stripped (missing beats another company's); at most one → each
 // trio field survives only when quoted from a shallow legal page.
-func applyLegalGate(res corpusResult, idx corpusPages) ([]evidencedField, bool, []droppedFinding) {
+func applyLegalGate(fields []evidencedField, entities []corpusLegalEntity, pageKind map[string]crmcontracts.SiteReadPageKind, censusIncomplete bool) ([]evidencedField, bool, []droppedFinding) {
 	distinct := map[string]bool{}
-	for _, e := range res.legalEntities {
+	for _, e := range entities {
 		distinct[normalizeEvidence(e.Name)] = true
 	}
 	var dropped []droppedFinding
-	if len(distinct) > 1 {
-		kept := make([]evidencedField, 0, len(res.fields))
-		for _, f := range res.fields {
+	if censusIncomplete || len(distinct) > 1 {
+		reason := dropLegalConflict
+		if censusIncomplete && len(distinct) <= 1 {
+			reason = dropLegalCensusIncomplete
+		}
+		kept := make([]evidencedField, 0, len(fields))
+		for _, f := range fields {
 			if legalPageFields[f.Field] {
 				dropped = append(dropped, droppedFinding{
 					Lane: laneLegal, Field: f.Field, Value: f.Value,
-					EvidenceSnippet: f.EvidenceSnippet, Reason: dropLegalConflict,
+					EvidenceSnippet: f.EvidenceSnippet, Reason: reason,
 				})
 				continue
 			}
@@ -43,10 +55,10 @@ func applyLegalGate(res corpusResult, idx corpusPages) ([]evidencedField, bool, 
 		}
 		return kept, true, dropped
 	}
-	kept := make([]evidencedField, 0, len(res.fields))
-	for _, f := range res.fields {
+	kept := make([]evidencedField, 0, len(fields))
+	for _, f := range fields {
 		if legalPageFields[f.Field] &&
-			(idx.kind[f.SourceURL] != crmcontracts.SiteReadPageKindImpressum || !legalAuthorityPage(f.SourceURL)) {
+			(pageKind[f.SourceURL] != crmcontracts.SiteReadPageKindImpressum || !legalAuthorityPage(f.SourceURL)) {
 			dropped = append(dropped, droppedFinding{
 				Lane: laneLegal, Field: f.Field, Value: f.Value,
 				EvidenceSnippet: f.EvidenceSnippet, Reason: dropLegalNotFromLegalPage,
