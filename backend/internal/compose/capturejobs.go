@@ -73,6 +73,11 @@ type captureDigestWorker struct {
 	registry *capture.Registry
 	pool     *pgxpool.Pool
 	log      *slog.Logger
+	// now is the injected clock (nil = wall clock). The digest day is
+	// deliberately read at execution time, not enqueue time: the payload
+	// is as-of-now truths and a re-run replaces the day, so a retry that
+	// crosses midnight builds the morning actually being served.
+	now func() time.Time
 }
 
 func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDigestArgs]) error {
@@ -80,7 +85,11 @@ func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDige
 	if err != nil {
 		return err
 	}
-	today := time.Now().UTC()
+	clock := w.now
+	if clock == nil {
+		clock = time.Now
+	}
+	today := clock().UTC()
 	// One workspace's failure must not starve the rest — but a failed
 	// workspace must fail the job so River retries it rather than leaving
 	// it digest-less for the day.

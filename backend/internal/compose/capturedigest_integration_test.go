@@ -82,7 +82,7 @@ func TestMorningDigestBuildAndRead(t *testing.T) {
 	// Idempotent per (user, day): the nightly worker's own re-run (over
 	// every live workspace, today's date) replaces rather than stacks, and
 	// the latest read still answers exactly one row.
-	worker := &captureDigestWorker{registry: b.registry, pool: b.env.Pool, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	worker := &captureDigestWorker{registry: b.registry, pool: b.env.Pool, log: slog.New(slog.NewTextHandler(io.Discard, nil)), now: func() time.Time { return today }}
 	if err := worker.Work(context.Background(), nil); err != nil {
 		t.Fatalf("digest worker: %v", err)
 	}
