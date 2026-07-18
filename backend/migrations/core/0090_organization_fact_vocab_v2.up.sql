@@ -1,4 +1,4 @@
--- 0088: organization_fact vocabulary v2 — the extraction taxonomy adds two
+-- 0090: organization_fact vocabulary v2 — the extraction taxonomy adds two
 -- founder-set categories of published fact (2026-07-18): company/location
 -- (every office/site the company states — multi-value, keyed like the
 -- offering/signal fields) and signal/technology (platforms and stacks the

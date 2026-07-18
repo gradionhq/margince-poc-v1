@@ -1,4 +1,4 @@
--- 0088 down: restore the v1 vocabulary CHECKs. Rows using the v2 fields
+-- 0090 down: restore the v1 vocabulary CHECKs. Rows using the v2 fields
 -- (company/location, signal/technology) must be removed first or the
 -- narrowed constraints refuse to attach — the guard DELETE makes the down
 -- migration honest instead of leaving it to fail midway.
