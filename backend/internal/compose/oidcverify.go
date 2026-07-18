@@ -57,6 +57,15 @@ type googleOIDCVerifier struct {
 	keys        map[string]*rsa.PublicKey
 	expires     time.Time
 	nextRefresh time.Time
+	inflight    *jwksRefreshFlight
+}
+
+// jwksRefreshFlight coalesces concurrent JWKS refreshes: the first caller
+// fetches, everyone arriving while the fetch is in flight waits on done and
+// shares its outcome instead of being rejected by the cooldown.
+type jwksRefreshFlight struct {
+	done chan struct{}
+	err  error
 }
 
 func newGoogleOIDCVerifier(jwksURL, audience, serviceAccount string) *googleOIDCVerifier {
@@ -106,8 +115,8 @@ func (v *googleOIDCVerifier) Verify(ctx context.Context, bearer string) error {
 	if len(parts) != 3 {
 		return fmt.Errorf("%w: not a JWT", errOIDCRejected)
 	}
-	var hdr oidcHeader
-	if err := decodeSegment(parts[0], &hdr); err != nil {
+	hdr, err := decodeHeaderSegment(parts[0])
+	if err != nil {
 		return fmt.Errorf("%w: header: %v", errOIDCRejected, err)
 	}
 	if hdr.Alg != "RS256" {
@@ -120,8 +129,8 @@ func (v *googleOIDCVerifier) Verify(ctx context.Context, bearer string) error {
 	if err := verifyRS256(key, parts[0]+"."+parts[1], parts[2]); err != nil {
 		return fmt.Errorf("%w: signature: %v", errOIDCRejected, err)
 	}
-	var claims oidcClaims
-	if err := decodeSegment(parts[1], &claims); err != nil {
+	claims, err := decodeClaimsSegment(parts[1])
+	if err != nil {
 		return fmt.Errorf("%w: claims: %v", errOIDCRejected, err)
 	}
 	return v.checkClaims(claims)
@@ -144,7 +153,10 @@ func (v *googleOIDCVerifier) checkClaims(c oidcClaims) error {
 	if c.Exp == 0 || now.After(time.Unix(c.Exp, 0).Add(oidcSkew)) {
 		return fmt.Errorf("%w: expired", errOIDCRejected)
 	}
-	if c.Iat != 0 && now.Add(oidcSkew).Before(time.Unix(c.Iat, 0)) {
+	if c.Iat == 0 {
+		return fmt.Errorf("%w: missing iat", errOIDCRejected)
+	}
+	if now.Add(oidcSkew).Before(time.Unix(c.Iat, 0)) {
 		return fmt.Errorf("%w: issued in the future", errOIDCRejected)
 	}
 	return nil
@@ -188,28 +200,43 @@ type jwk struct {
 	E   string `json:"e"`
 }
 
-// refresh throttles JWKS fetches to at most one per jwksRefreshCooldown
-// across all callers, and performs the network fetch without holding v.mu —
-// only the cooldown decision and the eventual cache swap are locked.
+// refresh bounds JWKS fetches: concurrent callers coalesce onto one in-flight
+// fetch (waiting for its result rather than being rejected), and once a fetch
+// completes, further refreshes are throttled for jwksRefreshCooldown. The
+// network fetch runs without holding v.mu — only the flight bookkeeping and
+// the cache swap are locked.
 func (v *googleOIDCVerifier) refresh(ctx context.Context) error {
 	v.mu.Lock()
-	now := v.now()
-	if now.Before(v.nextRefresh) {
+	if fl := v.inflight; fl != nil {
+		v.mu.Unlock()
+		select {
+		case <-fl.done:
+			return fl.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if v.now().Before(v.nextRefresh) {
 		v.mu.Unlock()
 		return errors.New("jwks: refresh throttled")
 	}
-	v.nextRefresh = now.Add(jwksRefreshCooldown)
+	fl := &jwksRefreshFlight{done: make(chan struct{})}
+	v.inflight = fl
 	v.mu.Unlock()
 
 	keys, expires, err := v.fetchJWKS(ctx)
-	if err != nil {
-		return err
-	}
+
 	v.mu.Lock()
-	v.keys = keys
-	v.expires = expires
+	if err == nil {
+		v.keys = keys
+		v.expires = expires
+	}
+	v.nextRefresh = v.now().Add(jwksRefreshCooldown)
+	v.inflight = nil
+	fl.err = err
+	close(fl.done)
 	v.mu.Unlock()
-	return nil
+	return err
 }
 
 // fetchJWKS performs the outbound HTTPS GET and parses the key set. It takes
@@ -223,14 +250,15 @@ func (v *googleOIDCVerifier) fetchJWKS(ctx context.Context) (map[string]*rsa.Pub
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	//craft:ignore swallowed-errors best-effort close of the JWKS response body — the decoded keys are what matter
-	defer func() { _ = resp.Body.Close() }()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		return nil, time.Time{}, fmt.Errorf("jwks: close response body: %w", closeErr)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, time.Time{}, fmt.Errorf("jwks: status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, time.Time{}, err
+	if readErr != nil {
+		return nil, time.Time{}, readErr
 	}
 	var set struct {
 		Keys []jwk `json:"keys"`
@@ -306,11 +334,26 @@ func verifyRS256(key *rsa.PublicKey, signingInput, sigB64 string) error {
 	return rsa.VerifyPKCS1v15(key, crypto.SHA256, h[:], sig) // NOSONAR(go:S5542) verification, not encryption
 }
 
-//craft:ignore naked-any out is the caller-supplied decode target — header vs claims, so its concrete type varies per call
-func decodeSegment(seg string, out any) error {
+func decodeHeaderSegment(seg string) (oidcHeader, error) {
+	var hdr oidcHeader
 	b, err := base64.RawURLEncoding.DecodeString(seg)
 	if err != nil {
-		return err
+		return oidcHeader{}, err
 	}
-	return json.Unmarshal(b, out)
+	if err := json.Unmarshal(b, &hdr); err != nil {
+		return oidcHeader{}, err
+	}
+	return hdr, nil
+}
+
+func decodeClaimsSegment(seg string) (oidcClaims, error) {
+	var claims oidcClaims
+	b, err := base64.RawURLEncoding.DecodeString(seg)
+	if err != nil {
+		return oidcClaims{}, err
+	}
+	if err := json.Unmarshal(b, &claims); err != nil {
+		return oidcClaims{}, err
+	}
+	return claims, nil
 }

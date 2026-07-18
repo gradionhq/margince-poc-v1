@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,12 +27,18 @@ const (
 )
 
 // oidcTestRig serves a JWKS for one RSA key and mints signed tokens against
-// it. certsHits counts how many times the /certs endpoint was actually hit,
-// for asserting refresh-throttling behavior.
+// it. base is the rig's single fixed instant: minted claims and the verifier
+// clock both derive from it, so no test reads the real clock. certsHits
+// counts how many times the /certs endpoint was actually hit, for asserting
+// refresh-throttling behavior.
 type oidcTestRig struct {
 	key       *rsa.PrivateKey
+	base      time.Time
 	srv       *httptest.Server
 	certsHits atomic.Int32
+	// certsGate, when set before the first fetch, runs at the top of the
+	// /certs handler — the coalescing test uses it to hold a fetch in flight.
+	certsGate func()
 }
 
 func newOIDCTestRig(t *testing.T) *oidcTestRig {
@@ -40,19 +47,23 @@ func newOIDCTestRig(t *testing.T) *oidcTestRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rig := &oidcTestRig{key: key}
+	rig := &oidcTestRig{key: key, base: time.Unix(1750000000, 0)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/certs", func(w http.ResponseWriter, _ *http.Request) {
 		rig.certsHits.Add(1)
+		if rig.certsGate != nil {
+			rig.certsGate()
+		}
 		n := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
 		e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())
 		w.Header().Set("Content-Type", "application/json")
-		//craft:ignore swallowed-errors best-effort test JWKS response encode
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{
 				{"kid": testKID, "kty": "RSA", "alg": "RS256", "use": "sig", "n": n, "e": e},
 			},
-		})
+		}); err != nil {
+			t.Errorf("encode test JWKS response: %v", err)
+		}
 	})
 	rig.srv = httptest.NewServer(mux)
 	t.Cleanup(rig.srv.Close)
@@ -64,7 +75,8 @@ func (r *oidcTestRig) jwksURL() string { return r.srv.URL + "/certs" }
 func (r *oidcTestRig) certsHitCount() int32 { return r.certsHits.Load() }
 
 // mint builds a signed JWT. Pass kid="" to sign without a kid header; alg
-// overrides RS256; claims are merged over a valid default.
+// overrides RS256; claims are merged over a default that is valid at the
+// rig's fixed base instant.
 func (r *oidcTestRig) mint(t *testing.T, kid, alg string, claims map[string]any) string {
 	t.Helper()
 	if alg == "" {
@@ -79,14 +91,17 @@ func (r *oidcTestRig) mint(t *testing.T, kid, alg string, claims map[string]any)
 		"aud":            testAud,
 		"email":          testSA,
 		"email_verified": true,
-		"exp":            time.Now().Add(time.Hour).Unix(),
-		"iat":            time.Now().Add(-time.Minute).Unix(),
+		"exp":            r.base.Add(time.Hour).Unix(),
+		"iat":            r.base.Add(-time.Minute).Unix(),
 	}
 	for k, v := range claims {
 		base[k] = v
 	}
 	seg := func(v any) string {
-		b, _ := json.Marshal(v)
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("marshal JWT segment: %v", err)
+		}
 		return base64.RawURLEncoding.EncodeToString(b)
 	}
 	signingInput := seg(header) + "." + seg(base)
@@ -98,8 +113,12 @@ func (r *oidcTestRig) mint(t *testing.T, kid, alg string, claims map[string]any)
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
 
+// newTestVerifier pins the verifier's clock to the rig's fixed base instant;
+// tests that exercise time behavior override it via withClock.
 func newTestVerifier(rig *oidcTestRig) *googleOIDCVerifier {
-	return newGoogleOIDCVerifier(rig.jwksURL(), testAud, testSA).withHTTPClient(rig.srv.Client())
+	return newGoogleOIDCVerifier(rig.jwksURL(), testAud, testSA).
+		withHTTPClient(rig.srv.Client()).
+		withClock(func() time.Time { return rig.base })
 }
 
 func TestOIDCVerifyAcceptsValidToken(t *testing.T) {
@@ -112,7 +131,10 @@ func TestOIDCVerifyAcceptsValidToken(t *testing.T) {
 
 func TestOIDCVerifyRejects(t *testing.T) {
 	rig := newOIDCTestRig(t)
-	other, _ := rsa.GenerateKey(rand.Reader, 2048)
+	other, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cases := []struct {
 		name string
@@ -127,10 +149,13 @@ func TestOIDCVerifyRejects(t *testing.T) {
 		{"email-unverified", func() string { return rig.mint(t, testKID, "RS256", map[string]any{"email_verified": false}) }},
 		{"wrong-iss", func() string { return rig.mint(t, testKID, "RS256", map[string]any{"iss": "https://evil.test"}) }},
 		{"expired", func() string {
-			return rig.mint(t, testKID, "RS256", map[string]any{"exp": time.Now().Add(-time.Hour).Unix()})
+			return rig.mint(t, testKID, "RS256", map[string]any{"exp": rig.base.Add(-time.Hour).Unix()})
 		}},
 		{"future-iat", func() string {
-			return rig.mint(t, testKID, "RS256", map[string]any{"iat": time.Now().Add(time.Hour).Unix()})
+			return rig.mint(t, testKID, "RS256", map[string]any{"iat": rig.base.Add(time.Hour).Unix()})
+		}},
+		{"missing-iat", func() string {
+			return rig.mint(t, testKID, "RS256", map[string]any{"iat": 0})
 		}},
 		{"bad-signature", func() string {
 			// A token signed by a DIFFERENT key but advertising the served kid.
@@ -153,7 +178,7 @@ func TestOIDCVerifyRejects(t *testing.T) {
 // past exp+skew, and rejected again when moved before iat-skew.
 func TestOIDCVerifyHonorsInjectedClock(t *testing.T) {
 	rig := newOIDCTestRig(t)
-	iat := time.Now()
+	iat := rig.base
 	exp := iat.Add(time.Hour)
 	tok := rig.mint(t, testKID, "RS256", map[string]any{
 		"iat": iat.Unix(),
@@ -183,7 +208,7 @@ func TestOIDCVerifyHonorsInjectedClock(t *testing.T) {
 // kids arrive within the cooldown.
 func TestOIDCVerifyThrottlesJWKSRefresh(t *testing.T) {
 	rig := newOIDCTestRig(t)
-	now := time.Now()
+	now := rig.base
 	v := newTestVerifier(rig).withClock(func() time.Time { return now })
 
 	tok1 := rig.mint(t, "unknown-kid-1", "RS256", nil)
@@ -214,5 +239,42 @@ func TestOIDCVerifyThrottlesJWKSRefresh(t *testing.T) {
 	valid := rig.mint(t, testKID, "RS256", nil)
 	if err := v.Verify(context.Background(), valid); err != nil {
 		t.Fatalf("Verify(valid) = %v, want nil", err)
+	}
+}
+
+// TestOIDCVerifyCoalescesConcurrentJWKSRefresh proves a cold-cache burst
+// shares one JWKS fetch instead of the cooldown rejecting valid requests:
+// while the first caller's fetch is held in flight, a second caller with a
+// valid token must wait for that fetch's result and succeed — one certs hit,
+// zero 401s.
+func TestOIDCVerifyCoalescesConcurrentJWKSRefresh(t *testing.T) {
+	rig := newOIDCTestRig(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	rig.certsGate = func() {
+		once.Do(func() { close(entered) })
+		<-release
+	}
+
+	v := newTestVerifier(rig)
+	tok := rig.mint(t, testKID, "RS256", nil)
+
+	errA := make(chan error, 1)
+	go func() { errA <- v.Verify(context.Background(), tok) }()
+	// The first refresh is now registered and its fetch is held in flight.
+	<-entered
+	errB := make(chan error, 1)
+	go func() { errB <- v.Verify(context.Background(), tok) }()
+	close(release)
+
+	if err := <-errA; err != nil {
+		t.Fatalf("Verify(first, cold cache) = %v, want nil", err)
+	}
+	if err := <-errB; err != nil {
+		t.Fatalf("Verify(concurrent with in-flight refresh) = %v, want nil (coalesced, not throttled)", err)
+	}
+	if got := rig.certsHitCount(); got != 1 {
+		t.Fatalf("certs hits after concurrent cold-cache burst = %d, want 1", got)
 	}
 }
