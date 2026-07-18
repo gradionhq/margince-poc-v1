@@ -47,6 +47,8 @@ type ModelPath struct {
 	// the highest-volume, cheapest task, routed L-S with the C-C solo
 	// re-ask riding the same ladder.
 	CaptureClassify completer
+	// SignatureEnrich is the §2.9 evidence-or-omit field extraction lane.
+	SignatureEnrich completer
 	Embedder        search.Embedder // the retrieval embed lane
 }
 
@@ -67,6 +69,7 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
 		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
 		CaptureClassify: routerBrain{router: router, task: ai.TaskCaptureClassify},
+		SignatureEnrich: routerBrain{router: router, task: ai.TaskEnrich},
 		Embedder:        router,
 	}, nil
 }
@@ -86,7 +89,7 @@ func (p ModelPath) WriteMetrics(w io.Writer) {
 // wraps the fake in fakeBrain to satisfy runner.Brain's Meta return; the
 // direct-call lanes take the fake directly through the completer seam.
 func FakeModelPath(client *ai.FakeClient) ModelPath {
-	return ModelPath{Agent: fakeBrain{client: client}, ColdStart: client, SiteExtract: client, SiteFactExtract: client, BriefRank: client, OfferDraft: client, CaptureClassify: client, Embedder: client}
+	return ModelPath{Agent: fakeBrain{client: client}, ColdStart: client, SiteExtract: client, SiteFactExtract: client, BriefRank: client, OfferDraft: client, CaptureClassify: client, SignatureEnrich: client, Embedder: client}
 }
 
 // routerBrain adapts the tiered router into the 2-return completer seam

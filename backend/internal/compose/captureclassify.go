@@ -24,7 +24,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
@@ -89,7 +88,7 @@ func (c *CaptureClassifier) Run(ctx context.Context, maxLabels int) error {
 	if maxLabels <= 0 {
 		maxLabels = classifyCatchUpCap
 	}
-	workspaces, err := c.liveWorkspaces(ctx)
+	workspaces, err := liveWorkspaceIDs(ctx, c.pool)
 	if err != nil {
 		return err
 	}
@@ -122,25 +121,6 @@ func (c *CaptureClassifier) Run(ctx context.Context, maxLabels int) error {
 		}
 	}
 	return nil
-}
-
-// liveWorkspaces lists tenants — the workspace table is the tenant root
-// (outside RLS), the one legitimate cross-tenant read a scheduler makes.
-func (c *CaptureClassifier) liveWorkspaces(ctx context.Context) ([]ids.UUID, error) {
-	rows, err := c.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("classify: listing workspaces: %w", err)
-	}
-	defer rows.Close()
-	var out []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }
 
 // classifyBatch labels one batch with ONE model call and commits the
@@ -283,9 +263,9 @@ func classifySchema() json.RawMessage {
 		map[string]schema.Node{
 			"results": schema.Array(schema.Object(
 				map[string]schema.Node{
-					"id":         schema.String(),
-					"label":      schema.Enum("commitment", "meeting", "noise"),
-					"confidence": schema.Number(),
+					"id":                    schema.String(),
+					"label":                 schema.Enum("commitment", "meeting", "noise"),
+					extractionConfidenceKey: schema.Number(),
 				},
 				"id", "label", "confidence",
 			)),

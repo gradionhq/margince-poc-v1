@@ -250,6 +250,9 @@ type JobRunnerConfig struct {
 	// modelPath.CaptureClassify). Nil = no AI configured — the label pass
 	// is absent by omission and mail simply stays unlabeled (honest no-op).
 	ClassifyBrain completer
+	// EnrichBrain is the signature-enrich lane; nil = the pass is absent
+	// by omission and connector-created people keep their empty fields.
+	EnrichBrain completer
 	// DeepReadBrain is the model lane the site deep-read job extracts with
 	// (the worker's modelPath.SiteExtract — the crawl's own routing
 	// dial). May be nil: the deep-read worker still registers, so a
@@ -316,6 +319,19 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) { return CaptureClassifyArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	if cfg.EnrichBrain != nil {
+		river.AddWorker(workers, &captureEnrichWorker{
+			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
+		})
+		// Daily (the ADR-0063 nightly cadence rides the same job until the
+		// nightly dispatcher lands); run-on-start clears any backlog early.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureEnrichArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}
@@ -422,4 +438,21 @@ type captureClassifyWorker struct {
 
 func (w *captureClassifyWorker) Work(ctx context.Context, _ *river.Job[CaptureClassifyArgs]) error {
 	return w.classifier.Run(ctx, 0)
+}
+
+// CaptureEnrichArgs runs one signature-enrich pass (ADR-0063; §2.9).
+type CaptureEnrichArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureEnrichArgs) Kind() string { return "capture_enrich" }
+
+// captureEnrichWorker drives the evidence-gated signature pass; every
+// accepted field is auditable back to its verbatim signature line.
+type captureEnrichWorker struct {
+	river.WorkerDefaults[CaptureEnrichArgs]
+	enricher *CaptureEnricher
+}
+
+func (w *captureEnrichWorker) Work(ctx context.Context, _ *river.Job[CaptureEnrichArgs]) error {
+	return w.enricher.Run(ctx)
 }
