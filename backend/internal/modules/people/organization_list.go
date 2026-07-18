@@ -3,23 +3,25 @@
 
 package people
 
-// The organization list read: DM-VOCAB-2 sort vocabulary, keyset
-// pagination, row-scope + custom-field filtering (the
-// relationship_list.go shape).
+// The organization list read: the shared listPage runner bound to the
+// organization table — DM-VOCAB-2 sort vocabulary, the shared filter
+// chain plus the classification filter, and the organization row scan +
+// domain attachment.
 
 import (
 	"context"
-	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
+
+// organizationEntity is the organization's auth object and table name.
+const organizationEntity = "organization"
 
 // orgNameColumn is the organization's display column — the quick-find
 // target and the DM-VOCAB-2 name sort key.
@@ -55,100 +57,35 @@ var organizationListFields = map[string]string{
 // ListOrganizations is the row-scoped organization list read:
 // quick-find, owner, classification and custom-field filters, keyset
 // pagination under the validated sort.
-//
-//nolint:dupl // deliberately parallel to ListPeople: a generic page-runner would abstract over the two record types for symmetry alone (ADR-0054: split for a reason, never symmetry)
 func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
-	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		return nil, storekit.Page{}, err
+	shared := listFilters{
+		IncludeArchived: in.IncludeArchived,
+		OwnerID:         in.OwnerID,
+		Query:           in.Query,
+		Cursor:          in.Cursor,
+		CustomFilters:   in.CustomFilters,
+		nameColumn:      orgNameColumn,
 	}
-	active, err := s.activeColumns(ctx, "organization")
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(organizationListFields, active))
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	limit := storekit.ClampLimit(in.Limit)
-
-	where := []string{whereAlways}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	scope, err := auth.ScopeClauseFor(ctx, "organization", "", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-
-	filters, err := organizationListFilters(in, active, sorted, arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	where = append(where, filters...)
-
-	var orgs []crmcontracts.Organization
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+orgColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
-				` FROM organization WHERE `+strings.Join(where, " AND ")+
-				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		var cursorKeys []*string
-		if orgs, cursorKeys, err = scanOrganizationPage(rows, active, sorted); err != nil {
-			return err
-		}
-		if len(orgs) > limit {
-			orgs = orgs[:limit]
-			last := orgs[len(orgs)-1]
-			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return attachOrgDomains(ctx, tx, orgs)
+	return listPage(ctx, s, in.Sort, in.Limit, listPageSpec[crmcontracts.Organization]{
+		entity:  organizationEntity,
+		columns: orgColumns,
+		fields:  organizationListFields,
+		filters: func(active []fieldcatalog.Column, sorted *storekit.ListSort, arg func(any) int) ([]string, error) {
+			where, err := shared.clauses(active, sorted, arg)
+			if err != nil {
+				return nil, err
+			}
+			if in.Classification != nil {
+				where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
+			}
+			return where, nil
+		},
+		scan:   scanOrganizationPage,
+		attach: attachOrgDomains,
+		cursorKey: func(last crmcontracts.Organization) (time.Time, ids.UUID) {
+			return last.CreatedAt, ids.UUID(last.Id)
+		},
 	})
-	if orgs == nil {
-		orgs = []crmcontracts.Organization{}
-	}
-	return orgs, page, err
-}
-
-// organizationListFilters translates the request's optional filters into
-// WHERE clauses, appending their arguments through arg — archived
-// visibility, owner, classification, quick-find, custom-field equality,
-// and the keyset cursor.
-func organizationListFilters(in ListOrganizationsInput, active []fieldcatalog.Column, sorted *storekit.ListSort, arg func(any) int) ([]string, error) {
-	var where []string
-	if !in.IncludeArchived {
-		where = append(where, "archived_at IS NULL")
-	}
-	if in.OwnerID != nil {
-		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
-	}
-	if in.Classification != nil {
-		where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
-	}
-	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.QuickFindClause(arg(*in.Query), orgNameColumn))
-	}
-	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
-	if err != nil {
-		return nil, err
-	}
-	where = append(where, cfClauses...)
-	if in.Cursor != nil && *in.Cursor != "" {
-		clause, err := sorted.KeysetClause(*in.Cursor, arg)
-		if err != nil {
-			return nil, err
-		}
-		where = append(where, clause)
-	}
-	return where, nil
 }
 
 // scanOrganizationPage drains one list query's rows: each organization
