@@ -120,7 +120,7 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 	if report.ModelLaneError == "" {
 		rec.page = laneSynthesis
-		mergedFields = synthesizeSiteFields(ctx, extract, crawl.Pages[:len(perPage)], mergedFields)
+		mergedFields = synthesizeSiteFields(ctx, extract, crawl.Pages[:len(perPage)], mergedFields, legalConflict)
 	}
 	mergedFacts := mergeCategoryFacts(perPage)
 	mergedPeople := mergeTeamPeople(perPage)

@@ -93,8 +93,11 @@ func synthesisSchema(pageURLs []string) json.RawMessage {
 
 // synthesizeSiteFields runs the one synthesis call and folds its gated
 // corrections over the merged per-page fields. Any failure — the call,
-// the parse — logs and returns the merged input unchanged.
-func synthesizeSiteFields(ctx context.Context, x evidenceExtractor, pages []crawlPage, merged []evidencedField) []evidencedField {
+// the parse — logs and returns the merged input unchanged. legalConflict
+// carries mergeCrawlFields' multi-entity verdict: when the site's legal
+// pages disagree on the entity, the merge dropped the legal trio, and
+// the synthesis pass must not reintroduce it from the same pages.
+func synthesizeSiteFields(ctx context.Context, x evidenceExtractor, pages []crawlPage, merged []evidencedField, legalConflict bool) []evidencedField {
 	excerpts := synthesisExcerpts(pages)
 	if len(excerpts) == 0 || len(merged) == 0 {
 		// Nothing to reconcile against (or nothing extracted at all —
@@ -134,6 +137,20 @@ func synthesizeSiteFields(ctx context.Context, x evidenceExtractor, pages []craw
 	}
 
 	corrections, dropped := gateSynthesis(resp.Text, excerpts)
+	if legalConflict {
+		kept := corrections[:0]
+		for _, c := range corrections {
+			if legalPageFields[c.Field] {
+				dropped = append(dropped, droppedFinding{
+					Lane: laneSynthesis, Field: c.Field, Value: c.Value,
+					EvidenceSnippet: c.EvidenceSnippet, Reason: dropLegalConflict,
+				})
+				continue
+			}
+			kept = append(kept, c)
+		}
+		corrections = kept
+	}
 	x.reportDrops(ctx, laneSynthesis, dropped)
 	return applySynthesis(merged, corrections)
 }

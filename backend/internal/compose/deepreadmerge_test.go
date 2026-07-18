@@ -60,11 +60,15 @@ func TestMergeCrawlFieldsDeepLegalPathHasNoOverridePower(t *testing.T) {
 	}
 }
 
-func TestMergeCrawlFieldsDisagreeingLegalPagesCancelTheOverride(t *testing.T) {
+func TestMergeCrawlFieldsDisagreeingLegalPagesAbstainFromTheWholeLegalTrio(t *testing.T) {
+	seedFields := []evidencedField{
+		legalNameField("Acme Robotics", seedURL),
+		{Field: string(crmcontracts.DisplayName), Value: "Acme", EvidenceSnippet: "Acme", SourceURL: seedURL, Confidence: 0.9},
+	}
 	merged, conflict := mergeCrawlFields([]pageFields{
 		{
 			url: seedURL, kind: crmcontracts.SiteReadPageKindHome,
-			fields: []evidencedField{legalNameField("Acme Robotics", seedURL)},
+			fields: seedFields,
 		},
 		{
 			url: seedURL + "/impressum", kind: crmcontracts.SiteReadPageKindImpressum,
@@ -78,8 +82,11 @@ func TestMergeCrawlFieldsDisagreeingLegalPagesCancelTheOverride(t *testing.T) {
 	if !conflict {
 		t.Fatal("two disagreeing legal names must flag the multi-entity domain")
 	}
-	if len(merged) != 1 || merged[0].Value != "Acme Robotics" {
-		t.Fatalf("with the override cancelled the seed answer must stand: %+v", merged)
+	// With the entity in dispute, NO legal identity is proposed — not the
+	// losing legal page's, and not a marketing page's either. Non-legal
+	// fields survive untouched.
+	if len(merged) != 1 || merged[0].Field != string(crmcontracts.DisplayName) {
+		t.Fatalf("the abstention must strip the legal trio and keep the rest: %+v", merged)
 	}
 }
 

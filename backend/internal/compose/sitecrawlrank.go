@@ -48,6 +48,41 @@ func candidatePriority(cand crawlCandidate) int {
 	return priOther
 }
 
+// localePrefixes are the path-leading language tags multilingual sites
+// mount translations under. Deliberately an allowlist of common tags,
+// not a generic two-letter pattern: a generic match would eat real
+// pages like /go or /ai. Ambiguity remains possible (/it can be a
+// language or an IT-services page) — the dedupe below only fires when
+// the SAME path without the prefix was already read, which keeps the
+// false-positive to sites that pair such a page with an identical
+// unprefixed one.
+var localePrefixes = map[string]bool{
+	"en": true, "de": true, "fr": true, "es": true, "it": true, "pt": true,
+	"nl": true, "pl": true, "cs": true, "sv": true, "da": true, "no": true,
+	"fi": true, "ru": true, "uk": true, "tr": true, "ar": true, "he": true,
+	"ja": true, "ko": true, "th": true, "vi": true, "id": true, "ms": true,
+	"zh": true, "hi": true, "el": true, "ro": true, "hu": true, "bg": true,
+	"en-us": true, "en-gb": true, "de-de": true, "de-at": true, "de-ch": true,
+	"zh-cn": true, "zh-tw": true, "pt-br": true, "es-mx": true, "fr-ca": true,
+}
+
+// localeCanonical reduces a URL to its language-independent identity:
+// the host plus the path with one leading locale segment stripped (and
+// the query kept — it may address a distinct document). A URL with no
+// locale prefix is its own canonical form.
+func localeCanonical(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	segments := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
+	if len(segments) > 0 && localePrefixes[strings.ToLower(segments[0])] {
+		parsed.Path = "/" + strings.Join(segments[1:], "/")
+	}
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
 // boilerplatePath spots archive-shaped URLs (blogs, news, tag/category
 // listings, paginated indexes, dated posts) whose pages rarely state
 // company facts.

@@ -43,7 +43,7 @@ func TestSynthesisCorrectsAndFillsOnlyWithOnPageEvidence(t *testing.T) {
 
 	var dropped []droppedFinding
 	x := evidenceExtractor{brain: brain, drops: func(_ string, d droppedFinding) { dropped = append(dropped, d) }}
-	got := synthesizeSiteFields(context.Background(), x, synthesisFixturePages(), merged)
+	got := synthesizeSiteFields(context.Background(), x, synthesisFixturePages(), merged, false)
 
 	byField := map[string]evidencedField{}
 	for _, f := range got {
@@ -74,9 +74,43 @@ func TestSynthesisFailureKeepsThePerPageMerge(t *testing.T) {
 	merged := []evidencedField{
 		{Field: "legal_name", Value: "Acme Robotics GmbH", EvidenceSnippet: "Acme Robotics GmbH", SourceURL: seedURL + "/impressum", Confidence: 0.7},
 	}
-	got := synthesizeSiteFields(context.Background(), evidenceExtractor{brain: failingBrain{}}, synthesisFixturePages(), merged)
+	got := synthesizeSiteFields(context.Background(), evidenceExtractor{brain: failingBrain{}}, synthesisFixturePages(), merged, false)
 	if len(got) != 1 || got[0].Value != "Acme Robotics GmbH" {
 		t.Fatalf("a synthesis failure cost the read its merged fields: %+v", got)
+	}
+}
+
+func TestSynthesisUnderALegalConflictCannotReintroduceTheLegalTrio(t *testing.T) {
+	merged := []evidencedField{
+		{Field: "display_name", Value: "Acme", EvidenceSnippet: "Acme ships robots", SourceURL: seedURL, Confidence: 0.9},
+	}
+	// The reply corrects display_name (allowed) and tries to fill
+	// legal_name with perfectly valid on-page evidence — which the
+	// multi-entity conflict must still refuse.
+	brain := ai.NewFakeClient().Script(`{"fields":[
+		{"field":"display_name","value":"Acme Robotics","evidence_snippet":"Acme Robotics GmbH","source_url":"` + seedURL + `/impressum","confidence":0.9},
+		{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","source_url":"` + seedURL + `/impressum","confidence":0.9}]}`)
+
+	var dropped []droppedFinding
+	x := evidenceExtractor{brain: brain, drops: func(_ string, d droppedFinding) { dropped = append(dropped, d) }}
+	got := synthesizeSiteFields(context.Background(), x, synthesisFixturePages(), merged, true)
+
+	for _, f := range got {
+		if f.Field == "legal_name" {
+			t.Fatalf("the legal conflict was overridden by synthesis: %+v", f)
+		}
+	}
+	if len(got) != 1 || got[0].Value != "Acme Robotics" {
+		t.Fatalf("the non-legal correction should still apply: %+v", got)
+	}
+	var conflictDrop bool
+	for _, d := range dropped {
+		if d.Field == "legal_name" && d.Reason == dropLegalConflict {
+			conflictDrop = true
+		}
+	}
+	if !conflictDrop {
+		t.Fatalf("the refused legal_name left no legal_conflict drop record: %+v", dropped)
 	}
 }
 
@@ -84,7 +118,7 @@ func TestSynthesisSkipsWhenNothingWasExtracted(t *testing.T) {
 	// An empty merge means the per-page gate evidenced nothing; the
 	// synthesis call must not run and become a second extraction pass.
 	brain := ai.NewFakeClient()
-	got := synthesizeSiteFields(context.Background(), evidenceExtractor{brain: brain}, synthesisFixturePages(), nil)
+	got := synthesizeSiteFields(context.Background(), evidenceExtractor{brain: brain}, synthesisFixturePages(), nil, false)
 	if got != nil {
 		t.Fatalf("synthesis over an empty merge returned %+v", got)
 	}
