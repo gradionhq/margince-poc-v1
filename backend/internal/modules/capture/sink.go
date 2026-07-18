@@ -8,14 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture/exclusion"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -33,36 +31,6 @@ type Sink struct {
 	exclusions ExclusionRules
 	ensurer    CounterpartyEnsurer
 	freemail   *FreemailList
-}
-
-// CounterpartyEnsurer is the auto-create seam (ADR-0063): after a captured
-// mail activity commits, the pipeline ensures the human behind it exists —
-// person always, company unless suppressed — through the ONE dedupe
-// chokepoint. Compose injects the people module's implementation; capture
-// itself never touches person/organization SQL.
-type CounterpartyEnsurer interface {
-	EnsureCounterparty(ctx context.Context, in EnsureRequest) error
-}
-
-// EnsureRequest names one captured message's counterparty for the resolver.
-type EnsureRequest struct {
-	Email       string
-	DisplayName string // untrusted header text
-	Domain      string
-	OwnerID     ids.UUID // the granting human — owner of anything created
-	ActivityID  ids.UUID
-	Source      string
-	CapturedBy  string
-	SuppressOrg bool // free-mail domain: person yes, company no
-}
-
-// ExclusionRules is the RC-2 gate's seam: the caller's personal-mail rules,
-// loaded per capturing user. Injected so the ONE Sink runs the exclusion
-// gate for EVERY connector (imap one-shot, gmail sync) without any of them
-// knowing about it. nil means a role that wired no gate — then it is a
-// no-op and every record proceeds.
-type ExclusionRules interface {
-	RulesFor(ctx context.Context, userID ids.UUID) ([]exclusion.Rule, error)
 }
 
 // fieldSourceSystem is the shared audit/event key for the originating
@@ -108,16 +76,6 @@ func (s *Sink) WithStager(stager MergeStager) *Sink {
 func (s *Sink) WithExclusions(rules ExclusionRules) *Sink {
 	c := *s
 	c.exclusions = rules
-	return &c
-}
-
-// WithEnsurer returns a copy wired to the counterparty auto-create path;
-// freemail decides which domains never derive a company. nil ensurer keeps
-// capture activity-only (a role that wired no resolver).
-func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList) *Sink {
-	c := *s
-	c.ensurer = ensurer
-	c.freemail = freemail
 	return &c
 }
 
@@ -215,87 +173,6 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 	}
 	return ref, nil
-}
-
-// gateExclusion applies the RC-2 personal-mail gate: a record matching one
-// of the capturing user's rules records the skip (audit + one
-// capture.skipped event) and returns ErrSkip — so the connector counts it
-// and writes nothing else; otherwise nil, and ingestion proceeds.
-func (s *Sink) gateExclusion(ctx context.Context, rec connector.NormalizedRecord) error {
-	rule, excluded, err := s.excluded(ctx, rec)
-	if err != nil {
-		return err
-	}
-	if !excluded {
-		return nil
-	}
-	if err := s.emitSkip(ctx, rec, rule); err != nil {
-		return err
-	}
-	return fmt.Errorf("capture: %s/%s excluded by a personal-mail rule (%s): %w",
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, rule.Kind, connector.ErrSkip)
-}
-
-// excluded reports whether this record matches one of the capturing user's
-// personal-mail rules (RC-2), and which rule. Only mail records carry match
-// attributes, so a record with none (a lead, a non-mail activity) never
-// loads the rule set — the gate is free for them. The rules are the
-// on-behalf-of human's (the connector acts for them); the read is
-// RLS-scoped to the workspace already on the context.
-func (s *Sink) excluded(ctx context.Context, rec connector.NormalizedRecord) (exclusion.Rule, bool, error) {
-	if s.exclusions == nil || !hasMatchAttrs(rec.Match) {
-		return exclusion.Rule{}, false, nil
-	}
-	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
-	userID := actor.OnBehalfOf
-	if userID.IsZero() {
-		userID = actor.UserID
-	}
-	if userID.IsZero() {
-		// Fail closed: a capture connector always acts for a granting human
-		// (RC-8). With no effective user we cannot evaluate the personal-mail
-		// gate — refuse rather than load rules for the nil user and let
-		// personal mail through unexcluded.
-		return exclusion.Rule{}, false, errors.New("capture: exclusion gate has no capturing user — refusing to ingest unexcluded")
-	}
-	rules, err := s.exclusions.RulesFor(ctx, userID)
-	if err != nil {
-		return exclusion.Rule{}, false, fmt.Errorf("capture: loading exclusion rules: %w", err)
-	}
-	rule, ok := exclusion.Match(rec.Match, rules)
-	return rule, ok, nil
-}
-
-// hasMatchAttrs reports whether a record carries anything the gate can match
-// — the cheap short-circuit that keeps non-mail writes off the rule query.
-func hasMatchAttrs(a connector.ExclusionAttrs) bool {
-	return a.SenderDomain != "" || len(a.RecipientDomains) > 0 || len(a.Labels) > 0
-}
-
-// emitSkip records an excluded message: one system_log 'capture_skip' row
-// (the non-entity operational ledger — an excluded message mutates nothing,
-// so it has no place in audit_log) paired with exactly one entity-less
-// capture.skipped{personal_exclusion} bus event, in one transaction. No
-// domain row, no raw original — the message leaves nothing else behind. The
-// event is entity-less by nature (a pipeline event, events envelope class);
-// its ledger trace link is the system_log row's id.
-func (s *Sink) emitSkip(ctx context.Context, rec connector.NormalizedRecord, rule exclusion.Rule) error {
-	detail := map[string]any{
-		"reason":          "personal_exclusion",
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"source_id":       rec.NaturalKey.SourceID,
-		"rule_kind":       rule.Kind,
-	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		ledgerID, err := storekit.LogSystem(ctx, tx, "capture_skip", detail)
-		if err != nil {
-			return fmt.Errorf("capture: logging exclusion skip: %w", err)
-		}
-		if err := storekit.EmitPipeline(ctx, tx, ledgerID, "capture.skipped", detail); err != nil {
-			return fmt.Errorf("capture: emitting capture.skipped: %w", err)
-		}
-		return nil
-	})
 }
 
 // captureActivity lands one activity: upsert on the natural key, links,
@@ -568,91 +445,4 @@ func captureSource(rec connector.NormalizedRecord) string {
 // connectorPrincipalID renders the audit identity for a connector.
 func connectorPrincipalID(name string) string {
 	return "connector:" + strings.TrimPrefix(name, "connector:")
-}
-
-// ensureCounterparty is the auto-create follow-up for one freshly captured
-// mail activity: the deterministic gates first (internal domain → skip
-// everything; free-mail → person only), then the resolver seam. Runs after
-// the capture transaction committed, and NEVER fails the capture — a fault
-// lands in system_log for the nightly reconcile (the link-less connector
-// activity is the retry marker).
-func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedRecord, ref datasource.EntityRef) {
-	cp := rec.Counterparty
-	if s.ensurer == nil || cp.Email == "" || ref.Type != datasource.EntityActivity {
-		return
-	}
-	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
-	owner := actor.OnBehalfOf
-	if owner.IsZero() {
-		owner = actor.UserID
-	}
-	if owner.IsZero() {
-		// RC-8: a capture connector always acts for a granting human; with
-		// no owner nothing can honestly own the created rows.
-		s.logEnsureFault(ctx, rec, errors.New("no granting human on the connector principal"))
-		return
-	}
-	internal, err := s.internalDomain(ctx, cp.Domain)
-	if err != nil {
-		s.logEnsureFault(ctx, rec, err)
-		return
-	}
-	if internal {
-		// Colleagues, not customers: mail on the workspace's own domain
-		// creates nothing.
-		return
-	}
-	suppressOrg := s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
-	err = s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
-		Email:       cp.Email,
-		DisplayName: cp.DisplayName,
-		Domain:      cp.Domain,
-		OwnerID:     owner,
-		ActivityID:  ref.ID,
-		Source:      captureSource(rec),
-		CapturedBy:  actor.ID,
-		SuppressOrg: suppressOrg,
-	})
-	if err != nil {
-		s.logEnsureFault(ctx, rec, err)
-	}
-}
-
-// internalDomain reports whether domain is one of the workspace's own mail
-// domains (the colleagues gate).
-func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) {
-	if domain == "" {
-		return false, nil
-	}
-	var internal bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM workspace_email_domain WHERE domain = lower($1))`,
-			domain).Scan(&internal)
-	})
-	if err != nil {
-		return false, fmt.Errorf("capture: internal-domain gate: %w", err)
-	}
-	return internal, nil
-}
-
-// logEnsureFault records an auto-create failure in system_log — the
-// activity is already committed and stays; the nightly reconcile re-runs
-// the resolver over link-less connector activities.
-func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecord, cause error) {
-	detail := map[string]any{
-		"reason":          "counterparty_ensure_failed",
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"source_id":       rec.NaturalKey.SourceID,
-		"error":           cause.Error(),
-	}
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, logErr := storekit.LogSystem(ctx, tx, "capture_ensure_fault", detail)
-		return logErr
-	})
-	if err != nil {
-		// The ledger itself failed — nothing left but the process log; the
-		// nightly reconcile still finds the link-less activity.
-		slog.ErrorContext(ctx, "capture: recording ensure fault", "err", err, "cause", cause)
-	}
 }
