@@ -324,6 +324,22 @@ func (stubs) ListDealStakeholders(w nethttp.ResponseWriter, r *nethttp.Request, 
 	httperr.NotImplemented(w, r, "ListDealStakeholders")
 }
 
+func (stubs) ListDedupeCandidates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDedupeCandidatesParams) {
+	httperr.NotImplemented(w, r, "ListDedupeCandidates")
+}
+
+func (stubs) GetDedupeCandidate(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetDedupeCandidate")
+}
+
+func (stubs) DisposeDedupeCandidate(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "DisposeDedupeCandidate")
+}
+
+func (stubs) UndoDedupeDisposition(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UndoDedupeDisposition")
+}
+
 func (stubs) GetMorningDigest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetMorningDigestParams) {
 	httperr.NotImplemented(w, r, "GetMorningDigest")
 }

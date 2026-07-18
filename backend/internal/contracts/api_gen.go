@@ -362,79 +362,79 @@ func (e AuditHistoryEntryActorType) Valid() bool {
 
 // Defines values for AuditLogEntryAction.
 const (
-	ActivityRelink  AuditLogEntryAction = "activity_relink"
-	AdvanceStage    AuditLogEntryAction = "advance_stage"
-	Anonymize       AuditLogEntryAction = "anonymize"
-	Approve         AuditLogEntryAction = "approve"
-	Archive         AuditLogEntryAction = "archive"
-	Assign          AuditLogEntryAction = "assign"
-	ConsentGrant    AuditLogEntryAction = "consent_grant"
-	ConsentWithdraw AuditLogEntryAction = "consent_withdraw"
-	Create          AuditLogEntryAction = "create"
-	Demote          AuditLogEntryAction = "demote"
-	Disqualify      AuditLogEntryAction = "disqualify"
-	Erase           AuditLogEntryAction = "erase"
-	Export          AuditLogEntryAction = "export"
-	Import          AuditLogEntryAction = "import"
-	ImportUndo      AuditLogEntryAction = "import_undo"
-	Merge           AuditLogEntryAction = "merge"
-	Promote         AuditLogEntryAction = "promote"
-	RecordShare     AuditLogEntryAction = "record_share"
-	RecordUnshare   AuditLogEntryAction = "record_unshare"
-	Reject          AuditLogEntryAction = "reject"
-	Restore         AuditLogEntryAction = "restore"
-	SendEmail       AuditLogEntryAction = "send_email"
-	Update          AuditLogEntryAction = "update"
+	AuditLogEntryActionActivityRelink  AuditLogEntryAction = "activity_relink"
+	AuditLogEntryActionAdvanceStage    AuditLogEntryAction = "advance_stage"
+	AuditLogEntryActionAnonymize       AuditLogEntryAction = "anonymize"
+	AuditLogEntryActionApprove         AuditLogEntryAction = "approve"
+	AuditLogEntryActionArchive         AuditLogEntryAction = "archive"
+	AuditLogEntryActionAssign          AuditLogEntryAction = "assign"
+	AuditLogEntryActionConsentGrant    AuditLogEntryAction = "consent_grant"
+	AuditLogEntryActionConsentWithdraw AuditLogEntryAction = "consent_withdraw"
+	AuditLogEntryActionCreate          AuditLogEntryAction = "create"
+	AuditLogEntryActionDemote          AuditLogEntryAction = "demote"
+	AuditLogEntryActionDisqualify      AuditLogEntryAction = "disqualify"
+	AuditLogEntryActionErase           AuditLogEntryAction = "erase"
+	AuditLogEntryActionExport          AuditLogEntryAction = "export"
+	AuditLogEntryActionImport          AuditLogEntryAction = "import"
+	AuditLogEntryActionImportUndo      AuditLogEntryAction = "import_undo"
+	AuditLogEntryActionMerge           AuditLogEntryAction = "merge"
+	AuditLogEntryActionPromote         AuditLogEntryAction = "promote"
+	AuditLogEntryActionRecordShare     AuditLogEntryAction = "record_share"
+	AuditLogEntryActionRecordUnshare   AuditLogEntryAction = "record_unshare"
+	AuditLogEntryActionReject          AuditLogEntryAction = "reject"
+	AuditLogEntryActionRestore         AuditLogEntryAction = "restore"
+	AuditLogEntryActionSendEmail       AuditLogEntryAction = "send_email"
+	AuditLogEntryActionUpdate          AuditLogEntryAction = "update"
 )
 
 // Valid indicates whether the value is a known member of the AuditLogEntryAction enum.
 func (e AuditLogEntryAction) Valid() bool {
 	switch e {
-	case ActivityRelink:
+	case AuditLogEntryActionActivityRelink:
 		return true
-	case AdvanceStage:
+	case AuditLogEntryActionAdvanceStage:
 		return true
-	case Anonymize:
+	case AuditLogEntryActionAnonymize:
 		return true
-	case Approve:
+	case AuditLogEntryActionApprove:
 		return true
-	case Archive:
+	case AuditLogEntryActionArchive:
 		return true
-	case Assign:
+	case AuditLogEntryActionAssign:
 		return true
-	case ConsentGrant:
+	case AuditLogEntryActionConsentGrant:
 		return true
-	case ConsentWithdraw:
+	case AuditLogEntryActionConsentWithdraw:
 		return true
-	case Create:
+	case AuditLogEntryActionCreate:
 		return true
-	case Demote:
+	case AuditLogEntryActionDemote:
 		return true
-	case Disqualify:
+	case AuditLogEntryActionDisqualify:
 		return true
-	case Erase:
+	case AuditLogEntryActionErase:
 		return true
-	case Export:
+	case AuditLogEntryActionExport:
 		return true
-	case Import:
+	case AuditLogEntryActionImport:
 		return true
-	case ImportUndo:
+	case AuditLogEntryActionImportUndo:
 		return true
-	case Merge:
+	case AuditLogEntryActionMerge:
 		return true
-	case Promote:
+	case AuditLogEntryActionPromote:
 		return true
-	case RecordShare:
+	case AuditLogEntryActionRecordShare:
 		return true
-	case RecordUnshare:
+	case AuditLogEntryActionRecordUnshare:
 		return true
-	case Reject:
+	case AuditLogEntryActionReject:
 		return true
-	case Restore:
+	case AuditLogEntryActionRestore:
 		return true
-	case SendEmail:
+	case AuditLogEntryActionSendEmail:
 		return true
-	case Update:
+	case AuditLogEntryActionUpdate:
 		return true
 	default:
 		return false
@@ -1689,6 +1689,63 @@ func (e DealStatus) Valid() bool {
 	case DealStatusOpen:
 		return true
 	case DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DedupeCandidateEntityType.
+const (
+	DedupeCandidateEntityTypeOrganization DedupeCandidateEntityType = "organization"
+	DedupeCandidateEntityTypePerson       DedupeCandidateEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the DedupeCandidateEntityType enum.
+func (e DedupeCandidateEntityType) Valid() bool {
+	switch e {
+	case DedupeCandidateEntityTypeOrganization:
+		return true
+	case DedupeCandidateEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DedupeCandidateStatus.
+const (
+	DedupeCandidateStatusMerged        DedupeCandidateStatus = "merged"
+	DedupeCandidateStatusNotADuplicate DedupeCandidateStatus = "not_a_duplicate"
+	DedupeCandidateStatusOpen          DedupeCandidateStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the DedupeCandidateStatus enum.
+func (e DedupeCandidateStatus) Valid() bool {
+	switch e {
+	case DedupeCandidateStatusMerged:
+		return true
+	case DedupeCandidateStatusNotADuplicate:
+		return true
+	case DedupeCandidateStatusOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DedupeDispositionRequestDisposition.
+const (
+	DedupeDispositionRequestDispositionMerge         DedupeDispositionRequestDisposition = "merge"
+	DedupeDispositionRequestDispositionNotADuplicate DedupeDispositionRequestDisposition = "not_a_duplicate"
+)
+
+// Valid indicates whether the value is a known member of the DedupeDispositionRequestDisposition enum.
+func (e DedupeDispositionRequestDisposition) Valid() bool {
+	switch e {
+	case DedupeDispositionRequestDispositionMerge:
+		return true
+	case DedupeDispositionRequestDispositionNotADuplicate:
 		return true
 	default:
 		return false
@@ -4053,6 +4110,45 @@ func (e ListDealOffersParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListDedupeCandidatesParamsStatus.
+const (
+	ListDedupeCandidatesParamsStatusMerged        ListDedupeCandidatesParamsStatus = "merged"
+	ListDedupeCandidatesParamsStatusNotADuplicate ListDedupeCandidatesParamsStatus = "not_a_duplicate"
+	ListDedupeCandidatesParamsStatusOpen          ListDedupeCandidatesParamsStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the ListDedupeCandidatesParamsStatus enum.
+func (e ListDedupeCandidatesParamsStatus) Valid() bool {
+	switch e {
+	case ListDedupeCandidatesParamsStatusMerged:
+		return true
+	case ListDedupeCandidatesParamsStatusNotADuplicate:
+		return true
+	case ListDedupeCandidatesParamsStatusOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListDedupeCandidatesParamsEntityType.
+const (
+	ListDedupeCandidatesParamsEntityTypeOrganization ListDedupeCandidatesParamsEntityType = "organization"
+	ListDedupeCandidatesParamsEntityTypePerson       ListDedupeCandidatesParamsEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the ListDedupeCandidatesParamsEntityType enum.
+func (e ListDedupeCandidatesParamsEntityType) Valid() bool {
+	switch e {
+	case ListDedupeCandidatesParamsEntityTypeOrganization:
+		return true
+	case ListDedupeCandidatesParamsEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetFieldHistoryParamsEntityType.
 const (
 	GetFieldHistoryParamsEntityTypeActivity     GetFieldHistoryParamsEntityType = "activity"
@@ -4106,22 +4202,22 @@ func (e GetFieldHistoryParamsActorType) Valid() bool {
 
 // Defines values for ListLeadsParamsStatus.
 const (
-	Disqualified ListLeadsParamsStatus = "disqualified"
-	New          ListLeadsParamsStatus = "new"
-	Promoted     ListLeadsParamsStatus = "promoted"
-	Working      ListLeadsParamsStatus = "working"
+	ListLeadsParamsStatusDisqualified ListLeadsParamsStatus = "disqualified"
+	ListLeadsParamsStatusNew          ListLeadsParamsStatus = "new"
+	ListLeadsParamsStatusPromoted     ListLeadsParamsStatus = "promoted"
+	ListLeadsParamsStatusWorking      ListLeadsParamsStatus = "working"
 )
 
 // Valid indicates whether the value is a known member of the ListLeadsParamsStatus enum.
 func (e ListLeadsParamsStatus) Valid() bool {
 	switch e {
-	case Disqualified:
+	case ListLeadsParamsStatusDisqualified:
 		return true
-	case New:
+	case ListLeadsParamsStatusNew:
 		return true
-	case Promoted:
+	case ListLeadsParamsStatusPromoted:
 		return true
-	case Working:
+	case ListLeadsParamsStatusWorking:
 		return true
 	default:
 		return false
@@ -4382,22 +4478,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	Dropped       ListSignalsParamsResolutionState = "dropped"
-	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	Resolved      ListSignalsParamsResolutionState = "resolved"
-	Unresolved    ListSignalsParamsResolutionState = "unresolved"
+	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
+	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
+	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case Dropped:
+	case ListSignalsParamsResolutionStateDropped:
 		return true
-	case LowConfidence:
+	case ListSignalsParamsResolutionStateLowConfidence:
 		return true
-	case Resolved:
+	case ListSignalsParamsResolutionStateResolved:
 		return true
-	case Unresolved:
+	case ListSignalsParamsResolutionStateUnresolved:
 		return true
 	default:
 		return false
@@ -5888,6 +5984,59 @@ type DealListResponse struct {
 	Data []Deal   `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// DedupeCandidate One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8).
+type DedupeCandidate struct {
+	// Confidence The PO-F-1/PO-F-2 fuzzy score at detection.
+	Confidence float32                   `json:"confidence"`
+	CreatedAt  time.Time                 `json:"created_at"`
+	DisposedAt *time.Time                `json:"disposed_at,omitempty"`
+	DisposedBy *openapi_types.UUID       `json:"disposed_by,omitempty"`
+	EntityType DedupeCandidateEntityType `json:"entity_type"`
+
+	// Evidence Per-field agree/collide snapshot captured at detection — what the queue renders (AC-dedupe-2/3); never re-derived against since-edited rows.
+	Evidence []struct {
+		// Field full_name, org, domain, …
+		Field      string  `json:"field"`
+		LeftValue  *string `json:"left_value"`
+		RightValue *string `json:"right_value"`
+
+		// Score The field's contribution where scored (e.g. name_sim).
+		Score *float32 `json:"score,omitempty"`
+
+		// Signal agree | collide | one_sided
+		Signal string `json:"signal"`
+	} `json:"evidence"`
+	Id openapi_types.UUID `json:"id"`
+
+	// LeftId Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.
+	LeftId  openapi_types.UUID    `json:"left_id"`
+	RightId openapi_types.UUID    `json:"right_id"`
+	Status  DedupeCandidateStatus `json:"status"`
+}
+
+// DedupeCandidateEntityType defines model for DedupeCandidate.EntityType.
+type DedupeCandidateEntityType string
+
+// DedupeCandidateStatus defines model for DedupeCandidate.Status.
+type DedupeCandidateStatus string
+
+// DedupeCandidateListResponse defines model for DedupeCandidateListResponse.
+type DedupeCandidateListResponse struct {
+	Data []DedupeCandidate `json:"data"`
+	Page *PageInfo         `json:"page,omitempty"`
+}
+
+// DedupeDispositionRequest defines model for DedupeDispositionRequest.
+type DedupeDispositionRequest struct {
+	Disposition DedupeDispositionRequestDisposition `json:"disposition"`
+
+	// WinnerId Required for merge: the surviving record — must be one of the pair.
+	WinnerId *openapi_types.UUID `json:"winner_id,omitempty"`
+}
+
+// DedupeDispositionRequestDisposition defines model for DedupeDispositionRequest.Disposition.
+type DedupeDispositionRequestDisposition string
 
 // EmailDraft A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
 type EmailDraft struct {
@@ -8753,6 +8902,22 @@ type CreateOfferParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListDedupeCandidatesParams defines parameters for ListDedupeCandidates.
+type ListDedupeCandidatesParams struct {
+	Status     *ListDedupeCandidatesParamsStatus     `form:"status,omitempty" json:"status,omitempty"`
+	EntityType *ListDedupeCandidatesParamsEntityType `form:"entity_type,omitempty" json:"entity_type,omitempty"`
+
+	// Cursor Opaque keyset cursor.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListDedupeCandidatesParamsStatus defines parameters for ListDedupeCandidates.
+type ListDedupeCandidatesParamsStatus string
+
+// ListDedupeCandidatesParamsEntityType defines parameters for ListDedupeCandidates.
+type ListDedupeCandidatesParamsEntityType string
+
 // GetMorningDigestParams defines parameters for GetMorningDigest.
 type GetMorningDigestParams struct {
 	// Date A specific digest day; default: the latest generated.
@@ -9978,6 +10143,9 @@ type AdvanceDealJSONRequestBody = AdvanceDealRequest
 
 // CreateOfferJSONRequestBody defines body for CreateOffer for application/json ContentType.
 type CreateOfferJSONRequestBody = CreateOfferRequest
+
+// DisposeDedupeCandidateJSONRequestBody defines body for DisposeDedupeCandidate for application/json ContentType.
+type DisposeDedupeCandidateJSONRequestBody = DedupeDispositionRequest
 
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
@@ -15189,6 +15357,18 @@ type ServerInterface interface {
 	// List a deal's stakeholders (deal↔person relationships).
 	// (GET /deals/{id}/stakeholders)
 	ListDealStakeholders(w http.ResponseWriter, r *http.Request, id Id)
+	// The dedupe review queue, confidence-sorted.
+	// (GET /dedupe/candidates)
+	ListDedupeCandidates(w http.ResponseWriter, r *http.Request, params ListDedupeCandidatesParams)
+	// One candidate with its full detection-time evidence.
+	// (GET /dedupe/candidates/{id})
+	GetDedupeCandidate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Decide one pair — merge through the owner's verb, or dismiss forever.
+	// (POST /dedupe/candidates/{id}/disposition)
+	DisposeDedupeCandidate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Re-open a disposed pair.
+	// (POST /dedupe/candidates/{id}/undo)
+	UndoDedupeDisposition(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// The calling user's morning digest — what capture did overnight.
 	// (GET /digest)
 	GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams)
@@ -16017,6 +16197,30 @@ func (_ Unimplemented) CreateOffer(w http.ResponseWriter, r *http.Request, id Id
 // List a deal's stakeholders (deal↔person relationships).
 // (GET /deals/{id}/stakeholders)
 func (_ Unimplemented) ListDealStakeholders(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The dedupe review queue, confidence-sorted.
+// (GET /dedupe/candidates)
+func (_ Unimplemented) ListDedupeCandidates(w http.ResponseWriter, r *http.Request, params ListDedupeCandidatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One candidate with its full detection-time evidence.
+// (GET /dedupe/candidates/{id})
+func (_ Unimplemented) GetDedupeCandidate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Decide one pair — merge through the owner's verb, or dismiss forever.
+// (POST /dedupe/candidates/{id}/disposition)
+func (_ Unimplemented) DisposeDedupeCandidate(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-open a disposed pair.
+// (POST /dedupe/candidates/{id}/undo)
+func (_ Unimplemented) UndoDedupeDisposition(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -20282,6 +20486,180 @@ func (siw *ServerInterfaceWrapper) ListDealStakeholders(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDealStakeholders(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDedupeCandidates operation middleware
+func (siw *ServerInterfaceWrapper) ListDedupeCandidates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDedupeCandidatesParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "entity_type", r.URL.Query(), &params.EntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDedupeCandidates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDedupeCandidate operation middleware
+func (siw *ServerInterfaceWrapper) GetDedupeCandidate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDedupeCandidate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisposeDedupeCandidate operation middleware
+func (siw *ServerInterfaceWrapper) DisposeDedupeCandidate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisposeDedupeCandidate(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UndoDedupeDisposition operation middleware
+func (siw *ServerInterfaceWrapper) UndoDedupeDisposition(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UndoDedupeDisposition(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26930,6 +27308,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/stakeholders", wrapper.ListDealStakeholders)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/dedupe/candidates", wrapper.ListDedupeCandidates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/dedupe/candidates/{id}", wrapper.GetDedupeCandidate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/dedupe/candidates/{id}/disposition", wrapper.DisposeDedupeCandidate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/dedupe/candidates/{id}/undo", wrapper.UndoDedupeDisposition)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/digest", wrapper.GetMorningDigest)

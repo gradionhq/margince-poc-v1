@@ -31,6 +31,9 @@ import (
 
 // The repeated storage vocabulary of this engine, named once.
 const (
+	evidenceFieldKey   = "field"
+	evidenceScoreKey   = "score"
+	evidenceSignalKey  = "signal"
 	entityPerson       = "person"
 	entityOrganization = "organization"
 	fieldFullName      = "full_name"
@@ -145,8 +148,19 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	res.PersonCreated = true
 
 	if match.Decision == DecisionFuzzyReview {
+		// The detection-time snapshot the queue renders (DH-N-8): captured
+		// NOW, against the incumbent as it looked when the score was
+		// computed — never re-derived later.
+		var incumbentName string
+		if err := tx.QueryRow(ctx, `SELECT full_name FROM person WHERE id = $1`, match.PersonID).Scan(&incumbentName); err != nil {
+			return fmt.Errorf("people: reading dedupe incumbent: %w", err)
+		}
+		evidence := []map[string]any{
+			{evidenceFieldKey: fieldFullName, "left_value": name, "right_value": incumbentName, evidenceSignalKey: "collide", evidenceScoreKey: match.Confidence},
+			{evidenceFieldKey: fieldEmail, "left_value": in.Email, "right_value": nil, evidenceSignalKey: "one_sided"},
+		}
 		recorded, err := recordDedupeCandidate(ctx, tx, entityPerson, id.UUID, match.PersonID.UUID, match.Confidence,
-			map[string]any{fieldFullName: name, fieldEmail: in.Email}, in.Source, in.CapturedBy)
+			evidence, in.Source, in.CapturedBy)
 		if err != nil {
 			return err
 		}
@@ -230,7 +244,7 @@ func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, in EnsureCo
 // recordDedupeCandidate stores the pair canonically (lower id left,
 // DH-DDL-1); the unique pair index makes a re-detection a no-op — reported
 // as recorded=false so counters stay honest.
-func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a, b ids.UUID, confidence float64, evidence map[string]any, source, by string) (bool, error) {
+func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a, b ids.UUID, confidence float64, evidence []map[string]any, source, by string) (bool, error) {
 	left, right := a, b
 	if right.String() < left.String() {
 		left, right = right, left
