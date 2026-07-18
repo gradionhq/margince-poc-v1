@@ -37,12 +37,13 @@ type completer interface {
 // decides the tier per workload, and every lane draws on the
 // seat-derived monthly budget.
 type ModelPath struct {
-	Agent       runner.Brain    // the Surface-B reason-act loop (records served model identity)
-	ColdStart   completer       // the website read-back extraction
-	SiteExtract completer       // the deep site read's page extraction
-	BriefRank   completer       // the Morning-Brief L2 re-order (B-E05.2)
-	OfferDraft  completer       // the offer regenerate-from-signal drafting call
-	Embedder    search.Embedder // the retrieval embed lane
+	Agent           runner.Brain    // the Surface-B reason-act loop (records served model identity)
+	ColdStart       completer       // the website read-back extraction
+	SiteExtract     completer       // the deep read's profile lane (one premium-first call)
+	SiteFactExtract completer       // the deep read's page-parallel fact lane (fast tier)
+	BriefRank       completer       // the Morning-Brief L2 re-order (B-E05.2)
+	OfferDraft      completer       // the offer regenerate-from-signal drafting call
+	Embedder        search.Embedder // the retrieval embed lane
 }
 
 // NewModelPath builds the production model path from a validated
@@ -55,12 +56,13 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 		return ModelPath{}, err
 	}
 	return ModelPath{
-		Agent:       agentBrain{router: router},
-		ColdStart:   routerBrain{router: router, task: ai.TaskColdStart},
-		SiteExtract: routerBrain{router: router, task: ai.TaskSiteExtract},
-		BriefRank:   routerBrain{router: router, task: ai.TaskBriefRanking},
-		OfferDraft:  routerBrain{router: router, task: ai.TaskOfferDraft},
-		Embedder:    router,
+		Agent:           agentBrain{router: router},
+		ColdStart:       routerBrain{router: router, task: ai.TaskColdStart},
+		SiteExtract:     routerBrain{router: router, task: ai.TaskSiteExtract},
+		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
+		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
+		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		Embedder:        router,
 	}, nil
 }
 
@@ -82,12 +84,13 @@ func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath,
 		return ModelPath{}, err
 	}
 	return ModelPath{
-		Agent:       agentBrain{router: router},
-		ColdStart:   routerBrain{router: router, task: ai.TaskColdStart},
-		SiteExtract: routerBrain{router: router, task: ai.TaskSiteExtract},
-		BriefRank:   routerBrain{router: router, task: ai.TaskBriefRanking},
-		OfferDraft:  routerBrain{router: router, task: ai.TaskOfferDraft},
-		Embedder:    router,
+		Agent:           agentBrain{router: router},
+		ColdStart:       routerBrain{router: router, task: ai.TaskColdStart},
+		SiteExtract:     routerBrain{router: router, task: ai.TaskSiteExtract},
+		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
+		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
+		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		Embedder:        router,
 	}, nil
 }
 

@@ -92,30 +92,31 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
 		people:    people.NewStore(pool),
 		crawler:   newSiteCrawler(fetcher, caps),
-		extract:   evidenceExtractor{fetch: fetcher, brain: brain},
+		extract:   evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
 		approvals: approvals.NewService(pool),
 		log:       log,
 		caps:      caps,
 	}
 }
 
-// perCorpusCallBudget is the allowance one corpus call gets in the
-// job-timeout arithmetic — a large structured answer plus the validator's
-// retry-and-escalate headroom.
-const perCorpusCallBudget = 3 * time.Minute
+// extractLaneBudget is the parallel extraction's allowance in the
+// job-timeout arithmetic: the page fan-out and the profile call run
+// concurrently, each a small fast call plus the validator's retry-and-
+// escalate headroom.
+const extractLaneBudget = 90 * time.Second
 
-// Timeout overrides River's 1-minute default. The budget scales with the
-// configured caps: the crawl wall plus at most maxCorpusChunks corpus
-// calls plus a minute for the staging and dossier writes — floored at
-// eight minutes so a tightened cap never squeezes the terminal writes.
+// Timeout overrides River's 1-minute default: the crawl wall plus the
+// parallel extraction budget plus a minute for the staging and dossier
+// writes — floored at eight minutes so a tightened cap never squeezes
+// the terminal writes.
 func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	budget := w.caps.Wall + maxCorpusChunks*perCorpusCallBudget + time.Minute
+	budget := w.caps.Wall + extractLaneBudget + time.Minute
 	if floor := 8 * time.Minute; budget < floor {
 		return floor
 	}
@@ -166,60 +167,49 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "crawling", 0); err != nil {
 		w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
 	}
-	// The crawler owns the wall clock (caps.Wall) inside Crawl; a seed page
-	// that cannot be read at all is a failed read, not an empty one.
-	crawl, err := w.crawler.Crawl(ctx, claim.SeedURL)
-	if err != nil {
-		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
-	}
-
-	chunks := buildCorpusChunks(crawl.Pages, corpusBudgetRunes)
+	// Crawl and extraction OVERLAP (crawlAndExtract): page calls launch
+	// as pages commit, so the crawl's slow tail hides behind extraction.
+	// The crawler owns the wall clock (caps.Wall); a seed page that
+	// cannot be read at all is a failed read, not an empty one.
 	progress := func(pagesDone int) {
 		if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "extracting", pagesDone); err != nil {
 			w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
 		}
 	}
-	progress(0)
-	extractedSoFar := 0
-	results, extractedPages, modelErr := extractCorpusChunks(ctx, w.extract, claim.SeedURL, chunks, func(done, total int) {
-		extractedSoFar = 0
-		for _, chunk := range chunks[:done] {
-			extractedSoFar += len(chunk.pages)
-		}
-		progress(extractedSoFar)
-	})
-	merged := mergeChunkResults(results)
-	idx := indexCorpusPages(corpusChunk{pages: extractedPages})
-	mergedFields, legalConflict, legalDrops := applyLegalGate(merged, idx)
+	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress)
+	if err != nil {
+		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
+	}
+	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)
 	if legalConflict {
 		w.log.WarnContext(ctx, legalWarningMultipleEntities,
 			"read", args.SiteReadID.String(), "seed", claim.SeedURL)
 	}
-	factCount := len(mergedFields) + len(merged.facts)
-	if modelErr != nil && factCount == 0 && len(merged.people) == 0 {
-		// The model lane died before anything was evidenced: nothing honest
+	factCount := len(mergedFields) + len(extraction.merged.facts)
+	if extraction.err != nil && factCount == 0 && len(extraction.merged.people) == 0 {
+		// Every lane died before anything was evidenced: nothing honest
 		// to report but the failure itself.
-		return w.fail(ctx, args.SiteReadID, modelErr)
+		return w.fail(ctx, args.SiteReadID, extraction.err)
 	}
 
-	readPages := extractedPages
+	readPages := crawl.Pages
 	status := "done"
 	if crawl.Stopped != nil {
 		status = "partial"
 	}
-	if modelErr != nil {
-		// A later chunk died with evidence already in hand: the chunks that
-		// completed are the read, staged below like any other — a partial
+	if extraction.err != nil {
+		// Part of the fan-out died with evidence already in hand: what
+		// completed is the read, staged below like any other — a partial
 		// that keeps what was honestly read, never a failure that discards
 		// it. The terminal status makes returned-error retry churn
 		// pointless, so the cause is logged instead.
 		status = "partial"
-		w.log.ErrorContext(ctx, "site deep read degraded to partial: extraction failed midway",
-			"read", args.SiteReadID.String(), "err", modelErr)
+		w.log.ErrorContext(ctx, "site deep read degraded to partial: extraction failed in part",
+			"read", args.SiteReadID.String(), "err", extraction.err)
 	}
 
-	proposalIDs, err := w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, merged.facts, merged.people, len(readPages))
+	proposalIDs, err := w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
 	if err != nil {
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}

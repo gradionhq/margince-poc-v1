@@ -91,12 +91,13 @@ func (c CrawlCaps) withDefaults() CrawlCaps {
 	return c
 }
 
-// crawlFetchWave is how many admitted candidates fetch concurrently per
-// wave — matched to the webread pacer's in-flight budget. Results COMMIT
-// strictly in wave order, so the walk stays deterministic whatever order
-// the responses arrive in; tests pin the wave to 1 so their in-memory
-// fetch logs stay sequential too.
-const crawlFetchWave = 12
+// The crawl selects FRONTIER-sized waves: every admissible candidate
+// known at selection time fetches concurrently (the webread pacer's
+// in-flight budget does the throttling), and results COMMIT strictly in
+// selection order, so the walk stays deterministic whatever order the
+// responses arrive in. Most of a site's candidates are known after the
+// probes + sitemap, so the whole crawl is ~2 waves. Tests pin the wave
+// to 1 so their in-memory fetch logs stay sequential.
 
 type siteCrawler struct {
 	fetch     siteFetcher
@@ -110,12 +111,13 @@ type siteCrawler struct {
 func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
 	caps = caps.withDefaults()
 	return &siteCrawler{
-		fetch:     fetch,
-		newPacer:  func() crawlPacer { return webread.NewPacer() },
-		maxPages:  caps.MaxPages,
-		maxBytes:  caps.MaxBytes,
-		wall:      caps.Wall,
-		fetchWave: crawlFetchWave,
+		fetch:    fetch,
+		newPacer: func() crawlPacer { return webread.NewPacer() },
+		maxPages: caps.MaxPages,
+		maxBytes: caps.MaxBytes,
+		wall:     caps.Wall,
+		// Frontier sizing: the page budget itself is the wave bound.
+		fetchWave: caps.MaxPages,
 	}
 }
 
@@ -156,6 +158,13 @@ type crawlCandidate struct {
 // failing is a failed crawl, not a partial one — every later loss degrades to
 // a recorded skip or an early stop instead.
 func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, error) {
+	return c.CrawlStream(ctx, seedURL, nil)
+}
+
+// CrawlStream is Crawl with a per-commit hook: onPage fires serially,
+// in commit order, the moment a page joins the result — the seam that
+// lets extraction START while the crawl still runs. A nil hook is Crawl.
+func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage func(crawlPage)) (siteCrawl, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.wall)
 	defer cancel()
 	pacer := c.newPacer()
@@ -170,6 +179,10 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 	}
 
 	run := newCrawlRun(c, pacer, seedURL, seedPage)
+	run.onPage = onPage
+	if onPage != nil {
+		onPage(run.crawl.Pages[0]) // the seed page is committed already
+	}
 	run.discover(ctx, seedParsed.Scheme+"://"+seedParsed.Host, seedPage)
 	// Highest-priority-first selection in concurrent WAVES: each round
 	// picks the best untaken candidates (bounded by the fetch wave and
@@ -195,23 +208,7 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 		if remaining := c.maxPages - len(run.crawl.Pages); remaining < waveMax {
 			waveMax = remaining
 		}
-		var wave []crawlCandidate
-		for len(wave) < waveMax {
-			next := -1
-			for i := range run.queue {
-				if taken[i] {
-					continue
-				}
-				if next == -1 || priority[i] > priority[next] {
-					next = i
-				}
-			}
-			if next == -1 {
-				break
-			}
-			taken[next] = true
-			wave = append(wave, run.queue[next])
-		}
+		wave := selectWave(run.queue, priority, taken, waveMax)
 		if len(wave) == 0 {
 			break // discovery exhausted, the natural end
 		}
@@ -237,6 +234,29 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 	}
 	run.crawl.TotalBytes = run.totalBytes
 	return run.crawl, nil
+}
+
+// selectWave marks and returns the next wave: the highest-priority
+// untaken candidates, insertion order breaking ties, up to waveMax.
+func selectWave(queue []crawlCandidate, priority []int, taken []bool, waveMax int) []crawlCandidate {
+	var wave []crawlCandidate
+	for len(wave) < waveMax {
+		next := -1
+		for i := range queue {
+			if taken[i] {
+				continue
+			}
+			if next == -1 || priority[i] > priority[next] {
+				next = i
+			}
+		}
+		if next == -1 {
+			break
+		}
+		taken[next] = true
+		wave = append(wave, queue[next])
+	}
+	return wave
 }
 
 // untakenCandidates lists what the selection never reached, in insertion
@@ -268,6 +288,7 @@ type crawlRun struct {
 	seedURL string
 
 	crawl         siteCrawl
+	onPage        func(crawlPage)
 	queue         []crawlCandidate
 	visited       map[string]bool
 	seenText      map[string]bool
@@ -344,9 +365,9 @@ func leftBehind(rest []crawlCandidate, visited map[string]bool, stop crmcontract
 	var reason crmcontracts.SiteReadSkipReason
 	switch stop {
 	case crmcontracts.SiteReadReportStoppedReasonPageCap:
-		reason = crmcontracts.SiteReadSkipReasonPageCap
+		reason = crmcontracts.PageCap
 	case crmcontracts.SiteReadReportStoppedReasonByteCap:
-		reason = crmcontracts.SiteReadSkipReasonByteCap
+		reason = crmcontracts.ByteCap
 	default:
 		return nil
 	}

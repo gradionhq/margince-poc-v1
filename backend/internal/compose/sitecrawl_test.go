@@ -145,7 +145,7 @@ func TestCrawlStopsAtThePageCapAndRecordsWhatWasCut(t *testing.T) {
 	}
 	var capSkips int
 	for _, skip := range crawl.Skipped {
-		if skip.Reason == crmcontracts.SiteReadSkipReasonPageCap {
+		if skip.Reason == crmcontracts.PageCap {
 			capSkips++
 		}
 	}
@@ -175,7 +175,7 @@ func TestCrawlStopsAtTheByteCap(t *testing.T) {
 	}
 	var found bool
 	for _, skip := range crawl.Skipped {
-		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.SiteReadSkipReasonByteCap {
+		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.ByteCap {
 			found = true
 		}
 	}
@@ -192,7 +192,7 @@ func TestCrawlRecordsARobotsRefusalAsASkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.SiteReadSkipReasonRobots}
+	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.Robots}
 	var found bool
 	for _, skip := range crawl.Skipped {
 		if skip == want {
@@ -223,7 +223,7 @@ func TestCrawlNeverFollowsAnOffDomainLink(t *testing.T) {
 	}
 	var offDomainRecorded, subdomainFetched bool
 	for _, skip := range crawl.Skipped {
-		if skip.URL == hostileTarget && skip.Reason == crmcontracts.SiteReadSkipReasonOffDomain {
+		if skip.URL == hostileTarget && skip.Reason == crmcontracts.OffDomain {
 			offDomainRecorded = true
 		}
 	}
@@ -431,34 +431,80 @@ func TestNormalizeCandidateStripsTrackingParamsSoVariantsDedupe(t *testing.T) {
 	}
 }
 
-func TestCrawlWaveConcurrencyCommitsTheSameResultAsSerial(t *testing.T) {
-	build := func() *fakeSite {
-		site := &fakeSite{pages: seedOnly("/blog", "/pricing")}
-		site.sitemap = []string{seedURL + "/cases"}
-		for _, path := range []string{"/about", "/team", "/impressum", "/blog", "/pricing", "/cases", "/services"} {
-			site.pages[seedURL+path] = fakeSitePage{text: readable(path)}
+func waveFixtureSite() *fakeSite {
+	site := &fakeSite{pages: seedOnly("/blog", "/pricing")}
+	site.sitemap = []string{seedURL + "/cases"}
+	for _, path := range []string{"/about", "/team", "/impressum", "/blog", "/pricing", "/cases", "/services"} {
+		site.pages[seedURL+path] = fakeSitePage{text: readable(path)}
+	}
+	return site
+}
+
+// The frontier wave's replacement invariants for the old wave≡serial
+// equivalence (frontier selection legitimately locks its choices in
+// before later discoveries can compete): the crawl is deterministic
+// across runs, commits follow selection order, and a wave of one still
+// reproduces the serial walk.
+func TestCrawlFrontierWavesAreDeterministicAcrossRuns(t *testing.T) {
+	crawlOnce := func() siteCrawl {
+		crawler := testSiteCrawler(waveFixtureSite())
+		crawler.fetchWave = crawler.maxPages // production frontier sizing
+		crawl, err := crawler.Crawl(context.Background(), seedURL)
+		if err != nil {
+			t.Fatal(err)
 		}
-		return site
+		for i := range crawl.Pages {
+			crawl.Pages[i].FetchDur = 0
+		}
+		return crawl
 	}
-	serial, err := testSiteCrawler(build()).Crawl(context.Background(), seedURL)
+	first := crawlOnce()
+	for run := 0; run < 4; run++ {
+		if again := crawlOnce(); !reflect.DeepEqual(first, again) {
+			t.Fatalf("frontier crawl diverged between runs:\n%v\n%v", first, again)
+		}
+	}
+}
+
+func TestCrawlFrontierCommitsInSelectionOrder(t *testing.T) {
+	crawler := testSiteCrawler(waveFixtureSite())
+	crawler.fetchWave = crawler.maxPages
+	crawl, err := crawler.Crawl(context.Background(), seedURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	concurrent := testSiteCrawler(build())
-	concurrent.fetchWave = crawlFetchWave
-	wide, err := concurrent.Crawl(context.Background(), seedURL)
+	var order []string
+	for _, page := range crawl.Pages {
+		order = append(order, page.URL)
+	}
+	// Selection order: seed, probes (impressum/about/team/services), then
+	// sitemap+links by kind priority, boilerplate blog last.
+	want := []string{
+		seedURL, seedURL + "/impressum", seedURL + "/about", seedURL + "/team", seedURL + "/services",
+		seedURL + "/cases", seedURL + "/pricing", seedURL + "/blog",
+	}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("commit order = %v, want selection order %v", order, want)
+	}
+}
+
+func TestCrawlWaveOfOneReproducesTheSerialWalk(t *testing.T) {
+	serial, err := testSiteCrawler(waveFixtureSite()).Crawl(context.Background(), seedURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Fetch timing is the one legitimate difference.
+	again, err := testSiteCrawler(waveFixtureSite()).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i := range serial.Pages {
 		serial.Pages[i].FetchDur = 0
 	}
-	for i := range wide.Pages {
-		wide.Pages[i].FetchDur = 0
+	for i := range again.Pages {
+		again.Pages[i].FetchDur = 0
 	}
-	if !reflect.DeepEqual(serial, wide) {
-		t.Fatalf("wave-concurrent crawl diverged from serial:\nserial: %v\nwide:   %v", serial, wide)
+	if !reflect.DeepEqual(serial, again) {
+		t.Fatalf("the wave-of-one walk is not stable:\n%v\n%v", serial, again)
 	}
 }
 

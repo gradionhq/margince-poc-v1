@@ -71,6 +71,7 @@ type Server struct {
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers
+	backfillHandlers
 	captureExclusionHandlers
 	filteredExportHandlers
 	orgRollupHandlers
@@ -177,21 +178,6 @@ func WithBlobstore(store blobstore.Store) Option {
 		// Erasure must reach the attachment bytes, not only the rows, so the
 		// DSR erase path gets a blob-aware eraser (Art. 17).
 		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))
-	}
-}
-
-// WithKeyvault wires the secret store: it feeds the /readyz probe and backs
-// the capture connector-credential path (Authenticate seals the credential
-// bundle, Sync resolves it). Without it a role that persists or resolves
-// connector credentials declares that gap at wiring time rather than
-// nil-derefing at Authenticate — a capture-capable role must pass this or
-// fail to boot (enforced in cmd).
-func WithKeyvault(vault keyvault.Vault) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.vault = vault
-		// Rebuild the capture registry with the vault so the connector-
-		// credential paths (Connect seals, Sync resolves) have their custodian.
-		s.imapConnectHandlers = imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}
 	}
 }
 

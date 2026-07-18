@@ -1,10 +1,13 @@
 <!-- Synthetic fixture, no real company data. A JS-only shell that reduces
      to almost nothing once the crawler strips markup and scripting — the
      empty_page.yaml scenario's fabrication-rate floor (ai-operational-spec
-     §3.2: "Fabrication rate on empty/JS-only page = 0"). -->
+     §3.2: "Fabrication rate on empty/JS-only page = 0"). Its one surviving
+     passage carries no groundable profile field, so the v3 profile lane
+     (siteprofile.go) must answer with an empty fields array. -->
 <html>
 <head><title>Loading…</title></head>
 <body>
+<p>Loading…</p>
 <div id="root"></div>
 <script>/* app bundle would mount here; no server-rendered content */</script>
 <noscript>Please enable JavaScript to view this site.</noscript>

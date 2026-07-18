@@ -17,7 +17,7 @@ import (
 )
 
 // callKindCompletion and callKindEmbedding are the ai_call.kind vocabulary
-// (0092): a chat-ladder call versus one embed-lane call. Every Call this
+// (0093): a chat-ladder call versus one embed-lane call. Every Call this
 // package builds sets one explicitly — the column carries NOT NULL with a
 // CHECK, so an unset Kind would reach the database as an empty string and
 // fail the constraint, not fall back to the SQL-side DEFAULT.

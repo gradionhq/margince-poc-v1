@@ -1057,3 +1057,58 @@
     display: none;
   }
 }
+
+/* Backfill (ADR-0063): window picker → estimate card → live run view. */
+.backfill-setup,
+.backfill-run {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+.backfill-h {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+}
+.backfill-windows {
+  display: flex;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.backfill-window {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.backfill-estimate {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+}
+.backfill-estimate p {
+  margin: 0 0 var(--space-2);
+}
+.backfill-skip {
+  margin-top: var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.backfill-error {
+  color: var(--color-danger);
+}
+.backfill-run progress {
+  width: 100%;
+  margin: var(--space-2) 0;
+}
+.backfill-skipped {
+  margin-top: var(--space-3);
+}

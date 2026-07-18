@@ -64,7 +64,7 @@ func (r *crawlRun) admit(cand crawlCandidate) (admission, bool) {
 		// The security property of the whole crawler: no page content can
 		// send the crawl off the seed's site — off-domain candidates are
 		// recorded, never fetched.
-		r.skip(candURL, crmcontracts.SiteReadSkipReasonOffDomain)
+		r.skip(candURL, crmcontracts.OffDomain)
 		return admission{}, false
 	}
 	return admission{cand: cand, url: candURL, kind: kind}, true
@@ -116,7 +116,7 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 	}
 	switch {
 	case errors.Is(res.err, webread.ErrRobotsDisallowed):
-		r.skip(adm.url, crmcontracts.SiteReadSkipReasonRobots)
+		r.skip(adm.url, crmcontracts.Robots)
 		return
 	case errors.Is(res.err, context.DeadlineExceeded) || errors.Is(res.err, context.Canceled):
 		// The crawl's clock ran out mid-fetch; stopping here avoids a bogus
@@ -124,12 +124,12 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonDeadline)
 		return
 	case res.err != nil:
-		r.skip(adm.url, crmcontracts.SiteReadSkipReasonUnreadable)
+		r.skip(adm.url, crmcontracts.Unreadable)
 		return
 	}
 	page := res.page
 	if utf8.RuneCountInString(page.Text) < crawlMinRunes {
-		r.skip(adm.url, crmcontracts.SiteReadSkipReasonUnreadable)
+		r.skip(adm.url, crmcontracts.Unreadable)
 		return
 	}
 	if r.seenText[page.Text] {
@@ -144,7 +144,7 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 	// cap. Over-cap → record it as a byte_cap skip and stop, rather than
 	// silently exceeding the byte budget the report promises.
 	if r.totalBytes+page.Bytes > r.crawler.maxBytes {
-		r.skip(adm.url, crmcontracts.SiteReadSkipReasonByteCap)
+		r.skip(adm.url, crmcontracts.ByteCap)
 		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonByteCap)
 		return
 	}
@@ -155,6 +155,10 @@ func (r *crawlRun) commit(adm admission, res fetchResult) {
 	if adm.cand.probe {
 		r.probeKindDone[adm.cand.kind] = true
 	}
-	r.crawl.Pages = append(r.crawl.Pages, crawlPage{URL: adm.url, Kind: adm.kind, Text: page.Text, Bytes: page.Bytes, FetchDur: res.dur})
+	committed := crawlPage{URL: adm.url, Kind: adm.kind, Text: page.Text, Bytes: page.Bytes, FetchDur: res.dur}
+	r.crawl.Pages = append(r.crawl.Pages, committed)
+	if r.onPage != nil {
+		r.onPage(committed)
+	}
 	r.queue = append(r.queue, linkCandidates(page.Links)...)
 }

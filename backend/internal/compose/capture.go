@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,7 +34,12 @@ const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 // resolves each connection's credential (nil is valid for a role that only
 // runs the transient one-shot pull, which persists no credential).
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault) *capture.Registry {
-	return capture.NewRegistry(pool, newCaptureSink(pool), identity.NewService(pool), vault)
+	r := capture.NewRegistry(pool, newCaptureSink(pool), identity.NewService(pool), vault)
+	// The standing IMAP connector needs no deployment config — credentials
+	// are per-connection, vault-sealed — so every capture-capable role
+	// carries it.
+	r.Register(imap.NewStanding())
+	return r
 }
 
 // newCaptureSink assembles the ONE fully-guarded Sink over the pool — the
@@ -119,6 +125,17 @@ func GmailPollRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) 
 		return nil
 	}
 	return NewCaptureRegistryWithGmail(pool, vault, c)
+}
+
+// CaptureSyncRegistry is the worker's sweep registry: always non-nil —
+// the standing IMAP connector needs no deployment config — with the gmail
+// connector added when its OAuth app is configured. A provider nobody
+// registered simply never appears in the dispatcher's provider list.
+func CaptureSyncRegistry(pool *pgxpool.Pool, vault keyvault.Vault, c GmailConfig) *capture.Registry {
+	if c.canSync() {
+		return NewCaptureRegistryWithGmail(pool, vault, c)
+	}
+	return NewCaptureRegistry(pool, vault)
 }
 
 // WithGmailCapture wires the Gmail OAuth connect/callback/disconnect/list

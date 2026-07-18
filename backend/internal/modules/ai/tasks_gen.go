@@ -21,8 +21,10 @@ const (
 	TaskOfferDraft Task = "offer_draft"
 	// TaskSiteExtract is premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung
 	TaskSiteExtract Task = "site_extract"
-	TaskSummarize   Task = "summarize"
-	TaskTranscript  Task = "transcript"
+	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads
+	TaskSiteFactExtract Task = "site_fact_extract"
+	TaskSummarize       Task = "summarize"
+	TaskTranscript      Task = "transcript"
 )
 
 // Tier is a capability tier (§1.1); ai-routing.yaml binds each to a
@@ -39,7 +41,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "b44d1b6f9e7fb165b2ecbe636b88fc82f71e3e341300860e4578a7c568085b95"
+const TaskContractHash = "46334e40cabc3451b0742b27bb8bb014f619cb54bd2c5741c942f719e5c880ba"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -57,6 +59,7 @@ func AllTasks() []Task {
 		TaskNlSearch,
 		TaskOfferDraft,
 		TaskSiteExtract,
+		TaskSiteFactExtract,
 		TaskSummarize,
 		TaskTranscript,
 	}
@@ -76,6 +79,7 @@ var taskLadders = map[Task][]Tier{
 	TaskNlSearch:        {TierCheapCloud, TierPremium},
 	TaskOfferDraft:      {TierCheapCloud, TierPremium},
 	TaskSiteExtract:     {TierPremium},
+	TaskSiteFactExtract: {TierCheapCloud, TierPremium},
 	TaskSummarize:       {TierCheapCloud, TierPremium},
 	TaskTranscript:      {TierCheapCloud, TierPremium},
 }
@@ -101,6 +105,7 @@ var nonInteractive = map[Task]bool{
 	TaskCertJudge:       true,
 	TaskEnrich:          true,
 	TaskSiteExtract:     true,
+	TaskSiteFactExtract: true,
 }
 
 // knownTiers is the routing config's tier-name validation set: the

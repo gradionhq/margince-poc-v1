@@ -74,14 +74,19 @@ required: `--ai-routing <yaml>`, `--model provider:model` (e.g.
 caps per run; `--json <path|->` writes a diffable machine-readable report;
 `--dump-pages <dir>` saves each page's reduced text.
 
-Extraction quality is MODEL-SENSITIVE: the no-guess gate demands verbatim
-evidence quotes, and cheap-tier models paraphrase them away. The
-`site_extract` task therefore routes premium-first, and the premium tier
-needs a mid-tier model at minimum — for Anthropic that is Sonnet-class or
-better (Haiku loses fields Sonnet keeps). Judge any candidate binding
-against the pinned quality floor: `make -C backend e2e-siteread` with
-`MARGINCE_E2E_MODEL=provider:model` (paid, network E2E vs gradion.com —
-a different model must do the same or better to pass).
+Extraction runs two routed lanes CONCURRENTLY with the crawl (page
+calls launch as pages commit): `site_fact_extract` — one compact call
+per fact-bearing page, cheap-tier-first (the reply cites numbered
+passages instead of quoting, which a fast model emits reliably) — and
+`site_extract` — the ONE premium-first profile call over the
+identity-dense excerpts. Evidence is verified in Go against the cited
+passage (reference evidence: the stored snippet is the page's own
+text). Judge any candidate binding against the pinned quality floor:
+`make -C backend e2e-siteread` with `MARGINCE_E2E_MODEL=provider:model`
+or `MARGINCE_AI_ROUTING=<yaml>` (paid, network E2E vs gradion.com — a
+different model must do the same or better to pass). Typical read:
+10–25 s end-to-end depending on how hard the origin throttles the
+crawl burst.
 
 Without a declared model (`--ai-routing`/`--ai-fake`) the runner and the
 embedding lane simply do not start; the relay, retention, the event-triggered

@@ -12,6 +12,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -97,17 +98,23 @@ type gmailSyncWorker struct {
 }
 
 func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs]) error {
-	due, enumErr := w.registry.DueConnections(ctx, "gmail")
 	client := river.ClientFromContext[pgx.Tx](ctx)
-	for _, d := range due {
-		if _, err := client.Insert(ctx, CaptureSyncArgs{
-			Workspace:    d.Workspace.String(),
-			ConnectionID: d.ID.String(),
-			Provider:     "gmail",
-		}, &river.InsertOpts{
-			UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-		}); err != nil {
-			w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "err", err)
+	var enumErr error
+	for _, desc := range w.registry.Connectors() {
+		due, err := w.registry.DueConnections(ctx, desc.Name)
+		if err != nil {
+			enumErr = errors.Join(enumErr, err)
+		}
+		for _, d := range due {
+			if _, err := client.Insert(ctx, CaptureSyncArgs{
+				Workspace:    d.Workspace.String(),
+				ConnectionID: d.ID.String(),
+				Provider:     desc.Name,
+			}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+			}); err != nil {
+				w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "provider", desc.Name, "err", err)
+			}
 		}
 	}
 	return enumErr
@@ -245,6 +252,9 @@ type JobRunnerConfig struct {
 	// queued read on a brainless worker finishes failed with an actionable
 	// log instead of sitting queued forever behind a job no one works.
 	DeepReadBrain completer
+	// DeepReadFactBrain serves the page-parallel fact lane
+	// (modelPath.SiteFactExtract); nil falls back to DeepReadBrain.
+	DeepReadFactBrain completer
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
@@ -270,7 +280,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
-	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, log, cfg.DeepReadCaps))
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps))
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
@@ -296,6 +306,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	if cfg.GmailRegistry != nil {
 		river.AddWorker(workers, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
 		river.AddWorker(workers, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
+		// Backfill jobs are enqueued by the api (start op); the worker role
+		// only needs the pager registered.
+		river.AddWorker(workers, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
 		// The dispatcher tick is a cheap indexed due-scan; per-connection
 		// pacing lives in the sidecar (next_sync_at = success + interval),
 		// so a frequent scan does not mean frequent provider calls.
@@ -326,4 +339,52 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		Workers:      workers,
 		PeriodicJobs: periodic,
 	}, log)
+}
+
+// CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
+// args while incomplete: start and any retry converge on one job.
+type CaptureBackfillArgs struct {
+	Workspace  string `json:"workspace"`
+	BackfillID string `json:"backfill_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureBackfillArgs) Kind() string { return "capture_backfill" }
+
+// captureBackfillWorker pages a run to completion, yielding between pages
+// (snooze) so a long mailbox never monopolizes a worker slot. A page error
+// returns nil after the engine recorded it — the run row owns its state.
+type captureBackfillWorker struct {
+	river.WorkerDefaults[CaptureBackfillArgs]
+	registry *capture.Registry
+	log      *slog.Logger
+}
+
+// backfillPagesPerTick bounds how many pages one Work invocation walks
+// before yielding the worker slot.
+const backfillPagesPerTick = 10
+
+func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
+	ws, err := ids.Parse(job.Args.Workspace)
+	if err != nil {
+		return fmt.Errorf("capture_backfill: workspace id: %w", err)
+	}
+	bfID, err := ids.Parse(job.Args.BackfillID)
+	if err != nil {
+		return fmt.Errorf("capture_backfill: backfill id: %w", err)
+	}
+	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	for i := 0; i < backfillPagesPerTick; i++ {
+		done, err := w.registry.RunBackfillStep(wsCtx, bfID)
+		if err != nil {
+			// The engine recorded the failure class on the run; the log
+			// carries the detail. The row owns retry policy, not River.
+			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
+			return nil
+		}
+		if done {
+			return nil
+		}
+	}
+	return river.JobSnooze(time.Second)
 }

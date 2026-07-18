@@ -19,6 +19,8 @@ tasks:
   offer_draft:      {ladder: [cheap_cloud, premium], on_budget_exhausted: degrade}
   site_extract:     {ladder: [premium], on_budget_exhausted: queue,
                      doc: "premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung"}
+  site_fact_extract: {ladder: [cheap_cloud, premium], on_budget_exhausted: queue,
+                     doc: "the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads"}
   cert_judge:       {ladder: [premium, cheap_cloud], on_budget_exhausted: queue,
                      doc: "the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding"}
 

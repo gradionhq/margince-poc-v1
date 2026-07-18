@@ -132,7 +132,9 @@ deps:
     # yaml: aicert's corpus loader parses scenario files directly — the
     # cert harness is a compose subpackage, not a config-loading path
     # platform already owns, so it needs the same parser platform does.
-    canUse: [pgx, chi, oapi, river, xtext, yaml]
+    # emersion: the in-memory IMAP server the standing-connect transport
+    # test drives; production compose reaches IMAP only through capture.
+    canUse: [pgx, chi, oapi, river, xtext, yaml, emersion]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]

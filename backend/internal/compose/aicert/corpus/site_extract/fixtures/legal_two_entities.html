@@ -1,9 +1,12 @@
 <!-- Synthetic fixture, no real company data. Two distinct legal-notice
      pages under the same crawled site (kind="impressum" both), each naming
      a DIFFERENT legal entity — the multi-entity case the corpus/legal_
-     abstention.yaml scenario grades: the correct extraction lists both
-     entities but proposes no single legal_name/registered_address/
-     register_vat, because the site itself does not agree on one. -->
+     abstention.yaml scenario grades: the v3 profile lane (siteprofile.go)
+     may propose legal_name/registered_address/register_vat ONLY when the
+     site's legal pages name exactly one entity, so the correct answer here
+     withholds all three (the per-entity census itself is the separate
+     fact lane's job — sitepagefacts.go's "entities" key — not this
+     scenario's profile-lane prompt). -->
 <html>
 <head><title>Kestrel Fold — Impressum (DE)</title></head>
 <body>
