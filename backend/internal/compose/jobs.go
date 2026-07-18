@@ -337,3 +337,51 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		PeriodicJobs: periodic,
 	}, log)
 }
+
+// CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
+// args while incomplete: start and any retry converge on one job.
+type CaptureBackfillArgs struct {
+	Workspace  string `json:"workspace"`
+	BackfillID string `json:"backfill_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureBackfillArgs) Kind() string { return "capture_backfill" }
+
+// captureBackfillWorker pages a run to completion, yielding between pages
+// (snooze) so a long mailbox never monopolizes a worker slot. A page error
+// returns nil after the engine recorded it — the run row owns its state.
+type captureBackfillWorker struct {
+	river.WorkerDefaults[CaptureBackfillArgs]
+	registry *capture.Registry
+	log      *slog.Logger
+}
+
+// backfillPagesPerTick bounds how many pages one Work invocation walks
+// before yielding the worker slot.
+const backfillPagesPerTick = 10
+
+func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
+	ws, err := ids.Parse(job.Args.Workspace)
+	if err != nil {
+		return fmt.Errorf("capture_backfill: workspace id: %w", err)
+	}
+	bfID, err := ids.Parse(job.Args.BackfillID)
+	if err != nil {
+		return fmt.Errorf("capture_backfill: backfill id: %w", err)
+	}
+	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	for i := 0; i < backfillPagesPerTick; i++ {
+		done, err := w.registry.RunBackfillStep(wsCtx, bfID)
+		if err != nil {
+			// The engine recorded the failure class on the run; the log
+			// carries the detail. The row owns retry policy, not River.
+			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
+			return nil
+		}
+		if done {
+			return nil
+		}
+	}
+	return river.JobSnooze(time.Second)
+}

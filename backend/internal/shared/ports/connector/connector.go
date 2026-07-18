@@ -144,3 +144,32 @@ type (
 // ErrSkip marks a record a connector intentionally skipped (excluded or
 // out of scope); the sync loop counts it, never surfaces it as a failure.
 var ErrSkip = errors.New("connector: record intentionally skipped")
+
+// Backfiller is the OPTIONAL bounded-backfill seam (ADR-0063): a connector
+// implements it when its provider can enumerate a mailbox backward from a
+// date boundary. Like Watcher, it is separate from Connector so a provider
+// without a date-bounded listing simply is not a Backfiller; the backfill
+// engine type-asserts and refuses honestly. Backfill paging is disjoint from
+// Sync's cursor by construction — incremental moves forward from the
+// connect-time watermark while backfill pages backward on its own token, and
+// the capture key makes any overlap a no-op.
+type Backfiller interface {
+	// EstimateBackfill returns the provider-side message count newer than
+	// after — the scope shown before anything spends (the preview op's
+	// number). An estimate, labeled as such; providers round.
+	EstimateBackfill(ctx context.Context, auth Auth, after time.Time) (int, error)
+
+	// BackfillPage pulls ONE bounded page of messages newer than after,
+	// emitting each through the Sink. It performs provider I/O like Sync;
+	// the engine persists cursor and counters from the returned result.
+	BackfillPage(ctx context.Context, auth Auth, after time.Time, pageToken string, sink Sink) (BackfillPageResult, error)
+}
+
+// BackfillPageResult is one page's outcome: the token for the next page
+// ("" = the window is exhausted) and the page's tally.
+type BackfillPageResult struct {
+	NextToken string
+	Scanned   int
+	Captured  int
+	Skipped   int
+}

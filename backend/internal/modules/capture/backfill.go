@@ -1,0 +1,331 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// The bounded connect-time backfill (ADR-0063, CAP-DDL-4): the user picks a
+// window, previews the scope, and an explicit start creates ONE resumable
+// run per connection. The run pages backward on its own provider token —
+// never sync_cursor, so backfill and incremental interleave without
+// conflict — and commits cursor+counters per page, which makes the
+// activation read a single row and a worker death resumable from the last
+// committed page. Cancel stops the job and retains everything captured.
+
+package capture
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+)
+
+// The CAP-PARAM-4 window set. "none" is expressed by never starting a run.
+var backfillWindows = map[int]bool{3: true, 6: true, 12: true}
+
+// estTokensPerMessage projects the classify+enrich spend per captured
+// message for the preview (truncated body + schema overhead, amortized).
+// An estimate, labeled as such — actual spend is metered per task.
+const estTokensPerMessage = 900
+
+// ErrWindowInvalid marks a window outside the offered set (422).
+var ErrWindowInvalid = errors.New("capture: the backfill window is not in the offered set")
+
+// ErrBackfillRunning marks a start while a run is live (409 backfill_running).
+var ErrBackfillRunning = errors.New("capture: a backfill is already running for this connection")
+
+// ErrWindowNarrowing marks a re-invoke with a smaller window than a prior
+// run (widen-only; 409 window_narrowing).
+var ErrWindowNarrowing = errors.New("capture: the backfill window can only widen")
+
+// ErrBackfillUnsupported marks a provider whose connector cannot enumerate
+// backward from a date (not a Backfiller).
+var ErrBackfillUnsupported = errors.New("capture: this provider does not support backfill")
+
+// BackfillRun is the CAP-DDL-4 row — the single-row activation read.
+type BackfillRun struct {
+	ID            ids.UUID
+	ConnectionID  ids.UUID
+	WindowMonths  int
+	AfterDate     time.Time
+	Status        string
+	Cursor        []byte
+	Estimate      *int
+	Scanned       int
+	Captured      int
+	Skipped       int
+	People        int
+	Organizations int
+	DedupeCands   int
+	StartedAt     *time.Time
+	CompletedAt   *time.Time
+	UpdatedAt     time.Time
+	ErrorClass    *string
+}
+
+// connectionForUser resolves the calling user's connection for provider.
+func (r *Registry) connectionForUser(ctx context.Context, tx pgx.Tx, provider string, userID ids.UserID) (ids.UUID, error) {
+	var id ids.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT id FROM capture_connection
+		WHERE provider = $1 AND user_id = $2 AND status IN ('connected','error') AND archived_at IS NULL`,
+		provider, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.Nil, apperrors.ErrNotFound
+	}
+	return id, err
+}
+
+// EstimateBackfill previews a window's scope: the provider-side message
+// count plus the projected AI tokens. The consent number (preview before
+// spend, ADR-0020).
+func (r *Registry) EstimateBackfill(ctx context.Context, provider string, userID ids.UserID, windowMonths int) (messages, tokens int, err error) {
+	if !backfillWindows[windowMonths] {
+		return 0, 0, fmt.Errorf("%w: %d months", ErrWindowInvalid, windowMonths)
+	}
+	var connID ids.UUID
+	var name string
+	var credentialRef *string
+	var authBytes []byte
+	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		id, err := r.connectionForUser(ctx, tx, provider, userID)
+		if err != nil {
+			return err
+		}
+		connID = id
+		return tx.QueryRow(ctx, `
+			SELECT provider, credential_ref, auth FROM capture_connection WHERE id = $1`, connID).
+			Scan(&name, &credentialRef, &authBytes)
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	c, err := r.connector(name)
+	if err != nil {
+		return 0, 0, err
+	}
+	bf, ok := c.(connector.Backfiller)
+	if !ok {
+		return 0, 0, ErrBackfillUnsupported
+	}
+	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
+	if err != nil {
+		return 0, 0, err
+	}
+	messages, err = bf.EstimateBackfill(ctx, auth, r.now().AddDate(0, -windowMonths, 0))
+	if err != nil {
+		return 0, 0, err
+	}
+	return messages, messages * estTokensPerMessage, nil
+}
+
+// StartBackfill creates the run (widen-only versus any prior) and returns
+// it; the caller enqueues the job. The unique live-run index is the race
+// guard — two concurrent starts resolve to one row and one ErrBackfillRunning.
+func (r *Registry) StartBackfill(ctx context.Context, provider string, userID ids.UserID, windowMonths int, estimate int) (BackfillRun, error) {
+	if !backfillWindows[windowMonths] {
+		return BackfillRun{}, fmt.Errorf("%w: %d months", ErrWindowInvalid, windowMonths)
+	}
+	var run BackfillRun
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		connID, err := r.connectionForUser(ctx, tx, provider, userID)
+		if err != nil {
+			return err
+		}
+		var widest *int
+		if err := tx.QueryRow(ctx, `
+			SELECT max(window_months) FROM capture_backfill WHERE connection_id = $1`, connID).Scan(&widest); err != nil {
+			return err
+		}
+		if widest != nil && windowMonths < *widest {
+			return ErrWindowNarrowing
+		}
+		after := r.now().AddDate(0, -windowMonths, 0)
+		err = tx.QueryRow(ctx, `
+			INSERT INTO capture_backfill (workspace_id, connection_id, window_months, after_date, total_estimate, status, started_at)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, NULLIF($4, 0), 'queued', now())
+			RETURNING id`, connID, windowMonths, after, estimate).Scan(&run.ID)
+		if err != nil {
+			if storekit.IsUniqueViolation(err) {
+				return ErrBackfillRunning
+			}
+			return err
+		}
+		run.ConnectionID = connID
+		run.WindowMonths = windowMonths
+		run.AfterDate = after
+		run.Status = "queued"
+		return nil
+	})
+	return run, err
+}
+
+// BackfillStatus reads the latest run for the user's connection — the
+// activation view's single-row read. No run at all is (nil, nil): the
+// contract's state "none".
+func (r *Registry) BackfillStatus(ctx context.Context, provider string, userID ids.UserID) (*BackfillRun, error) {
+	var run *BackfillRun
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		connID, err := r.connectionForUser(ctx, tx, provider, userID)
+		if err != nil {
+			return err
+		}
+		row := tx.QueryRow(ctx, `
+			SELECT id, connection_id, window_months, after_date, status, cursor, total_estimate,
+			       scanned, captured, skipped, people_created, organizations_created, dedupe_candidates,
+			       started_at, completed_at, updated_at, last_error_class
+			FROM capture_backfill WHERE connection_id = $1
+			ORDER BY created_at DESC LIMIT 1`, connID)
+		var b BackfillRun
+		err = row.Scan(&b.ID, &b.ConnectionID, &b.WindowMonths, &b.AfterDate, &b.Status, &b.Cursor, &b.Estimate,
+			&b.Scanned, &b.Captured, &b.Skipped, &b.People, &b.Organizations, &b.DedupeCands,
+			&b.StartedAt, &b.CompletedAt, &b.UpdatedAt, &b.ErrorClass)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		run = &b
+		return nil
+	})
+	return run, err
+}
+
+// CancelBackfill stops a live run; captured rows are retained (real
+// history). No live run → apperrors.ErrConflict (409 not_running).
+func (r *Registry) CancelBackfill(ctx context.Context, provider string, userID ids.UserID) (*BackfillRun, error) {
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		connID, err := r.connectionForUser(ctx, tx, provider, userID)
+		if err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()
+			WHERE connection_id = $1 AND status IN ('queued','running')`, connID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("capture: no running backfill to cancel: %w", apperrors.ErrConflict)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.BackfillStatus(ctx, provider, userID)
+}
+
+// RunBackfillStep executes ONE provider page of a run and commits its
+// outcome. It returns done=true when the run reached a terminal state (so
+// the job stops), and never advances the cursor on a failed page — the
+// retry resumes from the committed token. The sink counts land via the
+// page-scoped stats snapshot the connector maintains.
+func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (done bool, err error) {
+	var (
+		connID        ids.UUID
+		name          string
+		grantedBy     ids.UserID
+		credentialRef *string
+		authBytes     []byte
+		after         time.Time
+		cursor        []byte
+		status        string
+	)
+	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT b.connection_id, b.after_date, b.cursor, b.status, c.provider, c.user_id, c.credential_ref, c.auth
+			FROM capture_backfill b JOIN capture_connection c ON c.id = b.connection_id
+			WHERE b.id = $1`, backfillID).
+			Scan(&connID, &after, &cursor, &status, &name, &grantedBy, &credentialRef, &authBytes)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, fmt.Errorf("capture: backfill %s: %w", backfillID, apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return false, err
+	}
+	if status == "cancelled" || status == "done" || status == "error" {
+		return true, nil
+	}
+
+	c, err := r.connector(name)
+	if err != nil {
+		return true, err
+	}
+	bf, ok := c.(connector.Backfiller)
+	if !ok {
+		return true, r.failBackfill(ctx, backfillID, ErrBackfillUnsupported)
+	}
+	runCtx, err := r.connectorContext(ctx, name, grantedBy)
+	if err != nil {
+		return true, err
+	}
+	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
+	if err != nil {
+		return true, r.failBackfill(ctx, backfillID, err)
+	}
+
+	res, err := bf.BackfillPage(runCtx, auth, after, backfillPageCursor(cursor), r.sink)
+	if err != nil {
+		// The page failed without advancing: record the class and let the
+		// job's retry ladder decide; the committed token is the resume point.
+		return false, errors.Join(err, r.failBackfill(ctx, backfillID, err))
+	}
+
+	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		var cur []byte
+		if res.NextToken != "" {
+			cur = []byte(fmt.Sprintf(`{"page_token":%q}`, res.NextToken))
+		}
+		terminal := ""
+		if res.NextToken == "" {
+			terminal = ", status = 'done', completed_at = now()"
+		}
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_backfill
+			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
+			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END`+terminal+`
+			WHERE id = $1 AND status IN ('queued','running')`,
+			backfillID, cur, res.Scanned, res.Captured, res.Skipped)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	return res.NextToken == "", nil
+}
+
+// failBackfill records a terminal failure class on the run (detail goes to
+// the job log); captured rows are retained.
+func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause error) error {
+	class := classifySyncError(cause)
+	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()
+			WHERE id = $1 AND status IN ('queued','running')`, backfillID, string(class))
+		return err
+	})
+}
+
+// backfillPageCursor extracts the provider token from the stored cursor.
+func backfillPageCursor(cursor []byte) string {
+	if len(cursor) == 0 {
+		return ""
+	}
+	var c struct {
+		PageToken string `json:"page_token"`
+	}
+	if err := json.Unmarshal(cursor, &c); err != nil {
+		return ""
+	}
+	return c.PageToken
+}

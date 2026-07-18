@@ -546,6 +546,108 @@ func (e AutomationRunTier) Valid() bool {
 	}
 }
 
+// Defines values for BackfillPreviewWindow.
+const (
+	BackfillPreviewWindowN12m BackfillPreviewWindow = "12m"
+	BackfillPreviewWindowN3m  BackfillPreviewWindow = "3m"
+	BackfillPreviewWindowN6m  BackfillPreviewWindow = "6m"
+	BackfillPreviewWindowNone BackfillPreviewWindow = "none"
+)
+
+// Valid indicates whether the value is a known member of the BackfillPreviewWindow enum.
+func (e BackfillPreviewWindow) Valid() bool {
+	switch e {
+	case BackfillPreviewWindowN12m:
+		return true
+	case BackfillPreviewWindowN3m:
+		return true
+	case BackfillPreviewWindowN6m:
+		return true
+	case BackfillPreviewWindowNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BackfillPreviewRequestWindow.
+const (
+	BackfillPreviewRequestWindowN12m BackfillPreviewRequestWindow = "12m"
+	BackfillPreviewRequestWindowN3m  BackfillPreviewRequestWindow = "3m"
+	BackfillPreviewRequestWindowN6m  BackfillPreviewRequestWindow = "6m"
+	BackfillPreviewRequestWindowNone BackfillPreviewRequestWindow = "none"
+)
+
+// Valid indicates whether the value is a known member of the BackfillPreviewRequestWindow enum.
+func (e BackfillPreviewRequestWindow) Valid() bool {
+	switch e {
+	case BackfillPreviewRequestWindowN12m:
+		return true
+	case BackfillPreviewRequestWindowN3m:
+		return true
+	case BackfillPreviewRequestWindowN6m:
+		return true
+	case BackfillPreviewRequestWindowNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BackfillStatusState.
+const (
+	BackfillStatusStateCancelled BackfillStatusState = "cancelled"
+	BackfillStatusStateDone      BackfillStatusState = "done"
+	BackfillStatusStateError     BackfillStatusState = "error"
+	BackfillStatusStateNone      BackfillStatusState = "none"
+	BackfillStatusStateQueued    BackfillStatusState = "queued"
+	BackfillStatusStateRunning   BackfillStatusState = "running"
+)
+
+// Valid indicates whether the value is a known member of the BackfillStatusState enum.
+func (e BackfillStatusState) Valid() bool {
+	switch e {
+	case BackfillStatusStateCancelled:
+		return true
+	case BackfillStatusStateDone:
+		return true
+	case BackfillStatusStateError:
+		return true
+	case BackfillStatusStateNone:
+		return true
+	case BackfillStatusStateQueued:
+		return true
+	case BackfillStatusStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for BackfillStatusWindow.
+const (
+	BackfillStatusWindowLessThannil BackfillStatusWindow = "<nil>"
+	BackfillStatusWindowN12m        BackfillStatusWindow = "12m"
+	BackfillStatusWindowN3m         BackfillStatusWindow = "3m"
+	BackfillStatusWindowN6m         BackfillStatusWindow = "6m"
+)
+
+// Valid indicates whether the value is a known member of the BackfillStatusWindow enum.
+func (e BackfillStatusWindow) Valid() bool {
+	switch e {
+	case BackfillStatusWindowLessThannil:
+		return true
+	case BackfillStatusWindowN12m:
+		return true
+	case BackfillStatusWindowN3m:
+		return true
+	case BackfillStatusWindowN6m:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureConnectionProvider.
 const (
 	CaptureConnectionProviderGcal  CaptureConnectionProvider = "gcal"
@@ -572,22 +674,22 @@ func (e CaptureConnectionProvider) Valid() bool {
 
 // Defines values for CaptureConnectionStatus.
 const (
-	Connected      CaptureConnectionStatus = "connected"
-	Disconnected   CaptureConnectionStatus = "disconnected"
-	Error          CaptureConnectionStatus = "error"
-	ReauthRequired CaptureConnectionStatus = "reauth_required"
+	CaptureConnectionStatusConnected      CaptureConnectionStatus = "connected"
+	CaptureConnectionStatusDisconnected   CaptureConnectionStatus = "disconnected"
+	CaptureConnectionStatusError          CaptureConnectionStatus = "error"
+	CaptureConnectionStatusReauthRequired CaptureConnectionStatus = "reauth_required"
 )
 
 // Valid indicates whether the value is a known member of the CaptureConnectionStatus enum.
 func (e CaptureConnectionStatus) Valid() bool {
 	switch e {
-	case Connected:
+	case CaptureConnectionStatusConnected:
 		return true
-	case Disconnected:
+	case CaptureConnectionStatusDisconnected:
 		return true
-	case Error:
+	case CaptureConnectionStatusError:
 		return true
-	case ReauthRequired:
+	case CaptureConnectionStatusReauthRequired:
 		return true
 	default:
 		return false
@@ -1971,6 +2073,54 @@ func (e MorningBriefItemState) Valid() bool {
 	}
 }
 
+// Defines values for MorningDigestConnectorsProvider.
+const (
+	MorningDigestConnectorsProviderGcal  MorningDigestConnectorsProvider = "gcal"
+	MorningDigestConnectorsProviderGmail MorningDigestConnectorsProvider = "gmail"
+	MorningDigestConnectorsProviderGraph MorningDigestConnectorsProvider = "graph"
+	MorningDigestConnectorsProviderImap  MorningDigestConnectorsProvider = "imap"
+)
+
+// Valid indicates whether the value is a known member of the MorningDigestConnectorsProvider enum.
+func (e MorningDigestConnectorsProvider) Valid() bool {
+	switch e {
+	case MorningDigestConnectorsProviderGcal:
+		return true
+	case MorningDigestConnectorsProviderGmail:
+		return true
+	case MorningDigestConnectorsProviderGraph:
+		return true
+	case MorningDigestConnectorsProviderImap:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MorningDigestConnectorsStatus.
+const (
+	Connected      MorningDigestConnectorsStatus = "connected"
+	Disconnected   MorningDigestConnectorsStatus = "disconnected"
+	Error          MorningDigestConnectorsStatus = "error"
+	ReauthRequired MorningDigestConnectorsStatus = "reauth_required"
+)
+
+// Valid indicates whether the value is a known member of the MorningDigestConnectorsStatus enum.
+func (e MorningDigestConnectorsStatus) Valid() bool {
+	switch e {
+	case Connected:
+		return true
+	case Disconnected:
+		return true
+	case Error:
+		return true
+	case ReauthRequired:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OfferStatus.
 const (
 	OfferStatusAccepted   OfferStatus = "accepted"
@@ -3048,6 +3198,27 @@ func (e StageSemantic) Valid() bool {
 	}
 }
 
+// Defines values for StartBackfillRequestWindow.
+const (
+	N12m StartBackfillRequestWindow = "12m"
+	N3m  StartBackfillRequestWindow = "3m"
+	N6m  StartBackfillRequestWindow = "6m"
+)
+
+// Valid indicates whether the value is a known member of the StartBackfillRequestWindow enum.
+func (e StartBackfillRequestWindow) Valid() bool {
+	switch e {
+	case N12m:
+		return true
+	case N3m:
+		return true
+	case N6m:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaggableEntityType.
 const (
 	TaggableEntityTypeDeal         TaggableEntityType = "deal"
@@ -3536,22 +3707,22 @@ func (e VoiceProfileStatus) Valid() bool {
 
 // Defines values for CaptureProvider.
 const (
-	CaptureProviderGcal  CaptureProvider = "gcal"
-	CaptureProviderGmail CaptureProvider = "gmail"
-	CaptureProviderGraph CaptureProvider = "graph"
-	CaptureProviderImap  CaptureProvider = "imap"
+	Gcal  CaptureProvider = "gcal"
+	Gmail CaptureProvider = "gmail"
+	Graph CaptureProvider = "graph"
+	Imap  CaptureProvider = "imap"
 )
 
 // Valid indicates whether the value is a known member of the CaptureProvider enum.
 func (e CaptureProvider) Valid() bool {
 	switch e {
-	case CaptureProviderGcal:
+	case Gcal:
 		return true
-	case CaptureProviderGmail:
+	case Gmail:
 		return true
-	case CaptureProviderGraph:
+	case Graph:
 		return true
-	case CaptureProviderImap:
+	case Imap:
 		return true
 	default:
 		return false
@@ -4765,6 +4936,68 @@ type AutomationRunOutcome string
 // AutomationRunTier The tier that fired for this run.
 type AutomationRunTier string
 
+// BackfillPreview The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task.
+type BackfillPreview struct {
+	ComputedAt time.Time `json:"computed_at"`
+
+	// Currency ISO-4217, e.g. EUR.
+	Currency *string `json:"currency,omitempty"`
+
+	// EstimatedAiTokens Projected classify+enrich tokens for that count.
+	EstimatedAiTokens *int `json:"estimated_ai_tokens,omitempty"`
+
+	// EstimatedCostMinor Projected cost in minor currency units at the configured tier's rate; 0 when inference is local.
+	EstimatedCostMinor *int `json:"estimated_cost_minor,omitempty"`
+
+	// EstimatedMessages Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count).
+	EstimatedMessages int                   `json:"estimated_messages"`
+	Window            BackfillPreviewWindow `json:"window"`
+}
+
+// BackfillPreviewWindow defines model for BackfillPreview.Window.
+type BackfillPreviewWindow string
+
+// BackfillPreviewRequest defines model for BackfillPreviewRequest.
+type BackfillPreviewRequest struct {
+	// Window The CAP-PARAM-4 window; default UI selection is 6m.
+	Window BackfillPreviewRequestWindow `json:"window"`
+}
+
+// BackfillPreviewRequestWindow The CAP-PARAM-4 window; default UI selection is 6m.
+type BackfillPreviewRequestWindow string
+
+// BackfillStatus The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1).
+type BackfillStatus struct {
+	BackfillId  *openapi_types.UUID `json:"backfill_id,omitempty"`
+	CompletedAt *time.Time          `json:"completed_at,omitempty"`
+	Counts      *struct {
+		Captured             *int `json:"captured,omitempty"`
+		DedupeCandidates     *int `json:"dedupe_candidates,omitempty"`
+		MessagesScanned      *int `json:"messages_scanned,omitempty"`
+		OrganizationsCreated *int `json:"organizations_created,omitempty"`
+		PeopleCreated        *int `json:"people_created,omitempty"`
+		Skipped              *int `json:"skipped,omitempty"`
+	} `json:"counts,omitempty"`
+
+	// EstimatedMessages The previewed count the user consented to — the progress fraction's denominator.
+	EstimatedMessages *int `json:"estimated_messages,omitempty"`
+
+	// LastErrorClass Error class only; detail lives in system_log (0078 rationale).
+	LastErrorClass *string             `json:"last_error_class,omitempty"`
+	StartedAt      *time.Time          `json:"started_at,omitempty"`
+	State          BackfillStatusState `json:"state"`
+
+	// UpdatedAt Staleness stamp — a killed worker leaves this honest ("last updated Xs ago").
+	UpdatedAt *time.Time            `json:"updated_at,omitempty"`
+	Window    *BackfillStatusWindow `json:"window,omitempty"`
+}
+
+// BackfillStatusState defines model for BackfillStatus.State.
+type BackfillStatusState string
+
+// BackfillStatusWindow defines model for BackfillStatus.Window.
+type BackfillStatusWindow string
+
 // BriefSnoozeRequest Snooze a brief item until a future instant (A77/AC-home-6); it re-surfaces once the instant passes.
 type BriefSnoozeRequest struct {
 	// SnoozedUntil When the item re-surfaces; must be in the future.
@@ -4775,8 +5008,19 @@ type BriefSnoozeRequest struct {
 // credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
 // server-side by `credential_ref`.
 type CaptureConnection struct {
+	// Backfill Summary of the connection's backfill run; state `none` when never run.
+	Backfill  *BackfillStatus    `json:"backfill,omitempty"`
 	CreatedAt *time.Time         `json:"created_at,omitempty"`
 	Id        openapi_types.UUID `json:"id"`
+
+	// LastSyncErrorClass rate_limited | unreachable | auth | history_gone | internal — class only, detail in system_log.
+	LastSyncErrorClass *string `json:"last_sync_error_class,omitempty"`
+
+	// LastSyncedAt Last sync attempt (CAP-DDL-5); null before the first.
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+
+	// NextSyncDueAt When the sweep will next pick this connection up (backoff-aware).
+	NextSyncDueAt *time.Time `json:"next_sync_due_at,omitempty"`
 
 	// Provider The mail/calendar provider (A51 email+calendar parity).
 	Provider CaptureConnectionProvider `json:"provider"`
@@ -6061,6 +6305,42 @@ type MorningBriefItem struct {
 
 // MorningBriefItemState The acting rep's queue state for this item.
 type MorningBriefItemState string
+
+// MorningDigest The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6).
+type MorningDigest struct {
+	Capture struct {
+		ActivitiesCreated    *int `json:"activities_created,omitempty"`
+		MessagesSynced       *int `json:"messages_synced,omitempty"`
+		OrganizationsCreated *int `json:"organizations_created,omitempty"`
+		PeopleCreated        *int `json:"people_created,omitempty"`
+	} `json:"capture"`
+	Connectors []struct {
+		LastSyncErrorClass *string                          `json:"last_sync_error_class,omitempty"`
+		LastSyncedAt       *time.Time                       `json:"last_synced_at,omitempty"`
+		Provider           *MorningDigestConnectorsProvider `json:"provider,omitempty"`
+		Status             *MorningDigestConnectorsStatus   `json:"status,omitempty"`
+	} `json:"connectors"`
+	Date        openapi_types.Date `json:"date"`
+	GeneratedAt time.Time          `json:"generated_at"`
+	Review      struct {
+		// ApprovalsPending Pending 🟡 items (enrich, quarantine, merge).
+		ApprovalsPending *int `json:"approvals_pending,omitempty"`
+		Classify         *struct {
+			Commitments *int `json:"commitments,omitempty"`
+			Meetings    *int `json:"meetings,omitempty"`
+			Noise       *int `json:"noise,omitempty"`
+		} `json:"classify,omitempty"`
+
+		// DedupeOpen Open DH-DDL-1 candidate pairs.
+		DedupeOpen *int `json:"dedupe_open,omitempty"`
+	} `json:"review"`
+}
+
+// MorningDigestConnectorsProvider defines model for MorningDigest.Connectors.Provider.
+type MorningDigestConnectorsProvider string
+
+// MorningDigestConnectorsStatus defines model for MorningDigest.Connectors.Status.
+type MorningDigestConnectorsStatus string
 
 // Offer A versioned Angebot bound to one deal. Mirrors the `offer` table; totals are derived from the nested line items.
 type Offer struct {
@@ -7358,6 +7638,15 @@ type StageListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// StartBackfillRequest defines model for StartBackfillRequest.
+type StartBackfillRequest struct {
+	// Window `none` is expressed by never calling this op. Widen-only versus a prior run.
+	Window StartBackfillRequestWindow `json:"window"`
+}
+
+// StartBackfillRequestWindow `none` is expressed by never calling this op. Widen-only versus a prior run.
+type StartBackfillRequestWindow string
+
 // Tag A tag. Mirrors the `tag` table.
 type Tag struct {
 	ArchivedAt  *time.Time         `json:"archived_at,omitempty"`
@@ -8462,6 +8751,12 @@ type CreateOfferParams struct {
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
 	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetMorningDigestParams defines parameters for GetMorningDigest.
+type GetMorningDigestParams struct {
+	// Date A specific digest day; default: the latest generated.
+	Date *openapi_types.Date `form:"date,omitempty" json:"date,omitempty"`
 }
 
 // GetFieldHistoryParams defines parameters for GetFieldHistory.
@@ -9644,6 +9939,12 @@ type PutCompanyJSONRequestBody = CompanyProfileInput
 
 // ConnectImapJSONRequestBody defines body for ConnectImap for application/json ContentType.
 type ConnectImapJSONRequestBody = ImapConnectRequest
+
+// StartConnectorBackfillJSONRequestBody defines body for StartConnectorBackfill for application/json ContentType.
+type StartConnectorBackfillJSONRequestBody = StartBackfillRequest
+
+// PreviewConnectorBackfillJSONRequestBody defines body for PreviewConnectorBackfill for application/json ContentType.
+type PreviewConnectorBackfillJSONRequestBody = BackfillPreviewRequest
 
 // ConnectConnectorJSONRequestBody defines body for ConnectConnector for application/json ContentType.
 type ConnectConnectorJSONRequestBody = ConnectConnectorRequest
@@ -14810,6 +15111,18 @@ type ServerInterface interface {
 	// One-shot IMAP pull — capture the most recent mailbox messages as email activities.
 	// (POST /connectors/imap/connect)
 	ConnectImap(w http.ResponseWriter, r *http.Request)
+	// Cancel a running backfill — captured rows are retained.
+	// (DELETE /connectors/{provider}/backfill)
+	CancelConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
+	// Backfill progress — the activation read.
+	// (GET /connectors/{provider}/backfill)
+	GetConnectorBackfillStatus(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
+	// Start the bounded connect-time backfill.
+	// (POST /connectors/{provider}/backfill)
+	StartConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
+	// Preview a backfill window — the scope before the spend.
+	// (POST /connectors/{provider}/backfill/preview)
+	PreviewConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider)
 	// OAuth redirect callback — completes a mail/calendar connect.
 	// (GET /connectors/{provider}/callback)
 	ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, provider CaptureProvider, params ConnectorOAuthCallbackParams)
@@ -14876,6 +15189,9 @@ type ServerInterface interface {
 	// List a deal's stakeholders (deal↔person relationships).
 	// (GET /deals/{id}/stakeholders)
 	ListDealStakeholders(w http.ResponseWriter, r *http.Request, id Id)
+	// The calling user's morning digest — what capture did overnight.
+	// (GET /digest)
+	GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams)
 	// Export a filtered slice of one object (or a saved view / dynamic list) to an open format.
 	// (POST /exports)
 	CreateFilteredExport(w http.ResponseWriter, r *http.Request)
@@ -15548,6 +15864,30 @@ func (_ Unimplemented) ConnectImap(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Cancel a running backfill — captured rows are retained.
+// (DELETE /connectors/{provider}/backfill)
+func (_ Unimplemented) CancelConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Backfill progress — the activation read.
+// (GET /connectors/{provider}/backfill)
+func (_ Unimplemented) GetConnectorBackfillStatus(w http.ResponseWriter, r *http.Request, provider CaptureProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start the bounded connect-time backfill.
+// (POST /connectors/{provider}/backfill)
+func (_ Unimplemented) StartConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Preview a backfill window — the scope before the spend.
+// (POST /connectors/{provider}/backfill/preview)
+func (_ Unimplemented) PreviewConnectorBackfill(w http.ResponseWriter, r *http.Request, provider CaptureProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // OAuth redirect callback — completes a mail/calendar connect.
 // (GET /connectors/{provider}/callback)
 func (_ Unimplemented) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request, provider CaptureProvider, params ConnectorOAuthCallbackParams) {
@@ -15677,6 +16017,12 @@ func (_ Unimplemented) CreateOffer(w http.ResponseWriter, r *http.Request, id Id
 // List a deal's stakeholders (deal↔person relationships).
 // (GET /deals/{id}/stakeholders)
 func (_ Unimplemented) ListDealStakeholders(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The calling user's morning digest — what capture did overnight.
+// (GET /digest)
+func (_ Unimplemented) GetMorningDigest(w http.ResponseWriter, r *http.Request, params GetMorningDigestParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -18431,6 +18777,134 @@ func (siw *ServerInterfaceWrapper) ConnectImap(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// CancelConnectorBackfill operation middleware
+func (siw *ServerInterfaceWrapper) CancelConnectorBackfill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelConnectorBackfill(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConnectorBackfillStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetConnectorBackfillStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConnectorBackfillStatus(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartConnectorBackfill operation middleware
+func (siw *ServerInterfaceWrapper) StartConnectorBackfill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartConnectorBackfill(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewConnectorBackfill operation middleware
+func (siw *ServerInterfaceWrapper) PreviewConnectorBackfill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider CaptureProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewConnectorBackfill(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ConnectorOAuthCallback operation middleware
 func (siw *ServerInterfaceWrapper) ConnectorOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
@@ -19808,6 +20282,45 @@ func (siw *ServerInterfaceWrapper) ListDealStakeholders(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDealStakeholders(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMorningDigest operation middleware
+func (siw *ServerInterfaceWrapper) GetMorningDigest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMorningDigestParams
+
+	// ------------- Optional query parameter "date" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "date", r.URL.Query(), &params.Date, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "date"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMorningDigest(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26341,6 +26854,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/connectors/imap/connect", wrapper.ConnectImap)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/connectors/{provider}/backfill", wrapper.CancelConnectorBackfill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/connectors/{provider}/backfill", wrapper.GetConnectorBackfillStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/connectors/{provider}/backfill", wrapper.StartConnectorBackfill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/connectors/{provider}/backfill/preview", wrapper.PreviewConnectorBackfill)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connectors/{provider}/callback", wrapper.ConnectorOAuthCallback)
 	})
 	r.Group(func(r chi.Router) {
@@ -26405,6 +26930,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/stakeholders", wrapper.ListDealStakeholders)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/digest", wrapper.GetMorningDigest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/exports", wrapper.CreateFilteredExport)
