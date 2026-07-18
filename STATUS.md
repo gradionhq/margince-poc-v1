@@ -22,6 +22,27 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Deep read v2 — ONE corpus call (founder decision 2026-07-18)** — the
+per-page extraction (1–2 model calls per page, ~6 min for gradion.com,
+plus a synthesis pass and three cross-page merges) is replaced by ONE
+streamed model call over the whole labeled site corpus (~78k tokens for
+gradion.com; chunked fallback ≤4 for outsized sites). The no-guess gate
+survives intact — every fact re-verified against its NAMED page, and a
+new `legal_entities[]` census makes the multi-entity abstention explicit
+(gradion.com's five-entity imprint → no legal identity proposed +
+warning). Extraction taxonomy v2 adds `company/location` and
+`signal/technology` (migration 0088). The crawl bursts (12-wide waves,
+committed in order — byte-identical to serial by test; ~10 s, <5 s needs
+the pipelined-fetch follow-up), and the dossier now reports live
+`phase`/`pages_read` (migration 0089) so the SPA poll shows movement.
+Anthropic Complete rides SSE above 8k max_tokens (the API drops silent
+non-streaming connections). Extraction routes premium-first
+(`site_extract`); for Anthropic the premium tier must be SONNET-class+
+(Haiku paraphrases evidence away) — judged by the pinned E2E floor
+`make -C backend e2e-siteread` with taxonomy floors (locations ≥ 4,
+technologies ≥ 5, offerings ≥ 10, ≤4 calls). Live: gradion.com in
+~2.5 min end-to-end, 60+ facts, 3 people, correct abstention.
+
 **Deep-read quality loop — debug CLI + ingestion quality** — the answer
 to "12 pages, missing facts, wrong company": crawl caps are now
 operator-tunable with raised defaults (40 pages / 32 MiB / 240 s;
