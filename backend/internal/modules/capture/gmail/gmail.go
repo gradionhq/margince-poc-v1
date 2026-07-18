@@ -65,9 +65,13 @@ type authState struct {
 	Scopes       []string `json:"scopes"`
 }
 
-// cursorState is the persisted incremental watermark: Gmail's historyId.
+// cursorState is the persisted incremental watermark: Gmail's historyId,
+// plus the mailbox address the watermark belongs to — the Pub/Sub push
+// notification names only the mailbox, so the webhook routes on
+// sync_cursor->>'email' without unsealing any credential.
 type cursorState struct {
 	HistoryID string `json:"history_id"`
+	Email     string `json:"email"`
 }
 
 // authPayload is the connect request the transport hands to Authenticate:
@@ -176,7 +180,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	if nextHistory == "" {
 		nextHistory = start // nothing new; keep the prior watermark
 	}
-	return marshalCursor(nextHistory), nil
+	return marshalCursor(nextHistory, owner), nil
 }
 
 // selectMessages resolves which message ids to pull and the historyId to
@@ -301,9 +305,9 @@ func parseCursor(cur connector.Cursor) (string, error) {
 	return cs.HistoryID, nil
 }
 
-func marshalCursor(historyID string) connector.Cursor {
+func marshalCursor(historyID, email string) connector.Cursor {
 	// cursorState has only string fields, so Marshal cannot fail here.
-	b, _ := json.Marshal(cursorState{HistoryID: historyID}) //nolint:errchkjson // string-only struct never errors
+	b, _ := json.Marshal(cursorState{HistoryID: historyID, Email: email}) //nolint:errchkjson // string-only struct never errors
 	return b
 }
 
