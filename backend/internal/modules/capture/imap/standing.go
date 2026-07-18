@@ -34,7 +34,15 @@ import (
 // and seals the credentials; every Sync dials fresh and advances a UID
 // cursor. Register this one on the capture registry; the transient one-shot
 // pull keeps using New().
-func NewStanding() *Connector { return &Connector{standing: true} }
+func NewStanding() *Connector { return &Connector{standing: true, dial: dialLogin} }
+
+// withDialer overrides the session dialer — the testable seam (the real
+// dialer's TLS and SSRF properties are its own concern; the sync logic is
+// this package's).
+func (c *Connector) withDialer(d func(context.Context, Credentials) (*imapclient.Client, net.Conn, error)) *Connector {
+	c.dial = d
+	return c
+}
 
 // imapCursor is the persisted watermark. Email carries the mailbox identity
 // the same way gmail's cursor does (the provider-owned routing key).
@@ -119,7 +127,7 @@ func (c *Connector) authenticateStanding(ctx context.Context, req connector.Auth
 	if err != nil {
 		return nil, err
 	}
-	client, _, err := dialLogin(ctx, creds)
+	client, _, err := c.dial(ctx, creds)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +157,7 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 		return nil, err
 	}
 
-	client, netConn, err := dialLogin(ctx, creds)
+	client, netConn, err := c.dial(ctx, creds)
 	if err != nil {
 		return nil, err
 	}

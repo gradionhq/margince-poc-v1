@@ -88,6 +88,11 @@ type Connector struct {
 	// (the transient pull threads a local map instead).
 	syncContacts map[string]struct{}
 
+	// dial establishes one session for the standing flavor; injectable so
+	// the sync logic tests against an in-memory server (the production
+	// dialer's TLS + SSRF guard are its own tested properties).
+	dial func(context.Context, Credentials) (*imapclient.Client, net.Conn, error)
+
 	// standing selects the persisted-connection flavor (NewStanding): the
 	// auth bundle carries the sealed credentials, every Sync dials fresh,
 	// and the cursor is the UID watermark. false = the transient one-shot
@@ -388,7 +393,7 @@ func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error 
 		if err := json.Unmarshal(auth, &creds); err != nil {
 			return fmt.Errorf("imap: malformed auth bundle: %w", err)
 		}
-		client, _, err := dialLogin(ctx, creds)
+		client, _, err := c.dial(ctx, creds)
 		if err != nil {
 			return err
 		}
