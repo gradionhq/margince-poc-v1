@@ -3212,25 +3212,25 @@ func (e SiteReadReportStoppedReason) Valid() bool {
 
 // Defines values for SiteReadSkipReason.
 const (
-	ByteCap    SiteReadSkipReason = "byte_cap"
-	OffDomain  SiteReadSkipReason = "off_domain"
-	PageCap    SiteReadSkipReason = "page_cap"
-	Robots     SiteReadSkipReason = "robots"
-	Unreadable SiteReadSkipReason = "unreadable"
+	SiteReadSkipReasonByteCap    SiteReadSkipReason = "byte_cap"
+	SiteReadSkipReasonOffDomain  SiteReadSkipReason = "off_domain"
+	SiteReadSkipReasonPageCap    SiteReadSkipReason = "page_cap"
+	SiteReadSkipReasonRobots     SiteReadSkipReason = "robots"
+	SiteReadSkipReasonUnreadable SiteReadSkipReason = "unreadable"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadSkipReason enum.
 func (e SiteReadSkipReason) Valid() bool {
 	switch e {
-	case ByteCap:
+	case SiteReadSkipReasonByteCap:
 		return true
-	case OffDomain:
+	case SiteReadSkipReasonOffDomain:
 		return true
-	case PageCap:
+	case SiteReadSkipReasonPageCap:
 		return true
-	case Robots:
+	case SiteReadSkipReasonRobots:
 		return true
-	case Unreadable:
+	case SiteReadSkipReasonUnreadable:
 		return true
 	default:
 		return false
