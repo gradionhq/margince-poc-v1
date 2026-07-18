@@ -223,6 +223,14 @@ up)
     cp config/margince.example.yaml "$deploy_cfg"
     echo "dev: seeded $deploy_cfg from config/margince.example.yaml — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
   fi
+  # Report which deployment config the api + worker are using, and its AI
+  # posture — mirrors the ai-routing line above so both configs are visible.
+  if grep -Eq '^[[:space:]]*capture_payloads:[[:space:]]*true' "$deploy_cfg"; then
+    capture_note="ai.capture_payloads ON"
+  else
+    capture_note="ai.capture_payloads off"
+  fi
+  echo "dev: using $deploy_cfg for the deployment config ($capture_note)"
 
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean

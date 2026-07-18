@@ -171,6 +171,19 @@ migrate <up|down> --dsn <owner-dsn> [--steps n]
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
 
+The **deployment configuration** (`--config`, default `margince.yaml`) is
+seeded the same way for local dev. The annotated reference is
+[`config/margince.example.yaml`](../../config/margince.example.yaml); `make dev`
+copies it to a gitignored `config/margince.yaml` on first run and then
+**leaves it** (create-if-missing / leave-if-exists, exactly like
+`config/ai-routing.yaml` below), so an engineer's edits — organization,
+`bootstrap_admin`, or the `ai.capture_payloads` posture — persist across
+`make dev-stop` / `make dev` rather than being regenerated each boot. The
+admin `password_file` it references (`config/margince-admin-password`) is
+seeded alongside on first run; both are gitignored. `--config` reaches
+**both** the api and worker, so a posture like `ai.capture_payloads` applies
+to every role. Delete `config/margince.yaml` and re-run `make dev` to reset.
+
 Model credentials (BYOK cloud tiers) are configured in
 `ai-routing.yaml`, not through binary flags. The annotated reference is
 [`config/ai-routing.example.yaml`](../../config/ai-routing.example.yaml)
