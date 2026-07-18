@@ -134,9 +134,10 @@ gen: ## Regenerate everything derived from the contract
 	$(GO) generate ./internal/contracts
 	$(GO) run ./tools/gen-stubs
 	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
+	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
 
 drift: gen ## Fail when any generated file drifted from the contract
-	git diff --exit-code -- '*_gen.go' internal/contracts/
+	git diff --exit-code -- '*_gen.go' internal/contracts/ ../config/ai-routing.schema.json
 
 # Scaffolding, not generation: gen-workflow writes a write-once handler +
 # test stub for a developer to fill in (AC-W1) and is never part of

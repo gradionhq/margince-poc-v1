@@ -56,10 +56,6 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	return cfg, nil
 }
 
-var knownTiers = map[Tier]bool{
-	TierLocalSmall: true, TierCheapCloud: true, TierPremium: true, TierLocalLarge: true,
-}
-
 // localProviders can serve the sovereign zero-egress profile.
 var localProviders = map[string]bool{providerOllama: true, providerVLLM: true, ProviderFake: true}
 
