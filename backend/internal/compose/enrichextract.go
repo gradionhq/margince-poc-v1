@@ -25,7 +25,6 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -164,7 +163,7 @@ func extractionShapeValid(text string) error {
 // extract, gate. Both engines embed it.
 type evidenceExtractor struct {
 	fetch PageFetcher
-	brain runner.Brain
+	brain completer
 	// drops receives every finding a gate refused (nil = log only).
 	// The debug CLI feeds its dropped-facts report through this; the
 	// production path keeps the log line, so a read that came back thin

@@ -65,9 +65,10 @@ const requestTimeout = 300 * time.Second
 // Provider names — the vocabulary shared by the SelectBrain switch,
 // knownProviders, and the sovereign-eligible localProviders set. One spelling
 // each so a typo can't silently split "the switch accepts it" from "the config
-// enum offers it".
+// enum offers it". ProviderFake is exported because the composition layer's
+// dev tooling names the offline fake in the routing configs it assembles.
 const (
-	providerFake             = "fake"
+	ProviderFake             = "fake"
 	providerAnthropic        = "anthropic"
 	providerOllama           = "ollama"
 	providerVLLM             = "vllm"
@@ -79,14 +80,14 @@ const (
 // knownProviders is the single source of truth for the provider names
 // SelectBrain accepts — read by the default error below and by the config
 // JSON-schema drift test. Add a provider here when you add its case.
-var knownProviders = []string{providerFake, providerAnthropic, providerOllama, providerVLLM, providerOpenAICompatible, providerOpenAI, providerGemini}
+var knownProviders = []string{ProviderFake, providerAnthropic, providerOllama, providerVLLM, providerOpenAICompatible, providerOpenAI, providerGemini}
 
 // SelectBrain turns one binding into a Client (interfaces.md §4):
 // "offline fake ↔ API key ↔ local, one line" — swapping providers is a
 // config change, never a code change.
 func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 	switch cfg.Provider {
-	case providerFake:
+	case ProviderFake:
 		return NewFakeClient(), nil
 	case providerAnthropic:
 		key := cloudKey(providerAnthropic)

@@ -38,11 +38,12 @@ func TestBootstrapSeedsDefaultRetentionPolicies(t *testing.T) {
 	}
 	want := []string{
 		"activity/transcript/erase", "activity//archive",
+		"ai_call_payload/content/erase",
 		"deal/lost/archive", "lead/unconverted/anonymize",
 		"person/no_consent_no_deal/anonymize",
 	}
 	if len(got) != len(want) {
-		t.Fatalf("seeded %d policies %v, want the §3.4 five", len(got), got)
+		t.Fatalf("seeded %d policies %v, want the §3.4 five + ai_call_payload/content/erase", len(got), got)
 	}
 	for i := range want {
 		if got[i] != want[i] {

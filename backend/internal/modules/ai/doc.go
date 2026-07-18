@@ -16,5 +16,8 @@
 // guardrail), voice_profile and voice_corpus_source (Voice DNA,
 // B-E07.4/.5a — the derived artifact + corpus manifest are
 // model-adjacent assets, so they live beside the runtime that consumes
-// them). Imports shared + platform only; never a sibling module.
+// them), ai_call (per-completion trace metadata) and ai_call_payload
+// (the opt-in post-stripper captured content, Layer 3 — the payload
+// row that privacy's retention and Art. 17 erasure age out and purge).
+// Imports shared + platform only; never a sibling module.
 package ai

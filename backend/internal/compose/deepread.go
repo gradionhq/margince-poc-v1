@@ -93,7 +93,7 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain runner.Brain, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{

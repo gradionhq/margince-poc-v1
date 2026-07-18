@@ -206,24 +206,31 @@ up)
     echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
   fi
 
-  # The deployment configuration (A107/ADR-0061): the api bootstraps the
-  # demo organization itself at boot — no public provisioning endpoint
-  # exists. The password file matches seed-dev.sh's demo credentials.
-  deploy_cfg="${rundir}/margince.yaml"
-  admin_pw_file="${rundir}/admin-password"
-  printf '%s' "${ADMIN_PASSWORD:-demo-password-123}" >"$admin_pw_file"
-  chmod 600 "$admin_pw_file"
-  cat >"$deploy_cfg" <<EOF_CFG
-version: 1
-organization:
-  name: Demo Workspace
-  base_currency: EUR
-  timezone: Europe/Berlin
-bootstrap_admin:
-  email: ${ADMIN_EMAIL:-admin@demo.test}
-  display_name: Demo Admin
-  password_file: ${admin_pw_file}
-EOF_CFG
+  # The deployment configuration (A107/ADR-0061): the api bootstraps the demo
+  # organization itself at boot — no public provisioning endpoint exists. Seeded
+  # ONCE into a gitignored config/margince.yaml from config/margince.example.yaml
+  # and then LEFT ALONE — the same create-if-missing / leave-if-exists pattern as
+  # config/ai-routing.yaml — so an engineer can edit org details or runtime
+  # posture (e.g. ai.capture_payloads for Layer-3 capture) and it persists across
+  # restarts (it lives in config/, not the scratch rundir dev-stop clears).
+  deploy_cfg="config/margince.yaml"
+  admin_pw_file="config/margince-admin-password"
+  if [[ ! -f "$admin_pw_file" ]]; then
+    printf '%s' "${ADMIN_PASSWORD:-demo-password-123}" >"$admin_pw_file"
+    chmod 600 "$admin_pw_file"
+  fi
+  if [[ ! -f "$deploy_cfg" ]]; then
+    cp config/margince.example.yaml "$deploy_cfg"
+    echo "dev: seeded $deploy_cfg from config/margince.example.yaml — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
+  fi
+  # Report which deployment config the api + worker are using, and its AI
+  # posture — mirrors the ai-routing line above so both configs are visible.
+  if grep -Eq '^[[:space:]]*capture_payloads:[[:space:]]*true' "$deploy_cfg"; then
+    capture_note="ai.capture_payloads ON"
+  else
+    capture_note="ai.capture_payloads off"
+  fi
+  echo "dev: using $deploy_cfg for the deployment config ($capture_note)"
 
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean
@@ -295,6 +302,7 @@ EOF_CFG
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
+    --config "$deploy_cfg" \
     --retention-interval 720h \
     "${ai_flag[@]}" "${worker_gmail_flags[@]+"${worker_gmail_flags[@]}"}" >>"$log" 2>&1 &
   worker_pid=$!

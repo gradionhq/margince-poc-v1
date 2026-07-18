@@ -32,7 +32,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -67,7 +66,7 @@ const (
 // newDeepReadTestWorker builds the worker over the fake site with the
 // real approvals service, the deepread and site_lead accept effects wired
 // exactly as compose wires them in production.
-func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain runner.Brain) (*siteDeepReadWorker, *approvals.Service) {
+func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) (*siteDeepReadWorker, *approvals.Service) {
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool)))

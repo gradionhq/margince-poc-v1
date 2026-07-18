@@ -51,7 +51,7 @@ func wsContext(t *testing.T) context.Context {
 }
 
 func testRouter(clients map[Tier]model.Client, meter usageStore, spentBudget BudgetPolicy, profile Profile) *Router {
-	return newRouter(clients, NewFakeClient(), profile, meter, spentBudget)
+	return assembleRouter(clients, NewFakeClient(), profile, meter, spentBudget, nil, nil, false, nil)
 }
 
 func TestRouterRoutesTaskToPrimaryTierAndMeters(t *testing.T) {
@@ -273,7 +273,7 @@ func TestRouterCacheIsWorkspaceScoped(t *testing.T) {
 func TestRouterEmbedStripsSecretsAndMeters(t *testing.T) {
 	meter := &memMeter{}
 	embedder := NewFakeClient()
-	r := newRouter(map[Tier]model.Client{}, embedder, ProfileEUHosted, meter, DefaultMonthlyTokens)
+	r := assembleRouter(map[Tier]model.Client{}, embedder, ProfileEUHosted, meter, DefaultMonthlyTokens, nil, nil, false, nil)
 	_, err := r.Embed(wsContext(t), model.EmbedRequest{Inputs: []string{"note with password=topsecretvalue in it"}})
 	if err != nil {
 		t.Fatal(err)

@@ -141,8 +141,11 @@ func Readyz(checks ...ReadyCheck) http.HandlerFunc {
 // PoC stage the handful of gauges below does not justify the
 // client_golang dependency tree, and the text format is a stable,
 // trivially-emitted contract. backlog and published are injected by the
-// composition layer (platform/events owns the outbox SQL).
-func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64) http.HandlerFunc {
+// composition layer (platform/events owns the outbox SQL). extra renders
+// any additional counter families a process role wires in (e.g. the AI
+// router's call metrics) directly after the pool gauges; nil means the
+// role wired none.
+func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64, extra func(io.Writer)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -167,5 +170,9 @@ func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), p
 		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"idle\"} %d\n", stat.IdleConns())
 		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"total\"} %d\n", stat.TotalConns())
 		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"max\"} %d\n", stat.MaxConns())
+
+		if extra != nil {
+			extra(w)
+		}
 	}
 }
