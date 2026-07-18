@@ -1,0 +1,52 @@
+name: deal_timeline_summary
+task: summarize
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+system: >
+  You summarize a CRM account/deal timeline. Each summary point MUST cite the
+  source_id(s) of the activities it is drawn from. Do not introduce facts,
+  outcomes, or sentiment not present in the supplied activities. Output ONLY
+  a JSON object matching the schema: no prose, no markdown.
+input: |
+  Deal: {"id":"deal_881","name":"Nordwerk Metalworks — fab line upgrade","stage":"proposal"}
+  Activities (chronological; each has source_id):
+  [act_1] email, 2026-06-02: "Customer asked for a quote covering the new laser cutter integration."
+  [act_2] call, 2026-06-09: "30-minute call — customer confirmed budget is approved for Q3, wants delivery before their plant shutdown in August."
+  [act_3] email, 2026-06-14: "Sent revised proposal with the August delivery date customer requested."
+  Return JSON: { "summary_points": [ {"text","source_ids","confidence"} ], "overall_confidence" }
+expect:
+  structural:
+    - kind: json_schema
+      schema:
+        type: object
+        properties:
+          summary_points:
+            type: array
+            items:
+              type: object
+              properties:
+                text:
+                  type: string
+                source_ids:
+                  type: array
+                  items:
+                    type: string
+                confidence:
+                  type: number
+              required: [text, source_ids, confidence]
+          overall_confidence:
+            type: number
+        required: [summary_points, overall_confidence]
+    - kind: contains
+      arg: act_2
+    - kind: not_contains
+      arg: cancelled
+  rubric: >
+    Score whether every summary point is actually supported by the cited
+    activities (no invented outcome, no sentiment the activities do not
+    state) and whether the Q3 budget approval and August delivery date — the
+    two concrete facts in this timeline — are both surfaced.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

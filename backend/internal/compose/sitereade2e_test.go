@@ -22,6 +22,16 @@ package compose
 // catalog (offering extraction + page-budget priorities). If the site
 // is restructured someday, re-derive the floors from a fresh baseline
 // run — they encode the SITE as much as the model.
+//
+// The split that keeps this lane and the aicert corpus from duplicating
+// each other's job: crawl/pipeline assertions (coverage, dedupe, call
+// count, wall-clock) live HERE, against a real crawl of a real site,
+// because they are properties of the fetch+merge pipeline, not of the
+// model's answer. Extraction-QUALITY assertions on a fixed prompt/input
+// pair — field grounding, the no-guess floor, the legal multi-entity
+// abstention — belong in aicert's corpus/site_extract/ scenarios instead,
+// which pin the input once and are model-swappable without needing a
+// live site.
 
 import (
 	"context"
