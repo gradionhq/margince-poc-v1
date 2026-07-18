@@ -67,10 +67,15 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 // NewLocalModelPath builds a ModelPath over the DB-less local router
 // (ai.NewLocalRouter) instead of NewModelPath's Postgres-backed one —
 // the same lane set, wired the same way, for a caller with no pool (the
-// aicert lane's candidate/judge routers). opts ride straight through to
-// NewLocalRouter, so a caller wires a call recorder, disables the result
-// cache, or pins a static budget exactly as it would calling the router
-// constructor directly.
+// compose integration suites' offline fixtures, which need the named
+// ModelPath lanes rather than a bare *ai.Router). The aicert lane's
+// candidate/judge routers go through NewLocalRouterForCert instead —
+// they drive an arbitrary corpus task, including the judge-only
+// cert_judge, so they need the router itself, not one of ModelPath's
+// fixed named completers. opts ride straight through to NewLocalRouter,
+// so a caller wires a call recorder, disables the result cache, or pins
+// a static budget exactly as it would calling the router constructor
+// directly.
 func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath, error) {
 	router, err := ai.NewLocalRouter(cfg, opts...)
 	if err != nil {
@@ -84,6 +89,22 @@ func NewLocalModelPath(cfg ai.RoutingConfig, opts ...ai.LocalOption) (ModelPath,
 		OfferDraft:  routerBrain{router: router, task: ai.TaskOfferDraft},
 		Embedder:    router,
 	}, nil
+}
+
+// NewLocalRouterForCert builds the DB-less local router the aicert
+// certification lane (compose/aicert) drives directly. ModelPath's own
+// lanes (ColdStart, SiteExtract, ...) are fixed, named workloads; the
+// cert lane must complete an arbitrary corpus task — any ai.Task,
+// including the judge-only cert_judge — on two independently
+// configured routers (the candidate, optionally MODEL=-overridden on
+// just its own task's ladder; the judge, always the unmodified config),
+// so it needs the router itself, not one of ModelPath's named
+// completers. This thin passthrough exists so the raw ai.NewLocalRouter
+// construction stays inside this file — the one seam
+// arch_test.go's TestNoModelClientOutsideTheGate enforces — rather than
+// aicert becoming a second, ungated construction site.
+func NewLocalRouterForCert(cfg ai.RoutingConfig, opts ...ai.LocalOption) (*ai.Router, error) {
+	return ai.NewLocalRouter(cfg, opts...)
 }
 
 // WriteMetrics renders the model path's underlying router's AI call

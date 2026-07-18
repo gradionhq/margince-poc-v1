@@ -71,6 +71,17 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 // localProviders can serve the sovereign zero-egress profile.
 var localProviders = map[string]bool{providerOllama: true, providerVLLM: true, ProviderFake: true}
 
+// ProviderIsLocal reports whether provider names same-host inference
+// rather than a network-hosted vendor — the one exported spelling of
+// this package's own localProviders set, so a caller outside it (the
+// aicert cert lane's cloud-only P95 latency cap) never re-encodes the
+// same "which providers are local" invariant as a second, driftable
+// copy this package's own conformance test (
+// TestLocalOnlyMatchesLocalProvidersForEveryProvider) cannot see.
+func ProviderIsLocal(provider string) bool {
+	return localProviders[provider]
+}
+
 func (cfg RoutingConfig) validate() error {
 	switch cfg.Profile {
 	case ProfileEUHosted, ProfileSovereign, ProfileCloudFrontier:
@@ -132,6 +143,19 @@ func (cfg RoutingConfig) UnboundLadderWarnings() []string {
 		warnings = append(warnings, fmt.Sprintf("task %s: no bound tier on ladder %v; calls will be refused", task, names))
 	}
 	return warnings
+}
+
+// TaskLadder reports task's routing fallback ladder — primary tier
+// first, then the rungs a call walks on provider error or schema-
+// validation failure. taskLadders (tasks_gen.go) is otherwise private to
+// this package; this is the smallest export that lets a caller outside
+// it (the aicert certification runner, compose/aicert) learn which tiers
+// a MODEL= override must rebind for the task under test, without
+// duplicating the routing table this package alone owns. The returned
+// slice is a copy — a caller mutating it cannot corrupt the package's
+// own table.
+func TaskLadder(task Task) []Tier {
+	return append([]Tier(nil), taskLadders[task]...)
 }
 
 // buildClients turns validated bindings into live Clients via

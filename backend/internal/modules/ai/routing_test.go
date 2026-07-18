@@ -78,6 +78,46 @@ func TestParseRoutingSetsDeterministicSourceHash(t *testing.T) {
 	}
 }
 
+// TestTaskLadderReportsTheRoutingTableAndNeverAliasesIt covers the aicert
+// runner's dependency on TaskLadder: it must report exactly the routing
+// table's rungs for a known task, empty for an unknown one (no panic on
+// a bad key), and hand back a copy a caller can mutate freely without
+// corrupting taskLadders for the next call.
+func TestTaskLadderReportsTheRoutingTableAndNeverAliasesIt(t *testing.T) {
+	got := TaskLadder(TaskSiteExtract)
+	want := []Tier{TierPremium}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("TaskLadder(TaskSiteExtract) = %v, want %v", got, want)
+	}
+	got[0] = TierLocalSmall
+	again := TaskLadder(TaskSiteExtract)
+	if again[0] != TierPremium {
+		t.Fatalf("mutating a returned ladder corrupted the package table: got %v on the next call", again)
+	}
+	if unknown := TaskLadder(Task("not_a_real_task")); unknown != nil {
+		t.Fatalf("an unknown task should report a nil ladder, got %v", unknown)
+	}
+}
+
+// TestProviderIsLocalMatchesTheUnexportedSet pins ProviderIsLocal (the
+// aicert cert lane's cloud-only-latency-cap dependency) to exactly the
+// same providers TestLocalOnlyMatchesLocalProvidersForEveryProvider
+// already binds localProviders to — one invariant, one exported reader.
+func TestProviderIsLocalMatchesTheUnexportedSet(t *testing.T) {
+	local := []string{providerOllama, providerVLLM, ProviderFake}
+	for _, p := range local {
+		if !ProviderIsLocal(p) {
+			t.Errorf("ProviderIsLocal(%q) = false, want true", p)
+		}
+	}
+	cloud := []string{providerAnthropic, providerOpenAI, providerGemini, providerOpenAICompatible}
+	for _, p := range cloud {
+		if ProviderIsLocal(p) {
+			t.Errorf("ProviderIsLocal(%q) = true, want false", p)
+		}
+	}
+}
+
 // A cloud provider on any tier or the embeddings lane is refused under the
 // sovereign profile — zero egress by construction (spec §3.6).
 func TestSovereignRefusesOpenAICompatible(t *testing.T) {
