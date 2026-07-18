@@ -73,7 +73,13 @@ func (e *CaptureEnricher) Run(ctx context.Context) error {
 		return err
 	}
 	for _, ws := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, ws)
+		// The store's apply writes audit + outbox rows, so the pass binds
+		// the system actor and an operation scope like every worker job.
+		wsCtx := principal.WithCorrelationID(principal.WithActor(
+			principal.WithWorkspaceID(ctx, ws), principal.Principal{
+				Type: principal.PrincipalSystem,
+				ID:   "agent:enrich",
+			}), ids.NewV7())
 		candidates, err := e.store.SignatureCandidates(wsCtx, enrichPassLimit)
 		if err != nil {
 			return err

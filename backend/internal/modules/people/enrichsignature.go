@@ -74,7 +74,7 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 		}
 		// The write shape: the enrichment is a person mutation, so the
 		// audit row and the person.updated outbox event ride this commit.
-		auditID, err := storekit.Audit(ctx, tx, "enrich", entityPerson, personID.UUID,
+		auditID, err := storekit.Audit(ctx, tx, "update", entityPerson, personID.UUID,
 			nil, map[string]any{auditKeyFields: appliedFields, "source_ref": sourceRef})
 		if err != nil {
 			return err

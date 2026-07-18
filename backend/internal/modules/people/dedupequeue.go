@@ -357,7 +357,7 @@ func (s *Store) setDedupeDisposition(ctx context.Context, id ids.UUID, dispositi
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("people: candidate already disposed: %w", apperrors.ErrConflict)
 		}
-		_, err = storekit.Audit(ctx, tx, "dedupe_dispose", auditEntityDedupe, id,
+		_, err = storekit.Audit(ctx, tx, "resolve", auditEntityDedupe, id,
 			map[string]any{auditKeyDisposition: dispositionOpen},
 			map[string]any{auditKeyDisposition: disposition})
 		return err
@@ -376,7 +376,7 @@ func (s *Store) reopenDedupeCandidate(ctx context.Context, id ids.UUID) error {
 			// Already open (a concurrent undo) — the desired state holds.
 			return nil
 		}
-		_, err = storekit.Audit(ctx, tx, "dedupe_reopen", auditEntityDedupe, id,
+		_, err = storekit.Audit(ctx, tx, "restore", auditEntityDedupe, id,
 			nil, map[string]any{auditKeyDisposition: dispositionOpen})
 		return err
 	})
