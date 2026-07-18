@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package compose
+
+// The standing IMAP connect's refusal ladder, no database in sight: signed
+// out is 401, an under-scoped session is 403 BEFORE any credential probe
+// (no egress to the tenant-supplied host), a malformed body is 422, and the
+// probe's own refusals map to their statuses. Everything here returns
+// before the registry, so the branches are provable as pure transport.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+)
+
+func postIMAPConnect(t *testing.T, h connectorHandlers, ctx context.Context, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/imap/connect", bytes.NewReader(payload))
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	h.ConnectConnector(rec, req, "imap")
+	return rec
+}
+
+func imapConnectCtx(t *testing.T, scopes ...principal.Scope) context.Context {
+	t.Helper()
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type:   principal.PrincipalHuman,
+		UserID: ids.NewV7(),
+		Scopes: principal.NewScopeSet(scopes...),
+	})
+}
+
+func TestStandingIMAPConnectRefusals(t *testing.T) {
+	probeCalls := 0
+	h := connectorHandlers{
+		// A nil-pool registry: the refusal branches under test all return
+		// before any persistence, so wired() passes without a database.
+		registry: NewCaptureRegistry(nil, nil),
+		imapAuthenticate: func(context.Context, connector.AuthRequest) (connector.Auth, error) {
+			probeCalls++
+			return nil, imap.ErrLoginRejected
+		},
+	}
+	creds := map[string]any{"imap": map[string]any{
+		"host": "mail.example", "port": 993, "username": "a@b.example", "secret": "s",
+	}}
+
+	t.Run("signed out is 401", func(t *testing.T) {
+		if rec := postIMAPConnect(t, h, context.Background(), creds); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", rec.Code)
+		}
+	})
+
+	t.Run("an under-scoped session is 403 with zero egress", func(t *testing.T) {
+		rec := postIMAPConnect(t, h, imapConnectCtx(t /* no scopes */), creds)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", rec.Code)
+		}
+		if probeCalls != 0 {
+			t.Fatal("the credential probe ran for an under-scoped caller — the preflight must refuse before any dial")
+		}
+	})
+
+	authed := imapConnectCtx(t, principal.ScopeRead)
+
+	t.Run("a missing credential block is 422", func(t *testing.T) {
+		if rec := postIMAPConnect(t, h, authed, map[string]any{}); rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422", rec.Code)
+		}
+	})
+
+	t.Run("a rejected login is 422", func(t *testing.T) {
+		if rec := postIMAPConnect(t, h, authed, creds); rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("status = %d, want 422", rec.Code)
+		}
+		if probeCalls != 1 {
+			t.Fatalf("probe ran %d times, want exactly once", probeCalls)
+		}
+	})
+
+	t.Run("an unreachable server is 502", func(t *testing.T) {
+		h.imapAuthenticate = func(context.Context, connector.AuthRequest) (connector.Auth, error) {
+			return nil, imap.ErrUnreachable
+		}
+		if rec := postIMAPConnect(t, h, authed, creds); rec.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, want 502", rec.Code)
+		}
+	})
+}
