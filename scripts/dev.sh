@@ -206,39 +206,22 @@ up)
     echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
   fi
 
-  # The deployment configuration (A107/ADR-0061): the api bootstraps the
-  # demo organization itself at boot — no public provisioning endpoint
-  # exists. The password file matches seed-dev.sh's demo credentials.
-  deploy_cfg="${rundir}/margince.yaml"
-  admin_pw_file="${rundir}/admin-password"
-  printf '%s' "${ADMIN_PASSWORD:-demo-password-123}" >"$admin_pw_file"
-  chmod 600 "$admin_pw_file"
-  cat >"$deploy_cfg" <<EOF_CFG
-version: 1
-organization:
-  name: Demo Workspace
-  base_currency: EUR
-  timezone: Europe/Berlin
-bootstrap_admin:
-  email: ${ADMIN_EMAIL:-admin@demo.test}
-  display_name: Demo Admin
-  password_file: ${admin_pw_file}
-EOF_CFG
-
-  # Operator-posture overlay. The rundir margince.yaml above is REGENERATED
-  # every boot (and deleted on dev-stop), so editing it in place never sticks.
-  # An optional, gitignored config/margince.dev.yaml lets a developer add
-  # runtime posture that persists across restarts — e.g. Layer-3 payload capture:
-  #     ai:
-  #       capture_payloads: true
-  # It is APPENDED to the generated config (which owns the bootstrap/password
-  # bits), so add only keys the base doesn't set. Copy config/margince.dev.example.yaml
-  # to start. Both api and worker below take --config, so the posture reaches both roles.
-  dev_overlay="config/margince.dev.yaml"
-  if [[ -f "$dev_overlay" ]]; then
-    printf '\n# --- appended from %s (operator overlay) ---\n' "$dev_overlay" >>"$deploy_cfg"
-    cat "$dev_overlay" >>"$deploy_cfg"
-    echo "dev: applied operator overlay $dev_overlay to the deployment config"
+  # The deployment configuration (A107/ADR-0061): the api bootstraps the demo
+  # organization itself at boot — no public provisioning endpoint exists. Seeded
+  # ONCE into a gitignored config/margince.yaml from config/margince.example.yaml
+  # and then LEFT ALONE — the same create-if-missing / leave-if-exists pattern as
+  # config/ai-routing.yaml — so an engineer can edit org details or runtime
+  # posture (e.g. ai.capture_payloads for Layer-3 capture) and it persists across
+  # restarts (it lives in config/, not the scratch rundir dev-stop clears).
+  deploy_cfg="config/margince.yaml"
+  admin_pw_file="config/margince-admin-password"
+  if [[ ! -f "$admin_pw_file" ]]; then
+    printf '%s' "${ADMIN_PASSWORD:-demo-password-123}" >"$admin_pw_file"
+    chmod 600 "$admin_pw_file"
+  fi
+  if [[ ! -f "$deploy_cfg" ]]; then
+    cp config/margince.example.yaml "$deploy_cfg"
+    echo "dev: seeded $deploy_cfg from config/margince.example.yaml — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
   fi
 
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
