@@ -3324,6 +3324,31 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /ai/usage:
+    get:
+      tags: [AI]
+      operationId: getAiUsage
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: AI usage + budget — the spend is never invisible.
+      description: |
+        Per-day × task × tier usage from the metering record (AIRT-PARAM-33) plus the workspace
+        budget block: monthly token budget, spent, current band (AIRT-PARAM-9..11), and since
+        when. The admin economy-mode banner and the spend view read this (AIRT-WIRE-1; resolves
+        the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
+        their own bill made visible, never a Margince meter for resale.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date }, description: 'Default: first day of the current month.' }
+        - { name: to, in: query, schema: { type: string, format: date }, description: 'Default: today.' }
+      responses:
+        '200':
+          description: Usage + budget.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiUsage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+
 
   # ------------------ /dedupe (DH-EXT-1/2, ADR-0062) ------------------------
   # The dedupe review queue over dedupe_candidate (DH-DDL-1): confidence-

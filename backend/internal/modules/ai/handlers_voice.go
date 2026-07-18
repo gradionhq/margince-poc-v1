@@ -20,14 +20,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// Handlers is the ai module's HTTP surface (the voice-profile slice; the
-// model runtime itself has no direct transport).
+// Handlers is the ai module's HTTP surface: the voice-profile slice and
+// the AIRT-WIRE-1 usage read (the model runtime itself has no direct
+// transport). The BudgetPolicy is compose-injected — the seat-derived
+// pool joins identity's tables, which this module never reaches.
 type Handlers struct {
-	voice *VoiceStore
+	voice  *VoiceStore
+	meter  *Meter
+	budget BudgetPolicy
 }
 
-func NewHandlers(pool *pgxpool.Pool) Handlers {
-	return Handlers{voice: NewVoiceStore(pool)}
+// NewHandlers wires the module's stores onto one pool; budget is the
+// compose-injected seat-derived policy the usage read prices against.
+func NewHandlers(pool *pgxpool.Pool, budget BudgetPolicy) Handlers {
+	return Handlers{voice: NewVoiceStore(pool), meter: NewMeter(pool), budget: budget}
 }
 
 // ListVoiceProfiles implements (GET /voice-profiles).

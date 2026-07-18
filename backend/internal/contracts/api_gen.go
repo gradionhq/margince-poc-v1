@@ -210,6 +210,27 @@ func (e AgentToolTier) Valid() bool {
 	}
 }
 
+// Defines values for AiUsageBudgetBand.
+const (
+	AiUsageBudgetBandDegraded AiUsageBudgetBand = "degraded"
+	AiUsageBudgetBandNormal   AiUsageBudgetBand = "normal"
+	AiUsageBudgetBandQueued   AiUsageBudgetBand = "queued"
+)
+
+// Valid indicates whether the value is a known member of the AiUsageBudgetBand enum.
+func (e AiUsageBudgetBand) Valid() bool {
+	switch e {
+	case AiUsageBudgetBandDegraded:
+		return true
+	case AiUsageBudgetBandNormal:
+		return true
+	case AiUsageBudgetBandQueued:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApplyTagRequestEntityType.
 const (
 	ApplyTagRequestEntityTypeDeal         ApplyTagRequestEntityType = "deal"
@@ -2156,22 +2177,22 @@ func (e MorningDigestConnectorsProvider) Valid() bool {
 
 // Defines values for MorningDigestConnectorsStatus.
 const (
-	Connected      MorningDigestConnectorsStatus = "connected"
-	Disconnected   MorningDigestConnectorsStatus = "disconnected"
-	Error          MorningDigestConnectorsStatus = "error"
-	ReauthRequired MorningDigestConnectorsStatus = "reauth_required"
+	MorningDigestConnectorsStatusConnected      MorningDigestConnectorsStatus = "connected"
+	MorningDigestConnectorsStatusDisconnected   MorningDigestConnectorsStatus = "disconnected"
+	MorningDigestConnectorsStatusError          MorningDigestConnectorsStatus = "error"
+	MorningDigestConnectorsStatusReauthRequired MorningDigestConnectorsStatus = "reauth_required"
 )
 
 // Valid indicates whether the value is a known member of the MorningDigestConnectorsStatus enum.
 func (e MorningDigestConnectorsStatus) Valid() bool {
 	switch e {
-	case Connected:
+	case MorningDigestConnectorsStatusConnected:
 		return true
-	case Disconnected:
+	case MorningDigestConnectorsStatusDisconnected:
 		return true
-	case Error:
+	case MorningDigestConnectorsStatusError:
 		return true
-	case ReauthRequired:
+	case MorningDigestConnectorsStatusReauthRequired:
 		return true
 	default:
 		return false
@@ -4695,6 +4716,41 @@ type AgentToolTier string
 type AgentToolListResponse struct {
 	Data []AgentTool `json:"data"`
 }
+
+// AiUsage AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier's rate (0 when local).
+type AiUsage struct {
+	Budget struct {
+		// Band < 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).
+		Band      AiUsageBudgetBand `json:"band"`
+		BandSince *time.Time        `json:"band_since,omitempty"`
+		Currency  *string           `json:"currency,omitempty"`
+
+		// MonthlyTokens seats × base × safety factor (AIRT-PARAM-8).
+		MonthlyTokens int `json:"monthly_tokens"`
+
+		// SpentTokens Calendar-month tokens_in + tokens_out.
+		SpentTokens int `json:"spent_tokens"`
+	} `json:"budget"`
+	Days []struct {
+		Date  openapi_types.Date `json:"date"`
+		Tasks []struct {
+			CachedHits   *int `json:"cached_hits,omitempty"`
+			Calls        int  `json:"calls"`
+			CostEstMinor *int `json:"cost_est_minor,omitempty"`
+
+			// Task capture_classify, enrich, summarize, …
+			Task string `json:"task"`
+
+			// Tier local_small, cheap_cloud, premium, local_large.
+			Tier      string `json:"tier"`
+			TokensIn  int    `json:"tokens_in"`
+			TokensOut int    `json:"tokens_out"`
+		} `json:"tasks"`
+	} `json:"days"`
+}
+
+// AiUsageBudgetBand < 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).
+type AiUsageBudgetBand string
 
 // ApplyTagRequest defines model for ApplyTagRequest.
 type ApplyTagRequest struct {
@@ -8235,6 +8291,9 @@ type Forbidden = Problem
 // NotFound RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type NotFound = Problem
 
+// PermissionDenied RFC 7807 problem+json with a stable machine `code` and structured `details`.
+type PermissionDenied = Problem
+
 // Unauthorized RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type Unauthorized = Problem
 
@@ -8371,6 +8430,15 @@ type SendEmailParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// GetAiUsageParams defines parameters for GetAiUsage.
+type GetAiUsageParams struct {
+	// From Default: first day of the current month.
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Default: today.
+	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
 
 // ListApprovalsParams defines parameters for ListApprovals.
@@ -15156,6 +15224,9 @@ type ServerInterface interface {
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
+	// AI usage + budget — the spend is never invisible.
+	// (GET /ai/usage)
+	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
 	// The approval inbox — list staged 🟡 actions awaiting human decision.
 	// (GET /approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams)
@@ -15795,6 +15866,12 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // The governed tool surface (registry metadata) for the operator UI.
 // (GET /agent-tools)
 func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AI usage + budget — the spend is never invisible.
+// (GET /ai/usage)
+func (_ Unimplemented) GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17490,6 +17567,58 @@ func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgentTools(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAiUsage operation middleware
+func (siw *ServerInterfaceWrapper) GetAiUsage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAiUsageParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAiUsage(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27107,6 +27236,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/approvals", wrapper.ListApprovals)
