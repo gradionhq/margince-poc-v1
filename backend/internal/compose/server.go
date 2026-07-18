@@ -71,6 +71,7 @@ type Server struct {
 	scrapeHandlers
 	imapConnectHandlers
 	connectorHandlers
+	backfillHandlers
 	captureExclusionHandlers
 	filteredExportHandlers
 	orgRollupHandlers

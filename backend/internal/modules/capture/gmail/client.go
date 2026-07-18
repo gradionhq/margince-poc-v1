@@ -81,6 +81,11 @@ type API interface {
 	History(ctx context.Context, accessToken, startHistoryID string) (addedIDs []string, historyID string, err error)
 	// GetRaw fetches one message as its decoded RFC822 bytes (format=RAW).
 	GetRaw(ctx context.Context, accessToken, msgID string) (rfc822 []byte, err error)
+	// EstimateAfter returns the provider-side message count for a query
+	// (resultSizeEstimate) — the backfill preview's number.
+	EstimateAfter(ctx context.Context, accessToken, query string) (int, error)
+	// ListAfter returns one page of message ids matching query.
+	ListAfter(ctx context.Context, accessToken, query, pageToken string, pageSize int) (ids []string, next string, err error)
 	// Watch registers (or renews) a users.watch against the given Pub/Sub
 	// topic and returns the mailbox's historyId at watch time plus the watch's
 	// expiration (Gmail caps a watch at 7 days).

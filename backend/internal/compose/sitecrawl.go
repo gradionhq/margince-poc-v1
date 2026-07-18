@@ -365,9 +365,9 @@ func leftBehind(rest []crawlCandidate, visited map[string]bool, stop crmcontract
 	var reason crmcontracts.SiteReadSkipReason
 	switch stop {
 	case crmcontracts.SiteReadReportStoppedReasonPageCap:
-		reason = crmcontracts.SiteReadSkipReasonPageCap
+		reason = crmcontracts.PageCap
 	case crmcontracts.SiteReadReportStoppedReasonByteCap:
-		reason = crmcontracts.SiteReadSkipReasonByteCap
+		reason = crmcontracts.ByteCap
 	default:
 		return nil
 	}

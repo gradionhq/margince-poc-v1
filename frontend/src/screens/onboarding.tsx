@@ -48,6 +48,7 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Wordmark } from "./auth";
+import { BackfillPanel } from "./backfill";
 import { coldFieldLabel, problemMessage } from "./common";
 import { confidenceLevel } from "./inbox";
 import "./onboarding.css";
@@ -1463,9 +1464,12 @@ function GoogleConnectPanel({ outcome }: { outcome?: string }) {
           </p>
         )}
         {gmailConnected && (
-          <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
-            <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
-          </span>
+          <>
+            <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
+              <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
+            </span>
+            <BackfillPanel provider="gmail" />
+          </>
         )}
         {!connections.isPending && !gmailConnected && (
           <ConnectWarn

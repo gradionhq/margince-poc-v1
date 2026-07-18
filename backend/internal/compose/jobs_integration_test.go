@@ -15,9 +15,12 @@ package compose
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,22 +30,41 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
+// riverSchemaOnce guards the River migration per test-binary process, the
+// same contract as testdb.EnsureSchema: the schema survives the per-test
+// Truncate, but the truncate DOES empty river_migration's applied-version
+// ledger — so a second in-process migrate would re-run River's first
+// migration against tables that still exist and fail on CREATE TABLE.
+// Every suite that needs River must go through applyRiverSchema so this
+// stays the one spelling.
+var (
+	riverSchemaOnce sync.Once
+	riverSchemaErr  error
+)
+
 // applyRiverSchema layers River's schema onto the harness-migrated database,
-// exactly as cmd/migrate does after core+custom.
+// exactly as cmd/migrate does after core+custom — once per process.
 func applyRiverSchema(t *testing.T) {
 	t.Helper()
-	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-	if ownerDSN == "" {
-		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
-	if err != nil {
-		t.Fatalf("opening owner pool: %v", err)
-	}
-	defer ownerPool.Close()
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying river schema: %v", err)
+	riverSchemaOnce.Do(func() {
+		ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
+		if ownerDSN == "" {
+			riverSchemaErr = errors.New("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+			return
+		}
+		ctx := context.Background()
+		ownerPool, err := database.NewPool(ctx, ownerDSN)
+		if err != nil {
+			riverSchemaErr = fmt.Errorf("opening owner pool: %w", err)
+			return
+		}
+		defer ownerPool.Close()
+		if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
+			riverSchemaErr = fmt.Errorf("applying river schema: %w", err)
+		}
+	})
+	if riverSchemaErr != nil {
+		t.Fatal(riverSchemaErr)
 	}
 }
 
