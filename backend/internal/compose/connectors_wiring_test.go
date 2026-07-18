@@ -45,6 +45,12 @@ func (o *recordingOAuth) AccessToken(context.Context, string) (string, error) { 
 
 type stubGmailAPI struct{}
 
+func (stubGmailAPI) EstimateAfter(context.Context, string, string) (int, error) { return 0, nil }
+
+func (stubGmailAPI) ListAfter(context.Context, string, string, string, int) ([]string, string, error) {
+	return nil, "", nil
+}
+
 func (stubGmailAPI) Profile(context.Context, string) (string, string, error) {
 	return "owner@example.com", "1", nil
 }
@@ -169,14 +175,14 @@ func TestContractMapping(t *testing.T) {
 		ID: id, Provider: "gmail", Status: "connected",
 		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, Scopes: []string{"read"},
 	})
-	if c.Provider != "gmail" || c.Status != crmcontracts.Connected || c.SyncCursor == nil || *c.SyncCursor != `{"history_id":"7"}` {
+	if c.Provider != "gmail" || c.Status != crmcontracts.CaptureConnectionStatusConnected || c.SyncCursor == nil || *c.SyncCursor != `{"history_id":"7"}` {
 		t.Errorf("mapping wrong: %+v", c)
 	}
 	if c.WatchExpiresAt == nil || !c.WatchExpiresAt.Equal(watch) {
 		t.Errorf("watch_expires_at not surfaced: %+v", c.WatchExpiresAt)
 	}
 	// The reauth_required status also passes straight through.
-	if got := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "reauth_required"}); got.Status != crmcontracts.ReauthRequired {
+	if got := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "reauth_required"}); got.Status != crmcontracts.CaptureConnectionStatusReauthRequired {
 		t.Errorf("reauth_required → %q, want reauth_required", got.Status)
 	}
 	// A row with no scopes maps to an empty slice, never null.

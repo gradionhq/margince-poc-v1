@@ -93,7 +93,7 @@ func (h backfillHandlers) caller(w http.ResponseWriter, r *http.Request) (ids.Us
 	return ids.From[ids.UserKind](actor.UserID), true
 }
 
-func (h backfillHandlers) wired(w http.ResponseWriter, r *http.Request, op string) bool {
+func (h backfillHandlers) backfillWired(w http.ResponseWriter, r *http.Request, op string) bool {
 	if h.registry == nil {
 		httperr.NotImplemented(w, r, op)
 		return false
@@ -102,7 +102,7 @@ func (h backfillHandlers) wired(w http.ResponseWriter, r *http.Request, op strin
 }
 
 func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
-	if !h.wired(w, r, "PreviewConnectorBackfill") {
+	if !h.backfillWired(w, r, "PreviewConnectorBackfill") {
 		return
 	}
 	userID, ok := h.caller(w, r)
@@ -148,7 +148,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 }
 
 func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
-	if !h.wired(w, r, "StartConnectorBackfill") {
+	if !h.backfillWired(w, r, "StartConnectorBackfill") {
 		return
 	}
 	userID, ok := h.caller(w, r)
@@ -199,7 +199,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 }
 
 func (h backfillHandlers) GetConnectorBackfillStatus(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
-	if !h.wired(w, r, "GetConnectorBackfillStatus") {
+	if !h.backfillWired(w, r, "GetConnectorBackfillStatus") {
 		return
 	}
 	userID, ok := h.caller(w, r)
@@ -215,7 +215,7 @@ func (h backfillHandlers) GetConnectorBackfillStatus(w http.ResponseWriter, r *h
 }
 
 func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
-	if !h.wired(w, r, "CancelConnectorBackfill") {
+	if !h.backfillWired(w, r, "CancelConnectorBackfill") {
 		return
 	}
 	userID, ok := h.caller(w, r)
