@@ -88,6 +88,10 @@ const (
 	dropNameRoleUnlinked  = "name_role_not_in_snippet"
 	dropEmptyValueKey     = "empty_value_key"
 	dropUnparseableReply  = "unparseable_reply"
+	// dropLegalConflict marks a legal-trio claim refused because the
+	// site's legal pages disagree on the entity: with no trustworthy
+	// override, no lane may smuggle one back in.
+	dropLegalConflict = "legal_conflict_no_override"
 )
 
 // droppedFinding is one gate rejection, kept for the drop sink instead

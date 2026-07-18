@@ -189,7 +189,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	if modelErr == nil {
 		// The site-level synthesis rides the same brain; when the model
 		// lane already died there is nothing healthy to reconcile with.
-		mergedFields = synthesizeSiteFields(ctx, w.extract, crawl.Pages[:len(perPage)], mergedFields)
+		mergedFields = synthesizeSiteFields(ctx, w.extract, crawl.Pages[:len(perPage)], mergedFields, legalConflict)
 	}
 	mergedFacts := mergeCategoryFacts(perPage)
 	mergedPeople := mergeTeamPeople(perPage)

@@ -65,9 +65,25 @@ func mergeCrawlFields(pages []pageFields) (merged []evidencedField, legalConflic
 		seed = mergeSiteFields(seed, p.fields)
 	}
 	if len(legalNames) > 1 {
-		return seed, true
+		// Full abstention, not just a dropped override: with the entity
+		// in dispute, a legal_name quoted off a marketing page is as
+		// untrustworthy as the losing legal page's — the read proposes NO
+		// legal identity and the human resolves it.
+		return withoutLegalTrio(seed), true
 	}
 	return mergeSiteFields(seed, legal), false
+}
+
+// withoutLegalTrio strips the legal-identity fields from a field set —
+// the multi-entity abstention applied to whatever side survives.
+func withoutLegalTrio(fields []evidencedField) []evidencedField {
+	kept := fields[:0]
+	for _, f := range fields {
+		if !legalPageFields[f.Field] {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }
 
 // fillMissingFields appends only the fields `have` lacks — no override

@@ -237,6 +237,7 @@ type crawlRun struct {
 	queue         []crawlCandidate
 	visited       map[string]bool
 	seenText      map[string]bool
+	canonicalDone map[string]bool
 	probeKindDone map[crmcontracts.SiteReadPageKind]bool
 	totalBytes    int
 }
@@ -257,6 +258,7 @@ func newCrawlRun(c *siteCrawler, pacer crawlPacer, seedURL string, seedPage webr
 		},
 		visited:       visited,
 		seenText:      map[string]bool{seedPage.Text: true},
+		canonicalDone: map[string]bool{localeCanonical(seedURL): true},
 		probeKindDone: map[crmcontracts.SiteReadPageKind]bool{},
 		totalBytes:    seedPage.Bytes,
 	}
@@ -297,6 +299,21 @@ func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
 		// entry — the path was our guess, not a page the site offered.
 		return
 	}
+	kind := cand.kind
+	if kind == "" {
+		kind = classifyKind(candURL)
+	}
+	if kind != crmcontracts.SiteReadPageKindImpressum && r.canonicalDone[localeCanonical(candURL)] {
+		// A locale variant of a page already read (/de/about after
+		// /about): a translation restates the same document, and exact-
+		// text dedupe cannot see that. Fetching every language would burn
+		// the page budget on repeats — one language per document. Legal
+		// pages are EXEMPT from the collapse: the multi-entity conflict
+		// guard (mergeCrawlFields) can only count entities on the legal
+		// pages it actually reads, and a domain that mounts different
+		// entities under locale-variant legal paths must still trip it.
+		return
+	}
 	if strings.HasSuffix(strings.ToLower(candURL), ".xml") {
 		// A sitemapindex's <loc>s are child sitemaps; the crawl deliberately
 		// does not recurse into them (bounded discovery), and an XML file is
@@ -311,13 +328,13 @@ func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
 		return
 	}
 
-	r.fetchAndRecord(ctx, cand, candURL)
+	r.fetchAndRecord(ctx, cand, candURL, kind)
 }
 
 // fetchAndRecord is visit's tail once the candidate is admissible (same-site,
 // not a duplicate probe, not an XML index): fetch it, and either record a skip
 // with its reason or append the page and enqueue its links.
-func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, candURL string) {
+func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, candURL string, kind crmcontracts.SiteReadPageKind) {
 	fetchStart := time.Now()
 	page, err := r.crawler.fetchPaced(ctx, r.pacer, candURL)
 	fetchDur := time.Since(fetchStart)
@@ -357,11 +374,8 @@ func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, cand
 	}
 
 	r.seenText[page.Text] = true
+	r.canonicalDone[localeCanonical(candURL)] = true
 	r.totalBytes += page.Bytes
-	kind := cand.kind
-	if kind == "" {
-		kind = classifyKind(candURL)
-	}
 	if cand.probe {
 		r.probeKindDone[cand.kind] = true
 	}
