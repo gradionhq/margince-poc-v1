@@ -19,6 +19,7 @@ package compose
 // nil-derefing — capture stays declared-but-absent by omission.
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
@@ -35,7 +36,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // connectStateTTL bounds the consent round-trip: generous for a human to
@@ -53,9 +56,13 @@ const oauthCSRFCookie = "oauth_csrf"
 
 type connectorHandlers struct {
 	registry *capture.Registry
-	oauth    gmail.OAuth
-	gmailAPI gmail.API
-	signer   stateSigner
+	// imapAuthenticate probes+seals IMAP credentials; nil means the
+	// production standing connector. Injectable so the transport's own
+	// branches are testable without a live mail server.
+	imapAuthenticate func(ctx context.Context, req connector.AuthRequest) (connector.Auth, error)
+	oauth            gmail.OAuth
+	gmailAPI         gmail.API
+	signer           stateSigner
 	// publicBaseURL is the canonical public/front origin (the SPA): where the
 	// browser lands after consent, and — for a same-origin deployment — the
 	// default base for the callback redirect_uri too.
@@ -107,12 +114,18 @@ func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request
 }
 
 func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
-	if !h.wired() {
-		httperr.NotImplemented(w, r, "ConnectConnector")
+	// The standing IMAP connect needs only the registry (credentials are
+	// per-connection, vault-sealed) — never the Gmail OAuth app.
+	if string(provider) == providerIMAP {
+		if h.registry == nil {
+			httperr.NotImplemented(w, r, "ConnectConnector")
+			return
+		}
+		h.connectIMAP(w, r)
 		return
 	}
-	if string(provider) == providerIMAP {
-		h.connectIMAP(w, r)
+	if !h.wired() {
+		httperr.NotImplemented(w, r, "ConnectConnector")
 		return
 	}
 	if string(provider) != providerGmail {
@@ -308,12 +321,30 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	auth, err := imap.NewStanding().Authenticate(r.Context(), authReq)
+	authenticate := h.imapAuthenticate
+	if authenticate == nil {
+		authenticate = imap.NewStanding().Authenticate
+	}
+	auth, err := authenticate(r.Context(), authReq)
 	if err != nil {
 		writeIMAPConnectError(w, r, err)
 		return
 	}
+	h.persistIMAPConnection(w, r, auth)
+}
+
+// persistIMAPConnection stores the sealed bundle and answers with the
+// connected row — the connect's terminal half.
+func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.Request, auth connector.Auth) {
 	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth); err != nil {
+		if errors.Is(err, apperrors.ErrScopeExceeded) {
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusForbidden,
+				Code:   "scope_exceeded",
+				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
+			})
+			return
+		}
 		slog.ErrorContext(r.Context(), "imap connector: persisting connection", "err", err)
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusInternalServerError,

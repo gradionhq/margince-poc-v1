@@ -129,7 +129,9 @@ deps:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
     # xtext: the evidence gate normalizes page text to NFC before matching
     # (evidencematch.go) — Unicode normal forms need golang.org/x/text.
-    canUse: [pgx, chi, oapi, river, xtext]
+    # emersion: the in-memory IMAP server the standing-connect transport
+    # test drives; production compose reaches IMAP only through capture.
+    canUse: [pgx, chi, oapi, river, xtext, emersion]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]

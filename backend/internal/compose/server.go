@@ -191,6 +191,12 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// Rebuild the capture registry with the vault so the connector-
 		// credential paths (Connect seals, Sync resolves) have their custodian.
 		s.imapConnectHandlers = imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}
+		// The standing IMAP connect rides the same registry and needs no
+		// OAuth app; WithGmailCapture later replaces this with its own
+		// gmail-carrying registry when the app is configured.
+		if s.connectorHandlers.registry == nil {
+			s.connectorHandlers = connectorHandlers{registry: NewCaptureRegistry(pool, vault)}
+		}
 	}
 }
 
