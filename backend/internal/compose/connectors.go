@@ -49,9 +49,11 @@ const connectStateTTL = 10 * time.Minute
 // (gcal/graph are contract-declared, not yet wired).
 const providerGmail = "gmail"
 
-// codeUnauthenticated is the RFC 7807 code for connector/backfill ops that
-// require a signed-in human principal.
-const codeUnauthenticated = "unauthenticated"
+// codeUnauthorized is the RFC 7807 code for connector/backfill ops that
+// require a signed-in human principal — the contract's documented 401
+// machine code (crm.yaml's normative Unauthorized example), matching the
+// platform 401 writer.
+const codeUnauthorized = "unauthorized"
 
 // oauthCSRFCookie carries the per-flow nonce (SameSite=Lax so it rides the
 // top-level redirect back from Google) that must match the nonce in the
@@ -145,7 +147,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnauthorized,
-			Code:   codeUnauthenticated,
+			Code:   codeUnauthorized,
 			Detail: "Connecting a mailbox is a signed-in human action.",
 		})
 		return
@@ -298,7 +300,7 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnauthorized,
-			Code:   codeUnauthenticated,
+			Code:   codeUnauthorized,
 			Detail: "Connecting a mailbox is a signed-in human action.",
 		})
 		return

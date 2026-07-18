@@ -179,6 +179,7 @@ export function BackfillPanel({ provider }: { provider: "gmail" }) {
     <RunView
       run={run}
       cancelling={cancel.isPending}
+      cancelError={cancel.isError ? cancel.error.message : null}
       onCancel={() => cancel.mutate()}
     />
   );
@@ -218,10 +219,12 @@ function EstimateCard({
 function RunView({
   run,
   cancelling,
+  cancelError,
   onCancel,
 }: {
   run: BackfillStatus;
   cancelling: boolean;
+  cancelError: string | null;
   onCancel: () => void;
 }) {
   const t = useT();
@@ -269,6 +272,9 @@ function RunView({
         >
           {t("backfill.cancel")}
         </button>
+      )}
+      {live && cancelError && (
+        <p className="t-small backfill-error">{cancelError}</p>
       )}
       {run.state === "cancelled" && (
         <p className="t-small">{t("backfill.cancelledNote")}</p>

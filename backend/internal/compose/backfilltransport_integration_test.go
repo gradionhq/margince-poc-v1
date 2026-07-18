@@ -207,8 +207,11 @@ func (b *backfillWireEnv) do(ctx context.Context, t *testing.T, invoke func(http
 		Code string `json:"code"`
 	}
 	if len(raw) > 0 {
-		//craft:ignore swallowed-errors non-problem bodies simply leave Code empty — asserted by each caller
-		_ = json.Unmarshal(raw, &problem)
+		// Every backfill response — success or problem — is JSON; anything
+		// else is a transport defect this suite must surface, not mask.
+		if err := json.Unmarshal(raw, &problem); err != nil {
+			t.Fatalf("decoding response envelope %q: %v", raw, err)
+		}
 	}
 	if out != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {
@@ -265,8 +268,8 @@ func TestBackfillWire(t *testing.T) {
 			"status": status(crmcontracts.Gmail), "cancel": cancel(crmcontracts.Gmail),
 		} {
 			code, pcode := b.do(anon, t, invoke, `{"window":"6m"}`, nil)
-			if code != http.StatusUnauthorized || pcode != "unauthenticated" {
-				t.Fatalf("%s without a principal = %d/%s, want 401/unauthenticated", name, code, pcode)
+			if code != http.StatusUnauthorized || pcode != "unauthorized" {
+				t.Fatalf("%s without a principal = %d/%s, want 401/unauthorized (the contract's documented code)", name, code, pcode)
 			}
 		}
 	})

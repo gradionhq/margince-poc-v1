@@ -5,25 +5,34 @@ package capture
 
 import "testing"
 
-// backfillPageCursor is the resume seam: an absent or unreadable stored
-// cursor restarts the walk from the window's first page (re-scanning is
-// safe — the capture key dedupes), never crashes the run.
-func TestBackfillPageCursorExtractsOrRestarts(t *testing.T) {
+// backfillPageCursor is the resume seam: an absent stored cursor is the
+// window's first page, a committed token resumes from it, and a NON-empty
+// but unreadable cursor is an error — never a silent restart, which would
+// re-page the window and inflate the run's counters.
+func TestBackfillPageCursorResumesOrRefuses(t *testing.T) {
 	cases := []struct {
-		name   string
-		cursor []byte
-		want   string
+		name    string
+		cursor  []byte
+		want    string
+		wantErr bool
 	}{
-		{"no cursor yet is the first page", nil, ""},
-		{"empty cursor is the first page", []byte{}, ""},
-		{"a malformed cursor restarts rather than crashing", []byte("{broken"), ""},
-		{"a committed token resumes from it", []byte(`{"page_token":"tok-42"}`), "tok-42"},
-		{"a cursor without the key is the first page", []byte(`{"other":"x"}`), ""},
+		{name: "no cursor yet is the first page", cursor: nil, want: ""},
+		{name: "empty cursor is the first page", cursor: []byte{}, want: ""},
+		{name: "a malformed cursor is refused, not restarted", cursor: []byte("{broken"), wantErr: true},
+		{name: "a committed token resumes from it", cursor: []byte(`{"page_token":"tok-42"}`), want: "tok-42"},
+		{name: "a cursor without the key is the first page", cursor: []byte(`{"other":"x"}`), want: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := backfillPageCursor(tc.cursor); got != tc.want {
-				t.Fatalf("backfillPageCursor(%q) = %q, want %q", tc.cursor, got, tc.want)
+			got, err := backfillPageCursor(tc.cursor)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("backfillPageCursor(%q) = %q, want the unreadable-cursor error", tc.cursor, got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("backfillPageCursor(%q) = %q, %v — want %q", tc.cursor, got, err, tc.want)
 			}
 		})
 	}

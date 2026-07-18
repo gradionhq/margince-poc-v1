@@ -87,7 +87,7 @@ func (h backfillHandlers) caller(w http.ResponseWriter, r *http.Request) (ids.Us
 	actor, ok := principal.Actor(r.Context())
 	if !ok || actor.Type != principal.PrincipalHuman {
 		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnauthorized, Code: codeUnauthenticated,
+			Status: http.StatusUnauthorized, Code: codeUnauthorized,
 			Detail: "Backfill is a signed-in human action.",
 		})
 		return ids.UserID{}, false
@@ -185,7 +185,16 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	ws, _ := principal.WorkspaceID(r.Context())
+	ws, ok := principal.WorkspaceID(r.Context())
+	if !ok {
+		// StartBackfill just committed under a workspace-bound transaction, so
+		// a missing workspace here is a wiring defect, surfaced honestly.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError, Code: "workspace_missing",
+			Detail: "The request carries no workspace context; the run was recorded but not scheduled. Try again.",
+		})
+		return
+	}
 	if err := h.inserter.Enqueue(r.Context(), CaptureBackfillArgs{
 		Workspace: ws.String(), BackfillID: run.ID.String(),
 	}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}}); err != nil {

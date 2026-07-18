@@ -287,7 +287,12 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		return true, r.failBackfill(ctx, backfillID, err)
 	}
 
-	res, err := bf.BackfillPage(runCtx, auth, after, backfillPageCursor(cursor), r.sink)
+	pageToken, err := backfillPageCursor(cursor)
+	if err != nil {
+		return true, errors.Join(err, r.failBackfill(ctx, backfillID, err))
+	}
+
+	res, err := bf.BackfillPage(runCtx, auth, after, pageToken, r.sink)
 	if err != nil {
 		// The page failed without advancing: record the class and let the
 		// job's retry ladder decide; the committed token is the resume point.
@@ -331,15 +336,18 @@ func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause 
 }
 
 // backfillPageCursor extracts the provider token from the stored cursor.
-func backfillPageCursor(cursor []byte) string {
+// An absent cursor is the window's first page; a NON-empty but unreadable
+// one is an error, not a silent restart — re-paging from the top would
+// inflate the run's counters, so the caller fails the run instead.
+func backfillPageCursor(cursor []byte) (string, error) {
 	if len(cursor) == 0 {
-		return ""
+		return "", nil
 	}
 	var c struct {
 		PageToken string `json:"page_token"`
 	}
 	if err := json.Unmarshal(cursor, &c); err != nil {
-		return ""
+		return "", fmt.Errorf("capture: unreadable backfill cursor %q: %w", cursor, err)
 	}
-	return c.PageToken
+	return c.PageToken, nil
 }
