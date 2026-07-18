@@ -349,6 +349,13 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		if err != nil {
 			return compose.ModelPath{}, err
 		}
+		// A task whose whole fallback ladder has no bound tier is not a
+		// boot error (a deployment may legitimately not run every
+		// workload), but it must be loud: log it now, not discover it
+		// from a refused call.
+		for _, w := range cfg.UnboundLadderWarnings() {
+			log.Warn(w)
+		}
 		return compose.NewModelPath(cfg, pool, capturePayloads, log)
 	case fake:
 		return compose.FakeModelPath(ai.NewFakeClient()), nil

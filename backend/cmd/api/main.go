@@ -173,6 +173,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	opts = append(opts, offerDraft...)
+	opts = append(opts, compose.WithAIState(aiState(cfg.routingPath, cfg.fakeBrain)))
 
 	deepRead, err := deepReadOption(pool, logger)
 	if err != nil {

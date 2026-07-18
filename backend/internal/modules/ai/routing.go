@@ -92,6 +92,36 @@ func (cfg RoutingConfig) validate() error {
 	return nil
 }
 
+// UnboundLadderWarnings reports every task whose entire fallback ladder
+// has no bound tier in cfg.Tiers: a call for that task has nowhere to
+// route and is refused outright, not merely degraded. This is not a
+// startup error — a deployment legitimately narrows to only the
+// workloads it actually runs — but it must be loud: an operator should
+// read the gap off the boot log, not discover it from a refused call at
+// 3am. AllTasks()'s sorted order keeps the result deterministic.
+func (cfg RoutingConfig) UnboundLadderWarnings() []string {
+	var warnings []string
+	for _, task := range AllTasks() {
+		ladder := taskLadders[task]
+		bound := false
+		for _, tier := range ladder {
+			if _, ok := cfg.Tiers[tier]; ok {
+				bound = true
+				break
+			}
+		}
+		if bound {
+			continue
+		}
+		names := make([]string, len(ladder))
+		for i, tier := range ladder {
+			names[i] = string(tier)
+		}
+		warnings = append(warnings, fmt.Sprintf("task %s: no bound tier on ladder %v; calls will be refused", task, names))
+	}
+	return warnings
+}
+
 // buildClients turns validated bindings into live Clients via
 // SelectBrain. Construction errors (missing BYOK key, unknown provider)
 // surface here — still startup, still loud.

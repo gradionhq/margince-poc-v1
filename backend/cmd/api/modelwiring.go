@@ -25,7 +25,27 @@ func resolvedModelPath(routingPath string, pool *pgxpool.Pool, capturePayloads b
 	if err != nil {
 		return compose.ModelPath{}, err
 	}
+	// A task whose whole fallback ladder has no bound tier is not a boot
+	// error (a deployment may legitimately not run every workload), but
+	// it must be loud: log it now, not discover it from a refused call.
+	for _, w := range cfg.UnboundLadderWarnings() {
+		log.Warn(w)
+	}
 	return compose.NewModelPath(cfg, pool, capturePayloads, log)
+}
+
+// aiState reports /readyz's AI visibility line — the same declared-
+// routing/--ai-fake/neither switch resolvedModelPath's callers each run,
+// collapsed to the one string an operator reads off the probe.
+func aiState(routingPath string, fakeBrain bool) string {
+	switch {
+	case routingPath != "":
+		return compose.AIStateConfigured
+	case fakeBrain:
+		return compose.AIStateFake
+	default:
+		return compose.AIStateUnconfigured
+	}
 }
 
 // coldStartOptions resolves the cold-start read-back's model wiring: a

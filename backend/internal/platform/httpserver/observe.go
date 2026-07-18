@@ -118,7 +118,13 @@ type ReadyCheck struct {
 // a dumb liveness answer — a wedged database must fail readiness (stop
 // routing traffic here) without failing liveness (don't restart-loop the
 // process the database outage didn't break).
-func Readyz(checks ...ReadyCheck) http.HandlerFunc {
+//
+// aiState rides the 200 body as a visibility line — "configured",
+// "unconfigured", or "fake" — never a gate: an AI-unconfigured
+// deployment is a legitimate, ready deployment (ai-operational-spec
+// §2), so it is reported alongside "ready", not checked as a
+// ReadyCheck that could turn it into a 503.
+func Readyz(aiState string, checks ...ReadyCheck) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -133,7 +139,7 @@ func Readyz(checks ...ReadyCheck) http.HandlerFunc {
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
+		_, _ = fmt.Fprintf(w, "ready\nai: %s\n", aiState)
 	}
 }
 
