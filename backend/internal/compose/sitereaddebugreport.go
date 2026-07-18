@@ -59,13 +59,21 @@ type DebugSkip struct {
 // DebugExtraction is the extraction half of the report: what survived
 // the gates, what the merges decided, and what was dropped.
 type DebugExtraction struct {
-	Fields         []DebugField         `json:"fields"`
-	Facts          []DebugFact          `json:"facts"`
-	People         []DebugPerson        `json:"people"`
-	MergeDecisions []DebugMergeDecision `json:"merge_decisions"`
+	Fields []DebugField  `json:"fields"`
+	Facts  []DebugFact   `json:"facts"`
+	People []DebugPerson `json:"people"`
+	// LegalEntities is the gated legal-entity census — the abstention's
+	// inspectable input.
+	LegalEntities []DebugLegalEntity `json:"legal_entities"`
 	// Dropped is every finding a gate refused, with its reason — the
 	// silent-loss channel made visible for tuning.
 	Dropped []DebugDrop `json:"dropped"`
+}
+
+// DebugLegalEntity is one entity a legal page names.
+type DebugLegalEntity struct {
+	Name      string `json:"name"`
+	SourceURL string `json:"source_url"`
 }
 
 // DebugDrop is one gate rejection: what the model claimed on which
@@ -109,21 +117,6 @@ type DebugPerson struct {
 	SourceURL       string `json:"source_url"`
 }
 
-// DebugMergeDecision names one cross-page conflict the merge resolved:
-// which source's value won a field and which page's claims lost.
-type DebugMergeDecision struct {
-	Field        string            `json:"field"`
-	WinnerSource string            `json:"winner_source"`
-	WinnerValue  string            `json:"winner_value"`
-	Losers       []DebugLoserValue `json:"losers"`
-}
-
-// DebugLoserValue is one losing claim inside a merge decision.
-type DebugLoserValue struct {
-	Source string `json:"source"`
-	Value  string `json:"value"`
-}
-
 // DebugModelCall is one model call's telemetry, in call order.
 type DebugModelCall struct {
 	PageURL      string `json:"page_url"`
@@ -134,9 +127,9 @@ type DebugModelCall struct {
 	Error        string `json:"error,omitempty"`
 }
 
-// debugCrawl projects one crawl onto the report shape. extractedPages
-// marks how far the model lane got before any midway failure.
-func debugCrawl(crawl siteCrawl, extractedPages int, includeText bool, durationMs int64) DebugCrawl {
+// debugCrawl projects one crawl onto the report shape. extracted names
+// the pages whose corpus chunk completed before any midway failure.
+func debugCrawl(crawl siteCrawl, extracted []crawlPage, includeText bool, durationMs int64) DebugCrawl {
 	out := DebugCrawl{TotalBytes: crawl.TotalBytes, DurationMs: durationMs}
 	if crawl.Stopped != nil {
 		out.StoppedReason = string(*crawl.Stopped)
@@ -144,19 +137,32 @@ func debugCrawl(crawl siteCrawl, extractedPages int, includeText bool, durationM
 	for _, s := range crawl.Skipped {
 		out.Skipped = append(out.Skipped, DebugSkip{URL: s.URL, Reason: string(s.Reason)})
 	}
-	for i, page := range crawl.Pages {
+	wasExtracted := map[string]bool{}
+	for _, page := range extracted {
+		wasExtracted[page.URL] = true
+	}
+	for _, page := range crawl.Pages {
 		entry := DebugPage{
 			URL:       page.URL,
 			Kind:      string(page.Kind),
 			Bytes:     page.Bytes,
 			Runes:     utf8.RuneCountInString(page.Text),
 			FetchMs:   page.FetchDur.Milliseconds(),
-			Extracted: i < extractedPages,
+			Extracted: wasExtracted[page.URL],
 		}
 		if includeText {
 			entry.Text = page.Text
 		}
 		out.Pages = append(out.Pages, entry)
+	}
+	return out
+}
+
+// debugLegalEntities projects the gated census for the report.
+func debugLegalEntities(entities []corpusLegalEntity) []DebugLegalEntity {
+	out := make([]DebugLegalEntity, 0, len(entities))
+	for _, e := range entities {
+		out = append(out, DebugLegalEntity(e))
 	}
 	return out
 }
@@ -258,47 +264,6 @@ func debugPeople(persons []sitePerson) []DebugPerson {
 			Name: p.Name, Role: p.Role, PublishedEmail: p.PublishedEmail,
 			LinkedinURL: p.LinkedinURL, EvidenceSnippet: p.EvidenceSnippet, SourceURL: p.SourceURL,
 		})
-	}
-	return out
-}
-
-// fieldMergeDecisions reconstructs which per-page company-field claims the
-// merge overrode: for every field more than one page claimed, the merged
-// winner plus each losing page's value. The merges themselves are pure,
-// so this is a diff of their inputs against their output, not a second
-// merge implementation.
-func fieldMergeDecisions(pages []crawlPage, perPage []pageFields, merged []evidencedField) []DebugMergeDecision {
-	winner := map[string]evidencedField{}
-	for _, f := range merged {
-		winner[f.Field] = f
-	}
-	claims := map[string][]DebugLoserValue{}
-	var fieldOrder []string
-	for i, page := range perPage {
-		for _, f := range page.fields {
-			if _, seen := claims[f.Field]; !seen {
-				fieldOrder = append(fieldOrder, f.Field)
-			}
-			claims[f.Field] = append(claims[f.Field], DebugLoserValue{Source: pages[i].URL, Value: f.Value})
-		}
-	}
-	var out []DebugMergeDecision
-	for _, field := range fieldOrder {
-		contenders := claims[field]
-		won, ok := winner[field]
-		if !ok || len(contenders) < 2 {
-			continue
-		}
-		decision := DebugMergeDecision{Field: field, WinnerSource: won.SourceURL, WinnerValue: won.Value}
-		for _, c := range contenders {
-			if c.Source == won.SourceURL && c.Value == won.Value {
-				continue
-			}
-			decision.Losers = append(decision.Losers, c)
-		}
-		if len(decision.Losers) > 0 {
-			out = append(out, decision)
-		}
 	}
 	return out
 }

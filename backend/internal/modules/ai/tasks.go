@@ -59,7 +59,15 @@ var taskLadders = map[Task][]Tier{
 	TaskBriefRanking: {TierPremium, TierCheapCloud},
 	TaskAgentLoop:    {TierCheapCloud, TierPremium},
 	TaskOfferDraft:   {TierCheapCloud, TierPremium},
-	TaskSiteExtract:  {TierCheapCloud, TierPremium},
+	// site-extract runs premium-first: the no-guess gate demands VERBATIM
+	// evidence quotes, and cheap-tier models paraphrase them — the claim
+	// then fails the gate and the fact is honestly dropped, which reads
+	// as "extraction found nothing". Measured on the gradion.com E2E
+	// floor (compose/sitereade2e_test.go): a mid-tier model keeps fields
+	// a cheap-tier model loses. The tier→model binding stays in
+	// ai-routing.yaml — see the premium-tier note there for what quality
+	// class each provider needs.
+	TaskSiteExtract: {TierPremium, TierCheapCloud},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%

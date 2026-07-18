@@ -70,9 +70,10 @@ func normalizeEvidence(s string) string {
 // category lanes are "category:<name>", built where the category is
 // known.
 const (
-	laneFields    = "fields"
-	lanePeople    = "people"
-	laneSynthesis = "synthesis"
+	laneFields = "fields"
+	lanePeople = "people"
+	laneCorpus = "corpus"
+	laneLegal  = "legal"
 )
 
 // Drop reasons: why a model-claimed finding did not survive its gate.
@@ -92,6 +93,13 @@ const (
 	// site's legal pages disagree on the entity: with no trustworthy
 	// override, no lane may smuggle one back in.
 	dropLegalConflict = "legal_conflict_no_override"
+	// dropUnknownPage marks a claim naming a source_url the corpus never
+	// showed the model.
+	dropUnknownPage = "source_url_not_in_corpus"
+	// dropLegalNotFromLegalPage marks a legal-identity claim quoted from
+	// anything but a shallow legal page — marketing copy cannot testify
+	// to the register.
+	dropLegalNotFromLegalPage = "legal_field_not_from_legal_page"
 )
 
 // droppedFinding is one gate rejection, kept for the drop sink instead

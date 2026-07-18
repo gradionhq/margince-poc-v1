@@ -73,6 +73,15 @@ required: `--ai-routing <yaml>`, `--model provider:model` (e.g.
 caps per run; `--json <path|->` writes a diffable machine-readable report;
 `--dump-pages <dir>` saves each page's reduced text.
 
+Extraction quality is MODEL-SENSITIVE: the no-guess gate demands verbatim
+evidence quotes, and cheap-tier models paraphrase them away. The
+`site_extract` task therefore routes premium-first, and the premium tier
+needs a mid-tier model at minimum — for Anthropic that is Sonnet-class or
+better (Haiku loses fields Sonnet keeps). Judge any candidate binding
+against the pinned quality floor: `make -C backend e2e-siteread` with
+`MARGINCE_E2E_MODEL=provider:model` (paid, network E2E vs gradion.com —
+a different model must do the same or better to pass).
+
 Without a declared model (`--ai-routing`/`--ai-fake`) the runner and the
 embedding lane simply do not start; the relay, retention, the event-triggered
 workflow dispatch (`cg:workflows`), and the clock time-scan always run.

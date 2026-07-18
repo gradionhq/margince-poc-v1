@@ -34,19 +34,21 @@ import (
 // fields stay in organization_profile_field; this vocabulary is only the
 // NEW facts.
 var OrganizationFactFields = map[string][]string{
-	"company":  {"founded_year", "employee_range", "phone", "contact_email"},
+	"company":  {"founded_year", "employee_range", "phone", "contact_email", "location"},
 	"offering": {"service", "product"},
-	"signal":   {"certification", "partner", "named_customer"},
+	"signal":   {"certification", "partner", "named_customer", "technology"},
 }
 
 // OrganizationFactMultiValue names the fields that may carry several rows
 // per organization, one per normalized value_key; every other field is
 // single-value with value_key ”. Derived, not listed: every offering and
-// signal field is multi-value, every company field single-value.
+// signal field is multi-value, every company field single-value — except
+// location, the one company fact a business states several of (every
+// office/site), carved out here and in the DB cardinality CHECK alike.
 var OrganizationFactMultiValue = multiValueFactFields()
 
 func multiValueFactFields() map[string]bool {
-	multi := map[string]bool{}
+	multi := map[string]bool{"location": true}
 	for _, category := range []string{"offering", "signal"} {
 		for _, field := range OrganizationFactFields[category] {
 			multi[field] = true

@@ -57,9 +57,10 @@ const (
 const jsonSchemaFormatType = "json_schema"
 
 // requestTimeout bounds a single model call. Generous because premium
-// completions on long context are legitimately slow; per-call contexts
-// tighten it where a caller has a real deadline.
-const requestTimeout = 120 * time.Second
+// completions on long context are legitimately slow — a streamed corpus
+// extraction emits ten-thousand-token answers over minutes; per-call
+// contexts tighten it where a caller has a real deadline.
+const requestTimeout = 300 * time.Second
 
 // Provider names — the vocabulary shared by the SelectBrain switch,
 // knownProviders, and the sovereign-eligible localProviders set. One spelling

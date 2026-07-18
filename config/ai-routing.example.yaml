@@ -65,6 +65,13 @@ tiers:
     provider: gemini
     model: gemini-2.5-flash
 
+  # premium serves the deep site read's extraction FIRST (site_extract is
+  # premium-first in tasks.go): the evidence gate demands verbatim quotes,
+  # and cheap-tier models paraphrase them — the claim then fails the gate
+  # and the fact is honestly dropped, so the read comes back thin. Bind a
+  # mid-tier model here at minimum; for Anthropic that means SONNET-CLASS
+  # OR BETTER (Haiku loses fields Sonnet keeps). Judge any candidate model
+  # with the pinned E2E quality floor: `make -C backend e2e-siteread`.
   premium:
     provider: gemini
     model: gemini-2.5-pro

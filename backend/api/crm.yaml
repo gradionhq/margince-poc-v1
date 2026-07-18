@@ -8244,6 +8244,8 @@ components:
           items: { $ref: '#/components/schemas/SiteReadSkip' }
         stopped_reason: { type: [string, 'null'], enum: [budget, page_cap, byte_cap, deadline, null], description: 'Why the crawl ended early; null when it exhausted discovery.' }
         fact_count: { type: integer, description: Evidenced fields staged in the deepread proposal. }
+        phase: { type: [string, 'null'], enum: [crawling, extracting, null], description: 'Live position while status is running; null once terminal.' }
+        pages_read: { type: integer, description: 'Pages committed so far — live progress while running, final count once terminal.' }
         proposal_ids:
           type: array
           items: { type: string, format: uuid }

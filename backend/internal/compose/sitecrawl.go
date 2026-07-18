@@ -13,12 +13,9 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -94,22 +91,31 @@ func (c CrawlCaps) withDefaults() CrawlCaps {
 	return c
 }
 
+// crawlFetchWave is how many admitted candidates fetch concurrently per
+// wave — matched to the webread pacer's in-flight budget. Results COMMIT
+// strictly in wave order, so the walk stays deterministic whatever order
+// the responses arrive in; tests pin the wave to 1 so their in-memory
+// fetch logs stay sequential too.
+const crawlFetchWave = 12
+
 type siteCrawler struct {
-	fetch    siteFetcher
-	newPacer func() crawlPacer
-	maxPages int
-	maxBytes int
-	wall     time.Duration
+	fetch     siteFetcher
+	newPacer  func() crawlPacer
+	maxPages  int
+	maxBytes  int
+	wall      time.Duration
+	fetchWave int
 }
 
 func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
 	caps = caps.withDefaults()
 	return &siteCrawler{
-		fetch:    fetch,
-		newPacer: func() crawlPacer { return webread.NewPacer() },
-		maxPages: caps.MaxPages,
-		maxBytes: caps.MaxBytes,
-		wall:     caps.Wall,
+		fetch:     fetch,
+		newPacer:  func() crawlPacer { return webread.NewPacer() },
+		maxPages:  caps.MaxPages,
+		maxBytes:  caps.MaxBytes,
+		wall:      caps.Wall,
+		fetchWave: crawlFetchWave,
 	}
 }
 
@@ -165,12 +171,14 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 
 	run := newCrawlRun(c, pacer, seedURL, seedPage)
 	run.discover(ctx, seedParsed.Scheme+"://"+seedParsed.Host, seedPage)
-	// Highest-priority-first selection instead of FIFO: the page budget
-	// goes to the kinds that state facts (legal, about, team, contact,
-	// offerings) before generic nav links, and boilerplate archives only
-	// fill leftover budget. Ties break on insertion order and every
-	// priority is computed from the URL alone, so the walk stays
-	// deterministic.
+	// Highest-priority-first selection in concurrent WAVES: each round
+	// picks the best untaken candidates (bounded by the fetch wave and
+	// the remaining page budget), screens them serially, fetches them
+	// concurrently through the pacer, then commits the results strictly
+	// in selection order — dedupe, caps, page append and link discovery
+	// all run single-threaded, so the walk stays deterministic whatever
+	// order the responses arrive in. Ties break on insertion order and
+	// every priority is computed from the URL alone.
 	var taken []bool
 	var priority []int
 	for {
@@ -178,27 +186,53 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 			priority = append(priority, candidatePriority(run.queue[len(priority)]))
 			taken = append(taken, false)
 		}
-		next := -1
-		for i := range run.queue {
-			if taken[i] {
-				continue
-			}
-			if next == -1 || priority[i] > priority[next] {
-				next = i
-			}
-		}
-		if next == -1 {
-			break // discovery exhausted, the natural end
-		}
 		if stop := stopReason(ctx, len(run.crawl.Pages), c.maxPages, run.totalBytes, c.maxBytes); stop != nil {
 			run.crawl.Stopped = stop
 			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(untakenCandidates(run.queue, taken), run.visited, *stop)...)
 			break
 		}
-		taken[next] = true
-		run.visit(ctx, run.queue[next])
+		waveMax := c.fetchWave
+		if remaining := c.maxPages - len(run.crawl.Pages); remaining < waveMax {
+			waveMax = remaining
+		}
+		var wave []crawlCandidate
+		for len(wave) < waveMax {
+			next := -1
+			for i := range run.queue {
+				if taken[i] {
+					continue
+				}
+				if next == -1 || priority[i] > priority[next] {
+					next = i
+				}
+			}
+			if next == -1 {
+				break
+			}
+			taken[next] = true
+			wave = append(wave, run.queue[next])
+		}
+		if len(wave) == 0 {
+			break // discovery exhausted, the natural end
+		}
+		admitted := make([]admission, 0, len(wave))
+		for _, cand := range wave {
+			if adm, ok := run.admit(cand); ok {
+				admitted = append(admitted, adm)
+			}
+		}
+		results := run.fetchWave(ctx, admitted)
+		for i, adm := range admitted {
+			run.commit(adm, results[i])
+			if run.crawl.Stopped != nil {
+				break
+			}
+		}
 		if run.crawl.Stopped != nil {
-			break // the clock ran out mid-fetch
+			// A mid-commit stop (deadline, byte cap) never reaches the loop
+			// head again; the cut-off remainder is recorded here.
+			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(untakenCandidates(run.queue, taken), run.visited, *run.crawl.Stopped)...)
+			break
 		}
 	}
 	run.crawl.TotalBytes = run.totalBytes
@@ -285,104 +319,6 @@ func (r *crawlRun) discover(ctx context.Context, origin string, seedPage webread
 	r.queue = append(r.queue, linkCandidates(seedPage.Links)...)
 }
 
-// visit handles one candidate: gate it, fetch it, file the outcome as a page,
-// a recorded skip, a silent skip, or — when the clock runs out mid-fetch —
-// the crawl's deadline stop.
-func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
-	candURL, ok := normalizeCandidate(cand.url)
-	if !ok || r.visited[candURL] {
-		return
-	}
-	r.visited[candURL] = true
-	if cand.probe && r.probeKindDone[cand.kind] {
-		// A probe of an already-satisfied kind: skipped without a report
-		// entry — the path was our guess, not a page the site offered.
-		return
-	}
-	kind := cand.kind
-	if kind == "" {
-		kind = classifyKind(candURL)
-	}
-	if kind != crmcontracts.SiteReadPageKindImpressum && r.canonicalDone[localeCanonical(candURL)] {
-		// A locale variant of a page already read (/de/about after
-		// /about): a translation restates the same document, and exact-
-		// text dedupe cannot see that. Fetching every language would burn
-		// the page budget on repeats — one language per document. Legal
-		// pages are EXEMPT from the collapse: the multi-entity conflict
-		// guard (mergeCrawlFields) can only count entities on the legal
-		// pages it actually reads, and a domain that mounts different
-		// entities under locale-variant legal paths must still trip it.
-		return
-	}
-	if strings.HasSuffix(strings.ToLower(candURL), ".xml") {
-		// A sitemapindex's <loc>s are child sitemaps; the crawl deliberately
-		// does not recurse into them (bounded discovery), and an XML file is
-		// not a readable page either way.
-		return
-	}
-	if !webread.SameRegistrableDomain(r.seedURL, candURL) {
-		// The security property of the whole crawler: no page content can
-		// send the crawl off the seed's site — off-domain candidates are
-		// recorded, never fetched.
-		r.skip(candURL, crmcontracts.OffDomain)
-		return
-	}
-
-	r.fetchAndRecord(ctx, cand, candURL, kind)
-}
-
-// fetchAndRecord is visit's tail once the candidate is admissible (same-site,
-// not a duplicate probe, not an XML index): fetch it, and either record a skip
-// with its reason or append the page and enqueue its links.
-func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, candURL string, kind crmcontracts.SiteReadPageKind) {
-	fetchStart := time.Now()
-	page, err := r.crawler.fetchPaced(ctx, r.pacer, candURL)
-	fetchDur := time.Since(fetchStart)
-	switch {
-	case errors.Is(err, webread.ErrRobotsDisallowed):
-		r.skip(candURL, crmcontracts.Robots)
-		return
-	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
-		// The crawl's clock ran out mid-fetch; the loop head would catch it
-		// one iteration later, this just stops without a bogus per-page
-		// "unreadable".
-		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonDeadline)
-		return
-	case err != nil:
-		r.skip(candURL, crmcontracts.Unreadable)
-		return
-	}
-	if utf8.RuneCountInString(page.Text) < crawlMinRunes {
-		r.skip(candURL, crmcontracts.Unreadable)
-		return
-	}
-	if r.seenText[page.Text] {
-		// An SPA catch-all serves the same document on every path; the
-		// duplicate carries zero new evidence and reporting it as a skip
-		// would flood the report with noise, so it vanishes silently.
-		return
-	}
-
-	// The pre-fetch stopReason bounds the crawl by the PREVIOUS total; this
-	// page, already fetched, must not push the aggregate past the advertised
-	// cap. Over-cap → record it as a byte_cap skip and stop, rather than
-	// silently exceeding the byte budget the report promises.
-	if r.totalBytes+page.Bytes > r.crawler.maxBytes {
-		r.skip(candURL, crmcontracts.ByteCap)
-		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonByteCap)
-		return
-	}
-
-	r.seenText[page.Text] = true
-	r.canonicalDone[localeCanonical(candURL)] = true
-	r.totalBytes += page.Bytes
-	if cand.probe {
-		r.probeKindDone[cand.kind] = true
-	}
-	r.crawl.Pages = append(r.crawl.Pages, crawlPage{URL: candURL, Kind: kind, Text: page.Text, Bytes: page.Bytes, FetchDur: fetchDur})
-	r.queue = append(r.queue, linkCandidates(page.Links)...)
-}
-
 func (r *crawlRun) skip(candURL string, reason crmcontracts.SiteReadSkipReason) {
 	r.crawl.Skipped = append(r.crawl.Skipped, crawlSkip{URL: candURL, Reason: reason})
 }
@@ -408,9 +344,9 @@ func leftBehind(rest []crawlCandidate, visited map[string]bool, stop crmcontract
 	var reason crmcontracts.SiteReadSkipReason
 	switch stop {
 	case crmcontracts.SiteReadReportStoppedReasonPageCap:
-		reason = crmcontracts.PageCap
+		reason = crmcontracts.SiteReadSkipReasonPageCap
 	case crmcontracts.SiteReadReportStoppedReasonByteCap:
-		reason = crmcontracts.ByteCap
+		reason = crmcontracts.SiteReadSkipReasonByteCap
 	default:
 		return nil
 	}

@@ -245,23 +245,23 @@ func TestPacerSpacesRequestStarts(t *testing.T) {
 	}
 }
 
-func TestPacerThirdConcurrentRequestWaits(t *testing.T) {
+func TestPacerOverBudgetConcurrentRequestWaits(t *testing.T) {
 	clock := &pacerClock{t: time.Unix(1000, 0)}
 	p := testPacer(clock)
-	for i := range 2 {
+	for i := range pacerMaxConcurrent {
 		if err := p.Wait(context.Background()); err != nil {
-			t.Fatalf("Wait %d: %v — two concurrent starts are within budget", i, err)
+			t.Fatalf("Wait %d: %v — starts within the slot budget must proceed", i, err)
 		}
 	}
 
-	// With both slots held, a third Wait must block — proven by the fact that
-	// cancellation, not completion, is what it returns.
+	// With every slot held, the next Wait must block — proven by the fact
+	// that cancellation, not completion, is what it returns.
 	ctx, cancel := context.WithCancel(context.Background())
 	blocked := make(chan error, 1)
 	go func() { blocked <- p.Wait(ctx) }()
 	cancel()
 	if err := <-blocked; !errors.Is(err, context.Canceled) {
-		t.Fatalf("third concurrent Wait = %v, want context.Canceled", err)
+		t.Fatalf("over-budget concurrent Wait = %v, want context.Canceled", err)
 	}
 
 	// Once a slot is released, a fresh Wait proceeds.

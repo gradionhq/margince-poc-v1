@@ -2907,6 +2907,27 @@ func (e SiteReadPageKind) Valid() bool {
 	}
 }
 
+// Defines values for SiteReadReportPhase.
+const (
+	SiteReadReportPhaseCrawling    SiteReadReportPhase = "crawling"
+	SiteReadReportPhaseExtracting  SiteReadReportPhase = "extracting"
+	SiteReadReportPhaseLessThannil SiteReadReportPhase = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the SiteReadReportPhase enum.
+func (e SiteReadReportPhase) Valid() bool {
+	switch e {
+	case SiteReadReportPhaseCrawling:
+		return true
+	case SiteReadReportPhaseExtracting:
+		return true
+	case SiteReadReportPhaseLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SiteReadReportStatus.
 const (
 	SiteReadReportStatusDone    SiteReadReportStatus = "done"
@@ -2963,25 +2984,25 @@ func (e SiteReadReportStoppedReason) Valid() bool {
 
 // Defines values for SiteReadSkipReason.
 const (
-	ByteCap    SiteReadSkipReason = "byte_cap"
-	OffDomain  SiteReadSkipReason = "off_domain"
-	PageCap    SiteReadSkipReason = "page_cap"
-	Robots     SiteReadSkipReason = "robots"
-	Unreadable SiteReadSkipReason = "unreadable"
+	SiteReadSkipReasonByteCap    SiteReadSkipReason = "byte_cap"
+	SiteReadSkipReasonOffDomain  SiteReadSkipReason = "off_domain"
+	SiteReadSkipReasonPageCap    SiteReadSkipReason = "page_cap"
+	SiteReadSkipReasonRobots     SiteReadSkipReason = "robots"
+	SiteReadSkipReasonUnreadable SiteReadSkipReason = "unreadable"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadSkipReason enum.
 func (e SiteReadSkipReason) Valid() bool {
 	switch e {
-	case ByteCap:
+	case SiteReadSkipReasonByteCap:
 		return true
-	case OffDomain:
+	case SiteReadSkipReasonOffDomain:
 		return true
-	case PageCap:
+	case SiteReadSkipReasonPageCap:
 		return true
-	case Robots:
+	case SiteReadSkipReasonRobots:
 		return true
-	case Unreadable:
+	case SiteReadSkipReasonUnreadable:
 		return true
 	default:
 		return false
@@ -7253,6 +7274,12 @@ type SiteReadReport struct {
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 	Pages          []SiteReadPage     `json:"pages"`
 
+	// PagesRead Pages committed so far — live progress while running, final count once terminal.
+	PagesRead *int `json:"pages_read,omitempty"`
+
+	// Phase Live position while status is running; null once terminal.
+	Phase *SiteReadReportPhase `json:"phase,omitempty"`
+
 	// ProposalIds The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead).
 	ProposalIds []openapi_types.UUID `json:"proposal_ids"`
 	ReadId      openapi_types.UUID   `json:"read_id"`
@@ -7263,6 +7290,9 @@ type SiteReadReport struct {
 	// StoppedReason Why the crawl ended early; null when it exhausted discovery.
 	StoppedReason *SiteReadReportStoppedReason `json:"stopped_reason,omitempty"`
 }
+
+// SiteReadReportPhase Live position while status is running; null once terminal.
+type SiteReadReportPhase string
 
 // SiteReadReportStatus defines model for SiteReadReport.Status.
 type SiteReadReportStatus string
