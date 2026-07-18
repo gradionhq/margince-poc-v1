@@ -41,10 +41,12 @@ type backfillHandlers struct {
 
 // WithCaptureBackfill wires the backfill ops over the connect registry and
 // an insert-only River client (the api enqueues, the worker pages). Without
-// it the four ops keep their generated 501.
+// it the four ops keep their generated 501. Idempotent: every configured
+// OAuth provider (gmail, graph) appends this option, and the first one wires
+// the shared registry for all of them.
 func WithCaptureBackfill(inserter *jobs.Runner) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		if s.connectorHandlers.registry == nil || inserter == nil {
+		if s.connectorHandlers.registry == nil || inserter == nil || s.backfillHandlers.registry != nil {
 			return
 		}
 		s.backfillHandlers = backfillHandlers{

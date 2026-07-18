@@ -70,6 +70,9 @@ type workerConfig struct {
 	timeScanInterval   time.Duration
 	gmailClientID      string
 	gmailClientSecret  string
+	graphClientID      string
+	graphClientSecret  string
+	graphTenant        string
 	gmailSyncInterval  time.Duration
 	gmailPubsubTopic   string
 	gmailWatchInterval time.Duration
@@ -100,6 +103,9 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.timeScanInterval, "time-scan-interval", time.Hour, "clock-trigger scan interval (no_activity_reminder et al., Task 14)")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
+	fs.StringVar(&cfg.graphClientID, "graph-client-id", os.Getenv("MARGINCE_GRAPH_CLIENT_ID"), "Microsoft (Entra) application id for the Outlook/M365 capture connector; enables its background sync poll")
+	fs.StringVar(&cfg.graphClientSecret, "graph-client-secret", os.Getenv("MARGINCE_GRAPH_CLIENT_SECRET"), "Microsoft client secret for the Outlook/M365 capture connector")
+	fs.StringVar(&cfg.graphTenant, "graph-tenant", os.Getenv("MARGINCE_GRAPH_TENANT"), "Microsoft identity tenant for token refresh (default: common — any organization)")
 	fs.DurationVar(&cfg.gmailSyncInterval, "gmail-sync-interval", 2*time.Minute, "Gmail incremental-sync poll interval")
 	fs.StringVar(&cfg.gmailPubsubTopic, "gmail-pubsub-topic", os.Getenv("MARGINCE_GMAIL_PUBSUB_TOPIC"), "Gmail Pub/Sub topic (projects/<p>/topics/<t>); enables the push-watch register+renew job. Empty leaves capture on the poll.")
 	fs.DurationVar(&cfg.gmailWatchInterval, "gmail-watch-interval", 6*time.Hour, "Gmail push-watch maintenance scan interval")
@@ -277,6 +283,10 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	captureReg := compose.CaptureSyncRegistry(pool, vault, compose.GmailConfig{
 		ClientID:     cfg.gmailClientID,
 		ClientSecret: cfg.gmailClientSecret,
+	}, compose.GraphConfig{
+		ClientID:     cfg.graphClientID,
+		ClientSecret: cfg.graphClientSecret,
+		Tenant:       cfg.graphTenant,
 	}).WithSyncInterval(cfg.gmailSyncInterval)
 	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
 	watchCfg := compose.GmailWatchConfig{
@@ -312,12 +322,19 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	captureNote := fmt.Sprintf("capture sweep every %s: imap", cfg.gmailSyncInterval)
+	providers := "imap"
+	if gmailWired {
+		providers += "+gmail"
+	}
+	if cfg.graphClientID != "" && cfg.graphClientSecret != "" {
+		providers += "+graph"
+	}
+	captureNote := fmt.Sprintf("capture sweep every %s: %s", cfg.gmailSyncInterval, providers)
 	switch {
 	case gmailWired && watchCfg.Topic != "":
-		captureNote = fmt.Sprintf("capture sweep every %s: imap+gmail, watch renew every %s", cfg.gmailSyncInterval, cfg.gmailWatchInterval)
+		captureNote = fmt.Sprintf("capture sweep every %s: %s, watch renew every %s", cfg.gmailSyncInterval, providers, cfg.gmailWatchInterval)
 	case gmailWired:
-		captureNote = fmt.Sprintf("capture sweep every %s: imap+gmail (watch off: no pubsub topic)", cfg.gmailSyncInterval)
+		captureNote = fmt.Sprintf("capture sweep every %s: %s (watch off: no pubsub topic)", cfg.gmailSyncInterval, providers)
 	}
 	deepReadNote := "deep read on"
 	if modelPath.SiteExtract == nil {
