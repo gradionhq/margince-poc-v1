@@ -358,7 +358,12 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		}
 		return compose.NewModelPath(cfg, pool, capturePayloads, log)
 	case fake:
-		return compose.FakeModelPath(ai.NewFakeClient()), nil
+		// A real ModelPath over ai.FakeRoutingConfig() rather than
+		// FakeModelPath's direct client wiring: the worker always has a
+		// pool, so --ai-fake safely rides the real Router (tiering, the
+		// budget guardrail, metering, call tracing) with only the
+		// provider swapped for the deterministic fake.
+		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, false, log)
 	default:
 		return compose.ModelPath{}, nil
 	}
