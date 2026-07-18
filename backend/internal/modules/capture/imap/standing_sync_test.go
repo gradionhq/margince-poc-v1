@@ -12,6 +12,8 @@ package imap
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,10 +39,19 @@ func (r *recordingSink) Upsert(_ context.Context, rec connector.NormalizedRecord
 	return datasource.EntityRef{}, nil
 }
 
-const (
-	memUser = "owner@ws.example"
-	memPass = "pw"
-)
+const memUser = "owner@ws.example"
+
+// memPass is generated per run so no password-shaped literal lives in the
+// tree (secret scanners cannot tell a fixture from a leak).
+var memPass = testSecret()
+
+func testSecret() string {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
 
 func rfc822(n int) string {
 	return fmt.Sprintf("From: Alice <alice@acme.test>\r\n"+
@@ -203,6 +214,64 @@ func TestStandingSyncAnchorsThenIncrements(t *testing.T) {
 	}
 }
 
+func TestStandingSyncReanchorsOnMailboxIdentityChange(t *testing.T) {
+	addr, _ := startMemServer(t, 5)
+	c := NewStanding().withDialer(plainDialer(addr))
+
+	// A cursor from a DIFFERENT account whose UIDVALIDITY and watermark
+	// happen to look plausible: trusting it would skip this account's mail.
+	sink := &recordingSink{}
+	cur, err := c.Sync(context.Background(), standingAuth(t), marshalIMAPCursor(imapCursor{
+		UIDValidity: 1, LastUID: 5, Email: "someone-else@ws.example",
+	}), sink)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if len(sink.records) != 3 {
+		t.Fatalf("captured %d, want the bounded re-anchor window of 3", len(sink.records))
+	}
+	parsed, err := parseIMAPCursor(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Email != memUser {
+		t.Fatalf("cursor identity = %q, want the connected mailbox %q", parsed.Email, memUser)
+	}
+}
+
+func TestStandingIncrementalPullIsBoundedByMaxMessages(t *testing.T) {
+	addr, user := startMemServer(t, 1)
+	c := NewStanding().withDialer(plainDialer(addr))
+	auth := standingAuth(t) // MaxMessages: 3
+
+	cur, err := c.Sync(context.Background(), auth, nil, &recordingSink{})
+	if err != nil {
+		t.Fatalf("anchor sync: %v", err)
+	}
+
+	// A burst of 5 above the watermark: one pull captures only the oldest 3
+	// and the watermark stops there, so the next sync continues — nothing
+	// skipped, nothing unbounded.
+	for i := 2; i <= 6; i++ {
+		appendMessage(t, user, rfc822(i))
+	}
+	sink := &recordingSink{}
+	cur2, err := c.Sync(context.Background(), auth, cur, sink)
+	if err != nil {
+		t.Fatalf("burst sync: %v", err)
+	}
+	if len(sink.records) != 3 {
+		t.Fatalf("burst captured %d, want the MaxMessages bound of 3", len(sink.records))
+	}
+	rest := &recordingSink{}
+	if _, err := c.Sync(context.Background(), auth, cur2, rest); err != nil {
+		t.Fatalf("follow-up sync: %v", err)
+	}
+	if len(rest.records) != 2 {
+		t.Fatalf("follow-up captured %d, want the remaining 2", len(rest.records))
+	}
+}
+
 func TestStandingAuthenticateProbesAndSeals(t *testing.T) {
 	addr, _ := startMemServer(t, 0)
 	c := NewStanding().withDialer(plainDialer(addr))
@@ -224,7 +293,7 @@ func TestStandingAuthenticateProbesAndSeals(t *testing.T) {
 	}
 
 	// A bad login parks as auth — the probe is honest.
-	badReq, err := AuthRequestFrom(Credentials{Host: "mem", Email: memUser, Password: "wrong"})
+	badReq, err := AuthRequestFrom(Credentials{Host: "mem", Email: memUser, Password: memPass[:8]})
 	if err != nil {
 		t.Fatal(err)
 	}

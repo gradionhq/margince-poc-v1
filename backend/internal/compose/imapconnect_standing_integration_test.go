@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -36,10 +37,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-const (
-	standingIMAPUser = "imap-owner@ws.example"
-	standingIMAPPass = "app-password" // test fixture for the in-memory mail server, not a credential
-)
+const standingIMAPUser = "imap-owner@ws.example"
+
+// standingIMAPPass is generated per run so no password-shaped literal lives
+// in the tree (secret scanners cannot tell a fixture from a leak).
+var standingIMAPPass = func() string {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}()
 
 // startPlainIMAPServer boots the in-memory server on loopback; the test
 // dial path is exercised through the production handler, which only ever
@@ -137,7 +145,7 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 	})
 
 	t.Run("a rejected login is 422", func(t *testing.T) {
-		if rec := post(t, authed, imapBody("wrong")); rec.Code != http.StatusUnprocessableEntity {
+		if rec := post(t, authed, imapBody(standingIMAPPass[:8])); rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422", rec.Code)
 		}
 	})

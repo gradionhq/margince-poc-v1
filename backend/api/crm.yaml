@@ -6251,7 +6251,7 @@ components:
           required: [host, username, secret]
           properties:
             host: { type: string }
-            port: { type: integer, default: 993 }
+            port: { type: integer, default: 993, minimum: 1, maximum: 65535 }
             username: { type: string }
             secret: { type: string, writeOnly: true, description: 'IMAP password / app password — written to the vault, never returned.' }
     ConnectConnectorResponse:

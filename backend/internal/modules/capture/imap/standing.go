@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -77,8 +78,11 @@ func normalizeCredentials(creds Credentials) (Credentials, error) {
 	if creds.Host == "" || creds.Email == "" || creds.Password == "" {
 		return Credentials{}, fmt.Errorf("imap: host, email and password are all required: %w", ErrLoginRejected)
 	}
-	if creds.Port == 0 {
+	switch {
+	case creds.Port == 0:
 		creds.Port = defaultPort
+	case creds.Port < 1 || creds.Port > 65535:
+		return Credentials{}, fmt.Errorf("imap: port %d is outside 1..65535: %w", creds.Port, ErrLoginRejected)
 	}
 	if strings.TrimSpace(creds.Mailbox) == "" {
 		creds.Mailbox = defaultMailbox
@@ -167,8 +171,10 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 		//craft:ignore swallowed-errors best-effort close — see above
 		_ = client.Close()
 	}()
-	c.owner = creds.Email
-	c.stats = Stats{Mailbox: creds.Mailbox}
+	// The standing connector is a registry singleton serving every IMAP
+	// connection, so all per-pull state lives on this local, never on c —
+	// concurrent syncs of different mailboxes must not see each other.
+	st := &syncState{owner: creds.Email, contacts: map[string]struct{}{}}
 	//craft:ignore swallowed-errors refreshing the read deadline for the pull; a closed conn surfaces as the next read failing
 	_ = netConn.SetDeadline(time.Now().Add(pullDeadline))
 
@@ -177,13 +183,13 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 		return nil, fmt.Errorf("imap: selecting mailbox %q: %w", creds.Mailbox, ErrUnreachable)
 	}
 
-	// A generation change (or a first sync) re-anchors with the bounded
-	// recent window — never a full mailbox walk (the steady-state rule).
-	contactsAnchor := map[string]struct{}{}
-	if cur.UIDValidity != selData.UIDValidity || cur.LastUID == 0 {
-		c.syncContacts = contactsAnchor
-		defer func() { c.stats.Contacts = len(contactsAnchor) }()
-		maxUID, err := c.pullWindow(ctx, client, selData, creds.MaxMessages, sink)
+	// A mailbox-identity change, a generation change, or a first sync
+	// re-anchors with the bounded recent window — never a full mailbox walk
+	// (the steady-state rule). The identity check matters when a connection
+	// is replaced with another account whose UIDVALIDITY happens to match:
+	// reusing the old watermark there would silently skip its mail.
+	if cur.Email != creds.Email || cur.UIDValidity != selData.UIDValidity || cur.LastUID == 0 {
+		maxUID, err := c.pullWindow(ctx, client, selData, creds.MaxMessages, sink, st)
 		if err != nil {
 			return nil, err
 		}
@@ -192,31 +198,78 @@ func (c *Connector) syncStanding(ctx context.Context, auth connector.Auth, curso
 		}), nil
 	}
 
-	contacts := map[string]struct{}{}
-	defer func() { c.stats.Contacts = len(contacts) }()
-	c.syncContacts = contacts
-
-	// Incremental: everything above the watermark, capped per pull — a
-	// burst beyond the cap simply continues next sync from the new
-	// watermark (the capture key makes any overlap a no-op).
-	var uids imapv2.UIDSet
-	uids.AddRange(imapv2.UID(cur.LastUID+1), 0) // 0 = *
-	maxUID, err := c.pullSet(ctx, client, uids, maxMessagesCap, sink)
+	cur, err = c.syncIncremental(ctx, client, creds, cur, sink, st)
 	if err != nil {
 		return nil, err
-	}
-	if maxUID > cur.LastUID {
-		cur.LastUID = maxUID
 	}
 	cur.UIDValidity = selData.UIDValidity
 	cur.Email = creds.Email
 	return marshalIMAPCursor(cur), nil
 }
 
+// syncIncremental pulls above the watermark: enumerate first (UIDs only, no
+// bodies on the wire), then body-fetch just the oldest MaxMessages — a burst
+// beyond that window simply continues next sync from the new watermark (the
+// capture key makes any overlap a no-op).
+func (c *Connector) syncIncremental(ctx context.Context, client *imapclient.Client, creds Credentials, cur imapCursor, sink connector.Sink, st *syncState) (imapCursor, error) {
+	newUIDs, err := c.listNewUIDs(client, cur.LastUID+1)
+	if err != nil {
+		return cur, err
+	}
+	if len(newUIDs) > creds.MaxMessages {
+		newUIDs = newUIDs[:creds.MaxMessages]
+	}
+	if len(newUIDs) == 0 {
+		return cur, nil
+	}
+	var uids imapv2.UIDSet
+	for _, u := range newUIDs {
+		uids.AddNum(u)
+	}
+	maxUID, err := c.pullSet(ctx, client, uids, 0, sink, st)
+	if err != nil {
+		return cur, err
+	}
+	if maxUID > cur.LastUID {
+		cur.LastUID = maxUID
+	}
+	return cur, nil
+}
+
+// listNewUIDs enumerates the UIDs at or above from, ascending, fetching no
+// bodies — the pre-flight that lets the incremental pull bound how many
+// messages actually stream.
+func (c *Connector) listNewUIDs(client *imapclient.Client, from uint32) ([]imapv2.UID, error) {
+	var set imapv2.UIDSet
+	set.AddRange(imapv2.UID(from), 0) // 0 = *
+	cmd := client.Fetch(set, &imapv2.FetchOptions{UID: true})
+	var uids []imapv2.UID
+	for {
+		msg := cmd.Next()
+		if msg == nil {
+			break
+		}
+		for {
+			item := msg.Next()
+			if item == nil {
+				break
+			}
+			if it, ok := item.(imapclient.FetchItemDataUID); ok && uint32(it.UID) >= from {
+				uids = append(uids, it.UID)
+			}
+		}
+	}
+	if err := cmd.Close(); err != nil {
+		return nil, fmt.Errorf("imap: listing new mail: %w", errors.Join(ErrUnreachable, err))
+	}
+	slices.Sort(uids)
+	return uids, nil
+}
+
 // pullWindow captures the most recent window by sequence numbers (the
 // anchor pull), returning the highest UID seen; an empty mailbox anchors at
 // UIDNext-1 so the next sync starts incremental.
-func (c *Connector) pullWindow(ctx context.Context, client *imapclient.Client, selData *imapv2.SelectData, window int, sink connector.Sink) (uint32, error) {
+func (c *Connector) pullWindow(ctx context.Context, client *imapclient.Client, selData *imapv2.SelectData, window int, sink connector.Sink, st *syncState) (uint32, error) {
 	if selData.NumMessages == 0 {
 		if selData.UIDNext > 1 {
 			return uint32(selData.UIDNext) - 1, nil
@@ -230,13 +283,13 @@ func (c *Connector) pullWindow(ctx context.Context, client *imapclient.Client, s
 	}
 	seqset := imapv2.SeqSet{}
 	seqset.AddRange(from, selData.NumMessages)
-	return c.pullSet(ctx, client, seqset, int(w), sink)
+	return c.pullSet(ctx, client, seqset, int(w), sink, st)
 }
 
 // pullSet fetches one message set (sequence or UID addressed), captures
 // each through the Sink with the same skip/size discipline as the
 // transient pull, and returns the highest UID seen.
-func (c *Connector) pullSet(ctx context.Context, client *imapclient.Client, set imapv2.NumSet, capMessages int, sink connector.Sink) (uint32, error) {
+func (c *Connector) pullSet(ctx context.Context, client *imapclient.Client, set imapv2.NumSet, capMessages int, sink connector.Sink, st *syncState) (uint32, error) {
 	fetchOpts := &imapv2.FetchOptions{
 		UID:         true,
 		BodySection: []*imapv2.FetchItemBodySection{{}},
@@ -255,7 +308,7 @@ func (c *Connector) pullSet(ctx context.Context, client *imapclient.Client, set 
 			// write fault or the per-pull cap already decided this pull.
 			continue
 		}
-		uid, err := c.captureFetched(ctx, msg, sink)
+		uid, err := c.captureFetched(ctx, msg, sink, st)
 		if err != nil {
 			writeErr = err
 			continue
@@ -274,15 +327,15 @@ func (c *Connector) pullSet(ctx context.Context, client *imapclient.Client, set 
 // captureFetched processes one fetched message: read (bounded), parse,
 // drop-or-upsert — the same discipline as the transient pull — returning
 // the message UID for the watermark.
-func (c *Connector) captureFetched(ctx context.Context, msg *imapclient.FetchMessageData, sink connector.Sink) (uint32, error) {
+func (c *Connector) captureFetched(ctx context.Context, msg *imapclient.FetchMessageData, sink connector.Sink, st *syncState) (uint32, error) {
 	raw, uid, err := readMessageBodyUID(msg)
 	if err != nil {
 		// Oversized or bodyless is a per-message drop, never a
 		// pull-stopping fault — the same discipline as the transient pull.
-		c.stats.Skipped++
+		st.stats.Skipped++
 		return uid, nil //nolint:nilerr // deliberate: the drop is counted, the pull continues
 	}
-	if err := c.capture(ctx, raw, sink, c.syncContacts); err != nil {
+	if err := c.capture(ctx, raw, sink, st); err != nil {
 		return uid, err
 	}
 	return uid, nil

@@ -32,7 +32,7 @@ func TestIMAPCursorRoundTripsAndRefusesCorruption(t *testing.T) {
 
 func TestNormalizeCredentials(t *testing.T) {
 	t.Run("defaults fill in", func(t *testing.T) {
-		got, err := normalizeCredentials(Credentials{Host: " imap.acme.test ", Email: " a@acme.test ", Password: "pw"})
+		got, err := normalizeCredentials(Credentials{Host: " imap.acme.test ", Email: " a@acme.test ", Password: memPass})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,12 +44,20 @@ func TestNormalizeCredentials(t *testing.T) {
 		}
 	})
 	t.Run("window is capped", func(t *testing.T) {
-		got, err := normalizeCredentials(Credentials{Host: "h", Email: "e@x", Password: "pw", MaxMessages: 9999})
+		got, err := normalizeCredentials(Credentials{Host: "h", Email: "e@x", Password: memPass, MaxMessages: 9999})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got.MaxMessages != maxMessagesCap {
 			t.Fatalf("MaxMessages = %d, want capped at %d", got.MaxMessages, maxMessagesCap)
+		}
+	})
+	t.Run("a port outside 1..65535 is refused", func(t *testing.T) {
+		for _, port := range []int{-1, 65536} {
+			_, err := normalizeCredentials(Credentials{Host: "h", Email: "e@x", Password: memPass, Port: port})
+			if !errors.Is(err, connector.ErrAuthRejected) {
+				t.Fatalf("port %d classified %v, want the auth class (a retry cannot fix it)", port, err)
+			}
 		}
 	})
 	t.Run("missing essentials park as auth, not retry", func(t *testing.T) {

@@ -294,6 +294,21 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Scope preflight BEFORE any credential probe: the probe dials a
+	// tenant-supplied host, so an under-scoped caller must be refused before
+	// any egress happens (and before login-vs-unreachable becomes
+	// distinguishable). Registry.Connect re-checks the same scopes as the
+	// persistence invariant.
+	for _, scope := range imap.NewStanding().Descriptor().Scopes {
+		if !actor.Scopes.Has(scope) {
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusForbidden,
+				Code:   "scope_exceeded",
+				Detail: "Connecting a mailbox needs the read scope your session does not hold.",
+			})
+			return
+		}
+	}
 	var req crmcontracts.ConnectConnectorRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Imap == nil || req.Imap.Secret == nil {
 		httperr.Write(w, r, &httperr.DetailedError{
@@ -367,10 +382,13 @@ func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.
 		if v.Provider == providerIMAP {
 			w.Header().Set("Content-Type", "application/json")
 			conn := toContractConnection(v)
-			//craft:ignore swallowed-errors terminal response encode; the client sees a broken body, retrying changes nothing
-			_ = json.NewEncoder(w).Encode(crmcontracts.ConnectConnectorResponse{
+			if err := json.NewEncoder(w).Encode(crmcontracts.ConnectConnectorResponse{
 				Connection: &conn,
-			})
+			}); err != nil {
+				// The status line is already gone; the log is the only place
+				// a truncated success can still be seen.
+				slog.ErrorContext(r.Context(), "imap connector: encoding connect response", "err", err)
+			}
 			return
 		}
 	}

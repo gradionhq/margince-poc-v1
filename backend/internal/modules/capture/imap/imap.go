@@ -84,10 +84,6 @@ type Connector struct {
 	owner   string
 	stats   Stats
 
-	// syncContacts is the standing pull's per-sync counterparty tally
-	// (the transient pull threads a local map instead).
-	syncContacts map[string]struct{}
-
 	// dial establishes one session for the standing flavor; injectable so
 	// the sync logic tests against an in-memory server (the production
 	// dialer's TLS + SSRF guard are its own tested properties).
@@ -98,6 +94,16 @@ type Connector struct {
 	// and the cursor is the UID watermark. false = the transient one-shot
 	// pull below.
 	standing bool
+}
+
+// syncState is one pull's mutable state — owner identity, counters, and the
+// counterparty tally. It is always a local of the sync in progress: the
+// standing Connector is a registry singleton shared by every IMAP
+// connection, so per-pull state on the struct would race across mailboxes.
+type syncState struct {
+	owner    string
+	stats    Stats
+	contacts map[string]struct{}
 }
 
 // Stats is the outcome of one pull, surfaced to the caller's summary.
@@ -283,6 +289,7 @@ func (c *Connector) syncTransient(ctx context.Context, auth connector.Auth, sink
 	}
 	c.owner = cfg.Owner
 	c.stats.Mailbox = cfg.Mailbox
+	st := &syncState{owner: cfg.Owner, stats: Stats{Mailbox: cfg.Mailbox}, contacts: map[string]struct{}{}}
 	if c.netConn != nil {
 		//craft:ignore swallowed-errors refreshing the read deadline for the pull; a closed conn surfaces as the next read failing
 		_ = c.netConn.SetDeadline(time.Now().Add(pullDeadline))
@@ -307,7 +314,6 @@ func (c *Connector) syncTransient(ctx context.Context, auth connector.Auth, sink
 	fetchOpts := &imapv2.FetchOptions{BodySection: []*imapv2.FetchItemBodySection{{}}}
 	fetchCmd := c.conn.Fetch(seqset, fetchOpts)
 
-	contacts := map[string]struct{}{}
 	var writeErr error
 	for {
 		msg := fetchCmd.Next()
@@ -317,10 +323,10 @@ func (c *Connector) syncTransient(ctx context.Context, auth connector.Auth, sink
 		raw, err := readMessageBody(msg)
 		if err != nil {
 			// Oversized or bodyless — dropped, not fatal.
-			c.stats.Skipped++
+			st.stats.Skipped++
 			continue
 		}
-		if err := c.capture(ctx, raw, sink, contacts); err != nil {
+		if err := c.capture(ctx, raw, sink, st); err != nil {
 			writeErr = err
 			break
 		}
@@ -334,7 +340,10 @@ func (c *Connector) syncTransient(ctx context.Context, auth connector.Auth, sink
 	if writeErr != nil {
 		return nil, writeErr
 	}
-	c.stats.Contacts = len(contacts)
+	st.stats.Contacts = len(st.contacts)
+	// The transient connector is built fresh per request, so the write-back
+	// for Stats() is single-threaded by construction.
+	c.stats = st.stats
 	return nil, nil
 }
 
@@ -342,30 +351,30 @@ func (c *Connector) syncTransient(ctx context.Context, auth connector.Auth, sink
 // automated/unparseable/suppressed, else upsert through the Sink and tally the
 // counterparty. A dropped message is counted as skipped and returns nil; only
 // a real Sink write fault returns a non-nil error (which stops the pull).
-func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink, contacts map[string]struct{}) error {
-	parsed, err := mailmap.Parse(raw, c.owner)
+func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink, st *syncState) error {
+	parsed, err := mailmap.Parse(raw, st.owner)
 	if err != nil {
 		// A single unparseable message is dropped, not fatal — one bad MIME
 		// structure must not abort the whole pull.
-		c.stats.Skipped++
+		st.stats.Skipped++
 		return nil
 	}
 	if _, drop := parsed.SkipReason(); drop {
-		c.stats.Skipped++
+		st.stats.Skipped++
 		return nil
 	}
 	if _, err := sink.Upsert(ctx, parsed.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			// The Sink dropped it (e.g. an erased subject's suppression list) —
 			// a deliberate skip, counted like any other.
-			c.stats.Skipped++
+			st.stats.Skipped++
 			return nil
 		}
 		return err
 	}
-	c.stats.Captured++
+	st.stats.Captured++
 	if cp := parsed.Counterparty(); cp != "" {
-		contacts[strings.ToLower(cp)] = struct{}{}
+		st.contacts[strings.ToLower(cp)] = struct{}{}
 	}
 	return nil
 }
