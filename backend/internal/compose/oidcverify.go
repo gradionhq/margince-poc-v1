@@ -301,7 +301,9 @@ func verifyRS256(key *rsa.PublicKey, signingInput, sigB64 string) error {
 		return err
 	}
 	h := sha256.Sum256([]byte(signingInput))
-	return rsa.VerifyPKCS1v15(key, crypto.SHA256, h[:], sig)
+	// RS256 signature VERIFICATION per RFC 7518 §3.3 — PKCS#1 v1.5 is the
+	// algorithm Google signs these tokens with; nothing is encrypted here.
+	return rsa.VerifyPKCS1v15(key, crypto.SHA256, h[:], sig) // NOSONAR(go:S5542) verification, not encryption
 }
 
 //craft:ignore naked-any out is the caller-supplied decode target — header vs claims, so its concrete type varies per call
