@@ -31,7 +31,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
@@ -267,35 +266,33 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
 func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
-	// Build the Gmail poll only when the app is configured. Gating the vault
-	// init here matters: an unconfigured deployment must not fail worker boot
-	// on a keyvault problem it doesn't need. GmailPollRegistry then holds the
-	// same vault the connect flow sealed credentials into.
-	var gmailReg *capture.Registry
-	if cfg.gmailClientID != "" && cfg.gmailClientSecret != "" {
-		vault, _, verr := keyvault.FromEnv(pool)
-		if verr != nil {
-			return nil, fmt.Errorf("worker: keyvault: %w", verr)
-		}
-		gmailReg = compose.GmailPollRegistry(pool, vault, compose.GmailConfig{
-			ClientID:     cfg.gmailClientID,
-			ClientSecret: cfg.gmailClientSecret,
-		}).WithSyncInterval(cfg.gmailSyncInterval)
+	// The sweep registry is always live — the standing IMAP connector needs
+	// no deployment config; gmail joins it when the OAuth app is configured.
+	// The vault holds every connection's sealed credential (the standing
+	// flavors resolve through it), so it initializes here regardless.
+	vault, _, verr := keyvault.FromEnv(pool)
+	if verr != nil {
+		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}
+	captureReg := compose.CaptureSyncRegistry(pool, vault, compose.GmailConfig{
+		ClientID:     cfg.gmailClientID,
+		ClientSecret: cfg.gmailClientSecret,
+	}).WithSyncInterval(cfg.gmailSyncInterval)
+	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
 	watchCfg := compose.GmailWatchConfig{
 		Interval:    cfg.gmailWatchInterval,
 		RenewWithin: cfg.gmailWatchRenew,
 	}
 	// The watch job only runs where a Pub/Sub topic is configured AND the Gmail
-	// app is wired (gmailReg != nil); otherwise capture stays on the poll.
-	if gmailReg != nil {
+	// app is wired; otherwise capture stays on the poll.
+	if gmailWired {
 		watchCfg.Topic = cfg.gmailPubsubTopic
 	}
 	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
 		CloseDateInterval: cfg.closeDateInterval,
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,
-		GmailRegistry:     gmailReg,
+		GmailRegistry:     captureReg,
 
 		GmailWatch: watchCfg,
 		// The deep-read worker registers regardless: without a model path
@@ -315,19 +312,19 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	gmailNote := "gmail sync off (unconfigured)"
+	captureNote := fmt.Sprintf("capture sweep every %s: imap", cfg.gmailSyncInterval)
 	switch {
-	case gmailReg != nil && watchCfg.Topic != "":
-		gmailNote = fmt.Sprintf("gmail sync every %s, watch renew every %s", cfg.gmailSyncInterval, cfg.gmailWatchInterval)
-	case gmailReg != nil:
-		gmailNote = fmt.Sprintf("gmail sync every %s (watch off: no pubsub topic)", cfg.gmailSyncInterval)
+	case gmailWired && watchCfg.Topic != "":
+		captureNote = fmt.Sprintf("capture sweep every %s: imap+gmail, watch renew every %s", cfg.gmailSyncInterval, cfg.gmailWatchInterval)
+	case gmailWired:
+		captureNote = fmt.Sprintf("capture sweep every %s: imap+gmail (watch off: no pubsub topic)", cfg.gmailSyncInterval)
 	}
 	deepReadNote := "deep read on"
 	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
 	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailNote, deepReadNote)
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, deepReadNote)
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.

@@ -179,21 +179,6 @@ func WithBlobstore(store blobstore.Store) Option {
 	}
 }
 
-// WithKeyvault wires the secret store: it feeds the /readyz probe and backs
-// the capture connector-credential path (Authenticate seals the credential
-// bundle, Sync resolves it). Without it a role that persists or resolves
-// connector credentials declares that gap at wiring time rather than
-// nil-derefing at Authenticate — a capture-capable role must pass this or
-// fail to boot (enforced in cmd).
-func WithKeyvault(vault keyvault.Vault) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.vault = vault
-		// Rebuild the capture registry with the vault so the connector-
-		// credential paths (Connect seals, Sync resolves) have their custodian.
-		s.imapConnectHandlers = imapConnectHandlers{registry: NewCaptureRegistry(pool, vault)}
-	}
-}
-
 // readinessChecks assembles the /readyz dependency probes for this role.
 // Postgres is always probed; the bus, the object store, the secret vault,
 // and the schema pool are probed only when this role wired them, so a
