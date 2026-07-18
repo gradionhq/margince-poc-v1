@@ -7,11 +7,14 @@
 CREATE TABLE capture_digest (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),
   workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
-  user_id      uuid NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  user_id      uuid NOT NULL,
   digest_date  date NOT NULL,
   payload      jsonb NOT NULL,
   created_at   timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, user_id, digest_date)
+  UNIQUE (workspace_id, user_id, digest_date),
+  -- Composite reference: a digest can only name a user of its own workspace.
+  CONSTRAINT capture_digest_user_id_fkey FOREIGN KEY (workspace_id, user_id)
+    REFERENCES app_user (workspace_id, id) ON DELETE CASCADE
 );
 
 ALTER TABLE capture_digest ENABLE ROW LEVEL SECURITY;

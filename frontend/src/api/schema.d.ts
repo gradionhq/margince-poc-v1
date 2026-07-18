@@ -11349,7 +11349,7 @@ export interface operations {
     getAiUsage: {
         parameters: {
             query?: {
-                /** @description Default: first day of the current month. */
+                /** @description Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise). */
                 from?: string;
                 /** @description Default: today. */
                 to?: string;
@@ -11371,6 +11371,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listDedupeCandidates: {

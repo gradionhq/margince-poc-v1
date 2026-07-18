@@ -56,6 +56,7 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 	}
 	sourceRef := "activity:" + sourceActivity.String()
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var appliedFields []string
 		for _, f := range fields {
 			applied, err := s.applySignatureField(ctx, tx, personID, sourceRef, f)
 			if err != nil {
@@ -63,11 +64,23 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 			}
 			if applied {
 				res.Applied++
+				appliedFields = append(appliedFields, f.Name)
 			} else {
 				res.Skipped++
 			}
 		}
-		return nil
+		if len(appliedFields) == 0 {
+			return nil
+		}
+		// The write shape: the enrichment is a person mutation, so the
+		// audit row and the person.updated outbox event ride this commit.
+		auditID, err := storekit.Audit(ctx, tx, "enrich", entityPerson, personID.UUID,
+			nil, map[string]any{auditKeyFields: appliedFields, "source_ref": sourceRef})
+		if err != nil {
+			return err
+		}
+		return storekit.Emit(ctx, tx, auditID, "person.updated", entityPerson, personID.UUID,
+			map[string]any{auditKeyFields: appliedFields, auditKeySource: enrichSource})
 	})
 	if err != nil {
 		return SignatureApplyResult{}, err
@@ -100,19 +113,30 @@ func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids
 	case "title":
 		// Fill-only-empty: the NULL predicate is the CAS — an occupied
 		// title (human or otherwise) is never touched (GATE-AI-4).
-		if _, err := tx.Exec(ctx, `
-			UPDATE person SET title = $2 WHERE id = $1 AND title IS NULL`, personID, value); err != nil {
+		tag, err := tx.Exec(ctx, `
+			UPDATE person SET title = $2 WHERE id = $1 AND title IS NULL`, personID, value)
+		if err != nil {
 			return false, fmt.Errorf("people: signature title fill: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			// A concurrent writer filled the title after the candidate
+			// query: the evidence row must not claim a value that never
+			// applied — withdraw it and count the field skipped.
+			return false, revokeSignatureEvidence(ctx, tx, personID, f.Name)
 		}
 	case "phone":
 		// A first phone only — a person with any live phone row keeps it.
-		if _, err := tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
 			SELECT $1, $2, $3, 'work', true, 0, $4, $5
 			WHERE NOT EXISTS (
 				SELECT 1 FROM person_phone WHERE person_id = $2 AND archived_at IS NULL)`,
-			wsID, personID, value, enrichSource, enrichCapturedBy); err != nil {
+			wsID, personID, value, enrichSource, enrichCapturedBy)
+		if err != nil {
 			return false, fmt.Errorf("people: signature phone fill: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return false, revokeSignatureEvidence(ctx, tx, personID, f.Name)
 		}
 	}
 	// role / linkedin / org_name live only in the sidecar: no record column
@@ -123,6 +147,19 @@ func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids
 		return false, err
 	}
 	return true, nil
+}
+
+// revokeSignatureEvidence withdraws the just-inserted evidence row when
+// its guarded column fill lost the race: evidence must never claim a
+// value the record does not carry.
+func revokeSignatureEvidence(ctx context.Context, tx pgx.Tx, personID ids.PersonID, field string) error {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM person_profile_field
+		WHERE person_id = $1 AND field = $2 AND source = $3`,
+		personID, field, enrichSource); err != nil {
+		return fmt.Errorf("people: withdrawing unapplied signature evidence (%s): %w", field, err)
+	}
+	return nil
 }
 
 // SignatureCandidate is one person the enrich pass should look at: a

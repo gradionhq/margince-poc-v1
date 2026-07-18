@@ -24,6 +24,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -68,7 +69,14 @@ const (
 	dispositionOpen         = "open"
 	dispositionMerged       = "merged"
 	dispositionNotDuplicate = "not_a_duplicate"
-	fieldCursor             = "cursor"
+	// auditEntityDedupe names the queue row in its audit entries.
+	auditEntityDedupe = "dedupe_candidate"
+	// auditKeyDisposition is the audited field name of the queue verdict.
+	auditKeyDisposition = "disposition"
+	// sqlAlwaysVisible is the no-op arm of the pair-visibility predicate:
+	// the caller's scope leaves that record type unbounded.
+	sqlAlwaysVisible = "true"
+	fieldCursor      = "cursor"
 )
 
 // dedupeCursor is the queue's keyset: confidence-descending with the id
@@ -111,6 +119,43 @@ func requireDedupeRead(ctx context.Context, entityType string) error {
 	return nil
 }
 
+// requireDedupeWrite gates the disposition verbs: deciding a pair mutates
+// the records' dedupe fate, so it needs update on the pair's entity type —
+// a read-only seat can look at the queue but never decide it.
+func requireDedupeWrite(ctx context.Context, entityType string) error {
+	return auth.Require(ctx, entityType, principal.ActionUpdate)
+}
+
+// dedupeVisibilityClause renders the queue's row-scope filter: a candidate
+// surfaces only when BOTH sides of its pair are visible to the caller —
+// the evidence snapshot reads both records, so listing a pair IS a read of
+// them (H1). Empty for unbounded callers.
+func dedupeVisibilityClause(ctx context.Context, arg func(any) int) (string, error) {
+	personClause, err := auth.ScopeClauseFor(ctx, entityPerson, "vp", arg)
+	if err != nil {
+		return "", err
+	}
+	orgClause, err := auth.ScopeClauseFor(ctx, entityOrganization, "vo", arg)
+	if err != nil {
+		return "", err
+	}
+	if personClause == "" && orgClause == "" {
+		return "", nil
+	}
+	personOK := sqlAlwaysVisible
+	if personClause != "" {
+		personOK = fmt.Sprintf(`(EXISTS (SELECT 1 FROM person vp WHERE vp.id = dedupe_candidate.left_person_id AND %[1]s)
+			AND EXISTS (SELECT 1 FROM person vp WHERE vp.id = dedupe_candidate.right_person_id AND %[1]s))`, personClause)
+	}
+	orgOK := sqlAlwaysVisible
+	if orgClause != "" {
+		orgOK = fmt.Sprintf(`(EXISTS (SELECT 1 FROM organization vo WHERE vo.id = dedupe_candidate.left_org_id AND %[1]s)
+			AND EXISTS (SELECT 1 FROM organization vo WHERE vo.id = dedupe_candidate.right_org_id AND %[1]s))`, orgClause)
+	}
+	return fmt.Sprintf(`((entity_type = 'person' AND %s) OR (entity_type = 'organization' AND %s))`,
+		personOK, orgOK), nil
+}
+
 // ListDedupeCandidates pages the queue, confidence-sorted (AC-dedupe-1).
 func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) ([]DedupeCandidateRow, string, error) {
 	if err := requireDedupeRead(ctx, in.EntityType); err != nil {
@@ -129,6 +174,13 @@ func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) (
 		FROM dedupe_candidate
 		WHERE disposition = $1 AND archived_at IS NULL`
 	args := []any{in.Status}
+	visClause, err := dedupeVisibilityClause(ctx, func(v any) int { args = append(args, v); return len(args) })
+	if err != nil {
+		return nil, "", err
+	}
+	if visClause != "" {
+		query += " AND " + visClause
+	}
 	if in.EntityType != "" {
 		args = append(args, in.EntityType)
 		query += fmt.Sprintf(" AND entity_type = $%d", len(args))
@@ -145,7 +197,7 @@ func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) (
 	query += fmt.Sprintf(" ORDER BY confidence DESC, id DESC LIMIT $%d", len(args))
 
 	var rows []DedupeCandidateRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		res, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
@@ -173,13 +225,22 @@ func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) (
 	return rows, next, nil
 }
 
-// GetDedupeCandidate reads one row with its full evidence.
+// GetDedupeCandidate reads one row with its full evidence. Both sides of
+// the pair must pass the caller's row scope — the evidence names them
+// both, so a pair with an out-of-scope side reads as absent (404,
+// existence-hiding).
 func (s *Store) GetDedupeCandidate(ctx context.Context, id ids.UUID) (DedupeCandidateRow, error) {
 	var row DedupeCandidateRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		row, err = readDedupeCandidate(ctx, tx, id)
-		return err
+		if err != nil {
+			return err
+		}
+		if err := auth.EnsureVisible(ctx, tx, row.EntityType, row.LeftID); err != nil {
+			return err
+		}
+		return auth.EnsureVisible(ctx, tx, row.EntityType, row.RightID)
 	})
 	if err != nil {
 		return DedupeCandidateRow{}, err
@@ -218,6 +279,9 @@ func (s *Store) DisposeDedupeCandidate(ctx context.Context, id ids.UUID, disposi
 	}
 	row, err := s.GetDedupeCandidate(ctx, id)
 	if err != nil {
+		return DedupeCandidateRow{}, err
+	}
+	if err := requireDedupeWrite(ctx, row.EntityType); err != nil {
 		return DedupeCandidateRow{}, err
 	}
 	if row.Disposition != dispositionOpen {
@@ -278,7 +342,10 @@ func (s *Store) executeDedupeMerge(ctx context.Context, entityType string, loser
 }
 
 // setDedupeDisposition is the CAS open→disposed; losing the race answers
-// conflict, never a second merge.
+// conflict, never a second merge. The audit row rides the same commit;
+// dedupe_candidate is not a §4.1 stream entity, so the disposition has no
+// bus event — the audit ledger is the record (the merge arm's
+// person.merged/organization.merged carries the bus-visible fact).
 func (s *Store) setDedupeDisposition(ctx context.Context, id ids.UUID, disposition string, by ids.UUID) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
@@ -290,7 +357,10 @@ func (s *Store) setDedupeDisposition(ctx context.Context, id ids.UUID, dispositi
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("people: candidate already disposed: %w", apperrors.ErrConflict)
 		}
-		return nil
+		_, err = storekit.Audit(ctx, tx, "dedupe_dispose", auditEntityDedupe, id,
+			map[string]any{auditKeyDisposition: dispositionOpen},
+			map[string]any{auditKeyDisposition: disposition})
+		return err
 	})
 }
 
@@ -306,7 +376,9 @@ func (s *Store) reopenDedupeCandidate(ctx context.Context, id ids.UUID) error {
 			// Already open (a concurrent undo) — the desired state holds.
 			return nil
 		}
-		return nil
+		_, err = storekit.Audit(ctx, tx, "dedupe_reopen", auditEntityDedupe, id,
+			nil, map[string]any{auditKeyDisposition: dispositionOpen})
+		return err
 	})
 }
 
@@ -321,6 +393,9 @@ func (s *Store) UndoDedupeDisposition(ctx context.Context, id ids.UUID) (DedupeC
 	}
 	row, err := s.GetDedupeCandidate(ctx, id)
 	if err != nil {
+		return DedupeCandidateRow{}, err
+	}
+	if err := requireDedupeWrite(ctx, row.EntityType); err != nil {
 		return DedupeCandidateRow{}, err
 	}
 	switch row.Disposition {

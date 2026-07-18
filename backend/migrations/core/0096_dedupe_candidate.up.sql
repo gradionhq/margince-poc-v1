@@ -11,10 +11,10 @@ CREATE TABLE dedupe_candidate (
   -- activity_link (ACT-DDL-2): a discriminator plus per-type nullable FKs, so
   -- every id keeps a real foreign key instead of an untyped uuid.
   entity_type       text NOT NULL CHECK (entity_type IN ('person','organization')),
-  left_person_id    uuid NULL REFERENCES person(id) ON DELETE CASCADE,
-  right_person_id   uuid NULL REFERENCES person(id) ON DELETE CASCADE,
-  left_org_id       uuid NULL REFERENCES organization(id) ON DELETE CASCADE,
-  right_org_id      uuid NULL REFERENCES organization(id) ON DELETE CASCADE,
+  left_person_id    uuid NULL,
+  right_person_id   uuid NULL,
+  left_org_id       uuid NULL,
+  right_org_id      uuid NULL,
 
   confidence    numeric(4,3) NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
   -- What the queue renders (AC-dedupe-2/3): per-field agree/collide evidence and
@@ -27,7 +27,7 @@ CREATE TABLE dedupe_candidate (
   -- pair is suppressed from every future sweep (AC-dedupe-7).
   disposition   text NOT NULL DEFAULT 'open'
                 CHECK (disposition IN ('open','merged','not_a_duplicate')),
-  disposed_by   uuid NULL REFERENCES app_user(id) ON DELETE SET NULL,
+  disposed_by   uuid NULL,
   disposed_at   timestamptz NULL,
 
   source        text NOT NULL,   -- DM-CONV-11: which detector proposed the pair
@@ -56,7 +56,20 @@ CREATE TABLE dedupe_candidate (
   ),
   CONSTRAINT dedupe_candidate_disposed_shape CHECK (
     (disposition = 'open') = (disposed_at IS NULL)
-  )
+  ),
+
+  -- Composite (workspace_id, id) references so a cross-workspace target is
+  -- rejected by the database itself (the 0019 invariant).
+  CONSTRAINT dedupe_candidate_left_person_id_fkey FOREIGN KEY (workspace_id, left_person_id)
+    REFERENCES person (workspace_id, id) ON DELETE CASCADE,
+  CONSTRAINT dedupe_candidate_right_person_id_fkey FOREIGN KEY (workspace_id, right_person_id)
+    REFERENCES person (workspace_id, id) ON DELETE CASCADE,
+  CONSTRAINT dedupe_candidate_left_org_id_fkey FOREIGN KEY (workspace_id, left_org_id)
+    REFERENCES organization (workspace_id, id) ON DELETE CASCADE,
+  CONSTRAINT dedupe_candidate_right_org_id_fkey FOREIGN KEY (workspace_id, right_org_id)
+    REFERENCES organization (workspace_id, id) ON DELETE CASCADE,
+  CONSTRAINT dedupe_candidate_disposed_by_fkey FOREIGN KEY (workspace_id, disposed_by)
+    REFERENCES app_user (workspace_id, id) ON DELETE SET NULL (disposed_by)
 );
 
 -- One row per pair, forever — this IS the suppression (AC-dedupe-7): a sweep

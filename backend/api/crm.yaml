@@ -3338,7 +3338,7 @@ paths:
         the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
         their own bill made visible, never a Margince meter for resale.
       parameters:
-        - { name: from, in: query, schema: { type: string, format: date }, description: 'Default: first day of the current month.' }
+        - { name: from, in: query, schema: { type: string, format: date }, description: 'Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise).' }
         - { name: to, in: query, schema: { type: string, format: date }, description: 'Default: today.' }
       responses:
         '200':
@@ -3348,6 +3348,7 @@ paths:
               schema: { $ref: '#/components/schemas/AiUsage' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/PermissionDenied' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
 
   # ------------------ /dedupe (DH-EXT-1/2, ADR-0062) ------------------------

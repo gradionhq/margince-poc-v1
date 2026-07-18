@@ -7,7 +7,7 @@
 CREATE TABLE person_profile_field (
   id              uuid PRIMARY KEY DEFAULT uuidv7(),
   workspace_id    uuid NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
-  person_id       uuid NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  person_id       uuid NOT NULL,
   field           text NOT NULL CHECK (field IN ('title','phone','role','linkedin','org_name')),
   value           text NOT NULL,
   evidence_snippet text NOT NULL,               -- verbatim signature text (evidence-or-omit: never nullable here — a field with no snippet is dropped before write)
@@ -18,7 +18,7 @@ CREATE TABLE person_profile_field (
   version         bigint NOT NULL DEFAULT 1,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT person_profile_field_person_fk FOREIGN KEY (workspace_id, person_id) REFERENCES person (workspace_id, id),
+  CONSTRAINT person_profile_field_person_fk FOREIGN KEY (workspace_id, person_id) REFERENCES person (workspace_id, id) ON DELETE CASCADE,
   CONSTRAINT uq_person_profile_field UNIQUE (person_id, field)   -- one row per (person, field)
 );
 CREATE INDEX idx_person_profile_field ON person_profile_field (workspace_id, person_id);

@@ -487,11 +487,15 @@ func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDige
 		return err
 	}
 	today := time.Now().UTC()
+	// One workspace's failure must not starve the rest — but a failed
+	// workspace must fail the job so River retries it rather than leaving
+	// it digest-less for the day.
+	var failures []error
 	for _, ws := range workspaces {
 		if err := w.registry.BuildDigests(principal.WithWorkspaceID(ctx, ws), today); err != nil {
-			// One workspace's failure must not starve the rest.
 			w.log.ErrorContext(ctx, "capture digest: build failed", "workspace", ws.String(), "err", err)
+			failures = append(failures, fmt.Errorf("workspace %s: %w", ws.String(), err))
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }

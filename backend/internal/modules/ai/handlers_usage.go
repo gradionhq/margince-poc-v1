@@ -10,12 +10,18 @@ package ai
 
 import (
 	"net/http"
+	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
+
+// maxUsageWindowDays bounds one report request: the aggregation is
+// unpaginated, so an unbounded window would let a single call scan the
+// whole metering history. A year covers every UI view.
+const maxUsageWindowDays = 366
 
 // GetAiUsage implements (GET /ai/usage).
 func (h Handlers) GetAiUsage(w http.ResponseWriter, r *http.Request, params crmcontracts.GetAiUsageParams) {
@@ -25,6 +31,20 @@ func (h Handlers) GetAiUsage(w http.ResponseWriter, r *http.Request, params crmc
 	}
 	if params.To != nil {
 		to = params.To.Time
+	}
+	if to.Before(from) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity, Code: "window_inverted",
+			Detail: "`from` must not be after `to`.",
+		})
+		return
+	}
+	if to.Sub(from) > maxUsageWindowDays*24*time.Hour {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity, Code: "window_too_wide",
+			Detail: "The usage window is capped at 366 days — narrow `from`/`to`.",
+		})
+		return
 	}
 	days, budget, err := h.meter.UsageReport(r.Context(), h.budget, from, to)
 	if err != nil {

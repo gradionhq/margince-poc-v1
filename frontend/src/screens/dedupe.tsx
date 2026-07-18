@@ -51,7 +51,12 @@ export function DedupeScreen() {
       }
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queueKey }),
+    // A fresh decision replaces any lingering undo notice — the two
+    // banners must never stack.
+    onSuccess: () => {
+      undo.reset();
+      return qc.invalidateQueries({ queryKey: queueKey });
+    },
   });
 
   const undo = useMutation({
@@ -64,7 +69,12 @@ export function DedupeScreen() {
       }
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: queueKey }),
+    // Undoing clears the "decision saved" banner (and its stale Undo
+    // button) along with it.
+    onSuccess: () => {
+      dispose.reset();
+      return qc.invalidateQueries({ queryKey: queueKey });
+    },
   });
 
   return (

@@ -8434,7 +8434,7 @@ type SendEmailParams struct {
 
 // GetAiUsageParams defines parameters for GetAiUsage.
 type GetAiUsageParams struct {
-	// From Default: first day of the current month.
+	// From Default: first day of the current month. Must not be after `to`; the window is capped at 366 days (422 otherwise).
 	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
 
 	// To Default: today.

@@ -31,10 +31,11 @@ import (
 // per-id verdicts, with confidence taken from the per-id map; calls after
 // the script runs dry answer budget-exhausted.
 type scriptedClassifyBrain struct {
-	confidence map[string]float64 // by activity id; default 0.9
-	labels     map[string]string  // by activity id; default "noise"
-	calls      int
-	budgetOut  bool
+	confidence   map[string]float64 // by activity id; default 0.9
+	labels       map[string]string  // by activity id; default "noise"
+	calls        int
+	budgetOut    bool
+	budgetOnSolo bool // the budget runs dry exactly on a solo re-ask
 }
 
 func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
@@ -43,6 +44,9 @@ func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (
 		return model.Response{}, ai.ErrBudgetExhausted
 	}
 	idPattern := regexpMustIDs(req.Messages[0].Content)
+	if s.budgetOnSolo && len(idPattern) == 1 {
+		return model.Response{}, ai.ErrBudgetExhausted
+	}
 	results := make([]map[string]any, 0, len(idPattern))
 	for _, id := range idPattern {
 		label := s.labels[id]
@@ -170,6 +174,27 @@ func TestCaptureClassifyPass(t *testing.T) {
 		}
 		if l := labelOf(t, e, confident); l == nil || *l != "commitment" {
 			t.Fatal("already-committed labels must survive a later budget stop")
+		}
+	})
+
+	t.Run("a budget stop mid-run keeps the same pass's own commits", func(t *testing.T) {
+		// The budget dies ON the solo re-ask, after the batch call already
+		// succeeded — proving the per-call commit checkpoint: what the
+		// batch labeled stays, only the doubtful row waits for next cycle.
+		brain.budgetOut = false
+		brain.budgetOnSolo = true
+		sure := seedUnlabeledEmail(t, e, "confirming our agreement")
+		shaky := seedUnlabeledEmail(t, e, "??")
+		brain.labels[sure.String()] = "commitment"
+		brain.confidence[shaky.String()] = 0.4
+		if err := classifier.Run(context.Background(), 0); err != nil {
+			t.Fatalf("a mid-run budget stop must not be an error: %v", err)
+		}
+		if l := labelOf(t, e, sure); l == nil || *l != "commitment" {
+			t.Fatal("the batch's committed label must survive the solo re-ask's budget stop")
+		}
+		if l := labelOf(t, e, shaky); l != nil {
+			t.Fatal("the budget-stopped doubtful row must stay unlabeled for the next cycle")
 		}
 	})
 }

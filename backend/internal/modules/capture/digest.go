@@ -170,13 +170,14 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 func (r *Registry) ReadDigest(ctx context.Context, userID ids.UUID, day *time.Time) (*DigestPayload, error) {
 	var raw []byte
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		query := `SELECT payload FROM capture_digest WHERE user_id = $1 ORDER BY digest_date DESC LIMIT 1`
-		args := []any{userID}
+		row := tx.QueryRow(ctx,
+			`SELECT payload FROM capture_digest WHERE user_id = $1 ORDER BY digest_date DESC LIMIT 1`, userID)
 		if day != nil {
-			query = `SELECT payload FROM capture_digest WHERE user_id = $1 AND digest_date = $2`
-			args = append(args, day.Format(time.DateOnly))
+			row = tx.QueryRow(ctx,
+				`SELECT payload FROM capture_digest WHERE user_id = $1 AND digest_date = $2`,
+				userID, day.Format(time.DateOnly))
 		}
-		err := tx.QueryRow(ctx, query, args...).Scan(&raw)
+		err := row.Scan(&raw)
 		if err == pgx.ErrNoRows {
 			return nil
 		}

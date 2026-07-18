@@ -118,6 +118,12 @@ func (c *CaptureClassifier) Run(ctx context.Context, maxLabels int) error {
 				c.log.WarnContext(ctx, "capture classify: batch failed", "workspace", ws.String(), "err", err)
 				break
 			}
+			if n == 0 {
+				// Every verdict stayed below the floor: the same rows would
+				// be fetched again forever. They wait for the next cycle.
+				c.log.InfoContext(ctx, "capture classify: batch made no progress, moving on", "workspace", ws.String())
+				break
+			}
 		}
 	}
 	return nil

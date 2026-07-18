@@ -259,7 +259,14 @@ func (h backfillHandlers) GetMorningDigest(w http.ResponseWriter, r *http.Reques
 	}
 	payload, err := h.registry.ReadDigest(r.Context(), userID.UUID, day)
 	if err != nil {
-		h.writeBackfillError(w, r, err)
+		// ReadDigest only touches Postgres and JSON — its failures are
+		// storage faults, never the connector outage writeBackfillError's
+		// default (502 provider_unreachable) would claim.
+		h.log.ErrorContext(r.Context(), "digest read", "err", err)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError, Code: "digest_read_failed",
+			Detail: "The digest could not be read. Try again shortly.",
+		})
 		return
 	}
 	if payload == nil {
