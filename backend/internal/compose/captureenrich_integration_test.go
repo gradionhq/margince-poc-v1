@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -164,4 +165,70 @@ func TestSignatureEnrichPass(t *testing.T) {
 			t.Fatalf("title = %q — the human's answer was touched", title)
 		}
 	})
+}
+
+// faultyEnrichBrain answers every call with a fixed error or garbage —
+// the model failure modes the pass must absorb without losing the fleet.
+type faultyEnrichBrain struct {
+	err     error
+	garbage bool
+	calls   int
+}
+
+func (f *faultyEnrichBrain) Complete(context.Context, model.Request) (model.Response, error) {
+	f.calls++
+	if f.err != nil {
+		return model.Response{}, f.err
+	}
+	if f.garbage {
+		return model.Response{Text: "not json at all {{{"}, nil
+	}
+	return model.Response{Text: "{}"}, nil
+}
+
+func TestSignatureEnrichAbsorbsModelFailures(t *testing.T) {
+	e := integration.Setup(t)
+	seedEnrichPerson(t, e, "flaky@acme.example", "Thanks,\nFlaky Person\nCOO\n+49 30 1111111")
+
+	t.Run("garbage output fails the candidate, not the pass", func(t *testing.T) {
+		brain := &faultyEnrichBrain{garbage: true}
+		enricher := NewCaptureEnricher(e.Pool, brain, slog.New(slog.DiscardHandler))
+		if err := enricher.Run(context.Background()); err != nil {
+			t.Fatalf("a per-candidate model failure must not fail the pass: %v", err)
+		}
+		if brain.calls == 0 {
+			t.Fatal("the candidate was never asked")
+		}
+		// Nothing landed: no evidence row for a verdict nobody could parse.
+		if n := enrichEvidenceCount(t, e, "flaky@acme.example"); n != 0 {
+			t.Fatalf("%d evidence rows from a garbage verdict, want 0", n)
+		}
+	})
+
+	t.Run("a budget stop ends the pass cleanly", func(t *testing.T) {
+		brain := &faultyEnrichBrain{err: ai.ErrBudgetExhausted}
+		enricher := NewCaptureEnricher(e.Pool, brain, slog.New(slog.DiscardHandler))
+		if err := enricher.Run(context.Background()); err != nil {
+			t.Fatalf("a budget stop must not be an error: %v", err)
+		}
+		if brain.calls != 1 {
+			t.Fatalf("model calls = %d, want 1 — the stop must end the pass, not walk the fleet", brain.calls)
+		}
+	})
+}
+
+// enrichEvidenceCount counts the person's evidence rows by primary email.
+func enrichEvidenceCount(t *testing.T, e *integration.Env, email string) int {
+	t.Helper()
+	var n int
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT count(*) FROM person_profile_field f
+			JOIN person_email pe ON pe.person_id = f.person_id
+			WHERE pe.email = $1`, email).Scan(&n)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

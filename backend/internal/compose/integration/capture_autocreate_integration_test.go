@@ -22,9 +22,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -267,4 +269,47 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("%d open dedupe candidates, want exactly 1", n)
 		}
 	})
+
+	t.Run("a connector with no granting human records the fault, never a person", func(t *testing.T) {
+		// A bare sink with the ensure seam wired but an ownerless connector
+		// principal: the capture itself must land, the ensure must refuse
+		// honestly (RC-8 — created rows need a human owner), and the fault
+		// must be a system_log line the nightly reconcile can find.
+		sink := capture.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capture.NewFreemailList(nil))
+		ownerless := principal.WithCorrelationID(principal.WithActor(
+			principal.WithWorkspaceID(context.Background(), e.WS), principal.Principal{
+				Type: principal.PrincipalConnector, ID: "connector:gmail",
+				Scopes: principal.NewScopeSet(principal.ScopeRead),
+				Permissions: principal.Permissions{
+					Objects:  map[string]principal.ObjectGrant{"activity": {Create: true, Read: true}},
+					RowScope: principal.RowScopeAll,
+				},
+			}), ids.NewV7())
+		raw := email("ghost@nowhere.example", "Ghost Sender", autoCreateOwner, "g1@nowhere.example", "")
+		msg, err := mailmap.Parse(raw, autoCreateOwner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sink.Upsert(ownerless, msg.ToRecord("gmail", raw)); err != nil {
+			t.Fatalf("the capture itself must not fail: %v", err)
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM system_log
+			WHERE action = 'capture_ensure_fault' AND detail->>'source_id' = 'g1@nowhere.example'`); n != 1 {
+			t.Fatalf("%d ensure-fault ledger lines, want exactly 1", n)
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+			WHERE pe.email = 'ghost@nowhere.example'`); n != 0 {
+			t.Fatal("an ownerless connector must not create a person")
+		}
+	})
+}
+
+// recordingEnsurer satisfies the ensure seam for the ownerless-connector
+// case; the sink's own gates must refuse before it is ever reached.
+type recordingEnsurer struct{}
+
+func (recordingEnsurer) EnsureCounterparty(context.Context, capture.EnsureRequest) error {
+	return nil
 }

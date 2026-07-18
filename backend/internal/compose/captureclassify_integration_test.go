@@ -36,6 +36,7 @@ type scriptedClassifyBrain struct {
 	calls        int
 	budgetOut    bool
 	budgetOnSolo bool // the budget runs dry exactly on a solo re-ask
+	soloStaysLow bool // the solo re-ask still cannot clear the floor
 }
 
 func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
@@ -59,7 +60,7 @@ func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (
 		}
 		// A solo re-ask (single-id call) upgrades the doubtful verdict —
 		// the scripted stand-in for the C-C fallback tier.
-		if len(idPattern) == 1 && conf < classifyConfidenceFloor {
+		if len(idPattern) == 1 && conf < classifyConfidenceFloor && !s.soloStaysLow {
 			conf = 0.95
 		}
 		results = append(results, map[string]any{"id": id, "label": label, "confidence": conf})
@@ -175,6 +176,30 @@ func TestCaptureClassifyPass(t *testing.T) {
 		if l := labelOf(t, e, confident); l == nil || *l != "commitment" {
 			t.Fatal("already-committed labels must survive a later budget stop")
 		}
+	})
+
+	t.Run("a batch that cannot clear the floor ends the pass, not the worker", func(t *testing.T) {
+		// Every verdict — batch and solo — stays below the floor: nothing
+		// commits, and Run must still terminate instead of refetching the
+		// same rows forever.
+		brain.budgetOut = false
+		brain.soloStaysLow = true
+		stuck := seedUnlabeledEmail(t, e, "???")
+		brain.confidence[stuck.String()] = 0.3
+		before := brain.calls
+		if err := classifier.Run(context.Background(), 0); err != nil {
+			t.Fatalf("a no-progress pass must not be an error: %v", err)
+		}
+		if l := labelOf(t, e, stuck); l != nil {
+			t.Fatal("a below-floor row must stay unlabeled")
+		}
+		// One pass over the leftover backlog labels what it can, then the
+		// stuck row's batch+solo repeat once and the loop breaks — a
+		// bounded handful of calls, never an unbounded refetch spin.
+		if brain.calls-before > 4 {
+			t.Fatalf("model calls = %d for one no-progress pass — the loop is refetching", brain.calls-before)
+		}
+		brain.soloStaysLow = false
 	})
 
 	t.Run("a budget stop mid-run keeps the same pass's own commits", func(t *testing.T) {

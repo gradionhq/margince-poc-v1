@@ -32,6 +32,8 @@ import (
 // The repeated storage vocabulary of this engine, named once.
 const (
 	evidenceFieldKey   = "field"
+	evidenceLeftKey    = "left_value"
+	evidenceRightKey   = "right_value"
 	evidenceScoreKey   = "score"
 	evidenceSignalKey  = "signal"
 	entityPerson       = "person"
@@ -156,8 +158,8 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 			return fmt.Errorf("people: reading dedupe incumbent: %w", err)
 		}
 		evidence := []map[string]any{
-			{evidenceFieldKey: fieldFullName, "left_value": name, "right_value": incumbentName, evidenceSignalKey: "collide", evidenceScoreKey: match.Confidence},
-			{evidenceFieldKey: fieldEmail, "left_value": in.Email, "right_value": nil, evidenceSignalKey: "one_sided"},
+			{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: "collide", evidenceScoreKey: match.Confidence},
+			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: "one_sided"},
 		}
 		recorded, err := recordDedupeCandidate(ctx, tx, entityPerson, id.UUID, match.PersonID.UUID, match.Confidence,
 			evidence, in.Source, in.CapturedBy)
