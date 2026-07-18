@@ -4,64 +4,61 @@
 package compose
 
 // The debug facade's contract: it runs the worker's exact
-// crawl→corpus→gate spine and reports every intermediate — pages,
-// call telemetry, drops, the legal-entity census, and the byte-identical
-// proposal payload — without a database or staging.
+// crawl→parallel-lanes→gate spine and reports every intermediate —
+// pages, call telemetry, drops, the legal-entity census, timings, and
+// the byte-identical proposal payload — without a database or staging.
 
 import (
 	"context"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
-func TestSiteReadDebugReportsPagesCorpusCallAndProposal(t *testing.T) {
+func TestSiteReadDebugReportsPagesLanesAndProposal(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{
-		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks."},
+		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks with our rollout playbooks."},
 		seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart."},
 	}}
-	// ONE corpus reply covers the whole site: a field off each page, one
-	// fact, and the single-entity census that lets the legal trio stand.
-	brain := ai.NewFakeClient().Script(`{"fields":[
-			{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","source_url":"` + seedURL + `","confidence":0.9},
-			{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","source_url":"` + seedURL + `/impressum","confidence":0.9}],
-		"facts":[
-			{"category":"company","field":"location","value":"Stuttgart","evidence_snippet":"70435 Stuttgart","source_url":"` + seedURL + `/impressum","confidence":0.9}],
-		"people":[],
-		"legal_entities":[{"name":"Acme Robotics GmbH","source_url":"` + seedURL + `/impressum"}]}`)
+	brain := laneFake{
+		// Excerpt ids are global over the rank-sorted pages: the imprint
+		// leads, so s0 is its passage and s1 the home page's.
+		profileReply: `{"fields":[
+			{"f":"value_proposition","v":"Fast onboarding with rollout playbooks","e":"s1","c":0.9},
+			{"f":"legal_name","v":"Acme Robotics GmbH","e":"s0","c":0.9}]}`,
+		pageReplies: map[string]string{
+			seedURL + "/impressum": `{"facts":[{"f":"location","v":"Stuttgart","e":"s0"}],"entities":[{"n":"Acme Robotics GmbH","e":"s0"}]}`,
+		},
+	}
 
 	var phases []string
 	report, err := siteReadDebugRun(context.Background(),
 		SiteReadDebugOptions{
-			SeedURL: seedURL, Brain: brain, IncludePageText: true,
+			SeedURL: seedURL, Brain: brain, FactBrain: brain, IncludePageText: true,
 			Progress: func(phase string, done, total int) { phases = append(phases, phase) },
 		},
 		testSiteCrawler(site), nil)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
 	}
+	if report.ModelLaneError != "" {
+		t.Fatalf("clean lanes reported an error: %s", report.ModelLaneError)
+	}
 
 	if got := len(report.Crawl.Pages); got != 2 {
-		t.Fatalf("reported %d pages, want 2 (home + impressum): %+v", got, report.Crawl.Pages)
-	}
-	for _, page := range report.Crawl.Pages {
-		if !page.Extracted {
-			t.Fatalf("every page was in the one extracted chunk: %+v", report.Crawl.Pages)
-		}
+		t.Fatalf("reported %d pages, want 2: %+v", got, report.Crawl.Pages)
 	}
 	if report.Crawl.Pages[0].Text == "" {
-		t.Fatal("IncludePageText was set but the page text is missing from the report")
+		t.Fatal("IncludePageText was set but the page text is missing")
 	}
 	if len(phases) < 2 {
-		t.Fatalf("progress must fire for the crawl and the chunk: %v", phases)
+		t.Fatalf("progress must fire for crawl and pages: %v", phases)
 	}
 
 	byName := map[string]DebugField{}
 	for _, f := range report.Extraction.Fields {
 		byName[f.Field] = f
 	}
-	if byName["legal_name"].Value != "Acme Robotics GmbH" {
-		t.Fatalf("the single-entity legal trio must stand: %+v", report.Extraction.Fields)
+	if byName["legal_name"].Value != "Acme Robotics GmbH" || byName["legal_name"].SourceURL != seedURL+"/impressum" {
+		t.Fatalf("the single-entity legal trio must stand, resolver-attributed: %+v", report.Extraction.Fields)
 	}
 	if len(report.Extraction.Facts) != 1 || report.Extraction.Facts[0].Field != "location" {
 		t.Fatalf("the location fact is missing: %+v", report.Extraction.Facts)
@@ -70,11 +67,19 @@ func TestSiteReadDebugReportsPagesCorpusCallAndProposal(t *testing.T) {
 		t.Fatalf("the census must be reported: %+v", report.Extraction.LegalEntities)
 	}
 
-	if got := len(report.ModelCalls); got != 1 {
-		t.Fatalf("recorded %d model calls, want the ONE corpus call: %+v", got, report.ModelCalls)
+	// Two fact-bearing pages (home, impressum) + the profile call.
+	if got := len(report.ModelCalls); got != 3 {
+		t.Fatalf("recorded %d model calls, want 3 (2 page + 1 profile): %+v", got, report.ModelCalls)
 	}
-	if report.ModelCalls[0].Lane != laneCorpus {
-		t.Fatalf("call lane = %s, want corpus", report.ModelCalls[0].Lane)
+	lanes := map[string]int{}
+	for _, call := range report.ModelCalls {
+		lanes[call.Lane]++
+	}
+	if lanes[laneProfile] != 1 || lanes[lanePageFacts] != 2 {
+		t.Fatalf("lanes = %v, want 1 profile + 2 page_facts", lanes)
+	}
+	if report.ExtractionDurationMs < 0 {
+		t.Fatal("extraction duration missing")
 	}
 
 	if report.Proposal == nil {
@@ -86,20 +91,20 @@ func TestSiteReadDebugReportsPagesCorpusCallAndProposal(t *testing.T) {
 	}
 }
 
-func TestSiteReadDebugGateEmptyReplyReportsCleanWithNoLaneError(t *testing.T) {
+func TestSiteReadDebugEmptyLanesReportCleanWithNoLaneError(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{
 		seedURL: {text: readable("Acme home.")},
 	}}
-	brain := ai.NewFakeClient().Script(`{"fields":[],"facts":[],"people":[],"legal_entities":[]}`)
+	brain := laneFake{profileReply: `{"fields":[]}`}
 
 	report, err := siteReadDebugRun(context.Background(),
-		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain},
+		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain, FactBrain: brain},
 		testSiteCrawler(site), nil)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
 	}
 	if report.ModelLaneError != "" {
-		t.Fatalf("an empty gate result is normal, not a model-lane error: %s", report.ModelLaneError)
+		t.Fatalf("an empty gate result is normal, not a lane error: %s", report.ModelLaneError)
 	}
 	if report.Proposal != nil {
 		t.Fatalf("nothing survived, so no proposal payload: %+v", report.Proposal)

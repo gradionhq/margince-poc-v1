@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -37,21 +36,25 @@ func acmeTeamSite() *fakeSite {
 	}}
 }
 
-// deepTeamPeopleReply names both people; Bernd's claimed email is NOT
-// printed on the page, so the gate must strip it while keeping him.
-const deepTeamPeopleReply = `{"fields":[],"facts":[],"people":[
-	{"name":"Anna Muster","role":"Chief Executive Officer","published_email":"anna@acme.example",
-	 "evidence_snippet":"Anna Muster is our Chief Executive Officer","source_url":"` + seedURL + `/team","confidence":0.9},
-	{"name":"Bernd Beispiel","role":"Head of Sales","published_email":"bernd@acme.example",
-	 "evidence_snippet":"Bernd Beispiel leads sales as Head of Sales","source_url":"` + seedURL + `/team","confidence":0.8}],
-	"legal_entities":[]}`
+// teamDeepBrain names both people on the team page; Bernd's claimed
+// email is NOT printed on the page, so the gate must strip it while
+// keeping him. The profile lane grounds nothing.
+func teamDeepBrain() laneFake {
+	return laneFake{
+		profileReply: `{"fields":[]}`,
+		pageReplies: map[string]string{
+			seedURL + "/team": `{"facts":[],"people":[
+				{"n":"Anna Muster","r":"Chief Executive Officer","m":"anna@acme.example","e":"s0"},
+				{"n":"Bernd Beispiel","r":"Head of Sales","m":"bernd@acme.example","e":"s0"}]}`,
+		},
+	}
+}
 
 // runTeamDeepRead crawls acmeTeamSite with the people reply as the one
 // corpus answer and returns the finished dossier.
 func runTeamDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
-	worker, svc := newDeepReadTestWorker(e, acmeTeamSite(),
-		ai.NewFakeClient().Script(deepTeamPeopleReply))
+	worker, svc := newDeepReadTestWorker(e, acmeTeamSite(), teamDeepBrain())
 	read, args := startDeepRead(t, e, org)
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)
@@ -108,8 +111,10 @@ func TestDeepReadTeamPageStagesOneThinSiteLeadPerPublishedPerson(t *testing.T) {
 		anna.SourceURL != seedURL+"/team" {
 		t.Fatalf("Anna's payload = %+v, want the page's published identity with provenance", anna)
 	}
-	if anna.EvidenceSnippet != "Anna Muster is our Chief Executive Officer" {
-		t.Fatalf("Anna's evidence = %q, want the page's verbatim snippet", anna.EvidenceSnippet)
+	// Reference evidence: the stored snippet is the page's OWN passage
+	// (resolved from the cited id), which must carry the naming sentence.
+	if !strings.Contains(anna.EvidenceSnippet, "Anna Muster is our Chief Executive Officer") {
+		t.Fatalf("Anna's evidence = %q, want the page's passage naming her", anna.EvidenceSnippet)
 	}
 
 	// The NEVER-8 boundary: the model claimed an email for Bernd the page

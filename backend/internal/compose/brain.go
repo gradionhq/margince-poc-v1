@@ -37,12 +37,13 @@ type completer interface {
 // decides the tier per workload, and every lane draws on the
 // seat-derived monthly budget.
 type ModelPath struct {
-	Agent       runner.Brain    // the Surface-B reason-act loop (records served model identity)
-	ColdStart   completer       // the website read-back extraction
-	SiteExtract completer       // the deep site read's page extraction
-	BriefRank   completer       // the Morning-Brief L2 re-order (B-E05.2)
-	OfferDraft  completer       // the offer regenerate-from-signal drafting call
-	Embedder    search.Embedder // the retrieval embed lane
+	Agent           runner.Brain    // the Surface-B reason-act loop (records served model identity)
+	ColdStart       completer       // the website read-back extraction
+	SiteExtract     completer       // the deep read's profile lane (one premium-first call)
+	SiteFactExtract completer       // the deep read's page-parallel fact lane (fast tier)
+	BriefRank       completer       // the Morning-Brief L2 re-order (B-E05.2)
+	OfferDraft      completer       // the offer regenerate-from-signal drafting call
+	Embedder        search.Embedder // the retrieval embed lane
 }
 
 // NewModelPath builds the production model path from a validated
@@ -55,12 +56,13 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool
 		return ModelPath{}, err
 	}
 	return ModelPath{
-		Agent:       agentBrain{router: router},
-		ColdStart:   routerBrain{router: router, task: ai.TaskColdStart},
-		SiteExtract: routerBrain{router: router, task: ai.TaskSiteExtract},
-		BriefRank:   routerBrain{router: router, task: ai.TaskBriefRanking},
-		OfferDraft:  routerBrain{router: router, task: ai.TaskOfferDraft},
-		Embedder:    router,
+		Agent:           agentBrain{router: router},
+		ColdStart:       routerBrain{router: router, task: ai.TaskColdStart},
+		SiteExtract:     routerBrain{router: router, task: ai.TaskSiteExtract},
+		SiteFactExtract: routerBrain{router: router, task: ai.TaskSiteFactExtract},
+		BriefRank:       routerBrain{router: router, task: ai.TaskBriefRanking},
+		OfferDraft:      routerBrain{router: router, task: ai.TaskOfferDraft},
+		Embedder:        router,
 	}, nil
 }
 
@@ -79,7 +81,7 @@ func (p ModelPath) WriteMetrics(w io.Writer) {
 // wraps the fake in fakeBrain to satisfy runner.Brain's Meta return; the
 // direct-call lanes take the fake directly through the completer seam.
 func FakeModelPath(client *ai.FakeClient) ModelPath {
-	return ModelPath{Agent: fakeBrain{client: client}, ColdStart: client, SiteExtract: client, BriefRank: client, OfferDraft: client, Embedder: client}
+	return ModelPath{Agent: fakeBrain{client: client}, ColdStart: client, SiteExtract: client, SiteFactExtract: client, BriefRank: client, OfferDraft: client, Embedder: client}
 }
 
 // routerBrain adapts the tiered router into the 2-return completer seam

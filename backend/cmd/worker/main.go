@@ -301,7 +301,8 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 		// The deep-read worker registers regardless: without a model path
 		// (nil SiteExtract) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.
-		DeepReadBrain: modelPath.SiteExtract,
+		DeepReadBrain:     modelPath.SiteExtract,
+		DeepReadFactBrain: modelPath.SiteFactExtract,
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,

@@ -37,24 +37,25 @@ const e2eSeedURL = "https://gradion.com"
 // (e.g. anthropic:claude-sonnet-4-6), or MARGINCE_AI_ROUTING a full
 // routing file. Missing both fails loudly: a quality gate that silently
 // skips looks exactly like one that passed.
-func e2eBrain(t *testing.T) (completer, string) {
+func e2eBrain(t *testing.T) (profile, facts completer, banner string) {
 	t.Helper()
 	modelSpec := os.Getenv("MARGINCE_E2E_MODEL")
 	routing := os.Getenv("MARGINCE_AI_ROUTING")
-	b, banner, err := SiteReadDebugBrain(routing, modelSpec, false)
+	profile, facts, banner, err := SiteReadDebugBrain(routing, modelSpec, false)
 	if err != nil {
 		t.Fatalf("e2e-siteread needs a model: set MARGINCE_E2E_MODEL=provider:model (plus the provider's BYOK env key) or MARGINCE_AI_ROUTING: %v", err)
 	}
-	return b, banner
+	return profile, facts, banner
 }
 
 func TestSiteReadE2EGradionQualityFloor(t *testing.T) {
-	brain, banner := e2eBrain(t)
+	profile, facts, banner := e2eBrain(t)
 	t.Logf("model under judgment: %s", banner)
 
 	report, err := RunSiteReadDebug(context.Background(), SiteReadDebugOptions{
-		SeedURL: e2eSeedURL,
-		Brain:   brain,
+		SeedURL:   e2eSeedURL,
+		Brain:     profile,
+		FactBrain: facts,
 	})
 	if err != nil {
 		t.Fatalf("the read failed outright: %v", err)
@@ -73,15 +74,40 @@ func TestSiteReadE2EGradionQualityFloor(t *testing.T) {
 	assertLegalAbstention(t, report)
 	assertFactFloor(t, report)
 
-	// The founder's speed targets (2026-07-18): the crawl bursts (12-wide
-	// waves land gradion.com in ~10s today; the <5s target needs the
-	// pipelined fetch follow-up), the extraction is one-to-few corpus
-	// calls — not a call per page.
-	if report.Crawl.DurationMs >= 15000 {
-		t.Errorf("crawl took %d ms, floor < 15000 (target 5000)", report.Crawl.DurationMs)
+	// The founder's speed targets (2026-07-18): frontier-wave crawl,
+	// page-parallel compact extraction — ≤15s end-to-end typical; the
+	// ceilings carry margin so model-latency variance cannot flake the
+	// quality gate.
+	// Crawl and extraction overlap: ExtractionDurationMs IS the total.
+	if report.Crawl.DurationMs >= 20000 {
+		t.Errorf("crawl took %d ms, ceiling 20000 (target 5000; gradion.com throttles bursts)", report.Crawl.DurationMs)
 	}
-	if got := len(report.ModelCalls); got > maxCorpusChunks {
-		t.Errorf("%d model calls — the corpus design makes at most %d", got, maxCorpusChunks)
+	if report.ExtractionDurationMs >= 30000 {
+		t.Errorf("overlapped read took %d ms, ceiling 30000 (target 15000)", report.ExtractionDurationMs)
+	}
+	profileCalls := 0
+	for _, call := range report.ModelCalls {
+		if call.Lane == laneProfile {
+			profileCalls++
+		}
+	}
+	if profileCalls != 1 {
+		t.Errorf("%d profile-lane calls, want exactly one", profileCalls)
+	}
+	if got := len(report.ModelCalls); got > len(report.Crawl.Pages)+1 {
+		t.Errorf("%d model calls for %d pages — the fan-out makes at most pages+1", got, len(report.Crawl.Pages))
+	}
+	// The warning-only paraphrase check must stay a WARNING rate, not a
+	// firehose: more low-overlap warnings than profile fields means the
+	// model cites junk passages.
+	warnings := 0
+	for _, d := range report.Extraction.Dropped {
+		if d.Reason == dropParaphraseLowOverlap {
+			warnings++
+		}
+	}
+	if warnings > len(report.Extraction.Fields) {
+		t.Errorf("%d paraphrase_low_overlap warnings for %d fields — citations are drifting", warnings, len(report.Extraction.Fields))
 	}
 }
 
