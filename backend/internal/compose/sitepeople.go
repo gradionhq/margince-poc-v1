@@ -146,7 +146,9 @@ func (x evidenceExtractor) extractPeople(ctx context.Context, sourceLabel, sourc
 	if err != nil {
 		return nil, err
 	}
-	return gateTeamPeople(resp.Text, sourceText, sourceURL), nil
+	persons, dropped := gateTeamPeople(resp.Text, sourceText, sourceURL)
+	x.reportDrops(ctx, sourceURL, dropped)
+	return persons, nil
 }
 
 // gateTeamPeople is the published-only gate for one people call — the
@@ -156,32 +158,48 @@ func (x evidenceExtractor) extractPeople(ctx context.Context, sourceLabel, sourc
 // prints it verbatim too — otherwise the field is stripped while the
 // person is kept (a contact detail the site did not publish is not ours
 // to attach). Dedupe on the normalized name, higher confidence winning.
-func gateTeamPeople(modelText, pageText, sourceURL string) []sitePerson {
+func gateTeamPeople(modelText, pageText, sourceURL string) ([]sitePerson, []droppedFinding) {
+	const lane = lanePeople
 	var parsed struct {
 		People []extractedPerson `json:"people"`
 	}
 	if err := json.Unmarshal([]byte(ai.Unfence(modelText)), &parsed); err != nil {
-		return nil
+		return nil, []droppedFinding{{Lane: lane, Reason: dropUnparseableReply}}
 	}
 
 	var out []sitePerson
+	var dropped []droppedFinding
+	drop := func(p extractedPerson, reason string) {
+		dropped = append(dropped, droppedFinding{
+			Lane: lane, Field: p.Name, Value: p.Role, EvidenceSnippet: p.EvidenceSnippet, Reason: reason,
+		})
+	}
+	pageNorm := normalizeEvidence(pageText)
 	index := map[string]int{}
 	for _, p := range parsed.People {
 		name := strings.TrimSpace(p.Name)
 		role := strings.TrimSpace(p.Role)
-		if name == "" || role == "" || strings.TrimSpace(p.EvidenceSnippet) == "" {
+		snippetNorm := normalizeEvidence(p.EvidenceSnippet)
+		switch {
+		case name == "" || role == "":
+			drop(p, dropEmptyValue)
 			continue
-		}
-		if !strings.Contains(pageText, p.EvidenceSnippet) {
+		case strings.TrimSpace(p.EvidenceSnippet) == "":
+			drop(p, dropEmptyEvidence)
 			continue
-		}
+		case !evidenceOnPage(pageText, pageNorm, p.EvidenceSnippet):
+			drop(p, dropEvidenceNotOnPage)
+			continue
 		// The snippet must ASSOCIATE this name with this role, not merely
 		// prove each appears somewhere on the page — otherwise one person's
-		// name pairs with another's role on a multi-person team page.
-		if !strings.Contains(p.EvidenceSnippet, name) || !strings.Contains(p.EvidenceSnippet, role) {
+		// name pairs with another's role on a multi-person team page. The
+		// containment is normalized like the page match: presentation only,
+		// never words.
+		case !strings.Contains(snippetNorm, normalizeEvidence(name)) || !strings.Contains(snippetNorm, normalizeEvidence(role)):
+			drop(p, dropNameRoleUnlinked)
 			continue
-		}
-		if p.Confidence <= 0 || p.Confidence > 1 {
+		case p.Confidence <= 0 || p.Confidence > 1:
+			drop(p, dropConfidenceRange)
 			continue
 		}
 		person := sitePerson{
@@ -198,12 +216,13 @@ func gateTeamPeople(modelText, pageText, sourceURL string) []sitePerson {
 			if person.Confidence > out[at].Confidence {
 				out[at] = person
 			}
+			drop(p, dropDuplicate)
 			continue
 		}
 		index[key] = len(out)
 		out = append(out, person)
 	}
-	return out
+	return out, dropped
 }
 
 // verbatimOrEmpty keeps a claimed contact detail only when the page text

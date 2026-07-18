@@ -22,6 +22,28 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Deep-read quality loop — debug CLI + ingestion quality** — the answer
+to "12 pages, missing facts, wrong company": crawl caps are now
+operator-tunable with raised defaults (40 pages / 32 MiB / 240 s;
+`--deepread-*` worker flags), and `worker siteread <url>` runs the whole
+crawl→extract→merge pipeline **without the stack** (no DB/Redis/staging)
+printing every intermediate — pages, skips, every extracted field with
+evidence, every finding the gate DROPPED with its reason, merge
+decisions, per-call model telemetry, diffable `--json`. Quality fixes:
+the evidence gate now falls back to presentation-normalized matching
+(quotes/dashes/whitespace/case — words never forgiven) and reports every
+drop instead of silently discarding; the crawl queue is kind-ranked
+(impressum/about/team before blog archives; tracking params stripped);
+extraction has its own routing dial (`site_extract` task) so its tier is
+an `ai-routing.yaml` edit; a site-level synthesis pass reconciles
+contradictions across pages (still evidence-gated per named page,
+degrades to the merge on failure); and the legal-page override is
+hardened (path-depth ≤ 2 authority rule; disagreeing legal pages cancel
+the override entirely). Model comparison per site:
+`worker siteread <url> --model anthropic:<model>`. Spec reconciliation
+pending upstream: the R2 caps (12/8 MiB/90 s) were raised by founder
+decision 2026-07-18.
+
 **Website deep read — crawl a company's whole site (PR #103)** — the
 generic, powerful ingestion: an async River-queued crawl of a company's
 site (bounded — ≤12 pages / 8 MiB / 90s, robots-honored, SSRF-guarded,

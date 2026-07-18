@@ -127,7 +127,9 @@ deps:
     canUse: [pgx, oapi]
   compose:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, de, customfields, quotas, contracts, platform, migrations]
-    canUse: [pgx, chi, oapi, river]
+    # xtext: the evidence gate normalizes page text to NFC before matching
+    # (evidencematch.go) — Unicode normal forms need golang.org/x/text.
+    canUse: [pgx, chi, oapi, river, xtext]
   migrations:
     mayDependOn: [platform]
     canUse: [pgx]

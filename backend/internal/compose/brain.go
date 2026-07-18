@@ -25,11 +25,12 @@ import (
 // decides the tier per workload, and every lane draws on the
 // seat-derived monthly budget.
 type ModelPath struct {
-	Agent      runner.Brain    // the Surface-B reason-act loop
-	ColdStart  runner.Brain    // the website read-back extraction
-	BriefRank  runner.Brain    // the Morning-Brief L2 re-order (B-E05.2)
-	OfferDraft runner.Brain    // the offer regenerate-from-signal drafting call
-	Embedder   search.Embedder // the retrieval embed lane
+	Agent       runner.Brain    // the Surface-B reason-act loop
+	ColdStart   runner.Brain    // the website read-back extraction
+	SiteExtract runner.Brain    // the deep site read's page extraction
+	BriefRank   runner.Brain    // the Morning-Brief L2 re-order (B-E05.2)
+	OfferDraft  runner.Brain    // the offer regenerate-from-signal drafting call
+	Embedder    search.Embedder // the retrieval embed lane
 }
 
 // NewModelPath builds the production model path from a validated
@@ -40,18 +41,19 @@ func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool) (ModelPath, error) {
 		return ModelPath{}, err
 	}
 	return ModelPath{
-		Agent:      routerBrain{router: router, task: ai.TaskAgentLoop},
-		ColdStart:  routerBrain{router: router, task: ai.TaskColdStart},
-		BriefRank:  routerBrain{router: router, task: ai.TaskBriefRanking},
-		OfferDraft: routerBrain{router: router, task: ai.TaskOfferDraft},
-		Embedder:   router,
+		Agent:       routerBrain{router: router, task: ai.TaskAgentLoop},
+		ColdStart:   routerBrain{router: router, task: ai.TaskColdStart},
+		SiteExtract: routerBrain{router: router, task: ai.TaskSiteExtract},
+		BriefRank:   routerBrain{router: router, task: ai.TaskBriefRanking},
+		OfferDraft:  routerBrain{router: router, task: ai.TaskOfferDraft},
+		Embedder:    router,
 	}, nil
 }
 
 // FakeModelPath drives every lane with one offline fake — the dev/test
 // path behind an explicit flag, never a silent default.
 func FakeModelPath(client *ai.FakeClient) ModelPath {
-	return ModelPath{Agent: client, ColdStart: client, BriefRank: client, OfferDraft: client, Embedder: client}
+	return ModelPath{Agent: client, ColdStart: client, SiteExtract: client, BriefRank: client, OfferDraft: client, Embedder: client}
 }
 
 type routerBrain struct {

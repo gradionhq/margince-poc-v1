@@ -130,21 +130,25 @@ func (x evidenceExtractor) extractCategory(ctx context.Context, category, source
 	if err != nil {
 		return nil, err
 	}
-	return gateCategoryFacts(resp.Text, sourceText, sourceURL, category), nil
+	facts, dropped := gateCategoryFacts(resp.Text, sourceText, sourceURL, category)
+	x.reportDrops(ctx, sourceURL, dropped)
+	return facts, nil
 }
 
 // gateCategoryFacts is the no-guess gate for one category call: known
-// field, non-empty value, evidence VERBATIM in the page, confidence in
-// (0,1]. Single-value fields keep their first occurrence; multi-value
-// fields keep one entry per normalized value_key, highest confidence
-// winning. Whatever fails is dropped silently — an absent fact is the
-// honest "could not evidence".
-func gateCategoryFacts(modelText, pageText, sourceURL, category string) []people.DeepReadFact {
+// field, non-empty value, evidence on the page (byte-exact or
+// presentation-normalized), confidence in (0,1]. Single-value fields
+// keep their first occurrence; multi-value fields keep one entry per
+// normalized value_key, highest confidence winning. Whatever fails
+// comes back as a droppedFinding with its reason — an absent fact is
+// still the honest "could not evidence", never a silent one.
+func gateCategoryFacts(modelText, pageText, sourceURL, category string) ([]people.DeepReadFact, []droppedFinding) {
+	lane := "category:" + category
 	var parsed struct {
 		Fields []extractedField `json:"fields"`
 	}
 	if err := json.Unmarshal([]byte(ai.Unfence(modelText)), &parsed); err != nil {
-		return nil
+		return nil, []droppedFinding{{Lane: lane, Reason: dropUnparseableReply}}
 	}
 	allowed := map[string]bool{}
 	for _, name := range people.OrganizationFactFields[category] {
@@ -152,24 +156,37 @@ func gateCategoryFacts(modelText, pageText, sourceURL, category string) []people
 	}
 
 	var out []people.DeepReadFact
+	var dropped []droppedFinding
+	drop := func(f extractedField, reason string) {
+		dropped = append(dropped, droppedFinding{
+			Lane: lane, Field: f.Field, Value: f.Value, EvidenceSnippet: f.EvidenceSnippet, Reason: reason,
+		})
+	}
+	pageNorm := normalizeEvidence(pageText)
 	index := map[string]int{}
 	for _, f := range parsed.Fields {
-		if !allowed[f.Field] {
+		switch {
+		case !allowed[f.Field]:
+			drop(f, dropUnknownField)
 			continue
-		}
-		if strings.TrimSpace(f.Value) == "" || strings.TrimSpace(f.EvidenceSnippet) == "" {
+		case strings.TrimSpace(f.Value) == "":
+			drop(f, dropEmptyValue)
 			continue
-		}
-		if !strings.Contains(pageText, f.EvidenceSnippet) {
+		case strings.TrimSpace(f.EvidenceSnippet) == "":
+			drop(f, dropEmptyEvidence)
 			continue
-		}
-		if f.Confidence <= 0 || f.Confidence > 1 {
+		case !evidenceOnPage(pageText, pageNorm, f.EvidenceSnippet):
+			drop(f, dropEvidenceNotOnPage)
+			continue
+		case f.Confidence <= 0 || f.Confidence > 1:
+			drop(f, dropConfidenceRange)
 			continue
 		}
 		valueKey := ""
 		if people.OrganizationFactMultiValue[f.Field] {
 			valueKey = people.NormalizeFactValueKey(f.Value)
 			if valueKey == "" {
+				drop(f, dropEmptyValueKey)
 				continue
 			}
 		}
@@ -178,15 +195,18 @@ func gateCategoryFacts(modelText, pageText, sourceURL, category string) []people
 			EvidenceSnippet: f.EvidenceSnippet, SourceURL: sourceURL, Confidence: f.Confidence,
 		}
 		if at, seen := index[factKey(fact)]; seen {
+			// The surer duplicate replaces the held one; either way one of
+			// the two is a dedupe drop, not a lost fact.
 			if fact.Confidence > out[at].Confidence {
 				out[at] = fact
 			}
+			drop(f, dropDuplicate)
 			continue
 		}
 		index[factKey(fact)] = len(out)
 		out = append(out, fact)
 	}
-	return out
+	return out, dropped
 }
 
 // factKey is a fact's dedupe identity — the columns of uq_org_fact minus
