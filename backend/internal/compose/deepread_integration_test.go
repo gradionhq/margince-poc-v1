@@ -344,9 +344,12 @@ func TestDeepReadModelFailureMidwayKeepsWhatWasReadAsPartial(t *testing.T) {
 	if len(partial.Pages) != 2 {
 		t.Fatalf("pages = %d, want the whole crawl reported (the failure is the status)", len(partial.Pages))
 	}
-	// The surviving lanes: 2 profile fields + the home page's signal fact.
-	if partial.FactCount != 3 || len(partial.ProposalIDs) != 1 {
-		t.Fatalf("fact_count = %d proposals = %v, want the surviving lanes staged", partial.FactCount, partial.ProposalIDs)
+	// The surviving lanes: the value_proposition field + the home page's
+	// signal fact. The legal_name is WITHHELD — the failed imprint call
+	// left the entity census incomplete, and an unread legal page must
+	// never default to "one entity, the trio stands".
+	if partial.FactCount != 2 || len(partial.ProposalIDs) != 1 {
+		t.Fatalf("fact_count = %d proposals = %v, want the surviving lanes staged and the legal trio withheld", partial.FactCount, partial.ProposalIDs)
 	}
 }
 
