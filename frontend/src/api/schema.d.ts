@@ -5543,6 +5543,13 @@ export interface components {
             stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
             /** @description Evidenced fields staged in the deepread proposal. */
             fact_count?: number;
+            /**
+             * @description Live position while status is running; null once terminal.
+             * @enum {string|null}
+             */
+            phase?: "crawling" | "extracting" | null;
+            /** @description Pages committed so far — live progress while running, final count once terminal. */
+            pages_read?: number;
             /** @description The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead). */
             proposal_ids: string[];
             /** Format: date-time */

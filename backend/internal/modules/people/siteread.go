@@ -52,15 +52,20 @@ type SiteRead struct {
 	FactCount      int
 	ProposalIDs    []ids.UUID
 	RequestedBy    string
-	CreatedAt      time.Time
-	StartedAt      *time.Time
-	FinishedAt     *time.Time
+	// Phase and PagesRead are the worker's live-progress hints while
+	// Status is 'running' (crawling | extracting + committed page count);
+	// the terminal report is the authority once Status ends.
+	Phase      *string
+	PagesRead  int
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
 }
 
 // siteReadColumns is the ONE column list every dossier read scans —
 // scanSiteRead pairs with it positionally.
 const siteReadColumns = `id, organization_id, seed_url, status, pages, skipped,
-	stopped_reason, fact_count, proposal_ids, requested_by, created_at, started_at, finished_at`
+	stopped_reason, fact_count, proposal_ids, requested_by, phase, pages_read, created_at, started_at, finished_at`
 
 // siteReadOrgKey names the audit payload's org reference once (the goconst
 // pin): the same string in relationship.go is that file's column vocabulary —
@@ -162,6 +167,26 @@ func (s *Store) GetSiteRead(ctx context.Context, orgID ids.OrganizationID, readI
 		return SiteRead{}, err
 	}
 	return out, nil
+}
+
+// UpdateSiteReadProgress records the worker's live position — the phase
+// and how many pages have committed — on a still-running dossier, so the
+// SPA's poll shows movement during the crawl and the model call instead
+// of a silent 'running'. Best-effort by contract: a read that is no
+// longer running is simply not updated (the terminal write won), never
+// an error. No auth.Require, same rationale as BeginSiteRead.
+func (s *Store) UpdateSiteReadProgress(ctx context.Context, readID ids.UUID, phase string, pagesRead int) error {
+	if phase != "crawling" && phase != "extracting" {
+		return fmt.Errorf("people: %q is not a site-read phase (crawling|extracting)", phase)
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE site_read SET phase = $2, pages_read = $3
+			WHERE id = $1 AND status = 'running'`, readID, phase, pagesRead); err != nil {
+			return fmt.Errorf("update site read progress: %w", err)
+		}
+		return nil
+	})
 }
 
 // BeginSiteRead flips the dossier queued → running as the worker picks it
@@ -268,7 +293,7 @@ func scanSiteRead(row pgx.Row) (SiteRead, error) {
 	var sr SiteRead
 	var pagesRaw, skippedRaw []byte
 	if err := row.Scan(&sr.ID, &sr.OrganizationID, &sr.SeedURL, &sr.Status, &pagesRaw, &skippedRaw,
-		&sr.StoppedReason, &sr.FactCount, &sr.ProposalIDs, &sr.RequestedBy,
+		&sr.StoppedReason, &sr.FactCount, &sr.ProposalIDs, &sr.RequestedBy, &sr.Phase, &sr.PagesRead,
 		&sr.CreatedAt, &sr.StartedAt, &sr.FinishedAt); err != nil {
 		return SiteRead{}, err
 	}

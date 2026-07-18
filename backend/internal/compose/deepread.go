@@ -5,16 +5,17 @@ package compose
 
 // The deep read end-to-end: a
 // human's start queues a durable crawl job and answers 202; the worker
-// role crawls the organization's site under the bounded siteCrawler and
-// extracts every page through the shared evidence gate — the 11
-// cold-start company fields on every page, plus at most one per-page-kind
-// category call (company contact basics, offerings, market signals). The
-// merged findings are staged as ONE "deepread" proposal whose acceptance
-// lands both halves in one transaction: profile fields fill-empty exactly
-// like a quick scrape, category facts land in organization_fact. The
-// dossier (people's site_read row) is the transparency surface the SPA
-// polls: what was read, what was skipped and why, and the proposal the
-// findings staged.
+// role crawls the organization's site under the bounded siteCrawler,
+// folds the pages into a labeled corpus, and extracts it in ONE model
+// call (chunked only for outsized sites) through the no-guess evidence
+// gate — company fields, category facts, published people, and the
+// site's legal-entity census. The gated findings are staged as ONE
+// "deepread" proposal whose acceptance lands both halves in one
+// transaction: profile fields fill-empty exactly like a quick scrape,
+// category facts land in organization_fact. The dossier (people's
+// site_read row) is the transparency surface the SPA polls: live phase
+// and page counts while running, then what was read, what was skipped
+// and why, and the proposals the findings staged.
 
 import (
 	"context"
@@ -30,7 +31,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -105,17 +105,17 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger
 	}
 }
 
-// perExtractionCallBudget is the slow-tier allowance one model call gets in
-// the job-timeout arithmetic; each crawled page makes at most two calls.
-const perExtractionCallBudget = 15 * time.Second
+// perCorpusCallBudget is the allowance one corpus call gets in the
+// job-timeout arithmetic — a large structured answer plus the validator's
+// retry-and-escalate headroom.
+const perCorpusCallBudget = 3 * time.Minute
 
-// Timeout overrides River's 1-minute default, which cannot hold a deep read.
-// The budget scales with the configured caps: the crawl wall, plus two model
-// calls per page at a slow tier, plus a minute for the staging and dossier
-// writes — floored at eight minutes so a tightened cap never squeezes the
-// terminal writes.
+// Timeout overrides River's 1-minute default. The budget scales with the
+// configured caps: the crawl wall plus at most maxCorpusChunks corpus
+// calls plus a minute for the staging and dossier writes — floored at
+// eight minutes so a tightened cap never squeezes the terminal writes.
 func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	budget := w.caps.Wall + time.Duration(w.caps.MaxPages)*2*perExtractionCallBudget + time.Minute
+	budget := w.caps.Wall + maxCorpusChunks*perCorpusCallBudget + time.Minute
 	if floor := 8 * time.Minute; budget < floor {
 		return floor
 	}
@@ -163,6 +163,9 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			errors.New("site deep read: worker has no model path — configure --ai-routing (or --ai-fake) on the worker role"))
 	}
 
+	if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "crawling", 0); err != nil {
+		w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
+	}
 	// The crawler owns the wall clock (caps.Wall) inside Crawl; a seed page
 	// that cannot be read at all is a failed read, not an empty one.
 	crawl, err := w.crawler.Crawl(ctx, claim.SeedURL)
@@ -170,87 +173,59 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
 
-	perPage := make([]pageFields, 0, len(crawl.Pages))
-	var modelErr error
-	for _, page := range crawl.Pages {
-		extracted, err := extractCrawlPage(ctx, w.extract, page)
-		if err != nil {
-			modelErr = fmt.Errorf("extracting %s: %w", page.URL, err)
-			break
+	chunks := buildCorpusChunks(crawl.Pages, corpusBudgetRunes)
+	progress := func(pagesDone int) {
+		if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "extracting", pagesDone); err != nil {
+			w.log.WarnContext(ctx, "site read progress update failed", "read", args.SiteReadID.String(), "err", err)
 		}
-		perPage = append(perPage, extracted)
 	}
-	mergedFields, legalConflict := mergeCrawlFields(perPage)
+	progress(0)
+	extractedSoFar := 0
+	results, extractedPages, modelErr := extractCorpusChunks(ctx, w.extract, claim.SeedURL, chunks, func(done, total int) {
+		extractedSoFar = 0
+		for _, chunk := range chunks[:done] {
+			extractedSoFar += len(chunk.pages)
+		}
+		progress(extractedSoFar)
+	})
+	merged := mergeChunkResults(results)
+	idx := indexCorpusPages(corpusChunk{pages: extractedPages})
+	mergedFields, legalConflict, legalDrops := applyLegalGate(merged, idx)
+	w.extract.reportDrops(ctx, laneLegal, legalDrops)
 	if legalConflict {
-		w.log.WarnContext(ctx, "site deep read found disagreeing legal pages: multi-entity domain, legal override dropped",
+		w.log.WarnContext(ctx, legalWarningMultipleEntities,
 			"read", args.SiteReadID.String(), "seed", claim.SeedURL)
 	}
-	if modelErr == nil {
-		// The site-level synthesis rides the same brain; when the model
-		// lane already died there is nothing healthy to reconcile with.
-		mergedFields = synthesizeSiteFields(ctx, w.extract, crawl.Pages[:len(perPage)], mergedFields, legalConflict)
-	}
-	mergedFacts := mergeCategoryFacts(perPage)
-	mergedPeople := mergeTeamPeople(perPage)
-	factCount := len(mergedFields) + len(mergedFacts)
-	if modelErr != nil && factCount == 0 && len(mergedPeople) == 0 {
+	factCount := len(mergedFields) + len(merged.facts)
+	if modelErr != nil && factCount == 0 && len(merged.people) == 0 {
 		// The model lane died before anything was evidenced: nothing honest
 		// to report but the failure itself.
 		return w.fail(ctx, args.SiteReadID, modelErr)
 	}
 
-	readPages := crawl.Pages
+	readPages := extractedPages
 	status := "done"
 	if crawl.Stopped != nil {
 		status = "partial"
 	}
 	if modelErr != nil {
-		// The model lane died midway with evidence already in hand: the
-		// pages that got a model pass are the read, staged below like any
-		// other — a partial that keeps what was honestly read, never a
-		// failure that discards it. The terminal status makes the returned-
-		// error retry churn pointless, so the cause is logged instead.
+		// A later chunk died with evidence already in hand: the chunks that
+		// completed are the read, staged below like any other — a partial
+		// that keeps what was honestly read, never a failure that discards
+		// it. The terminal status makes returned-error retry churn
+		// pointless, so the cause is logged instead.
 		status = "partial"
-		readPages = crawl.Pages[:len(perPage)]
-		w.log.ErrorContext(ctx, "site deep read degraded to partial: model lane failed midway",
+		w.log.ErrorContext(ctx, "site deep read degraded to partial: extraction failed midway",
 			"read", args.SiteReadID.String(), "err", modelErr)
 	}
 
-	proposalIDs, err := w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, mergedFacts, mergedPeople, len(readPages))
+	proposalIDs, err := w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, merged.facts, merged.people, len(readPages))
 	if err != nil {
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
 	// Zero surviving findings is an honest empty read — done, fact_count 0,
 	// no proposal — not an error: the site simply evidenced nothing.
 	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs)
-}
-
-// extractCrawlPage runs one page's model passes: the shared 11-field company
-// extraction, plus the page kind's ONE extra call when it has one — a
-// category call for the fact-bearing kinds, the people call for team
-// pages. At most two calls per page bounds a full crawl's model budget.
-// A free function over the extractor so the worker and the debug facade
-// (sitereaddebug.go) run the identical per-page pipeline.
-func extractCrawlPage(ctx context.Context, x evidenceExtractor, page crawlPage) (pageFields, error) {
-	fields, err := x.extractFields(ctx, "Page "+page.URL, page.Text, page.URL, coldStartFieldValid)
-	if err != nil {
-		return pageFields{}, err
-	}
-	var facts []people.DeepReadFact
-	if category, ok := factCategoryForPageKind(page.Kind); ok {
-		facts, err = x.extractCategory(ctx, category, "Page "+page.URL, page.Text, page.URL)
-		if err != nil {
-			return pageFields{}, err
-		}
-	}
-	var published []sitePerson
-	if page.Kind == crmcontracts.SiteReadPageKindTeam {
-		published, err = x.extractPeople(ctx, "Page "+page.URL, page.Text, page.URL)
-		if err != nil {
-			return pageFields{}, err
-		}
-	}
-	return pageFields{url: page.URL, kind: page.Kind, fields: fields, facts: facts, people: published}, nil
 }
 
 // stageProposals stages everything the read evidenced: the ONE deepread

@@ -37,6 +37,9 @@ type SiteReadDebugOptions struct {
 	// report (DebugPage.Text) — for the --dump-pages flag; off by default
 	// because page text dwarfs everything else in the JSON.
 	IncludePageText bool
+	// Progress (may be nil) fires at phase boundaries — after the crawl
+	// and after each corpus chunk — the CLI's live status line.
+	Progress func(phase string, done, total int)
 }
 
 // SiteReadDebugReport is the whole run, machine-readable. Arrays follow
@@ -99,39 +102,37 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		return SiteReadDebugReport{}, err
 	}
 	crawlMs := time.Since(crawlStart).Milliseconds()
+	if opts.Progress != nil {
+		opts.Progress("crawled", len(crawl.Pages), len(crawl.Pages))
+	}
 
-	perPage := make([]pageFields, 0, len(crawl.Pages))
-	for _, page := range crawl.Pages {
-		rec.page = page.URL
-		extracted, err := extractCrawlPage(ctx, extract, page)
-		if err != nil {
-			report.ModelLaneError = fmt.Sprintf("extracting %s: %v", page.URL, err)
-			break
+	chunks := buildCorpusChunks(crawl.Pages, corpusBudgetRunes)
+	results, extractedPages, modelErr := extractCorpusChunks(ctx, extract, opts.SeedURL, chunks, func(done, total int) {
+		if opts.Progress != nil {
+			opts.Progress("extracted chunk", done, total)
 		}
-		perPage = append(perPage, extracted)
+	})
+	if modelErr != nil {
+		report.ModelLaneError = modelErr.Error()
 	}
-	report.Crawl = debugCrawl(crawl, len(perPage), opts.IncludePageText, crawlMs)
+	report.Crawl = debugCrawl(crawl, extractedPages, opts.IncludePageText, crawlMs)
 
-	mergedFields, legalConflict := mergeCrawlFields(perPage)
+	merged := mergeChunkResults(results)
+	idx := indexCorpusPages(corpusChunk{pages: extractedPages})
+	mergedFields, legalConflict, legalDrops := applyLegalGate(merged, idx)
+	extract.reportDrops(ctx, laneLegal, legalDrops)
 	if legalConflict {
-		report.Warnings = append(report.Warnings,
-			"disagreeing legal pages: the domain hosts more than one entity — the legal-field override was dropped")
+		report.Warnings = append(report.Warnings, legalWarningMultipleEntities)
 	}
-	if report.ModelLaneError == "" {
-		rec.page = laneSynthesis
-		mergedFields = synthesizeSiteFields(ctx, extract, crawl.Pages[:len(perPage)], mergedFields, legalConflict)
-	}
-	mergedFacts := mergeCategoryFacts(perPage)
-	mergedPeople := mergeTeamPeople(perPage)
 	report.Extraction = DebugExtraction{
-		Fields:         debugFields(mergedFields),
-		Facts:          debugFacts(mergedFacts),
-		People:         debugPeople(mergedPeople),
-		MergeDecisions: fieldMergeDecisions(crawl.Pages[:len(perPage)], perPage, mergedFields),
-		Dropped:        dropped,
+		Fields:        debugFields(mergedFields),
+		Facts:         debugFacts(merged.facts),
+		People:        debugPeople(merged.people),
+		LegalEntities: debugLegalEntities(merged.legalEntities),
+		Dropped:       dropped,
 	}
 	report.ModelCalls = rec.calls
-	report.Proposal = debugProposal(opts.SeedURL, mergedFields, mergedFacts)
+	report.Proposal = debugProposal(opts.SeedURL, mergedFields, merged.facts)
 	if warning := wrongCompanySignal(opts.SeedURL, mergedFields); warning != "" {
 		report.Warnings = append(report.Warnings, warning)
 	}
@@ -231,21 +232,15 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (completer
 }
 
 // extractionLane names which extraction a call served, recovered from
-// the system prompt — the one attribute all three lanes disagree on.
+// the system prompt — the corpus call is the deep read's one lane; the
+// per-page company-fact prompt still serves the quick scrape.
 func extractionLane(system string) string {
 	switch system {
+	case corpusSystem:
+		return laneCorpus
 	case companyFactsSystem:
 		return laneFields
-	case teamPeopleSystem:
-		return lanePeople
-	case synthesisSystem:
-		return laneSynthesis
 	default:
-		for category := range categoryGuidance {
-			if system == categoryFactsSystem(category) {
-				return "category:" + category
-			}
-		}
 		return "other"
 	}
 }

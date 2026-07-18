@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,9 @@ import (
 type fakeSite struct {
 	pages   map[string]fakeSitePage
 	sitemap []string
+	// mu guards fetched/onFetch: the production crawler fetches waves
+	// concurrently even though tests pin the wave to 1.
+	mu      sync.Mutex
 	fetched []string
 	onFetch func(url string)
 }
@@ -36,9 +40,12 @@ type fakeSitePage struct {
 }
 
 func (s *fakeSite) FetchPage(_ context.Context, rawURL string) (webread.Page, error) {
+	s.mu.Lock()
 	s.fetched = append(s.fetched, rawURL)
-	if s.onFetch != nil {
-		s.onFetch(rawURL)
+	onFetch := s.onFetch
+	s.mu.Unlock()
+	if onFetch != nil {
+		onFetch(rawURL)
 	}
 	page, ok := s.pages[rawURL]
 	if !ok {
@@ -64,6 +71,9 @@ func (instantPacer) Done()                      {}
 func testSiteCrawler(site *fakeSite) *siteCrawler {
 	crawler := newSiteCrawler(site, CrawlCaps{})
 	crawler.newPacer = func() crawlPacer { return instantPacer{} }
+	// Wave of one: the tests' fetch logs and scripted fixtures read in
+	// strict crawl order; wave concurrency has its own test.
+	crawler.fetchWave = 1
 	return crawler
 }
 
@@ -135,7 +145,7 @@ func TestCrawlStopsAtThePageCapAndRecordsWhatWasCut(t *testing.T) {
 	}
 	var capSkips int
 	for _, skip := range crawl.Skipped {
-		if skip.Reason == crmcontracts.PageCap {
+		if skip.Reason == crmcontracts.SiteReadSkipReasonPageCap {
 			capSkips++
 		}
 	}
@@ -165,7 +175,7 @@ func TestCrawlStopsAtTheByteCap(t *testing.T) {
 	}
 	var found bool
 	for _, skip := range crawl.Skipped {
-		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.ByteCap {
+		if skip.URL == seedURL+"/never-reached" && skip.Reason == crmcontracts.SiteReadSkipReasonByteCap {
 			found = true
 		}
 	}
@@ -182,7 +192,7 @@ func TestCrawlRecordsARobotsRefusalAsASkip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.Robots}
+	want := crawlSkip{URL: seedURL + "/impressum", Reason: crmcontracts.SiteReadSkipReasonRobots}
 	var found bool
 	for _, skip := range crawl.Skipped {
 		if skip == want {
@@ -213,7 +223,7 @@ func TestCrawlNeverFollowsAnOffDomainLink(t *testing.T) {
 	}
 	var offDomainRecorded, subdomainFetched bool
 	for _, skip := range crawl.Skipped {
-		if skip.URL == hostileTarget && skip.Reason == crmcontracts.OffDomain {
+		if skip.URL == hostileTarget && skip.Reason == crmcontracts.SiteReadSkipReasonOffDomain {
 			offDomainRecorded = true
 		}
 	}
@@ -418,6 +428,37 @@ func TestNormalizeCandidateStripsTrackingParamsSoVariantsDedupe(t *testing.T) {
 	kept, ok := normalizeCandidate(seedURL + "/about?lang=de")
 	if !ok || kept != seedURL+"/about?lang=de" {
 		t.Fatalf("a real query parameter was mangled: %q", kept)
+	}
+}
+
+func TestCrawlWaveConcurrencyCommitsTheSameResultAsSerial(t *testing.T) {
+	build := func() *fakeSite {
+		site := &fakeSite{pages: seedOnly("/blog", "/pricing")}
+		site.sitemap = []string{seedURL + "/cases"}
+		for _, path := range []string{"/about", "/team", "/impressum", "/blog", "/pricing", "/cases", "/services"} {
+			site.pages[seedURL+path] = fakeSitePage{text: readable(path)}
+		}
+		return site
+	}
+	serial, err := testSiteCrawler(build()).Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concurrent := testSiteCrawler(build())
+	concurrent.fetchWave = crawlFetchWave
+	wide, err := concurrent.Crawl(context.Background(), seedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fetch timing is the one legitimate difference.
+	for i := range serial.Pages {
+		serial.Pages[i].FetchDur = 0
+	}
+	for i := range wide.Pages {
+		wide.Pages[i].FetchDur = 0
+	}
+	if !reflect.DeepEqual(serial, wide) {
+		t.Fatalf("wave-concurrent crawl diverged from serial:\nserial: %v\nwide:   %v", serial, wide)
 	}
 }
 

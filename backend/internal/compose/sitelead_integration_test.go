@@ -39,20 +39,19 @@ func acmeTeamSite() *fakeSite {
 
 // deepTeamPeopleReply names both people; Bernd's claimed email is NOT
 // printed on the page, so the gate must strip it while keeping him.
-const deepTeamPeopleReply = `{"people":[
+const deepTeamPeopleReply = `{"fields":[],"facts":[],"people":[
 	{"name":"Anna Muster","role":"Chief Executive Officer","published_email":"anna@acme.example",
-	 "evidence_snippet":"Anna Muster is our Chief Executive Officer","confidence":0.9},
+	 "evidence_snippet":"Anna Muster is our Chief Executive Officer","source_url":"` + seedURL + `/team","confidence":0.9},
 	{"name":"Bernd Beispiel","role":"Head of Sales","published_email":"bernd@acme.example",
-	 "evidence_snippet":"Bernd Beispiel leads sales as Head of Sales","confidence":0.8}]}`
+	 "evidence_snippet":"Bernd Beispiel leads sales as Head of Sales","source_url":"` + seedURL + `/team","confidence":0.8}],
+	"legal_entities":[]}`
 
-// runTeamDeepRead crawls acmeTeamSite with nothing on the field passes
-// and the people reply on the team page's people pass, and returns the
-// finished dossier. Call order: home fields, home signal, team fields,
-// team people.
+// runTeamDeepRead crawls acmeTeamSite with the people reply as the one
+// corpus answer and returns the finished dossier.
 func runTeamDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
 	worker, svc := newDeepReadTestWorker(e, acmeTeamSite(),
-		ai.NewFakeClient().Script(noCategoryFacts, noCategoryFacts, noCategoryFacts, deepTeamPeopleReply))
+		ai.NewFakeClient().Script(deepTeamPeopleReply))
 	read, args := startDeepRead(t, e, org)
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)
