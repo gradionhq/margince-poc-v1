@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -351,5 +352,40 @@ func TestStandingSyncSurfacesWriteFaults(t *testing.T) {
 	c := NewStanding().withDialer(plainDialer(addr))
 	if _, err := c.Sync(context.Background(), standingAuth(t), nil, faultySink{}); err == nil {
 		t.Fatal("a real Sink write fault must stop the pull, not vanish")
+	}
+}
+
+func TestDialLoginRefusesPrivateHosts(t *testing.T) {
+	// The production dialer carries the SSRF guard: a private/loopback host
+	// is refused at connect time and reads as unreachable — the caller
+	// never learns whether an internal service answered.
+	c := NewStanding()
+	creds, err := normalizeCredentials(Credentials{Host: "127.0.0.1", Port: 993, Email: memUser, Password: memPass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.dial(context.Background(), creds); !errors.Is(err, connector.ErrUnreachable) {
+		t.Fatalf("dial to loopback = %v, want the unreachable class", err)
+	}
+}
+
+func TestStandingAnchorOnEmptyMailbox(t *testing.T) {
+	addr, _ := startMemServer(t, 0)
+	c := NewStanding().withDialer(plainDialer(addr))
+
+	sink := &recordingSink{}
+	cur, err := c.Sync(context.Background(), standingAuth(t), nil, sink)
+	if err != nil {
+		t.Fatalf("empty anchor: %v", err)
+	}
+	if len(sink.records) != 0 {
+		t.Fatalf("empty mailbox captured %d records", len(sink.records))
+	}
+	parsed, err := parseIMAPCursor(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Email != memUser {
+		t.Fatalf("even an empty anchor must plant the mailbox identity, got %+v", parsed)
 	}
 }

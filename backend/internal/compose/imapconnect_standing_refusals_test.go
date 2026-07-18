@@ -13,8 +13,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
@@ -102,4 +104,42 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 			t.Fatalf("status = %d, want 502", rec.Code)
 		}
 	})
+}
+
+func TestStandingIMAPConnectFailureMapping(t *testing.T) {
+	authed := imapConnectCtx(t, principal.ScopeRead)
+	creds := map[string]any{"imap": map[string]any{
+		"host": "mail.example", "port": 993, "username": "a@b.example", "secret": "s",
+	}}
+
+	t.Run("an unclassified probe error is an opaque 500", func(t *testing.T) {
+		h := connectorHandlers{
+			registry: NewCaptureRegistry(nil, nil),
+			imapAuthenticate: func(context.Context, connector.AuthRequest) (connector.Auth, error) {
+				return nil, errors.New("something provider-shaped and internal")
+			},
+		}
+		rec := postIMAPConnect(authed, t, h, creds)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "provider-shaped") {
+			t.Fatal("the provider's raw error must never reach the client")
+		}
+	})
+
+	t.Run("a persist failure is 500, never a silent success", func(t *testing.T) {
+		// A vault-less registry cannot seal the credential — the probe
+		// succeeded but the store must refuse loudly.
+		h := connectorHandlers{
+			registry: NewCaptureRegistry(nil, nil),
+			imapAuthenticate: func(_ context.Context, req connector.AuthRequest) (connector.Auth, error) {
+				return connector.Auth(req.Payload), nil
+			},
+		}
+		if rec := postIMAPConnect(authed, t, h, creds); rec.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500 (unsealable credential)", rec.Code)
+		}
+	})
+
 }
