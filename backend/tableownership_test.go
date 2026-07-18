@@ -104,6 +104,7 @@ var tableOwners = map[string]string{
 	"capture_sync_state":     "internal/modules/capture",
 	"capture_backfill":       "internal/modules/capture",
 	"workspace_email_domain": "internal/modules/capture",
+	"capture_digest":         "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
 	// ai (voice DNA: the derived profile artifact + corpus manifest;

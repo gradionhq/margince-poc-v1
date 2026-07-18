@@ -242,9 +242,32 @@ func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http
 	writeBackfillBody(w, h.statusPayload(run))
 }
 
-// GetMorningDigest keeps its declared 501 until the nightly suite lands.
-func (h backfillHandlers) GetMorningDigest(w http.ResponseWriter, r *http.Request, _ crmcontracts.GetMorningDigestParams) {
-	httperr.NotImplemented(w, r, "GetMorningDigest")
+// GetMorningDigest serves the caller's stored digest (CAP-WIRE-6): one
+// indexed row, pre-assembled by the nightly build — no digest yet is the
+// honest 404, never a fabricated empty payload.
+func (h backfillHandlers) GetMorningDigest(w http.ResponseWriter, r *http.Request, params crmcontracts.GetMorningDigestParams) {
+	userID, ok := h.caller(w, r)
+	if !ok {
+		return
+	}
+	var day *time.Time
+	if params.Date != nil {
+		day = &params.Date.Time
+	}
+	payload, err := h.registry.ReadDigest(r.Context(), userID.UUID, day)
+	if err != nil {
+		h.writeBackfillError(w, r, err)
+		return
+	}
+	if payload == nil {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusNotFound,
+			Code:   "no_digest_yet",
+			Detail: "No digest has been built yet — the first nightly run creates it.",
+		})
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, payload)
 }
 
 // statusPayload maps a run (or its absence — state "none") onto the wire.

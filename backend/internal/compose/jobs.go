@@ -337,6 +337,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	if cfg.GmailRegistry != nil {
+		river.AddWorker(workers, &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log})
+		// The digest builds daily after the overnight passes; run-on-start
+		// backfills a missed night so mornings are never silently empty.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureDigestArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 		river.AddWorker(workers, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
 		river.AddWorker(workers, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
 		// Backfill jobs are enqueued by the api (start op); the worker role
@@ -455,4 +463,35 @@ type captureEnrichWorker struct {
 
 func (w *captureEnrichWorker) Work(ctx context.Context, _ *river.Job[CaptureEnrichArgs]) error {
 	return w.enricher.Run(ctx)
+}
+
+// CaptureDigestArgs builds the morning digests (CAP-DDL-6; the nightly
+// suite's last pass).
+type CaptureDigestArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureDigestArgs) Kind() string { return "capture_digest" }
+
+// captureDigestWorker assembles one digest per connected user per
+// workspace; a re-run replaces the day's payload (as-of-now truths).
+type captureDigestWorker struct {
+	river.WorkerDefaults[CaptureDigestArgs]
+	registry *capture.Registry
+	pool     *pgxpool.Pool
+	log      *slog.Logger
+}
+
+func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDigestArgs]) error {
+	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
+	if err != nil {
+		return err
+	}
+	today := time.Now().UTC()
+	for _, ws := range workspaces {
+		if err := w.registry.BuildDigests(principal.WithWorkspaceID(ctx, ws), today); err != nil {
+			// One workspace's failure must not starve the rest.
+			w.log.ErrorContext(ctx, "capture digest: build failed", "workspace", ws.String(), "err", err)
+		}
+	}
+	return nil
 }
