@@ -39,8 +39,21 @@ func gmailOptions(cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout
 		if err != nil {
 			return nil, err
 		}
-		opts = append(opts, compose.WithGmailPush(pushInserter, cfg.gmailPushToken))
-		_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled (/webhooks/gmail-push)")
+		pushCfg := compose.GmailPushConfig{
+			Token:          cfg.gmailPushToken,
+			Audience:       cfg.gmailPushAudience,
+			ServiceAccount: cfg.gmailPushSA,
+			JWKSURL:        cfg.gmailJWKSURL,
+		}
+		opts = append(opts, compose.WithGmailPush(pushInserter, pushCfg))
+		switch {
+		case pushCfg.OIDC():
+			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled, OIDC-verified (/webhooks/gmail-push)")
+		case cfg.gmailPushAudience != "" || cfg.gmailPushSA != "":
+			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled with token only — OIDC needs BOTH --gmail-push-audience and --gmail-push-service-account")
+		default:
+			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled (/webhooks/gmail-push)")
+		}
 	}
 	switch {
 	case gmailCfg.Enabled():
