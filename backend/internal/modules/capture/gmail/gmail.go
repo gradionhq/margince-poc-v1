@@ -172,7 +172,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 			// cursor so the next cycle retries from the same watermark.
 			return nil, err
 		}
-		if err := captureOne(ctx, raw, sink, owner); err != nil {
+		if _, err := captureOne(ctx, raw, sink, owner); err != nil {
 			return nil, err
 		}
 	}
@@ -219,21 +219,21 @@ func (c *Connector) backfill(ctx context.Context, access string) ([]string, stri
 // the IMAP connector uses. A parse failure or a deliberate skip is a no-op;
 // only a real Sink write fault returns a non-nil error (which stops the pull).
 // It is a package function (no receiver) so a pull holds no shared state.
-func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string) error {
+func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string) (captured bool, err error) {
 	msg, err := mailmap.Parse(raw, owner)
 	if err != nil {
-		return nil //nolint:nilerr // a single unparseable message is a skip, not a fatal pull error (mirrors the IMAP connector)
+		return false, nil //nolint:nilerr // a single unparseable message is a skip, not a fatal pull error (mirrors the IMAP connector)
 	}
 	if _, drop := msg.SkipReason(); drop {
-		return nil
+		return false, nil
 	}
 	if _, err := sink.Upsert(ctx, msg.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // Normalize maps ONE raw RFC822 message (a Gmail format=RAW payload, already

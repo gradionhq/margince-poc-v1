@@ -44,6 +44,19 @@ type fakeAPI struct {
 	watchTopic         string
 }
 
+// The backfill seam's stubs: tests that exercise it set the fields; the
+// sync-path tests never reach these.
+func (f *fakeAPI) EstimateAfter(context.Context, string, string) (int, error) {
+	return len(f.recent), nil
+}
+
+func (f *fakeAPI) ListAfter(_ context.Context, _ string, _ string, pageToken string, _ int) ([]string, string, error) {
+	if pageToken != "" {
+		return nil, "", nil
+	}
+	return f.recent, "", nil
+}
+
 func (f *fakeAPI) Profile(context.Context, string) (string, string, error) {
 	return f.email, f.historyID, nil
 }

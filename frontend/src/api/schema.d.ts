@@ -1759,6 +1759,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connectors/{provider}/backfill/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a backfill window — the scope before the spend.
+         * @description Returns the provider-side message count for a CAP-PARAM-4 window plus the projected AI
+         *     token/cost estimate (ADR-0063; the ADR-0020 preview-before-spend obligation). MUST precede
+         *     `startConnectorBackfill` — the estimate is what the user consents to. Labeled an estimate:
+         *     actual spend is metered per task. Requires a `connected` connection; needs one provider
+         *     round-trip, so a provider outage surfaces honestly as 502.
+         */
+        post: operations["previewConnectorBackfill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connectors/{provider}/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Backfill progress — the activation read.
+         * @description The single-row progress read behind the activation screen (CAP-PARAM-2: < 150 ms, never
+         *     blocks on the pipeline). Every count is a persisted-row count; `updated_at` is the
+         *     staleness stamp a killed worker leaves honest. `state: none` when this connection has
+         *     never backfilled.
+         */
+        get: operations["getConnectorBackfillStatus"];
+        put?: never;
+        /**
+         * Start the bounded connect-time backfill.
+         * @description Creates the CAP-DDL-4 run and enqueues the resumable job (ADR-0063). Widen-only — a
+         *     re-invoke with a larger window re-scans only the delta (the capture key makes overlap a
+         *     no-op); a smaller window is refused (`409 window_narrowing`). One live run per connection
+         *     (`409 backfill_running`). This op commands the job; it never ingests (CAP-WIRE-N-1).
+         */
+        post: operations["startConnectorBackfill"];
+        /**
+         * Cancel a running backfill — captured rows are retained.
+         * @description Stops the job; everything already captured stays (real history). Incremental sync is
+         *     untouched. `409 not_running` when there is nothing to cancel.
+         */
+        delete: operations["cancelConnectorBackfill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The calling user's morning digest — what capture did overnight.
+         * @description Reads the CAP-DDL-6 payload built by the nightly suite (CAP-WIRE-6): capture totals,
+         *     review counts (open dedupe candidates, pending 🟡 approvals, the classify summary), and
+         *     the connector health strip. `404 no_digest_yet` before the first nightly run — the
+         *     client renders the honest empty state. v1 delivery is in-app; email is delivery-only
+         *     later, same object.
+         */
+        get: operations["getMorningDigest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capture/exclusions": {
         parameters: {
             query?: never;
@@ -3298,6 +3397,20 @@ export interface components {
             watch_expires_at?: string | null;
             /** @description The granted provider scopes. */
             scopes: string[];
+            /**
+             * Format: date-time
+             * @description Last sync attempt (CAP-DDL-5); null before the first.
+             */
+            last_synced_at?: string | null;
+            /** @description rate_limited | unreachable | auth | history_gone | internal — class only, detail in system_log. */
+            last_sync_error_class?: string | null;
+            /**
+             * Format: date-time
+             * @description When the sweep will next pick this connection up (backoff-aware).
+             */
+            next_sync_due_at?: string | null;
+            /** @description Summary of the connection's backfill run; state `none` when never run. */
+            backfill?: components["schemas"]["BackfillStatus"];
             /** Format: date-time */
             readonly created_at?: string;
             /** Format: date-time */
@@ -3336,6 +3449,178 @@ export interface components {
             authorize_url?: string | null;
             /** @description The established/updated connection (appears after the callback completes for OAuth). */
             connection?: components["schemas"]["CaptureConnection"];
+        };
+        BackfillPreviewRequest: {
+            /**
+             * @description The CAP-PARAM-4 window; default UI selection is 6m.
+             * @enum {string}
+             */
+            window: "none" | "3m" | "6m" | "12m";
+        };
+        /** @description The scope before the spend (ADR-0063/ADR-0020): what starting this window would touch and roughly cost. An estimate, labeled as such — actual spend is metered per task. */
+        BackfillPreview: {
+            /** @enum {string} */
+            window: "none" | "3m" | "6m" | "12m";
+            /** @description Provider-side message count for the window (Gmail resultSizeEstimate / Graph $count). */
+            estimated_messages: number;
+            /** @description Projected classify+enrich tokens for that count. */
+            estimated_ai_tokens?: number;
+            /** @description Projected cost in minor currency units at the configured tier's rate; 0 when inference is local. */
+            estimated_cost_minor?: number;
+            /** @description ISO-4217, e.g. EUR. */
+            currency?: string;
+            /** Format: date-time */
+            computed_at: string;
+        };
+        StartBackfillRequest: {
+            /**
+             * @description `none` is expressed by never calling this op. Widen-only versus a prior run.
+             * @enum {string}
+             */
+            window: "3m" | "6m" | "12m";
+        };
+        /** @description The CAP-DDL-4 single-row activation read: every count is a persisted-row count, never a fabricated counter (closes CAP-AC-OPEN-1). */
+        BackfillStatus: {
+            /** @enum {string} */
+            state: "none" | "queued" | "running" | "done" | "error" | "cancelled";
+            /** Format: uuid */
+            backfill_id?: string | null;
+            /** @enum {string|null} */
+            window?: "3m" | "6m" | "12m" | null;
+            /** @description The previewed count the user consented to — the progress fraction's denominator. */
+            estimated_messages?: number | null;
+            counts?: {
+                messages_scanned?: number;
+                captured?: number;
+                skipped?: number;
+                people_created?: number;
+                organizations_created?: number;
+                dedupe_candidates?: number;
+            };
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Staleness stamp — a killed worker leaves this honest ("last updated Xs ago").
+             */
+            updated_at?: string | null;
+            /** @description Error class only; detail lives in system_log (0078 rationale). */
+            last_error_class?: string | null;
+        };
+        /** @description The CAP-DDL-6 payload: what capture did overnight and what awaits the human (CAP-WIRE-6). */
+        MorningDigest: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            generated_at: string;
+            capture: {
+                messages_synced?: number;
+                activities_created?: number;
+                people_created?: number;
+                organizations_created?: number;
+            };
+            review: {
+                /** @description Open DH-DDL-1 candidate pairs. */
+                dedupe_open?: number;
+                /** @description Pending 🟡 items (enrich, quarantine, merge). */
+                approvals_pending?: number;
+                classify?: {
+                    commitments?: number;
+                    meetings?: number;
+                    noise?: number;
+                };
+            };
+            connectors: {
+                /** @enum {string} */
+                provider?: "gmail" | "gcal" | "graph" | "imap";
+                /** @enum {string} */
+                status?: "connected" | "disconnected" | "error" | "reauth_required";
+                /** Format: date-time */
+                last_synced_at?: string | null;
+                last_sync_error_class?: string | null;
+            }[];
+        };
+        /** @description One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8). */
+        DedupeCandidate: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            entity_type: "person" | "organization";
+            /**
+             * Format: uuid
+             * @description Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.
+             */
+            left_id: string;
+            /** Format: uuid */
+            right_id: string;
+            /** @description The PO-F-1/PO-F-2 fuzzy score at detection. */
+            confidence: number;
+            /** @description Per-field agree/collide snapshot captured at detection — what the queue renders (AC-dedupe-2/3); never re-derived against since-edited rows. */
+            evidence: {
+                /** @description full_name, org, domain, … */
+                field: string;
+                left_value: string | null;
+                right_value: string | null;
+                /** @description agree | collide | one_sided */
+                signal: string;
+                /** @description The field's contribution where scored (e.g. name_sim). */
+                score?: number | null;
+            }[];
+            /** @enum {string} */
+            status: "open" | "merged" | "not_a_duplicate";
+            /** Format: uuid */
+            disposed_by?: string | null;
+            /** Format: date-time */
+            disposed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        DedupeCandidateListResponse: {
+            data: components["schemas"]["DedupeCandidate"][];
+            page?: components["schemas"]["PageInfo"];
+        };
+        DedupeDispositionRequest: {
+            /** @enum {string} */
+            disposition: "merge" | "not_a_duplicate";
+            /**
+             * Format: uuid
+             * @description Required for merge: the surviving record — must be one of the pair.
+             */
+            winner_id?: string | null;
+        };
+        /** @description AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_minor is the estimate at the configured tier's rate (0 when local). */
+        AiUsage: {
+            days: {
+                /** Format: date */
+                date: string;
+                tasks: {
+                    /** @description capture_classify, enrich, summarize, … */
+                    task: string;
+                    /** @description local_small, cheap_cloud, premium, local_large. */
+                    tier: string;
+                    calls: number;
+                    cached_hits?: number;
+                    tokens_in: number;
+                    tokens_out: number;
+                    cost_est_minor?: number;
+                }[];
+            }[];
+            budget: {
+                /** @description seats × base × safety factor (AIRT-PARAM-8). */
+                monthly_tokens: number;
+                /** @description Calendar-month tokens_in + tokens_out. */
+                spent_tokens: number;
+                /**
+                 * @description < 80% / 80–100% soft-degrade / ≥ 100% non-interactive queued (AIRT-PARAM-9..11).
+                 * @enum {string}
+                 */
+                band: "normal" | "degraded" | "queued";
+                /** Format: date-time */
+                band_since?: string | null;
+                currency?: string;
+            };
         };
         /**
          * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
@@ -10781,6 +11066,171 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    previewConnectorBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The window's estimated scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Provider unreachable — the estimate needs the provider (`code: provider_unreachable`). */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getConnectorBackfillStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current (or last) backfill state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    startConnectorBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartBackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description Backfill queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    cancelConnectorBackfill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The mail/calendar capture provider (RC-8; A51 email+calendar parity). `gmail`/`gcal` =
+                 *     Google mail+calendar, `graph` = Microsoft 365 (Outlook via Graph), `imap` = the
+                 *     self-hostable IMAP engine (which uses the dedicated one-shot `/connectors/imap/connect`).
+                 *     WhatsApp/Telegram connect is the messaging-channels surface, not this one.
+                 */
+                provider: components["parameters"]["CaptureProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getMorningDigest: {
+        parameters: {
+            query?: {
+                /** @description A specific digest day; default: the latest generated. */
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The digest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MorningDigest"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
