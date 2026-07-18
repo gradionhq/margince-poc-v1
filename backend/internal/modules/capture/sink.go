@@ -335,20 +335,39 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 	if fields.Direction != "inbound" || rec.ThreadKey == "" {
 		return nil
 	}
-	var priorOutbound bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM activity
-			WHERE thread_key = $1 AND direction = 'outbound' AND id <> $2)`,
-		rec.ThreadKey, id).Scan(&priorOutbound); err != nil {
-		return fmt.Errorf("capture: reply detection: %w", err)
-	}
-	if !priorOutbound {
+	var matched ids.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT id FROM activity
+		WHERE thread_key = $1 AND direction = 'outbound' AND id <> $2
+		ORDER BY occurred_at DESC LIMIT 1`,
+		rec.ThreadKey, id).Scan(&matched)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
-	return storekit.Emit(ctx, tx, auditID, "engagement.reply", "activity", id.UUID, map[string]any{
-		"thread_key": rec.ThreadKey, fieldSourceSystem: rec.NaturalKey.SourceSystem,
-	})
+	if err != nil {
+		return fmt.Errorf("capture: reply detection: %w", err)
+	}
+	// contact_id resolves when the counterparty is already a person (the
+	// normal reply case — the outbound leg's ensure created them); a
+	// first-ever counterparty resolves in the follow-up ensure instead.
+	payload := map[string]any{
+		"matched_outbound_activity_id": matched.String(),
+		"channel":                      "email",
+		"occurred_at":                  defaultOccurredAt(fields.OccurredAt),
+		"idempotency_key":              rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID,
+	}
+	if cp := strings.ToLower(strings.TrimSpace(rec.Counterparty.Email)); cp != "" {
+		var personID ids.PersonID
+		err := tx.QueryRow(ctx, `
+			SELECT person_id FROM person_email WHERE email = $1 AND archived_at IS NULL
+			ORDER BY is_primary DESC LIMIT 1`, cp).Scan(&personID)
+		if err == nil {
+			payload["contact_id"] = personID.String()
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("capture: reply contact lookup: %w", err)
+		}
+	}
+	return storekit.Emit(ctx, tx, auditID, "engagement.reply", "activity", id.UUID, payload)
 }
 
 // captureLead lands one lead behind the suppression and dedupe guards.
