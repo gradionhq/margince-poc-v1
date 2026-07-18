@@ -160,11 +160,12 @@ func TestColdStartPreviewAnswersTheHonest422WhenNothingCanBeQuoted(t *testing.T)
 	const page = "Acme GmbH — Onboard your team in minutes, not weeks. Built for RevOps leaders at scaling SaaS companies."
 	// Every field the model offers cites something the source never says, so
 	// the no-guess gate drops them all.
-	hallucinating := func() *coldStartEngine {
+	hallucinating := func(t *testing.T) *coldStartEngine {
+		fake := ai.NewFakeClient().Script(
+			`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"a claim the source never makes","confidence":0.9}]}`)
 		return &coldStartEngine{extract: evidenceExtractor{
 			fetch: stubPage(page),
-			brain: ai.NewFakeClient().Script(
-				`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"a claim the source never makes","confidence":0.9}]}`),
+			brain: fakeModelPath(t, fake).ColdStart,
 		}}
 	}
 
@@ -175,9 +176,10 @@ func TestColdStartPreviewAnswersTheHonest422WhenNothingCanBeQuoted(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler := coldstartHandlers{engine: hallucinating()}
+			handler := coldstartHandlers{engine: hallucinating(t)}
 			rec := httptest.NewRecorder()
-			handler.ColdStartPreview(rec, httptest.NewRequest(http.MethodPost, "/v1/coldstart/preview", strings.NewReader(tc.body)))
+			req := httptest.NewRequest(http.MethodPost, "/v1/coldstart/preview", strings.NewReader(tc.body)).WithContext(fakeWorkspaceCtx())
+			handler.ColdStartPreview(rec, req)
 
 			if rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d, want 422", rec.Code)

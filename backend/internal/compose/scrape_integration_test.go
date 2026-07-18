@@ -76,8 +76,8 @@ func insertOrg(t *testing.T, e *integration.Env, owner ids.UUID, domain, industr
 func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
 	e := integration.Setup(t)
 	orgID := insertOrg(t, e, e.Rep1, "acme.example", "")
-	brain := ai.NewFakeClient().Script(acmeExtraction)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: approvals.NewService(e.Pool)}
+	fake := ai.NewFakeClient().Script(acmeExtraction)
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: approvals.NewService(e.Pool)}
 
 	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {
@@ -124,8 +124,8 @@ func TestScrapeHidesAnInvisibleOrg(t *testing.T) {
 	e := integration.Setup(t)
 	// Owned by rep3 (team2) — invisible to rep1 (team1) under team row-scope.
 	hidden := insertOrg(t, e, e.Rep3, "hidden.example", "")
-	brain := ai.NewFakeClient().Script(acmeExtraction)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: approvals.NewService(e.Pool)}
+	fake := ai.NewFakeClient().Script(acmeExtraction)
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: approvals.NewService(e.Pool)}
 
 	// Both the domain path and the override path must 404 an org the caller
 	// cannot see — existence-hiding, before any egress on their behalf.
@@ -147,7 +147,7 @@ func TestScrapeDegradesHonestly(t *testing.T) {
 	orgID := insertOrg(t, e, e.Rep1, "acme.example", "")
 	allHallucinated := ai.NewFakeClient().Script(
 		`{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on the page","confidence":0.9}]}`)
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: allHallucinated}, people: e.People, approvals: approvals.NewService(e.Pool)}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, allHallucinated).ColdStart}, people: e.People, approvals: approvals.NewService(e.Pool)}
 	var unreadable *unreadableError
 	if _, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, ""); !errors.As(err, &unreadable) {
 		t.Fatalf("all-hallucinated extraction → %v, want unreadable", err)
@@ -164,11 +164,11 @@ func TestScrapeAcceptFillsOnlyEmptyFields(t *testing.T) {
 	e := integration.Setup(t)
 	// Human already set the industry; legal_name is empty.
 	orgID := insertOrg(t, e, e.Rep1, "acme.example", "Handcrafted Industry")
-	brain := ai.NewFakeClient().Script(acmeExtraction, acmeExtraction)
+	fake := ai.NewFakeClient().Script(acmeExtraction, acmeExtraction)
 
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect("enrich", scrapeAcceptEffect(svc, e.People))
-	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: brain}, people: e.People, approvals: svc}
+	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: svc}
 
 	proposal, err := engine.Propose(e.As(e.Rep1, []ids.UUID{e.Team1}, scrapePerms), orgID, "")
 	if err != nil {

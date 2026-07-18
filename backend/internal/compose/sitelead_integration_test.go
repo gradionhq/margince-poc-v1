@@ -51,7 +51,7 @@ const deepTeamPeopleReply = `{"fields":[],"facts":[],"people":[
 func runTeamDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
 	worker, svc := newDeepReadTestWorker(e, acmeTeamSite(),
-		ai.NewFakeClient().Script(deepTeamPeopleReply))
+		fakeModelPath(t, ai.NewFakeClient().Script(deepTeamPeopleReply)).SiteExtract)
 	read, args := startDeepRead(t, e, org)
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)

@@ -113,7 +113,7 @@ func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testi
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
 	worker, svc := newDeepReadTestWorker(e, acmeDeepSite(),
-		ai.NewFakeClient().Script(deepCorpusReply))
+		fakeModelPath(t, ai.NewFakeClient().Script(deepCorpusReply)).SiteExtract)
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -240,7 +240,7 @@ func TestDeepReadWithNothingEvidencedIsAnHonestEmptyDoneWithNoProposal(t *testin
 		"facts":[{"category":"signal","field":"named_customer","value":"guessed","evidence_snippet":"nowhere on any page","source_url":"` + seedURL + `","confidence":0.9}],
 		"people":[],"legal_entities":[]}`
 	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(),
-		ai.NewFakeClient().Script(hallucinated))
+		fakeModelPath(t, ai.NewFakeClient().Script(hallucinated)).SiteExtract)
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -266,7 +266,7 @@ func TestDeepReadCrawlFailureFinishesFailedAndARetryNoOps(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
 	// The seed page itself is unreachable: a failed crawl, not a partial one.
-	worker, _ := newDeepReadTestWorker(e, &fakeSite{pages: map[string]fakeSitePage{}}, ai.NewFakeClient())
+	worker, _ := newDeepReadTestWorker(e, &fakeSite{pages: map[string]fakeSitePage{}}, fakeModelPath(t, ai.NewFakeClient()).SiteExtract)
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err == nil {
@@ -333,6 +333,10 @@ func TestDeepReadModelFailureMidwayKeepsWhatWasReadAsPartial(t *testing.T) {
 	chunkOneReply := `{"fields":[
 		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","source_url":"` + seedURL + `","confidence":0.9}],
 		"facts":[],"people":[],"legal_entities":[]}`
+	// failsAfter injects a per-call failure the router's fake wiring has no
+	// seam for (ai.WithFakeClient hands the router a *FakeClient directly);
+	// this test's subject is the worker's own partial-keep behavior on a
+	// mid-corpus model death, not routing, so it stays directly on the fake.
 	brain := &failsAfter{inner: ai.NewFakeClient().Script(chunkOneReply), limit: 1}
 	worker, _ := newDeepReadTestWorker(e, site, brain)
 	read, args := startDeepRead(t, e, org)
@@ -379,7 +383,7 @@ const deepOfferingReply = `{"fields":[],"facts":[
 func runServicesDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
 	worker, svc := newDeepReadTestWorker(e, acmeServicesSite(),
-		ai.NewFakeClient().Script(deepOfferingReply))
+		fakeModelPath(t, ai.NewFakeClient().Script(deepOfferingReply)).SiteExtract)
 	read, args := startDeepRead(t, e, org)
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)
@@ -614,7 +618,7 @@ func TestDeepReadStartClosesTheDossierWhenTheEnqueueFails(t *testing.T) {
 func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), ai.NewFakeClient())
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), fakeModelPath(t, ai.NewFakeClient()).SiteExtract)
 	read, args := startDeepRead(t, e, org)
 
 	// The dossier is picked up (queued → running), then the work context dies

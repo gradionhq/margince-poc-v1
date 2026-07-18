@@ -22,7 +22,7 @@ func TestSiteReadDebugReportsPagesCorpusCallAndProposal(t *testing.T) {
 	}}
 	// ONE corpus reply covers the whole site: a field off each page, one
 	// fact, and the single-entity census that lets the legal trio stand.
-	brain := ai.NewFakeClient().Script(`{"fields":[
+	fake := ai.NewFakeClient().Script(`{"fields":[
 			{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","source_url":"` + seedURL + `","confidence":0.9},
 			{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","source_url":"` + seedURL + `/impressum","confidence":0.9}],
 		"facts":[
@@ -33,7 +33,7 @@ func TestSiteReadDebugReportsPagesCorpusCallAndProposal(t *testing.T) {
 	var phases []string
 	report, err := siteReadDebugRun(context.Background(),
 		SiteReadDebugOptions{
-			SeedURL: seedURL, Brain: brain, IncludePageText: true,
+			SeedURL: seedURL, Brain: fakeModelPath(t, fake).SiteExtract, IncludePageText: true,
 			Progress: func(phase string, done, total int) { phases = append(phases, phase) },
 		},
 		testSiteCrawler(site), nil)
@@ -90,10 +90,10 @@ func TestSiteReadDebugGateEmptyReplyReportsCleanWithNoLaneError(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{
 		seedURL: {text: readable("Acme home.")},
 	}}
-	brain := ai.NewFakeClient().Script(`{"fields":[],"facts":[],"people":[],"legal_entities":[]}`)
+	fake := ai.NewFakeClient().Script(`{"fields":[],"facts":[],"people":[],"legal_entities":[]}`)
 
 	report, err := siteReadDebugRun(context.Background(),
-		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain},
+		SiteReadDebugOptions{SeedURL: seedURL, Brain: fakeModelPath(t, fake).SiteExtract},
 		testSiteCrawler(site), nil)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
