@@ -109,6 +109,10 @@ function inboxBackend(
       calls.push({ url, body });
       return jsonResponse({ ...approval, status: "approved" });
     }
+    if (url.includes("/digest")) {
+      // no nightly digest yet — home renders no digest card at all
+      return jsonResponse({ title: "Not Found", code: "no_digest_yet" }, 404);
+    }
     if (url.includes("/brief")) {
       // no run persisted yet — home renders the honest generate card
       return jsonResponse({ title: "Not Found" }, 404);
@@ -656,6 +660,12 @@ describe("HomeScreen (B-EP09.12b)", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/digest")) {
+          return jsonResponse(
+            { title: "Not Found", code: "no_digest_yet" },
+            404,
+          );
+        }
         if (url.includes("/brief")) {
           return jsonResponse({ title: "Not Found" }, 404);
         }

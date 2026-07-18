@@ -1858,6 +1858,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * AI usage + budget — the spend is never invisible.
+         * @description Per-day × task × tier usage from the metering record (AIRT-PARAM-33) plus the workspace
+         *     budget block: monthly token budget, spent, current band (AIRT-PARAM-9..11), and since
+         *     when. The admin economy-mode banner and the spend view read this (AIRT-WIRE-1; resolves
+         *     the former AIRT-WIRE-N-1 gap). Inference is the customer's own key (ADR-0020) — this is
+         *     their own bill made visible, never a Margince meter for resale.
+         */
+        get: operations["getAiUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dedupe/candidates": {
         parameters: {
             query?: never;
@@ -11320,6 +11344,33 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getAiUsage: {
+        parameters: {
+            query?: {
+                /** @description Default: first day of the current month. */
+                from?: string;
+                /** @description Default: today. */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage + budget. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiUsage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
         };
     };
     listDedupeCandidates: {

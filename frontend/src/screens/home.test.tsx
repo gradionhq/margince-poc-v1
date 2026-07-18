@@ -86,10 +86,16 @@ const run = {
 const emptyPage = { data: [], page: { next_cursor: null } };
 
 // Routes the stubbed fetch by path+method so each test declares only the
-// interesting responses; everything else answers an empty page.
+// interesting responses; everything else answers an empty page. /digest
+// defaults to the honest 404 (no nightly run yet) so brief-focused cases
+// exercise Home without a digest card.
 function stubApi(
   routes: Record<string, (init?: RequestInit) => Response>,
 ): ReturnType<typeof vi.fn> {
+  const defaults: Record<string, () => Response> = {
+    "GET /digest": () =>
+      jsonResponse({ title: "Not Found", code: "no_digest_yet" }, 404),
+  };
   const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = new URL(
@@ -98,7 +104,7 @@ function stubApi(
     );
     const method = request?.method ?? init?.method ?? "GET";
     const key = `${method} ${url.pathname.replace(/^\/v1/, "")}`;
-    const handler = routes[key];
+    const handler = routes[key] ?? defaults[key];
     return handler ? handler(init) : jsonResponse(emptyPage);
   });
   vi.stubGlobal("fetch", mock);
@@ -257,5 +263,57 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(
       screen.getByText("Already decided — nothing left to do here."),
     ).toBeTruthy();
+  });
+
+  // CAP-WIRE-6 read side: the stored nightly digest renders as one card —
+  // captured counts, the review numbers, the classify tally — and the
+  // dedupe count is the jump-off into the review queue.
+  it("renders the overnight digest card and jumps to the dedupe queue", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /digest": () =>
+        jsonResponse({
+          date: "2026-07-16",
+          generated_at: "2026-07-17T03:00:00Z",
+          capture: {
+            messages_synced: 42,
+            activities_created: 42,
+            people_created: 5,
+            organizations_created: 2,
+          },
+          review: {
+            dedupe_open: 3,
+            approvals_pending: 1,
+            classify: { commitments: 4, meetings: 2, noise: 30 },
+          },
+          connectors: [],
+        }),
+    });
+    render(<HomeScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Overnight capture")).toBeTruthy(),
+    );
+    expect(screen.getByText("42")).toBeTruthy();
+    expect(screen.getByText("Emails synced")).toBeTruthy();
+    expect(screen.getByText("People created")).toBeTruthy();
+    expect(screen.getByText("Companies created")).toBeTruthy();
+    expect(screen.getByText("Approvals pending")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Classified overnight: 4 commitments · 2 meetings · 30 noise",
+      ),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByText("Duplicates to review"));
+    expect(window.location.hash).toBe("#/dedupe");
+  });
+
+  it("a 404 no_digest_yet renders no digest card at all — never fabricated zeros", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+    });
+    render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByText("No brief yet")).toBeTruthy());
+    expect(screen.queryByTestId("digest-card")).toBeNull();
+    expect(screen.queryByText("Overnight capture")).toBeNull();
   });
 });

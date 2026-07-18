@@ -502,6 +502,16 @@ export const en = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Warmth",
 
+  "home.digest": "Overnight capture",
+  "home.digestFor": "digest for {date}",
+  "home.digestSynced": "Emails synced",
+  "home.digestPeople": "People created",
+  "home.digestOrgs": "Companies created",
+  "home.digestApprovals": "Approvals pending",
+  "home.digestDedupe": "Duplicates to review",
+  "home.digestClassify":
+    "Classified overnight: {commitments} commitments · {meetings} meetings · {noise} noise",
+
   "enrich.title": "Read from the website",
   "enrich.sub":
     "evidence-or-omit — fills only empty fields, and only after your approval",

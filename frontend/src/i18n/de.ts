@@ -514,6 +514,16 @@ export const de = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Nähe",
 
+  "home.digest": "Über Nacht erfasst",
+  "home.digestFor": "Digest vom {date}",
+  "home.digestSynced": "E-Mails synchronisiert",
+  "home.digestPeople": "Personen angelegt",
+  "home.digestOrgs": "Firmen angelegt",
+  "home.digestApprovals": "Genehmigungen offen",
+  "home.digestDedupe": "Dubletten zu prüfen",
+  "home.digestClassify":
+    "Über Nacht einsortiert: {commitments} Zusagen · {meetings} Termine · {noise} Rauschen",
+
   "enrich.title": "Von der Website lesen",
   "enrich.sub":
     "belegt oder weggelassen — füllt nur leere Felder, und nur nach deiner Freigabe",
