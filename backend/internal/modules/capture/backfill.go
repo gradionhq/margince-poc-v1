@@ -162,6 +162,11 @@ func (r *Registry) StartBackfill(ctx context.Context, provider string, userID id
 		run.WindowMonths = windowMonths
 		run.AfterDate = after
 		run.Status = "queued"
+		if estimate > 0 {
+			// The previewed estimate rides the returned run exactly as the row
+			// stores it (NULLIF above): the start response's progress denominator.
+			run.Estimate = &estimate
+		}
 		return nil
 	})
 	return run, err
