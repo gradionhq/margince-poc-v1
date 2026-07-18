@@ -8,11 +8,12 @@
 // push-driven with the poll demoted to a safety net (CAP-PARAM-1's 60s p95
 // is unreachable on a poll alone).
 //
-// Verification is the Pub/Sub push token (constant-time compared, minted by
-// the operator, carried as ?token= on the subscription's push endpoint).
-// The spec leaves per-provider webhook verification an open decision
-// (capture.md CAP-DDL-2 note); the OIDC-token upgrade slots in here without
-// moving the route.
+// Verification is layered: the Pub/Sub push token (constant-time compared,
+// minted by the operator, carried as ?token= on the subscription's push
+// endpoint) always; and, when the deployment configures the push identity
+// (audience + push service account), the Google-signed OIDC ID token on the
+// Authorization header as well — a forged POST then needs Google's private
+// key, not just a leaked URL.
 
 package compose
 
@@ -24,6 +25,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -51,19 +53,50 @@ type gmailPushHandler struct {
 	pool     *pgxpool.Pool
 	inserter *jobs.Runner
 	token    string
+	verifier *googleOIDCVerifier
 	log      *slog.Logger
 }
 
-// WithGmailPush mounts POST /webhooks/gmail-push. token is the shared
-// subscription secret; empty disables the endpoint entirely (the route is
-// absent, not open).
-func WithGmailPush(inserter *jobs.Runner, token string) Option {
+// GmailPushConfig is the push subscription's identity. Token is the shared
+// URL secret and is required — empty leaves the route absent. Audience (this
+// endpoint's public URL) and ServiceAccount (the Google account signing the
+// push OIDC token) are set together to add OIDC verification; JWKSURL
+// overrides Google's key endpoint for tests only.
+type GmailPushConfig struct {
+	Token          string
+	Audience       string
+	ServiceAccount string
+	JWKSURL        string
+}
+
+// OIDC reports whether the config carries the full push identity needed to
+// verify Google's OIDC token in addition to the shared URL secret.
+func (c GmailPushConfig) OIDC() bool { return c.Audience != "" && c.ServiceAccount != "" }
+
+// WithGmailPush mounts POST /webhooks/gmail-push. An empty token disables
+// the endpoint entirely (the route is absent, not open); a full push
+// identity upgrades it to OIDC-verified.
+func WithGmailPush(inserter *jobs.Runner, cfg GmailPushConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		if token == "" || inserter == nil {
+		if cfg.Token == "" || inserter == nil {
 			return
 		}
-		s.gmailPush = &gmailPushHandler{pool: pool, inserter: inserter, token: token, log: s.log}
+		h := &gmailPushHandler{pool: pool, inserter: inserter, token: cfg.Token, log: s.log}
+		if cfg.OIDC() {
+			h.verifier = newGoogleOIDCVerifier(cfg.JWKSURL, cfg.Audience, cfg.ServiceAccount)
+		}
+		s.gmailPush = h
 	}
+}
+
+// bearerToken extracts the token from an "Authorization: Bearer <t>" header;
+// anything else — wrong scheme, bare token, empty — yields "".
+func bearerToken(header string) string {
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(header[len(prefix):])
 }
 
 func (h *gmailPushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +113,16 @@ func (h *gmailPushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 		w.WriteHeader(http.StatusForbidden)
 		return
+	}
+	// With a configured push identity, the request must also carry Google's
+	// OIDC token. 401 (not 403): Pub/Sub re-mints and retries, so a key
+	// rotation blip heals; the rejection detail stays in server logs.
+	if h.verifier != nil {
+		if err := h.verifier.Verify(r.Context(), bearerToken(r.Header.Get("Authorization"))); err != nil {
+			h.log.WarnContext(r.Context(), "gmail push: OIDC verification failed", "err", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
