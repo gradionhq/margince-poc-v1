@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -41,25 +40,6 @@ const (
 	// DecisionNoMatch means create.
 	DecisionNoMatch DedupeDecision = "no_match"
 )
-
-// recordNearMatch leaves the review trail for a create that proceeded
-// past a fuzzy hit — the manual policy is exact→refuse (409),
-// fuzzy→create AND record: a probability never blocks a human, but the
-// pair must not vanish either. Until the dedupe_candidate queue lands
-// (DH-DDL-1), the system_log ledger is the recording mechanism: one
-// append-only line inside the create's own transaction, so the record
-// and its review trail commit or roll back together.
-func recordNearMatch(ctx context.Context, tx pgx.Tx, entityType string, createdID, matchedID ids.UUID, confidence float64) error {
-	if _, err := storekit.LogSystem(ctx, tx, "dedupe_near_match", map[string]any{
-		"entity_type": entityType,
-		"created_id":  createdID.String(),
-		"matched_id":  matchedID.String(),
-		"confidence":  confidence,
-	}); err != nil {
-		return fmt.Errorf("record %s near-match: %w", entityType, err)
-	}
-	return nil
-}
 
 // PersonCandidate is the input to PO-F-1 — the fields the formula reads,
 // not a whole person: a resolver that took CreatePersonInput could not

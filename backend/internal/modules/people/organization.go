@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -63,15 +62,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			return err
 		}
 
-		// PO-F-2 chokepoint, manual policy: the pre-check above already
-		// refused every claimed domain in this same transaction (and
-		// uq_org_domain backs it under races), so the chokepoint's
-		// remaining signal is the fuzzy name tier. It must run BEFORE the
-		// insert — afterwards the new row would match itself.
-		match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
-			DisplayName: in.DisplayName,
-			Domains:     dedupeCandidateDomains(in.Domains),
-		})
+		match, err := manualDedupeOrganization(ctx, tx, in)
 		if err != nil {
 			return err
 		}
@@ -115,10 +106,8 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id.UUID, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return fmt.Errorf("emit organization.created: %w", err)
 		}
-		if match.Decision == DecisionFuzzyReview {
-			if err := recordNearMatch(ctx, tx, "organization", id.UUID, match.OrganizationID.UUID, match.Confidence); err != nil {
-				return err
-			}
+		if err := match.recordIfReview(ctx, tx, id); err != nil {
+			return err
 		}
 		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read created organization: %w", err)
@@ -126,18 +115,6 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		return nil
 	})
 	return out, err
-}
-
-// dedupeCandidateDomains flattens the create's claimed domains into the
-// resolver's input. These are the org's own domains, not derived email
-// hosts, so the free-mail filtering PO-F-2 delegates to callers does not
-// apply here — a manual claim of gmail.com should still collide.
-func dedupeCandidateDomains(domains []OrgDomainInput) []string {
-	out := make([]string, 0, len(domains))
-	for _, d := range domains {
-		out = append(out, d.Domain)
-	}
-	return out
 }
 
 func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
@@ -171,136 +148,6 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, arch
 		return nil
 	})
 	return out, err
-}
-
-type ListOrganizationsInput struct {
-	Cursor          *string
-	Limit           *int
-	Query           *string
-	OwnerID         *ids.UserID
-	Classification  *string
-	IncludeArchived bool
-	// Sort is the contract's sort spec, validated against the core
-	// vocabulary below plus the workspace's active cf_ columns.
-	Sort *string
-	// CustomFilters carries the request's cf_* query parameters —
-	// equality matches against active custom columns (storekit listquery).
-	CustomFilters map[string]string
-}
-
-// organizationListFields is the organization list's core sortable
-// vocabulary — exactly the data-model §13.5 DM-VOCAB-2 set; active cf_
-// columns join it per request.
-var organizationListFields = map[string]string{
-	"created_at":   storekit.KindTimestamp,
-	"updated_at":   storekit.KindTimestamp,
-	"display_name": fieldcatalog.TypeText,
-	ownerIDColumn:  storekit.KindUUID,
-}
-
-func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput) ([]crmcontracts.Organization, storekit.Page, error) {
-	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		return nil, storekit.Page{}, err
-	}
-	active, err := s.activeColumns(ctx, "organization")
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(organizationListFields, active))
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	limit := storekit.ClampLimit(in.Limit)
-
-	where := []string{"1=1"}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	scope, err := auth.ScopeClauseFor(ctx, "organization", "", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-
-	if !in.IncludeArchived {
-		where = append(where, "archived_at IS NULL")
-	}
-	if in.OwnerID != nil {
-		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
-	}
-	if in.Classification != nil {
-		where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
-	}
-	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.QuickFindClause(arg(*in.Query), "display_name"))
-	}
-	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	where = append(where, cfClauses...)
-	if in.Cursor != nil && *in.Cursor != "" {
-		clause, err := sorted.KeysetClause(*in.Cursor, arg)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, clause)
-	}
-
-	var orgs []crmcontracts.Organization
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+orgColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
-				` FROM organization WHERE `+strings.Join(where, " AND ")+
-				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		var cursorKeys []*string
-		if orgs, cursorKeys, err = scanOrganizationPage(rows, active, sorted); err != nil {
-			return err
-		}
-		if len(orgs) > limit {
-			orgs = orgs[:limit]
-			last := orgs[len(orgs)-1]
-			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return attachOrgDomains(ctx, tx, orgs)
-	})
-	if orgs == nil {
-		orgs = []crmcontracts.Organization{}
-	}
-	return orgs, page, err
-}
-
-// scanOrganizationPage drains one list query's rows: each organization
-// plus, under a non-default sort, the row's cursor key (the trailing
-// __cursor_key column CursorKeySuffix appended).
-func scanOrganizationPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Organization, []*string, error) {
-	var orgs []crmcontracts.Organization
-	var cursorKeys []*string
-	for rows.Next() {
-		var key *string
-		extra := []any{}
-		if sorted != nil {
-			extra = append(extra, &key)
-		}
-		o, err := scanOrganization(rows, active, extra...)
-		if err != nil {
-			return nil, nil, err
-		}
-		orgs = append(orgs, o)
-		cursorKeys = append(cursorKeys, key)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-	return orgs, cursorKeys, nil
 }
 
 type UpdateOrganizationInput struct {
