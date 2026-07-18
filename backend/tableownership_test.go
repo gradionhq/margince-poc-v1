@@ -108,6 +108,7 @@ var tableOwners = map[string]string{
 	"voice_corpus_source": "internal/modules/ai",
 	"ai_call":             "internal/modules/ai",
 	"ai_call_payload":     "internal/modules/ai",
+	"ai_call_config":      "internal/modules/ai",
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
 	"runner_job": "internal/modules/agents",
@@ -197,6 +198,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:embedding":        "erasure/retention purge the subject's vectors — a similarity probe must not reconstruct erased text",
 	"internal/modules/privacy:raw_capture":      "erasure purges raw provider payloads carrying the subject's identifiers in the single erasure transaction",
 	"internal/modules/privacy:ai_call_payload":  "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
+	"internal/modules/privacy:ai_call":          "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
 	"internal/modules/privacy:field_provenance": "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
 
 	// direct audit_log/event_outbox writers: storekit.Audit stamps
