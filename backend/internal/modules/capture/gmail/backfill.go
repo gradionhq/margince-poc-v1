@@ -83,12 +83,15 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 	return res, nil
 }
 
+// paramMaxResults is Gmail's page-size query parameter.
+const paramMaxResults = "maxResults"
+
 // EstimateAfter returns messages.list's resultSizeEstimate for a query.
 func (a *httpAPI) EstimateAfter(ctx context.Context, accessToken, query string) (int, error) {
 	var out struct {
-		ResultSizeEstimate int `json:"resultSizeEstimate"`
+		ResultSizeEstimate int `json:"resultSizeEstimate"` //nolint:tagliatelle // Google names this field
 	}
-	q := url.Values{"q": {query}, "maxResults": {"1"}}
+	q := url.Values{"q": {query}, paramMaxResults: {"1"}}
 	if _, err := a.get(ctx, accessToken, "/messages", q, &out); err != nil {
 		return 0, err
 	}
@@ -101,9 +104,9 @@ func (a *httpAPI) ListAfter(ctx context.Context, accessToken, query, pageToken s
 		Messages []struct {
 			ID string `json:"id"`
 		} `json:"messages"`
-		NextPageToken string `json:"nextPageToken"`
+		NextPageToken string `json:"nextPageToken"` //nolint:tagliatelle // Google names this field
 	}
-	q := url.Values{"q": {query}, "maxResults": {strconv.Itoa(pageSize)}}
+	q := url.Values{"q": {query}, paramMaxResults: {strconv.Itoa(pageSize)}}
 	if pageToken != "" {
 		q.Set("pageToken", pageToken)
 	}

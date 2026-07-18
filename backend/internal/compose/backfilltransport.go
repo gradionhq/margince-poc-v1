@@ -18,9 +18,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/riverqueue/river"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/riverqueue/river"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -30,6 +29,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// codeWindowInvalid names the RFC 7807 code for a window outside {3m,6m,12m}.
+const codeWindowInvalid = "window_invalid"
 
 type backfillHandlers struct {
 	registry *capture.Registry
@@ -85,7 +87,7 @@ func (h backfillHandlers) caller(w http.ResponseWriter, r *http.Request) (ids.Us
 	actor, ok := principal.Actor(r.Context())
 	if !ok || actor.Type != principal.PrincipalHuman {
 		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnauthorized, Code: "unauthenticated",
+			Status: http.StatusUnauthorized, Code: codeUnauthenticated,
 			Detail: "Backfill is a signed-in human action.",
 		})
 		return ids.UserID{}, false
@@ -127,7 +129,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 	months, ok := windowMonths(string(req.Window))
 	if !ok {
 		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity, Code: "window_invalid",
+			Status: http.StatusUnprocessableEntity, Code: codeWindowInvalid,
 			Detail: "The window must be none, 3m, 6m or 12m.",
 		})
 		return
@@ -166,7 +168,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 	months, ok := windowMonths(string(req.Window))
 	if !ok {
 		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity, Code: "window_invalid",
+			Status: http.StatusUnprocessableEntity, Code: codeWindowInvalid,
 			Detail: "The window must be 3m, 6m or 12m ('none' is expressed by not starting).",
 		})
 		return
@@ -238,6 +240,12 @@ func (h backfillHandlers) GetMorningDigest(w http.ResponseWriter, r *http.Reques
 
 // statusPayload maps a run (or its absence — state "none") onto the wire.
 func (h backfillHandlers) statusPayload(run *capture.BackfillRun) crmcontracts.BackfillStatus {
+	return backfillStatusPayload(run)
+}
+
+// backfillStatusPayload is the ONE run→wire mapping, shared with the
+// connection-list surface so the two reads cannot drift.
+func backfillStatusPayload(run *capture.BackfillRun) crmcontracts.BackfillStatus {
 	if run == nil {
 		return crmcontracts.BackfillStatus{State: crmcontracts.BackfillStatusStateNone}
 	}
@@ -278,7 +286,7 @@ func (h backfillHandlers) writeBackfillError(w http.ResponseWriter, r *http.Requ
 		})
 	case errors.Is(err, capture.ErrWindowInvalid):
 		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity, Code: "window_invalid",
+			Status: http.StatusUnprocessableEntity, Code: codeWindowInvalid,
 			Detail: "The window must be 3m, 6m or 12m.",
 		})
 	case errors.Is(err, capture.ErrBackfillRunning):

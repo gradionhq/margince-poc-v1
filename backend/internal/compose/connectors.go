@@ -49,6 +49,10 @@ const connectStateTTL = 10 * time.Minute
 // (gcal/graph are contract-declared, not yet wired).
 const providerGmail = "gmail"
 
+// codeUnauthenticated is the RFC 7807 code for connector/backfill ops that
+// require a signed-in human principal.
+const codeUnauthenticated = "unauthenticated"
+
 // oauthCSRFCookie carries the per-flow nonce (SameSite=Lax so it rides the
 // top-level redirect back from Google) that must match the nonce in the
 // signed state — the account-linking-CSRF defence.
@@ -141,7 +145,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnauthorized,
-			Code:   "unauthenticated",
+			Code:   codeUnauthenticated,
 			Detail: "Connecting a mailbox is a signed-in human action.",
 		})
 		return
@@ -270,6 +274,11 @@ func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnecti
 		s := string(v.Cursor)
 		c.SyncCursor = &s
 	}
+	c.LastSyncedAt = v.LastSyncedAt
+	c.LastSyncErrorClass = v.LastErrorClass
+	c.NextSyncDueAt = v.NextSyncDueAt
+	bf := backfillStatusPayload(v.Backfill)
+	c.Backfill = &bf
 	return c
 }
 
@@ -289,7 +298,7 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnauthorized,
-			Code:   "unauthenticated",
+			Code:   codeUnauthenticated,
 			Detail: "Connecting a mailbox is a signed-in human action.",
 		})
 		return

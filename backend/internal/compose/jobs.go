@@ -306,6 +306,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	if cfg.GmailRegistry != nil {
 		river.AddWorker(workers, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
 		river.AddWorker(workers, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
+		// Backfill jobs are enqueued by the api (start op); the worker role
+		// only needs the pager registered.
+		river.AddWorker(workers, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
 		// The dispatcher tick is a cheap indexed due-scan; per-connection
 		// pacing lives in the sidecar (next_sync_at = success + interval),
 		// so a frequent scan does not mean frequent provider calls.

@@ -177,26 +177,34 @@ func (r *Registry) BackfillStatus(ctx context.Context, provider string, userID i
 		if err != nil {
 			return err
 		}
-		row := tx.QueryRow(ctx, `
-			SELECT id, connection_id, window_months, after_date, status, cursor, total_estimate,
-			       scanned, captured, skipped, people_created, organizations_created, dedupe_candidates,
-			       started_at, completed_at, updated_at, last_error_class
-			FROM capture_backfill WHERE connection_id = $1
-			ORDER BY created_at DESC LIMIT 1`, connID)
-		var b BackfillRun
-		err = row.Scan(&b.ID, &b.ConnectionID, &b.WindowMonths, &b.AfterDate, &b.Status, &b.Cursor, &b.Estimate,
-			&b.Scanned, &b.Captured, &b.Skipped, &b.People, &b.Organizations, &b.DedupeCands,
-			&b.StartedAt, &b.CompletedAt, &b.UpdatedAt, &b.ErrorClass)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		run = &b
-		return nil
+		run, err = latestBackfill(ctx, tx, connID)
+		return err
 	})
 	return run, err
+}
+
+// latestBackfill reads one connection's newest backfill run within the
+// caller's transaction; no run at all is (nil, nil) — the contract's state
+// "none". The connection-list read shares this with BackfillStatus so the
+// two surfaces cannot drift.
+func latestBackfill(ctx context.Context, tx pgx.Tx, connID ids.UUID) (*BackfillRun, error) {
+	row := tx.QueryRow(ctx, `
+		SELECT id, connection_id, window_months, after_date, status, cursor, total_estimate,
+		       scanned, captured, skipped, people_created, organizations_created, dedupe_candidates,
+		       started_at, completed_at, updated_at, last_error_class
+		FROM capture_backfill WHERE connection_id = $1
+		ORDER BY created_at DESC LIMIT 1`, connID)
+	var b BackfillRun
+	err := row.Scan(&b.ID, &b.ConnectionID, &b.WindowMonths, &b.AfterDate, &b.Status, &b.Cursor, &b.Estimate,
+		&b.Scanned, &b.Captured, &b.Skipped, &b.People, &b.Organizations, &b.DedupeCands,
+		&b.StartedAt, &b.CompletedAt, &b.UpdatedAt, &b.ErrorClass)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil //nolint:nilnil // absence IS the answer: the contract's state "none", not an error
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
 }
 
 // CancelBackfill stops a live run; captured rows are retained (real
@@ -283,17 +291,18 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var cur []byte
+		statusExpr := "CASE WHEN status = 'queued' THEN 'running' ELSE status END"
+		terminal := ""
 		if res.NextToken != "" {
 			cur = []byte(fmt.Sprintf(`{"page_token":%q}`, res.NextToken))
-		}
-		terminal := ""
-		if res.NextToken == "" {
-			terminal = ", status = 'done', completed_at = now()"
+		} else {
+			statusExpr = "'done'"
+			terminal = ", completed_at = now()"
 		}
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
-			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END`+terminal+`
+			    status = `+statusExpr+terminal+`
 			WHERE id = $1 AND status IN ('queued','running')`,
 			backfillID, cur, res.Scanned, res.Captured, res.Skipped)
 		return err
