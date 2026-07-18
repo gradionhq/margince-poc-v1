@@ -141,5 +141,4 @@ func TestStandingIMAPConnectFailureMapping(t *testing.T) {
 			t.Fatalf("status = %d, want 500 (unsealable credential)", rec.Code)
 		}
 	})
-
 }
