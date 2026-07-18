@@ -28,8 +28,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 )
 
 const e2eSeedURL = "https://gradion.com"
@@ -39,7 +37,7 @@ const e2eSeedURL = "https://gradion.com"
 // (e.g. anthropic:claude-sonnet-4-6), or MARGINCE_AI_ROUTING a full
 // routing file. Missing both fails loudly: a quality gate that silently
 // skips looks exactly like one that passed.
-func e2eBrain(t *testing.T) (runner.Brain, string) {
+func e2eBrain(t *testing.T) (completer, string) {
 	t.Helper()
 	modelSpec := os.Getenv("MARGINCE_E2E_MODEL")
 	routing := os.Getenv("MARGINCE_AI_ROUTING")
