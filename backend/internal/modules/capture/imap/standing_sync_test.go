@@ -301,3 +301,55 @@ func TestStandingAuthenticateProbesAndSeals(t *testing.T) {
 		t.Fatal("a rejected login must fail the probe")
 	}
 }
+
+func TestStandingHealthCheckProbesTheMailbox(t *testing.T) {
+	addr, _ := startMemServer(t, 0)
+	c := NewStanding().withDialer(plainDialer(addr))
+	auth := standingAuth(t)
+
+	if err := c.HealthCheck(context.Background(), auth); err != nil {
+		t.Fatalf("a reachable mailbox must answer healthy: %v", err)
+	}
+	if err := c.HealthCheck(context.Background(), connector.Auth("not json")); err == nil {
+		t.Fatal("a malformed auth bundle must fail the probe, not panic")
+	}
+}
+
+func TestStandingSyncRefusesBadState(t *testing.T) {
+	c := NewStanding()
+
+	t.Run("a malformed auth bundle refuses", func(t *testing.T) {
+		if _, err := c.Sync(context.Background(), connector.Auth("not json"), nil, &recordingSink{}); err == nil {
+			t.Fatal("malformed auth must refuse the sync")
+		}
+	})
+	t.Run("a corrupt cursor stops rather than silently re-anchoring", func(t *testing.T) {
+		if _, err := c.Sync(context.Background(), standingAuth(t), connector.Cursor("{corrupt"), &recordingSink{}); err == nil {
+			t.Fatal("an unreadable cursor is corruption, not a fresh mailbox")
+		}
+	})
+	t.Run("cursor round-trip preserves the watermark", func(t *testing.T) {
+		got, err := parseIMAPCursor(marshalIMAPCursor(imapCursor{UIDValidity: 7, LastUID: 42, Email: memUser}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.UIDValidity != 7 || got.LastUID != 42 || got.Email != memUser {
+			t.Fatalf("round-trip = %+v", got)
+		}
+	})
+}
+
+// faultySink fails every write — the pull must stop and surface it.
+type faultySink struct{}
+
+func (faultySink) Upsert(context.Context, connector.NormalizedRecord) (datasource.EntityRef, error) {
+	return datasource.EntityRef{}, fmt.Errorf("sink: db down")
+}
+
+func TestStandingSyncSurfacesWriteFaults(t *testing.T) {
+	addr, _ := startMemServer(t, 3)
+	c := NewStanding().withDialer(plainDialer(addr))
+	if _, err := c.Sync(context.Background(), standingAuth(t), nil, faultySink{}); err == nil {
+		t.Fatal("a real Sink write fault must stop the pull, not vanish")
+	}
+}
