@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,6 +31,29 @@ type Sink struct {
 	pool       *pgxpool.Pool
 	stager     MergeStager
 	exclusions ExclusionRules
+	ensurer    CounterpartyEnsurer
+	freemail   *FreemailList
+}
+
+// CounterpartyEnsurer is the auto-create seam (ADR-0063): after a captured
+// mail activity commits, the pipeline ensures the human behind it exists —
+// person always, company unless suppressed — through the ONE dedupe
+// chokepoint. Compose injects the people module's implementation; capture
+// itself never touches person/organization SQL.
+type CounterpartyEnsurer interface {
+	EnsureCounterparty(ctx context.Context, in EnsureRequest) error
+}
+
+// EnsureRequest names one captured message's counterparty for the resolver.
+type EnsureRequest struct {
+	Email       string
+	DisplayName string // untrusted header text
+	Domain      string
+	OwnerID     ids.UUID // the granting human — owner of anything created
+	ActivityID  ids.UUID
+	Source      string
+	CapturedBy  string
+	SuppressOrg bool // free-mail domain: person yes, company no
 }
 
 // ExclusionRules is the RC-2 gate's seam: the caller's personal-mail rules,
@@ -73,14 +97,28 @@ func NewSink(pool *pgxpool.Pool) *Sink {
 
 // WithStager returns a copy wired to the merge-staging path.
 func (s *Sink) WithStager(stager MergeStager) *Sink {
-	return &Sink{pool: s.pool, stager: stager, exclusions: s.exclusions}
+	c := *s
+	c.stager = stager
+	return &c
 }
 
 // WithExclusions returns a copy wired to the RC-2 personal-mail exclusion
 // gate (CAP-DDL-3): before any write, a record matching the capturing
 // user's rules produces zero rows and one capture.skipped event.
 func (s *Sink) WithExclusions(rules ExclusionRules) *Sink {
-	return &Sink{pool: s.pool, stager: s.stager, exclusions: rules}
+	c := *s
+	c.exclusions = rules
+	return &c
+}
+
+// WithEnsurer returns a copy wired to the counterparty auto-create path;
+// freemail decides which domains never derive a company. nil ensurer keeps
+// capture activity-only (a role that wired no resolver).
+func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList) *Sink {
+	c := *s
+	c.ensurer = ensurer
+	c.freemail = freemail
+	return &c
 }
 
 var _ connector.Sink = (*Sink)(nil)
@@ -114,6 +152,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var ref datasource.EntityRef
 	var dedupeHit *ids.LeadID
 	var dedupeFields json.RawMessage
+	var activityCreated bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw
@@ -142,7 +181,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		switch fields := rec.Fields.(type) {
 		case ActivityFields:
 			var err error
-			ref, err = s.captureActivity(ctx, tx, rec, fields)
+			ref, activityCreated, err = s.captureActivity(ctx, tx, rec, fields)
 			return err
 		case LeadFields:
 			var err error
@@ -154,6 +193,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	})
 	if err != nil {
 		return datasource.EntityRef{}, err
+	}
+	if activityCreated {
+		// Auto-create runs AFTER the activity committed, in its own
+		// transaction: the timeline row is never lost to a resolver fault,
+		// and a fault here is logged for the nightly reconcile, not
+		// surfaced as a capture failure (the 60s p95 already delivered).
+		s.ensureCounterparty(ctx, rec, ref)
 	}
 	if dedupeHit != nil && s.stager != nil {
 		// Staged OUTSIDE the capture transaction on purpose: the capture
@@ -254,28 +300,55 @@ func (s *Sink) emitSkip(ctx context.Context, rec connector.NormalizedRecord, rul
 
 // captureActivity lands one activity: upsert on the natural key, links,
 // audit and event only when the row is new — a replay writes nothing.
-func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, error) {
+func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, error) {
 	id, created, err := s.upsertActivity(ctx, tx, rec, fields)
 	if err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
 	ref := datasource.EntityRef{Type: datasource.EntityActivity, ID: id.UUID}
 	if !created {
-		return ref, nil
+		return ref, false, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, fields)
 	if err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
 	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{
 		"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
 	}); err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
-	return ref, nil
+	if err := s.emitReply(ctx, tx, auditID, id, rec, fields); err != nil {
+		return datasource.EntityRef{}, false, err
+	}
+	return ref, true, nil
+}
+
+// emitReply is CAP-FORMULA-1: an INBOUND message in a thread we previously
+// wrote OUTBOUND in is a reply — the engagement signal scoring feeds on.
+// Emitted only when the activity row is new, so the at-least-once sync loop
+// cannot double-fire it; never a subject heuristic.
+func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id ids.ActivityID, rec connector.NormalizedRecord, fields ActivityFields) error {
+	if fields.Direction != "inbound" || rec.ThreadKey == "" {
+		return nil
+	}
+	var priorOutbound bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM activity
+			WHERE thread_key = $1 AND direction = 'outbound' AND id <> $2)`,
+		rec.ThreadKey, id).Scan(&priorOutbound); err != nil {
+		return fmt.Errorf("capture: reply detection: %w", err)
+	}
+	if !priorOutbound {
+		return nil
+	}
+	return storekit.Emit(ctx, tx, auditID, "engagement.reply", "activity", id.UUID, map[string]any{
+		"thread_key": rec.ThreadKey, fieldSourceSystem: rec.NaturalKey.SourceSystem,
+	})
 }
 
 // captureLead lands one lead behind the suppression and dedupe guards.
@@ -347,14 +420,14 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	occurredAt := defaultOccurredAt(fields.OccurredAt)
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by)
+		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9)
+		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''))
 		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy).Scan(&id)
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.
@@ -476,4 +549,91 @@ func captureSource(rec connector.NormalizedRecord) string {
 // connectorPrincipalID renders the audit identity for a connector.
 func connectorPrincipalID(name string) string {
 	return "connector:" + strings.TrimPrefix(name, "connector:")
+}
+
+// ensureCounterparty is the auto-create follow-up for one freshly captured
+// mail activity: the deterministic gates first (internal domain → skip
+// everything; free-mail → person only), then the resolver seam. Runs after
+// the capture transaction committed, and NEVER fails the capture — a fault
+// lands in system_log for the nightly reconcile (the link-less connector
+// activity is the retry marker).
+func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedRecord, ref datasource.EntityRef) {
+	cp := rec.Counterparty
+	if s.ensurer == nil || cp.Email == "" || ref.Type != datasource.EntityActivity {
+		return
+	}
+	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
+	owner := actor.OnBehalfOf
+	if owner.IsZero() {
+		owner = actor.UserID
+	}
+	if owner.IsZero() {
+		// RC-8: a capture connector always acts for a granting human; with
+		// no owner nothing can honestly own the created rows.
+		s.logEnsureFault(ctx, rec, errors.New("no granting human on the connector principal"))
+		return
+	}
+	internal, err := s.internalDomain(ctx, cp.Domain)
+	if err != nil {
+		s.logEnsureFault(ctx, rec, err)
+		return
+	}
+	if internal {
+		// Colleagues, not customers: mail on the workspace's own domain
+		// creates nothing.
+		return
+	}
+	suppressOrg := s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
+	err = s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
+		Email:       cp.Email,
+		DisplayName: cp.DisplayName,
+		Domain:      cp.Domain,
+		OwnerID:     owner,
+		ActivityID:  ref.ID,
+		Source:      captureSource(rec),
+		CapturedBy:  actor.ID,
+		SuppressOrg: suppressOrg,
+	})
+	if err != nil {
+		s.logEnsureFault(ctx, rec, err)
+	}
+}
+
+// internalDomain reports whether domain is one of the workspace's own mail
+// domains (the colleagues gate).
+func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) {
+	if domain == "" {
+		return false, nil
+	}
+	var internal bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM workspace_email_domain WHERE domain = lower($1))`,
+			domain).Scan(&internal)
+	})
+	if err != nil {
+		return false, fmt.Errorf("capture: internal-domain gate: %w", err)
+	}
+	return internal, nil
+}
+
+// logEnsureFault records an auto-create failure in system_log — the
+// activity is already committed and stays; the nightly reconcile re-runs
+// the resolver over link-less connector activities.
+func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecord, cause error) {
+	detail := map[string]any{
+		"reason":          "counterparty_ensure_failed",
+		fieldSourceSystem: rec.NaturalKey.SourceSystem,
+		"source_id":       rec.NaturalKey.SourceID,
+		"error":           cause.Error(),
+	}
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, logErr := storekit.LogSystem(ctx, tx, "capture_ensure_fault", detail)
+		return logErr
+	})
+	if err != nil {
+		// The ledger itself failed — nothing left but the process log; the
+		// nightly reconcile still finds the link-less activity.
+		slog.ErrorContext(ctx, "capture: recording ensure fault", "err", err, "cause", cause)
+	}
 }

@@ -60,6 +60,7 @@ func main() {
 type workerConfig struct {
 	dsn                string
 	configPath         string
+	freemailExtra      []string
 	redisAddr          string
 	routingPath        string
 	fakeBrain          bool
@@ -89,7 +90,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	var cfg workerConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
-		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors. A missing file boots with capture off")
+		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
@@ -145,6 +146,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The worker reads the same deployment file the api boots from: the
+	// capture pipeline tuning (capture.freemail_extra) and the operator's
+	// ai.capture_payloads posture the Surface-B runner honors. A missing
+	// file means defaults; a malformed one is a boot error (a typo must
+	// not silently drop the blocklist or flip the payload posture).
+	deployCfg, err := deployconfig.Load(cfg.configPath)
+	if err != nil {
+		return err
+	}
+	cfg.freemailExtra = deployCfg.Capture.FreemailExtra
 
 	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
@@ -157,15 +168,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer pool.Close()
-
-	// The Surface-B runner (below) runs on THIS process, so the operator's
-	// ai.capture_payloads posture must be read here too — not only in cmd/api.
-	// A missing file returns the zero config (capture off), keeping the
-	// no-config boot's behaviour; an invalid file is a boot error, same as api.
-	deployCfg, err := deployconfig.Load(cfg.configPath)
-	if err != nil {
-		return err
-	}
 
 	rdb, err := events.NewClient(ctx, cfg.redisAddr)
 	if err != nil {
@@ -277,7 +279,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	captureReg := compose.CaptureSyncRegistry(pool, vault, compose.GmailConfig{
 		ClientID:     cfg.gmailClientID,
 		ClientSecret: cfg.gmailClientSecret,
-	}).WithSyncInterval(cfg.gmailSyncInterval)
+	}, cfg.freemailExtra...).WithSyncInterval(cfg.gmailSyncInterval)
 	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
 	watchCfg := compose.GmailWatchConfig{
 		Interval:    cfg.gmailWatchInterval,

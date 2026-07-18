@@ -67,6 +67,8 @@ var tableOwners = map[string]string{
 	"organization_profile_field": "internal/modules/people",
 	"organization_fact":          "internal/modules/people",
 	"site_read":                  "internal/modules/people",
+	// DH-DDL-1: the pair verdicts live with the ONE dedupe implementation.
+	"dedupe_candidate": "internal/modules/people",
 	// deals (incl. the E03 offer engine: rate-card + versioned offers)
 	"deal":               "internal/modules/deals",
 	"pipeline":           "internal/modules/deals",
@@ -100,6 +102,7 @@ var tableOwners = map[string]string{
 	"capture_exclusion_rule": "internal/modules/capture",
 	"capture_sync_state":     "internal/modules/capture",
 	"capture_backfill":       "internal/modules/capture",
+	"workspace_email_domain": "internal/modules/capture",
 	// search
 	"embedding": "internal/modules/search",
 	// ai (voice DNA: the derived profile artifact + corpus manifest;

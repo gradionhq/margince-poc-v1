@@ -5,9 +5,11 @@ package capture
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -271,15 +273,50 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		if len(next) > 0 {
 			cur = []byte(next)
 		}
-		_, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			UPDATE capture_connection SET sync_cursor = $2
-			WHERE id = $1`, connectionID, cur)
-		return err
+			WHERE id = $1`, connectionID, cur); err != nil {
+			return err
+		}
+		return r.seedInternalDomain(ctx, tx, cur)
 	})
 	if err != nil {
 		return err
 	}
 	return r.recordSyncSuccess(ctx, connectionID)
+}
+
+// seedInternalDomain records the synced mailbox's own domain as a workspace
+// email domain (ADR-0063's colleagues gate) — the connector wrote its
+// mailbox identity into the cursor, and mail among addresses on this domain
+// must never auto-create customers. Free-mail domains never seed: a
+// gmail.com mailbox does not make gmail.com internal.
+func (r *Registry) seedInternalDomain(ctx context.Context, tx pgx.Tx, cursor []byte) error {
+	var identity struct {
+		Email string `json:"email"`
+	}
+	if len(cursor) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(cursor, &identity); err != nil {
+		// A cursor that is not a JSON identity object simply seeds nothing —
+		// the gate stays admin-fed for that connector, never a sync fault.
+		return nil //nolint:nilerr // deliberate: an identity-less cursor is a no-op, not an error
+	}
+	_, domain, found := strings.Cut(strings.ToLower(strings.TrimSpace(identity.Email)), "@")
+	if !found || domain == "" {
+		return nil
+	}
+	if r.sink != nil && r.sink.freemail != nil && r.sink.freemail.IsFreemail(domain) {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO workspace_email_domain (workspace_id, domain)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1)
+		ON CONFLICT DO NOTHING`, domain); err != nil {
+		return fmt.Errorf("capture: seeding workspace email domain: %w", err)
+	}
+	return nil
 }
 
 // resolveCredential turns a stored connection's credential into the opaque
