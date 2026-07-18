@@ -502,6 +502,16 @@ export const en = {
   "home.factorMomentum": "Momentum",
   "home.factorWarmth": "Warmth",
 
+  "home.digest": "Overnight capture",
+  "home.digestFor": "digest for {date}",
+  "home.digestSynced": "Emails synced",
+  "home.digestPeople": "People created",
+  "home.digestOrgs": "Companies created",
+  "home.digestApprovals": "Approvals pending",
+  "home.digestDedupe": "Duplicates to review",
+  "home.digestClassify":
+    "Classified overnight: {commitments} commitments · {meetings} meetings · {noise} noise",
+
   "enrich.title": "Read from the website",
   "enrich.sub":
     "evidence-or-omit — fills only empty fields, and only after your approval",
@@ -933,6 +943,23 @@ export const en = {
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
   "ob.s4.googleLive": "Connection verified — background capture is on",
+  "dedupe.title": "Possible duplicates",
+  "dedupe.intro":
+    "Pairs the capture pipeline flagged as likely the same person or company. Merging keeps both records' history; dismissing tells the system to never ask about this pair again.",
+  "dedupe.loading": "Loading the review queue…",
+  "dedupe.empty": "No duplicates waiting — the queue is clear.",
+  "dedupe.confidence": "Match confidence:",
+  "dedupe.field": "Field",
+  "dedupe.left": "Keep left",
+  "dedupe.right": "Keep right",
+  "dedupe.kindPerson": "Person",
+  "dedupe.kindOrganization": "Company",
+  "dedupe.mergeCta": "Merge into selected",
+  "dedupe.notDuplicateCta": "Not a duplicate",
+  "dedupe.decided": "Decision saved.",
+  "dedupe.undoCta": "Undo",
+  "dedupe.undone": "Pair re-opened.",
+  "dedupe.dismissNote": "Dismiss",
   "backfill.title": "Import your mail history",
   "backfill.intro":
     "Choose how far back to import. You'll see the scope and estimated cost before anything runs — and you can skip this entirely.",

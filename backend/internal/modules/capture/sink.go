@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/capture/exclusion"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -30,15 +29,8 @@ type Sink struct {
 	pool       *pgxpool.Pool
 	stager     MergeStager
 	exclusions ExclusionRules
-}
-
-// ExclusionRules is the RC-2 gate's seam: the caller's personal-mail rules,
-// loaded per capturing user. Injected so the ONE Sink runs the exclusion
-// gate for EVERY connector (imap one-shot, gmail sync) without any of them
-// knowing about it. nil means a role that wired no gate — then it is a
-// no-op and every record proceeds.
-type ExclusionRules interface {
-	RulesFor(ctx context.Context, userID ids.UUID) ([]exclusion.Rule, error)
+	ensurer    CounterpartyEnsurer
+	freemail   *FreemailList
 }
 
 // fieldSourceSystem is the shared audit/event key for the originating
@@ -73,14 +65,18 @@ func NewSink(pool *pgxpool.Pool) *Sink {
 
 // WithStager returns a copy wired to the merge-staging path.
 func (s *Sink) WithStager(stager MergeStager) *Sink {
-	return &Sink{pool: s.pool, stager: stager, exclusions: s.exclusions}
+	c := *s
+	c.stager = stager
+	return &c
 }
 
 // WithExclusions returns a copy wired to the RC-2 personal-mail exclusion
 // gate (CAP-DDL-3): before any write, a record matching the capturing
 // user's rules produces zero rows and one capture.skipped event.
 func (s *Sink) WithExclusions(rules ExclusionRules) *Sink {
-	return &Sink{pool: s.pool, stager: s.stager, exclusions: rules}
+	c := *s
+	c.exclusions = rules
+	return &c
 }
 
 var _ connector.Sink = (*Sink)(nil)
@@ -114,6 +110,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var ref datasource.EntityRef
 	var dedupeHit *ids.LeadID
 	var dedupeFields json.RawMessage
+	var activityCreated bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw
@@ -142,7 +139,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		switch fields := rec.Fields.(type) {
 		case ActivityFields:
 			var err error
-			ref, err = s.captureActivity(ctx, tx, rec, fields)
+			ref, activityCreated, err = s.captureActivity(ctx, tx, rec, fields)
 			return err
 		case LeadFields:
 			var err error
@@ -154,6 +151,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	})
 	if err != nil {
 		return datasource.EntityRef{}, err
+	}
+	if activityCreated {
+		// Auto-create runs AFTER the activity committed, in its own
+		// transaction: the timeline row is never lost to a resolver fault,
+		// and a fault here is logged for the nightly reconcile, not
+		// surfaced as a capture failure (the 60s p95 already delivered).
+		s.ensureCounterparty(ctx, rec, ref)
 	}
 	if dedupeHit != nil && s.stager != nil {
 		// Staged OUTSIDE the capture transaction on purpose: the capture
@@ -171,111 +175,76 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	return ref, nil
 }
 
-// gateExclusion applies the RC-2 personal-mail gate: a record matching one
-// of the capturing user's rules records the skip (audit + one
-// capture.skipped event) and returns ErrSkip — so the connector counts it
-// and writes nothing else; otherwise nil, and ingestion proceeds.
-func (s *Sink) gateExclusion(ctx context.Context, rec connector.NormalizedRecord) error {
-	rule, excluded, err := s.excluded(ctx, rec)
-	if err != nil {
-		return err
-	}
-	if !excluded {
-		return nil
-	}
-	if err := s.emitSkip(ctx, rec, rule); err != nil {
-		return err
-	}
-	return fmt.Errorf("capture: %s/%s excluded by a personal-mail rule (%s): %w",
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, rule.Kind, connector.ErrSkip)
-}
-
-// excluded reports whether this record matches one of the capturing user's
-// personal-mail rules (RC-2), and which rule. Only mail records carry match
-// attributes, so a record with none (a lead, a non-mail activity) never
-// loads the rule set — the gate is free for them. The rules are the
-// on-behalf-of human's (the connector acts for them); the read is
-// RLS-scoped to the workspace already on the context.
-func (s *Sink) excluded(ctx context.Context, rec connector.NormalizedRecord) (exclusion.Rule, bool, error) {
-	if s.exclusions == nil || !hasMatchAttrs(rec.Match) {
-		return exclusion.Rule{}, false, nil
-	}
-	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
-	userID := actor.OnBehalfOf
-	if userID.IsZero() {
-		userID = actor.UserID
-	}
-	if userID.IsZero() {
-		// Fail closed: a capture connector always acts for a granting human
-		// (RC-8). With no effective user we cannot evaluate the personal-mail
-		// gate — refuse rather than load rules for the nil user and let
-		// personal mail through unexcluded.
-		return exclusion.Rule{}, false, errors.New("capture: exclusion gate has no capturing user — refusing to ingest unexcluded")
-	}
-	rules, err := s.exclusions.RulesFor(ctx, userID)
-	if err != nil {
-		return exclusion.Rule{}, false, fmt.Errorf("capture: loading exclusion rules: %w", err)
-	}
-	rule, ok := exclusion.Match(rec.Match, rules)
-	return rule, ok, nil
-}
-
-// hasMatchAttrs reports whether a record carries anything the gate can match
-// — the cheap short-circuit that keeps non-mail writes off the rule query.
-func hasMatchAttrs(a connector.ExclusionAttrs) bool {
-	return a.SenderDomain != "" || len(a.RecipientDomains) > 0 || len(a.Labels) > 0
-}
-
-// emitSkip records an excluded message: one system_log 'capture_skip' row
-// (the non-entity operational ledger — an excluded message mutates nothing,
-// so it has no place in audit_log) paired with exactly one entity-less
-// capture.skipped{personal_exclusion} bus event, in one transaction. No
-// domain row, no raw original — the message leaves nothing else behind. The
-// event is entity-less by nature (a pipeline event, events envelope class);
-// its ledger trace link is the system_log row's id.
-func (s *Sink) emitSkip(ctx context.Context, rec connector.NormalizedRecord, rule exclusion.Rule) error {
-	detail := map[string]any{
-		"reason":          "personal_exclusion",
-		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"source_id":       rec.NaturalKey.SourceID,
-		"rule_kind":       rule.Kind,
-	}
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		ledgerID, err := storekit.LogSystem(ctx, tx, "capture_skip", detail)
-		if err != nil {
-			return fmt.Errorf("capture: logging exclusion skip: %w", err)
-		}
-		if err := storekit.EmitPipeline(ctx, tx, ledgerID, "capture.skipped", detail); err != nil {
-			return fmt.Errorf("capture: emitting capture.skipped: %w", err)
-		}
-		return nil
-	})
-}
-
 // captureActivity lands one activity: upsert on the natural key, links,
 // audit and event only when the row is new — a replay writes nothing.
-func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, error) {
+func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, error) {
 	id, created, err := s.upsertActivity(ctx, tx, rec, fields)
 	if err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
 	ref := datasource.EntityRef{Type: datasource.EntityActivity, ID: id.UUID}
 	if !created {
-		return ref, nil
+		return ref, false, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, fields)
 	if err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
 	if err := storekit.Emit(ctx, tx, auditID, "activity.captured", "activity", id.UUID, map[string]any{
 		"kind": fields.Kind, "source_system": rec.NaturalKey.SourceSystem,
 	}); err != nil {
-		return datasource.EntityRef{}, err
+		return datasource.EntityRef{}, false, err
 	}
-	return ref, nil
+	if err := s.emitReply(ctx, tx, auditID, id, rec, fields); err != nil {
+		return datasource.EntityRef{}, false, err
+	}
+	return ref, true, nil
+}
+
+// emitReply is CAP-FORMULA-1: an INBOUND message in a thread we previously
+// wrote OUTBOUND in is a reply — the engagement signal scoring feeds on.
+// Emitted only when the activity row is new, so the at-least-once sync loop
+// cannot double-fire it; never a subject heuristic.
+func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id ids.ActivityID, rec connector.NormalizedRecord, fields ActivityFields) error {
+	if fields.Direction != "inbound" || rec.ThreadKey == "" {
+		return nil
+	}
+	var matched ids.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT id FROM activity
+		WHERE thread_key = $1 AND direction = 'outbound' AND id <> $2
+		ORDER BY occurred_at DESC LIMIT 1`,
+		rec.ThreadKey, id).Scan(&matched)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("capture: reply detection: %w", err)
+	}
+	// contact_id resolves when the counterparty is already a person (the
+	// normal reply case — the outbound leg's ensure created them); a
+	// first-ever counterparty resolves in the follow-up ensure instead.
+	payload := map[string]any{
+		"matched_outbound_activity_id": matched.String(),
+		"channel":                      "email",
+		"occurred_at":                  defaultOccurredAt(fields.OccurredAt),
+		"idempotency_key":              rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID,
+	}
+	if cp := strings.ToLower(strings.TrimSpace(rec.Counterparty.Email)); cp != "" {
+		var personID ids.PersonID
+		err := tx.QueryRow(ctx, `
+			SELECT person_id FROM person_email WHERE email = $1 AND archived_at IS NULL
+			ORDER BY is_primary DESC LIMIT 1`, cp).Scan(&personID)
+		if err == nil {
+			payload["contact_id"] = personID.String()
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("capture: reply contact lookup: %w", err)
+		}
+	}
+	return storekit.Emit(ctx, tx, auditID, "engagement.reply", "activity", id.UUID, payload)
 }
 
 // captureLead lands one lead behind the suppression and dedupe guards.
@@ -347,14 +316,14 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	occurredAt := defaultOccurredAt(fields.OccurredAt)
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by)
+		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9)
+		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''))
 		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy).Scan(&id)
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.

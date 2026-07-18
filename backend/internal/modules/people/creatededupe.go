@@ -7,10 +7,10 @@ package people
 // manual policy: exact→refuse (the unclaimed pre-checks and unique
 // indexes already answer that tier with the 409 contract), fuzzy→create
 // AND record — a probability never blocks a human, but the pair must not
-// vanish either. Until the dedupe_candidate queue lands (DH-DDL-1), the
-// system_log ledger is the recording mechanism: one append-only line
-// inside the create's own transaction, so the record and its review
-// trail commit or roll back together.
+// vanish either. The recording is the DH-DDL-1 review queue itself (an
+// open dedupe_candidate row the human dispositions) plus the append-only
+// system_log ledger line, both inside the create's own transaction, so
+// the record and its review trail commit or roll back together.
 
 import (
 	"context"
@@ -52,24 +52,48 @@ func manualDedupeOrganization(ctx context.Context, tx pgx.Tx, in CreateOrganizat
 
 // recordIfReview leaves the review trail when the match is a fuzzy hit;
 // any other decision writes nothing.
-func (m PersonMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.PersonID) error {
+func (m PersonMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.PersonID, createdName, source, by string) error {
 	if m.Decision != DecisionFuzzyReview {
 		return nil
 	}
-	return recordNearMatch(ctx, tx, "person", createdID.UUID, m.PersonID.UUID, m.Confidence)
+	var incumbent string
+	if err := tx.QueryRow(ctx, `SELECT full_name FROM person WHERE id = $1`, m.PersonID).Scan(&incumbent); err != nil {
+		return fmt.Errorf("reading person near-match incumbent: %w", err)
+	}
+	return recordNearMatch(ctx, tx, entityPerson, createdID.UUID, m.PersonID.UUID, m.Confidence,
+		nearMatchEvidence(fieldFullName, createdName, incumbent, m.Confidence), source, by)
 }
 
-func (m OrganizationMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.OrganizationID) error {
+func (m OrganizationMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.OrganizationID, createdName, source, by string) error {
 	if m.Decision != DecisionFuzzyReview {
 		return nil
 	}
-	return recordNearMatch(ctx, tx, "organization", createdID.UUID, m.OrganizationID.UUID, m.Confidence)
+	var incumbent string
+	if err := tx.QueryRow(ctx, `SELECT display_name FROM organization WHERE id = $1`, m.OrganizationID).Scan(&incumbent); err != nil {
+		return fmt.Errorf("reading organization near-match incumbent: %w", err)
+	}
+	return recordNearMatch(ctx, tx, entityOrganization, createdID.UUID, m.OrganizationID.UUID, m.Confidence,
+		nearMatchEvidence(fieldDisplayName, createdName, incumbent, m.Confidence), source, by)
 }
 
-// recordNearMatch writes the one append-only dedupe_near_match ledger
-// line naming the created record, the incumbent it nearly matched, and
-// the PO-F confidence that put the pair over the review threshold.
-func recordNearMatch(ctx context.Context, tx pgx.Tx, entityType string, createdID, matchedID ids.UUID, confidence float64) error {
+// nearMatchEvidence is the detection-time snapshot the review queue
+// renders (DH-N-8) — the same shape ensure.go captures for connector
+// creates: the colliding name pair and the PO-F score behind it.
+func nearMatchEvidence(field, created, incumbent string, confidence float64) []map[string]any {
+	return []map[string]any{
+		{evidenceFieldKey: field, evidenceLeftKey: created, evidenceRightKey: incumbent, evidenceSignalKey: "collide", evidenceScoreKey: confidence},
+	}
+}
+
+// recordNearMatch leaves the fuzzy pair for review: one open
+// dedupe_candidate row (DH-DDL-1 — the queue the human actually works)
+// plus the append-only dedupe_near_match ledger line, both inside the
+// create's own transaction so the record and its review trail commit or
+// roll back together.
+func recordNearMatch(ctx context.Context, tx pgx.Tx, entityType string, createdID, matchedID ids.UUID, confidence float64, evidence []map[string]any, source, by string) error {
+	if _, err := recordDedupeCandidate(ctx, tx, entityType, createdID, matchedID, confidence, evidence, source, by); err != nil {
+		return fmt.Errorf("record %s near-match candidate: %w", entityType, err)
+	}
 	if _, err := storekit.LogSystem(ctx, tx, "dedupe_near_match", map[string]any{
 		"entity_type": entityType,
 		"created_id":  createdID.String(),

@@ -130,7 +130,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		if err := storekit.Emit(ctx, tx, auditID, "person.created", "person", id.UUID, map[string]any{"full_name": in.FullName}); err != nil {
 			return fmt.Errorf("emit person.created: %w", err)
 		}
-		if err := match.recordIfReview(ctx, tx, id); err != nil {
+		if err := match.recordIfReview(ctx, tx, id, in.FullName, in.Source, by); err != nil {
 			return err
 		}
 

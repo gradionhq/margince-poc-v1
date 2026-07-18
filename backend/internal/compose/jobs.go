@@ -246,6 +246,13 @@ type JobRunnerConfig struct {
 	TimeScanInterval  time.Duration
 	GmailRegistry     *capture.Registry
 	GmailWatch        GmailWatchConfig
+	// ClassifyBrain is the capture-classify model lane (the worker's
+	// modelPath.CaptureClassify). Nil = no AI configured — the label pass
+	// is absent by omission and mail simply stays unlabeled (honest no-op).
+	ClassifyBrain completer
+	// EnrichBrain is the signature-enrich lane; nil = the pass is absent
+	// by omission and connector-created people keep their empty fields.
+	EnrichBrain completer
 	// DeepReadBrain is the model lane the site deep-read job extracts with
 	// (the worker's modelPath.SiteExtract — the crawl's own routing
 	// dial). May be nil: the deep-read worker still registers, so a
@@ -303,7 +310,41 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		),
 	}
 
+	if cfg.ClassifyBrain != nil {
+		river.AddWorker(workers, &captureClassifyWorker{
+			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
+		})
+		// The hourly catch-up pass (ADR-0063): the nightly suite reruns the
+		// same engine; the backlog index makes an empty pass one cheap probe.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureClassifyArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	if cfg.EnrichBrain != nil {
+		river.AddWorker(workers, &captureEnrichWorker{
+			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
+		})
+		// Daily (the ADR-0063 nightly cadence rides the same job until the
+		// nightly dispatcher lands); run-on-start clears any backlog early.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureEnrichArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
 	if cfg.GmailRegistry != nil {
+		river.AddWorker(workers, &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log})
+		// The digest builds daily after the overnight passes; run-on-start
+		// backfills a missed night so mornings are never silently empty.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureDigestArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 		river.AddWorker(workers, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
 		river.AddWorker(workers, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
 		// Backfill jobs are enqueued by the api (start op); the worker role

@@ -79,6 +79,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(missing.Field, "required", missing.Error()))
 		return
 	}
+	var dedupeInput *DedupeInputError
+	if errors.As(err, &dedupeInput) {
+		httperr.Write(w, r, httperr.Validation(dedupeInput.Field, "invalid", dedupeInput.Error()))
+		return
+	}
 	var dupEmail *DuplicateEmailError
 	if errors.As(err, &dupEmail) {
 		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupEmail.ExistingID.UUID)))
