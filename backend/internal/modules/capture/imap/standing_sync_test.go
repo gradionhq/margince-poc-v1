@@ -42,8 +42,9 @@ func (r *recordingSink) Upsert(_ context.Context, rec connector.NormalizedRecord
 
 const memUser = "owner@ws.example"
 
-// memPass is generated per run so no password-shaped literal lives in the
-// tree (secret scanners cannot tell a fixture from a leak).
+// memPass is generated per run: the tree carries no password-shaped
+// literal, so a fixture can never be mistaken for (or age into) a real
+// credential.
 var memPass = testSecret()
 
 func testSecret() string {

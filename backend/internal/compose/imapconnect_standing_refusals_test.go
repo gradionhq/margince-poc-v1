@@ -25,7 +25,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-func postIMAPConnect(ctx context.Context, t *testing.T, h connectorHandlers, body map[string]any) *httptest.ResponseRecorder {
+// imapConnectBody is the typed wire fixture for the connect request — the
+// fields stay compile-time aligned with the contract's imap block.
+type imapConnectBody struct {
+	Imap *imapCredsBody `json:"imap,omitempty"`
+}
+
+type imapCredsBody struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Secret   string `json:"secret"`
+}
+
+func postIMAPConnect(ctx context.Context, t *testing.T, h connectorHandlers, body imapConnectBody) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -59,8 +72,8 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 			return nil, imap.ErrLoginRejected
 		},
 	}
-	creds := map[string]any{"imap": map[string]any{
-		"host": "mail.example", "port": 993, "username": "a@b.example", "secret": "s",
+	creds := imapConnectBody{Imap: &imapCredsBody{
+		Host: "mail.example", Port: 993, Username: "a@b.example", Secret: "s",
 	}}
 
 	t.Run("signed out is 401", func(t *testing.T) {
@@ -82,7 +95,7 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 	authed := imapConnectCtx(t, principal.ScopeRead)
 
 	t.Run("a missing credential block is 422", func(t *testing.T) {
-		if rec := postIMAPConnect(authed, t, h, map[string]any{}); rec.Code != http.StatusUnprocessableEntity {
+		if rec := postIMAPConnect(authed, t, h, imapConnectBody{}); rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422", rec.Code)
 		}
 	})
@@ -108,8 +121,8 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 
 func TestStandingIMAPConnectFailureMapping(t *testing.T) {
 	authed := imapConnectCtx(t, principal.ScopeRead)
-	creds := map[string]any{"imap": map[string]any{
-		"host": "mail.example", "port": 993, "username": "a@b.example", "secret": "s",
+	creds := imapConnectBody{Imap: &imapCredsBody{
+		Host: "mail.example", Port: 993, Username: "a@b.example", Secret: "s",
 	}}
 
 	t.Run("an unclassified probe error is an opaque 500", func(t *testing.T) {
