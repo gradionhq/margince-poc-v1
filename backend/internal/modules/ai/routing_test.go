@@ -46,6 +46,38 @@ profile: eu_hosted
 	}
 }
 
+// TestParseRoutingSetsDeterministicSourceHash pins the routing half of the
+// spec §4 config-snapshot key: the same yaml bytes always produce the same
+// digest (Router.installConfigSnapshot relies on this for the ON CONFLICT
+// DO NOTHING dimension row to actually collapse), and a change to the
+// bytes must change the digest — an operator swapping providers must
+// produce a NEW config-snapshot row, not silently reuse the old one's hash.
+func TestParseRoutingSetsDeterministicSourceHash(t *testing.T) {
+	cfg := []byte("profile: eu_hosted\ntiers:\n  cheap_cloud: {provider: fake}\nembeddings: {provider: fake}\n")
+	first, err := ParseRouting(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := ParseRouting(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.sourceHash == "" {
+		t.Fatal("sourceHash must be set on a successfully parsed config")
+	}
+	if first.sourceHash != second.sourceHash {
+		t.Fatalf("identical bytes produced different hashes: %q vs %q", first.sourceHash, second.sourceHash)
+	}
+	changed := []byte("profile: eu_hosted\ntiers:\n  cheap_cloud: {provider: fake, model: other}\nembeddings: {provider: fake}\n")
+	third, err := ParseRouting(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.sourceHash == first.sourceHash {
+		t.Fatal("a changed routing config must produce a different sourceHash")
+	}
+}
+
 // A cloud provider on any tier or the embeddings lane is refused under the
 // sovereign profile — zero egress by construction (spec §3.6).
 func TestSovereignRefusesOpenAICompatible(t *testing.T) {

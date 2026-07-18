@@ -8,9 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"time"
 
@@ -42,45 +40,6 @@ type routeMeta struct {
 	model    string
 }
 
-// Served-identity sources for Call.ServedIdentitySource: how trustworthy a
-// provider's model.Response.ServedModel is. servedIdentitySourceResponse is a
-// dedicated wire field the vendor sets independently ("model" on Anthropic/
-// Ollama/OpenAI, "modelVersion" on Gemini, the fake's own literal).
-// servedIdentitySourceEcho is the generic OpenAI-compatible wire
-// (openai_compatible, vllm) whose "model" field is only ever the request's
-// own model back-reflected — never confirmed against what actually generated
-// the completion. servedIdentitySourceConfigured is the fallback when the
-// provider reported no identity at all.
-const (
-	servedIdentitySourceResponse   = "response"
-	servedIdentitySourceEcho       = "echo"
-	servedIdentitySourceConfigured = "configured"
-)
-
-// servedSource maps a provider to its served-identity source.
-var servedSource = map[string]string{
-	providerAnthropic:        servedIdentitySourceResponse,
-	providerOllama:           servedIdentitySourceResponse,
-	providerGemini:           servedIdentitySourceResponse,
-	providerOpenAI:           servedIdentitySourceResponse,
-	providerOpenAICompatible: servedIdentitySourceEcho,
-	providerVLLM:             servedIdentitySourceEcho,
-	ProviderFake:             servedIdentitySourceResponse,
-}
-
-// servedIdentity resolves a trace's served-model fields: the response's own
-// reported identity wins, tagged with how trustworthy that report is; an empty
-// report (the provider named none, or the call never reached a provider at
-// all — a total ladder failure) falls back to the tier's configured binding,
-// honestly labeled servedIdentitySourceConfigured rather than passed off as
-// confirmed.
-func servedIdentity(provider, configuredModel, respServedModel string) (servedModel, source string) {
-	if respServedModel == "" {
-		return configuredModel, servedIdentitySourceConfigured
-	}
-	return respServedModel, servedSource[provider]
-}
-
 // Router is the tiered routing engine (B-EP06.4): tasks name tiers,
 // tiers resolve to bound Clients, the budget guardrail bends the route
 // before the call, and every call lands in the meter. This is the one
@@ -103,6 +62,21 @@ type Router struct {
 	// the cert lane and scripted repeat-call tests need every call to reach
 	// the model, not collapse onto a cached answer.
 	cacheOff bool
+	// configSnapshot/configHash are this Router's ai_call_config dimension
+	// row and its primary key, computed once at construction (NewRouter /
+	// NewLocalRouter). Zero value ("") on a Router assembled without a
+	// RoutingConfig (most unit tests via assembleRouter directly) — flush
+	// then skips EnsureConfig and leaves every attempt's ConfigHash nil.
+	configSnapshot ConfigSnapshot
+	configHash     string
+}
+
+// installConfigSnapshot computes and stores this Router's config-snapshot
+// dimension row from the routing yaml's digest (RoutingConfig.sourceHash).
+// Pure — no DB access; EnsureConfig plants the row lazily, once per flush.
+func (r *Router) installConfigSnapshot(routingConfigHash string) {
+	r.configSnapshot = newConfigSnapshot(routingConfigHash)
+	r.configHash = r.configSnapshot.Hash
 }
 
 // RouteInfo tells the caller how its request was actually served — the
@@ -128,7 +102,9 @@ func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callS
 	for tier, binding := range cfg.Tiers {
 		meta[tier] = routeMeta{provider: binding.Provider, model: binding.Model}
 	}
-	return assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log), nil
+	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
+	router.installConfigSnapshot(cfg.sourceHash)
+	return router, nil
 }
 
 // assembleRouter is the seam unit tests inject fakes through.
@@ -158,7 +134,8 @@ func assembleRouter(clients map[Tier]model.Client, embedder model.Client, profil
 }
 
 // Complete routes one task to a completion. The request names no model:
-// the resolved tier's binding supplies it.
+// the resolved tier's binding supplies it. It is exactly one logical
+// call — mint, attempt, flush.
 func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (model.Response, RouteInfo, error) {
 	ladder, ok := taskLadders[task]
 	if !ok {
@@ -167,14 +144,26 @@ func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (mo
 	return r.serveCompletion(ctx, task, ladder, req)
 }
 
-// serveCompletion serves one call over an explicit ladder — Complete
-// passes the task default, the structured-output pipeline passes an
-// escalated suffix.
-func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, req model.Request) (resp model.Response, info RouteInfo, err error) {
+// serveCompletion serves one call over an explicit ladder as its OWN
+// logical call — the seam router unit tests drive directly, and the
+// convenience wrapper Complete uses for its single-attempt case.
+func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
+	lc := newLogicalCall()
+	resp, info, err := r.serveAttempt(ctx, lc, task, ladder, req, "")
+	r.flushDetached(ctx, lc)
+	return resp, info, err
+}
+
+// serveAttempt serves ONE attempt over ladder and appends its trace to lc
+// — it never flushes. CompleteStructured (structured.go) calls this
+// directly, threading one shared lc across the whole retry/escalation
+// chain so every rung the caller's request actually walked lands under
+// one LogicalCallID; serveCompletion wraps it for the single-attempt case.
+func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, ladder []Tier, req model.Request, reason string) (resp model.Response, info RouteInfo, err error) {
 	rawWS, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		// No workspace ⇒ no RLS-writable trace row; fail before installing
-		// the recorder so we never attempt a tenant write outside a tenant.
+		// No workspace ⇒ no RLS-writable trace row; fail before building
+		// the trace so we never attempt a tenant write outside a tenant.
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: task %s outside workspace context", task)
 	}
 	wsID := ids.From[ids.WorkspaceKind](rawWS)
@@ -187,16 +176,13 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 		return model.Response{}, RouteInfo{}, keyErr
 	}
 
-	// Every ROUTING terminal below is traced: one ai_call row for the served
-	// call, the cache hit, or the failure. The earlier workspace-context and
-	// cache-key failures return before this recorder is installed and are not
-	// traced (no RLS-writable row exists yet, and no route was attempted). The
-	// recorder is best-effort — a trace-write failure is logged, never
-	// returned, so observability can't become a new way for a working model
-	// call to fail (contrast the meter, which fails loudly to protect the
-	// budget guardrail).
+	// Every ROUTING terminal below is traced: one Call appended to lc for
+	// the served call, the cache hit, or the failure. The earlier
+	// workspace-context and cache-key failures return before this trace is
+	// built and are not traced (no RLS-writable row exists yet, and no
+	// route was attempted).
 	start := r.now()
-	trace := Call{Task: task, RequestFingerprint: key}
+	trace := Call{Task: task, Kind: callKindCompletion, RequestFingerprint: key, AttemptReason: reason, CacheOff: r.cacheOff}
 	if cid, ok := principal.CorrelationID(ctx); ok {
 		trace.CorrelationID = &cid
 	}
@@ -204,24 +190,7 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 		trace.AgentRunID = &rid
 	}
 	defer func() {
-		trace.LatencyMS = r.now().Sub(start).Milliseconds()
-		trace.ErrorSentinel = classifyError(err)
-		// Stamped from the Router's own posture, not per-request: a
-		// cache-off Router never consulted the cache for this call, so
-		// every one of its traces says so, hit-or-miss.
-		trace.CacheOff = r.cacheOff
-		if m := r.routeMeta[trace.Tier]; trace.Tier != "" {
-			trace.Provider, trace.ModelID = m.provider, m.model
-		}
-		trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, resp.ServedModel)
-		// The trace write must outlive request cancellation: a timed-out or
-		// canceled call is exactly the terminal worth recording, and the
-		// workspace GUC values ride context values, which WithoutCancel
-		// preserves. The bound keeps a dead trace store from pinning the
-		// request goroutine.
-		traceCtx, cancelTrace := context.WithTimeout(context.WithoutCancel(ctx), traceWriteTimeout)
-		defer cancelTrace()
-		r.observeCall(traceCtx, trace, req, resp)
+		r.finalizeAttempt(ctx, lc, &trace, req, resp, err, start)
 	}()
 
 	ladder, degraded, budgetErr := r.applyBudget(ctx, task, wsID, ladder)
@@ -229,6 +198,12 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 		return model.Response{}, RouteInfo{}, budgetErr
 	}
 	trace.Degraded = degraded
+	if degraded {
+		// The budget guardrail forced a demoted ladder — worth naming even
+		// on what is otherwise attempt 1, since it explains why this
+		// attempt did not run the caller's default route.
+		trace.AttemptReason = attemptReasonBudgetDegrade
+	}
 	ladder = r.applyProfile(ladder)
 
 	// A cached answer only serves when its tier is still on the adjusted
@@ -239,17 +214,10 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	// scripted repeat-call tests) never consults it: every call must reach
 	// the model.
 	if cached, tier, hit := r.cache.get(key, wsID); !r.cacheOff && hit && tierOnLadder(ladder, tier) {
-		trace.Tier, trace.CacheHit = tier, true
-		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); meterErr != nil {
-			// A served (cache-hit) call whose metering failed: label it as a
-			// metering failure, not a provider error — the tier is already set.
-			return model.Response{}, RouteInfo{}, fmt.Errorf("ai: metering cache hit: %w", errors.Join(errMeteringFailed, meterErr))
-		}
-		m := r.routeMeta[tier]
-		return cached, RouteInfo{Tier: tier, Provider: m.provider, ModelID: m.model, Degraded: degraded, Cached: true}, nil
+		return r.serveCacheHit(ctx, &trace, task, tier, cached, degraded)
 	}
 
-	out, tier, served, ladderErr := r.attemptLadder(ctx, task, ladder, req, key, wsID)
+	out, tier, served, ladderErr := r.attemptLadder(ctx, lc, trace, task, ladder, req, key, wsID, start)
 	// Stamp tier and usage even when the ladder returns an error: a
 	// metering failure of a successfully-served call still spent provider
 	// tokens on a real tier, and an all-rungs-failed walk names the last
@@ -269,89 +237,10 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	return model.Response{}, RouteInfo{}, fmt.Errorf("ai: no bound tier can serve %s in profile %s", task, r.profile)
 }
 
-// attemptLadder walks the (already budget- and profile-adjusted) tier
-// ladder, calling the first bound client that succeeds. A provider error
-// falls through to the next rung (§1.2); the last rung's failure is what
-// the caller sees. On success the served response is metered (failing
-// loudly — unmetered spend would quietly hollow out the budget guardrail)
-// and cached before it is returned to serveCompletion for tracing.
-func (r *Router) attemptLadder(ctx context.Context, task Task, ladder []Tier, req model.Request, key string, wsID ids.WorkspaceID) (resp model.Response, tier Tier, served bool, err error) {
-	var lastErr error
-	var lastTier Tier
-	for _, t := range ladder {
-		client, bound := r.clients[t]
-		if !bound {
-			continue
-		}
-		lastTier = t
-		out, callErr := client.Complete(ctx, req)
-		if callErr != nil {
-			lastErr = callErr
-			continue
-		}
-		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: t, TokensIn: out.InputTokens, TokensOut: out.OutputTokens, CachedTokens: out.CachedTokens, ReasoningTokens: out.ReasoningTokens}); meterErr != nil {
-			// Return the served response and tier even though the call fails:
-			// provider tokens were spent, and the trace must bill them to the
-			// tier that answered. errMeteringFailed keeps classifyError from
-			// mislabeling this a provider error.
-			return out, t, false, fmt.Errorf("ai: call served but metering failed: %w", errors.Join(errMeteringFailed, meterErr))
-		}
-		if !r.cacheOff {
-			r.cache.put(key, wsID, out, t)
-		}
-		return out, t, true, nil
-	}
-	if lastErr != nil {
-		// lastTier names the rung whose failure the caller sees, so the
-		// trace records where the walk died instead of an empty tier.
-		return model.Response{}, lastTier, false, fmt.Errorf("ai: every bound tier failed for %s: %w", task, lastErr)
-	}
-	return model.Response{}, "", false, nil
-}
-
-// tierOnLadder reports whether t survives on the budget- and
-// profile-adjusted ladder.
-func tierOnLadder(ladder []Tier, t Tier) bool {
-	for _, rung := range ladder {
-		if rung == t {
-			return true
-		}
-	}
-	return false
-}
-
-// observeCall writes the ai_call trace row, emits router slog, and bumps
-// the /metrics counters. Trace-write failure is logged, not returned.
-func (r *Router) observeCall(ctx context.Context, c Call, req model.Request, resp model.Response) {
-	if r.capturePayloads && c.ErrorSentinel == "" && !c.CacheHit {
-		if p, perr := r.buildPayload(ctx, req, resp); perr != nil {
-			r.log.WarnContext(ctx, "ai: payload capture failed", "err", perr)
-		} else {
-			c.Payload = p
-		}
-	}
-	if r.metrics != nil {
-		r.metrics.observe(c)
-	}
-	r.log.InfoContext(ctx, "ai.call",
-		"task", string(c.Task), "tier", string(c.Tier), "provider", c.Provider,
-		"tokens_in", c.TokensIn, "tokens_out", c.TokensOut, "latency_ms", c.LatencyMS,
-		"cache_hit", c.CacheHit, "degraded", c.Degraded, "error", c.ErrorSentinel)
-	if r.calls == nil {
-		return
-	}
-	if err := r.calls.Record(ctx, c); err != nil {
-		r.log.ErrorContext(ctx, "ai: recording call trace failed", "task", string(c.Task), "err", err)
-	}
-}
-
-// WriteMetrics renders the router's AI counters in Prometheus text form —
-// the composition layer wires it into the /metrics handler.
-func (r *Router) WriteMetrics(w io.Writer) { r.metrics.WritePrometheus(w) }
-
 // Embed routes the embedding lane. Inputs are stripped before egress —
 // the EmbedRequest carries no per-request hook, so the router is the
-// enforcement point here.
+// enforcement point here. One provider call is exactly one logical call —
+// the embed lane has no retry ladder to bundle.
 func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
 	if _, ok := principal.WorkspaceID(ctx); !ok {
 		return model.Embeddings{}, fmt.Errorf("ai: embeddings outside workspace context")
@@ -365,7 +254,24 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 		stripped[i] = string(clean)
 	}
 	req.Inputs = stripped
+
+	start := r.now()
 	res, err := r.embedder.Embed(ctx, req)
+	trace := Call{Task: TaskEmbeddings, Tier: TierEmbedLane, Kind: callKindEmbedding, CacheOff: r.cacheOff, LatencyMS: r.now().Sub(start).Milliseconds()}
+	if cid, ok := principal.CorrelationID(ctx); ok {
+		trace.CorrelationID = &cid
+	}
+	if m, ok := r.routeMeta[TierEmbedLane]; ok {
+		trace.Provider, trace.ModelID = m.provider, m.model
+	}
+	trace.ErrorSentinel = classifyError(err)
+	// model.Embeddings carries no served-model identity (no adapter reports
+	// one for the embed lane today), so this always falls back to the
+	// tier's configured binding.
+	trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, "")
+	lc := newLogicalCall()
+	lc.append(trace)
+	r.flushDetached(ctx, lc)
 	if err != nil {
 		return model.Embeddings{}, err
 	}

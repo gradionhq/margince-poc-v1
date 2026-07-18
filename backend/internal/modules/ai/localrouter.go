@@ -100,6 +100,7 @@ func NewLocalRouter(cfg RoutingConfig, opts ...LocalOption) (*Router, error) {
 	// caller into tracing.
 	router := assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, StaticBudget(o.monthlyBudget), o.callStore, meta, false, nil)
 	router.cacheOff = o.cacheOff
+	router.installConfigSnapshot(cfg.sourceHash)
 	return router, nil
 }
 

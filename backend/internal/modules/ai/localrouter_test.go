@@ -19,10 +19,12 @@ type memCallStore struct {
 	calls []Call
 }
 
-func (s *memCallStore) Record(_ context.Context, c Call) error {
-	s.calls = append(s.calls, c)
+func (s *memCallStore) Record(_ context.Context, attempts []Call) error {
+	s.calls = append(s.calls, attempts...)
 	return nil
 }
+
+func (s *memCallStore) EnsureConfig(context.Context, ConfigSnapshot) error { return nil }
 
 // localFakeConfig binds one tier (and the embeddings lane) to the fake
 // provider so cfg.buildClients() succeeds without a real routing file —

@@ -39,22 +39,28 @@ func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 	meter := ai.NewCallMeter(e.Pool)
 
 	corr := ids.NewV7()
+	logical := ids.NewV7()
 	// The stored payload is post-SecretStripper content: the request body
 	// carries the message text, and it must round-trip verbatim — nothing
 	// the caller never put there (a raw credential) may appear.
 	request := json.RawMessage(`{"system":"be concise","messages":[{"role":"user","content":"summarize Q3"}]}`)
 	response := json.RawMessage(`{"text":"Q3 was up 12%"}`)
-	if err := meter.Record(ctx, ai.Call{
-		CorrelationID:      &corr,
-		Task:               ai.TaskSummarize,
-		Tier:               ai.TierCheapCloud,
-		Provider:           "anthropic",
-		ModelID:            "claude-cheap",
-		RequestFingerprint: "fp-1",
-		TokensIn:           100,
-		TokensOut:          40,
-		Payload:            &ai.Payload{Request: request, Response: response},
-	}); err != nil {
+	if err := meter.Record(ctx, []ai.Call{{
+		LogicalCallID:        logical,
+		Attempt:              1,
+		IsTerminal:           true,
+		Kind:                 "completion",
+		CorrelationID:        &corr,
+		Task:                 ai.TaskSummarize,
+		Tier:                 ai.TierCheapCloud,
+		Provider:             "anthropic",
+		ModelID:              "claude-cheap",
+		ServedIdentitySource: "response",
+		RequestFingerprint:   "fp-1",
+		TokensIn:             100,
+		TokensOut:            40,
+		Payload:              &ai.Payload{Request: request, Response: response},
+	}}); err != nil {
 		t.Fatalf("record with payload: %v", err)
 	}
 
@@ -98,10 +104,12 @@ func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 	}
 
 	// A call WITHOUT a payload writes metadata only.
-	if err := meter.Record(ctx, ai.Call{
+	if err := meter.Record(ctx, []ai.Call{{
+		LogicalCallID: ids.NewV7(), Attempt: 1, IsTerminal: true, Kind: "completion",
 		Task: ai.TaskSummarize, Tier: ai.TierPremium, Provider: "anthropic",
-		ModelID: "claude-premium", RequestFingerprint: "fp-2", TokensIn: 10, TokensOut: 5,
-	}); err != nil {
+		ModelID: "claude-premium", ServedIdentitySource: "response",
+		RequestFingerprint: "fp-2", TokensIn: 10, TokensOut: 5,
+	}}); err != nil {
 		t.Fatalf("record without payload: %v", err)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM ai_call`); n != 2 {
@@ -112,6 +120,153 @@ func TestCallMeterWritesTraceAndOptInPayload(t *testing.T) {
 	}
 }
 
+// TestRecordWritesEveryAttemptOfOneLogicalCallInOneTransaction proves the
+// grain-change contract at the store (spec §4): a batch of attempts
+// sharing one LogicalCallID lands as that many ai_call rows, with
+// attempt/is_terminal round-tripping, and only the attempt carrying a
+// Payload gets an ai_call_payload row — the others (superseded, non-
+// terminal rungs) get none even though they share the transaction.
+func TestRecordWritesEveryAttemptOfOneLogicalCallInOneTransaction(t *testing.T) {
+	e := Setup(t)
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	meter := ai.NewCallMeter(e.Pool)
+
+	logical := ids.NewV7()
+	terminalPayload := &ai.Payload{Request: json.RawMessage(`{"messages":[]}`), Response: json.RawMessage(`{"text":"ok"}`)}
+	attempts := []ai.Call{
+		{
+			LogicalCallID: logical, Attempt: 1, IsTerminal: false, AttemptReason: "provider_error",
+			Kind: "completion", Task: ai.TaskSummarize, Tier: ai.TierPremium,
+			Provider: "anthropic", ModelID: "claude-premium", ServedIdentitySource: "response",
+			RequestFingerprint: "fp-multi", ErrorSentinel: "provider_error",
+		},
+		{
+			LogicalCallID: logical, Attempt: 2, IsTerminal: true,
+			Kind: "completion", Task: ai.TaskSummarize, Tier: ai.TierCheapCloud,
+			Provider: "openai", ModelID: "gpt-cheap", ServedIdentitySource: "response",
+			RequestFingerprint: "fp-multi", TokensIn: 5, TokensOut: 3,
+			Payload: terminalPayload,
+		},
+	}
+	if err := meter.Record(ctx, attempts); err != nil {
+		t.Fatalf("record multi-attempt logical call: %v", err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE logical_call_id = $1`, logical); n != 2 {
+		t.Fatalf("ai_call rows for the logical call = %d, want 2", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call_payload`); n != 1 {
+		t.Fatalf("ai_call_payload rows = %d, want 1 (terminal attempt only)", n)
+	}
+
+	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		rows, qerr := tx.Query(context.Background(),
+			`SELECT attempt, is_terminal, attempt_reason, tier FROM ai_call WHERE logical_call_id = $1 ORDER BY attempt`, logical)
+		if qerr != nil {
+			return qerr
+		}
+		defer rows.Close()
+		var got []struct {
+			attempt  int
+			terminal bool
+			reason   string
+			tier     string
+		}
+		for rows.Next() {
+			var row struct {
+				attempt  int
+				terminal bool
+				reason   string
+				tier     string
+			}
+			if serr := rows.Scan(&row.attempt, &row.terminal, &row.reason, &row.tier); serr != nil {
+				return serr
+			}
+			got = append(got, row)
+		}
+		if len(got) != 2 {
+			t.Fatalf("scanned %d rows, want 2", len(got))
+		}
+		if got[0].attempt != 1 || got[0].terminal || got[0].reason != "provider_error" || got[0].tier != "premium" {
+			t.Errorf("attempt 1 wrong: %+v", got[0])
+		}
+		if got[1].attempt != 2 || !got[1].terminal || got[1].tier != "cheap_cloud" {
+			t.Errorf("attempt 2 wrong: %+v", got[1])
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestEnsureConfigIsIdempotentAndFKsFromAICall proves the ai_call_config
+// dimension row plants once (ON CONFLICT DO NOTHING), and an ai_call row
+// naming that hash satisfies the FK.
+func TestEnsureConfigIsIdempotentAndFKsFromAICall(t *testing.T) {
+	e := Setup(t)
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	meter := ai.NewCallMeter(e.Pool)
+
+	snap := ai.ConfigSnapshot{
+		Hash: "test-config-hash", TaskContractHash: "task-hash",
+		RoutingConfigHash: "routing-hash", PromptVersion: "", ProviderParams: json.RawMessage("{}"),
+	}
+	if err := meter.EnsureConfig(ctx, snap); err != nil {
+		t.Fatalf("ensure config: %v", err)
+	}
+	if err := meter.EnsureConfig(ctx, snap); err != nil {
+		t.Fatalf("re-ensuring the same config must be a no-op, got: %v", err)
+	}
+
+	hash := snap.Hash
+	if err := meter.Record(ctx, []ai.Call{{
+		LogicalCallID: ids.NewV7(), Attempt: 1, IsTerminal: true, Kind: "completion",
+		Task: ai.TaskSummarize, Tier: ai.TierCheapCloud, Provider: "openai", ModelID: "gpt-cheap",
+		ServedIdentitySource: "response", RequestFingerprint: "fp-cfg", ConfigHash: &hash,
+	}}); err != nil {
+		t.Fatalf("record with config_hash: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE config_hash = $1`, snap.Hash); n != 1 {
+		t.Fatalf("ai_call rows referencing the config snapshot = %d, want 1", n)
+	}
+}
+
+// seedEmbedCall plants an embedding-kind ai_call row dated daysBack days
+// ago (occurred_at cannot go through CallMeter, which defaults to now()).
+func seedEmbedCall(t *testing.T, e *Env, daysBack int) ids.UUID {
+	t.Helper()
+	callID := ids.NewV7()
+	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+	e.WsExec(t, `INSERT INTO ai_call (id, workspace_id, logical_call_id, task, tier, kind, request_fingerprint, occurred_at)
+		VALUES ($1, `+wsClause+`, $1, 'embeddings', 'embed', 'embedding', 'fp-embed', now() - make_interval(days => $2))`,
+		callID, daysBack)
+	return callID
+}
+
+// TestEmbedCallRetentionAgesOutOverAgeEmbeddingRows drives the nightly
+// retention evaluator over an over-age embedding-kind ai_call row: it is
+// erased outright at the fixed 90-day cap, unlike a completion-kind row
+// (which the evaluator never touches — it is not policy-configurable and
+// carries no per-workspace opt-in).
+func TestEmbedCallRetentionAgesOutOverAgeEmbeddingRows(t *testing.T) {
+	e := Setup(t)
+	overAge := seedEmbedCall(t, e, 91)
+	underAge := seedEmbedCall(t, e, 10)
+
+	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err := svc.Evaluate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, overAge); n != 0 {
+		t.Fatalf("over-age embedding call not aged out: %d rows remain", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM ai_call WHERE id = $1`, underAge); n != 1 {
+		t.Fatalf("under-age embedding call wrongly erased: %d rows, want 1", n)
+	}
+}
+
 // seedAgedPayload plants an ai_call plus its ai_call_payload dated
 // daysBack days ago (occurred_at cannot go through CallMeter, which
 // defaults to now()), returning the ai_call id.
@@ -119,8 +274,8 @@ func seedAgedPayload(t *testing.T, e *Env, daysBack int, requestJSON string) ids
 	t.Helper()
 	callID := ids.NewV7()
 	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
-	e.WsExec(t, `INSERT INTO ai_call (id, workspace_id, task, request_fingerprint, occurred_at)
-		VALUES ($1, `+wsClause+`, 'summarize', 'fp-aged', now() - make_interval(days => $2))`,
+	e.WsExec(t, `INSERT INTO ai_call (id, workspace_id, logical_call_id, task, request_fingerprint, occurred_at)
+		VALUES ($1, `+wsClause+`, $1, 'summarize', 'fp-aged', now() - make_interval(days => $2))`,
 		callID, daysBack)
 	e.WsExec(t, `INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload, occurred_at)
 		VALUES (`+wsClause+`, $1, $2::jsonb, '{}'::jsonb, now() - make_interval(days => $3))`,

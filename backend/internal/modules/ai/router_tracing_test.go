@@ -20,10 +20,12 @@ import (
 
 type fakeCallStore struct{ recorded []Call }
 
-func (f *fakeCallStore) Record(_ context.Context, c Call) error {
-	f.recorded = append(f.recorded, c)
+func (f *fakeCallStore) Record(_ context.Context, attempts []Call) error {
+	f.recorded = append(f.recorded, attempts...)
 	return nil
 }
+
+func (f *fakeCallStore) EnsureConfig(context.Context, ConfigSnapshot) error { return nil }
 
 // stubClient returns a fixed response or error.
 type stubClient struct {
@@ -337,11 +339,13 @@ type ctxCheckingCallStore struct {
 	ctxErr   error
 }
 
-func (f *ctxCheckingCallStore) Record(ctx context.Context, c Call) error {
+func (f *ctxCheckingCallStore) Record(ctx context.Context, attempts []Call) error {
 	f.ctxErr = ctx.Err()
-	f.recorded = append(f.recorded, c)
+	f.recorded = append(f.recorded, attempts...)
 	return nil
 }
+
+func (f *ctxCheckingCallStore) EnsureConfig(context.Context, ConfigSnapshot) error { return nil }
 
 // TestTraceSurvivesRequestCancellation: a canceled call is exactly the
 // terminal worth recording, so the deferred trace write must arrive on a

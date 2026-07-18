@@ -5,6 +5,8 @@ package ai
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -30,6 +32,14 @@ type RoutingConfig struct {
 	Tiers      map[Tier]ProviderConfig `yaml:"tiers"`
 	Embeddings ProviderConfig          `yaml:"embeddings"`
 	Profile    Profile                 `yaml:"profile"`
+	// sourceHash is the sha256 digest of the raw yaml bytes this config was
+	// parsed from (spec §4) — the routing half of the ai_call_config
+	// dimension key, alongside the generated TaskContractHash. Set by
+	// ParseRouting so every caller (LoadRoutingFile, a direct ParseRouting
+	// call in a test) gets the same deterministic digest for the same
+	// bytes. Zero value "" on a config built by struct literal (FakeRoutingConfig,
+	// most unit-test configs) rather than parsed from yaml.
+	sourceHash string
 }
 
 // LoadRoutingFile reads and validates a deployment's routing config.
@@ -53,6 +63,8 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}
+	sum := sha256.Sum256(raw)
+	cfg.sourceHash = hex.EncodeToString(sum[:])
 	return cfg, nil
 }
 
