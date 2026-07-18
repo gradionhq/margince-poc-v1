@@ -59,7 +59,7 @@ func ensureRiverSchema(t *testing.T) {
 
 func pushBody(t *testing.T, email string) []byte {
 	t.Helper()
-	note, err := json.Marshal(map[string]any{"emailAddress": email, "historyId": 4711})
+	note, err := json.Marshal(map[string]string{"emailAddress": email, "historyId": "4711"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +84,7 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
+	var seededNext time.Time
 	// The connector's cursor carries the provider-owned mailbox identity —
 	// exactly what a real gmail sync writes — and the pacing clock sits in
 	// the future so only the push can make the connection due.
@@ -93,11 +94,11 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 			connID, fmt.Sprintf(`{"history_id":"1000","email":%q}`, mailbox)); err != nil {
 			return err
 		}
-		_, err := tx.Exec(context.Background(), `
+		return tx.QueryRow(context.Background(), `
 			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at)
-			SELECT id, workspace_id, now() + interval '1 hour' FROM capture_connection WHERE id = $1`,
-			connID)
-		return err
+			SELECT id, workspace_id, now() + interval '1 hour' FROM capture_connection WHERE id = $1
+			RETURNING next_sync_at`,
+			connID).Scan(&seededNext)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -120,9 +121,11 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		//craft:ignore swallowed-errors test response body close; the status code is the assertion
-		defer func() { _ = resp.Body.Close() }()
-		return resp.StatusCode
+		code := resp.StatusCode
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("closing response body: %v", err)
+		}
+		return code
 	}
 
 	t.Run("wrong token is refused before any work", func(t *testing.T) {
@@ -151,8 +154,8 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if next.After(time.Now()) {
-			t.Fatalf("next_sync_at = %s, want zeroed to now — the push must make the connection due", next)
+		if !next.Before(seededNext) {
+			t.Fatalf("next_sync_at = %s, want moved earlier than the seeded %s — the push must make the connection due", next, seededNext)
 		}
 		if jobRows != 1 {
 			t.Fatalf("capture_sync jobs for the connection = %d, want exactly 1", jobRows)
@@ -192,10 +195,12 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		//craft:ignore swallowed-errors test response body close; the status code is the assertion
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusMethodNotAllowed {
-			t.Fatalf("GET status = %d, want 405", resp.StatusCode)
+		code := resp.StatusCode
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("closing response body: %v", err)
+		}
+		if code != http.StatusMethodNotAllowed {
+			t.Fatalf("GET status = %d, want 405", code)
 		}
 	})
 

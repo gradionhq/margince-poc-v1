@@ -17,6 +17,7 @@
 package compose
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -38,10 +39,12 @@ type pushEnvelope struct {
 	} `json:"message"`
 }
 
-// gmailNotification is Gmail's watch payload inside the envelope.
+// gmailNotification is Gmail's watch payload inside the envelope. Gmail
+// quotes historyId in push payloads, so it decodes as json.Number (either
+// form), not uint64.
 type gmailNotification struct {
-	EmailAddress string `json:"emailAddress"` //nolint:tagliatelle // Google names this field
-	HistoryID    uint64 `json:"historyId"`    //nolint:tagliatelle // Google names this field
+	EmailAddress string      `json:"emailAddress"` //nolint:tagliatelle // Google names this field
+	HistoryID    json.Number `json:"historyId"`    //nolint:tagliatelle // Google names this field
 }
 
 type gmailPushHandler struct {
@@ -69,8 +72,12 @@ func (h *gmailPushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Wrong/missing token → 403 and Pub/Sub stops delivering to a
-	// misconfigured (or hostile) subscription after its retry budget.
-	if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(h.token)) != 1 {
+	// misconfigured (or hostile) subscription after its retry budget. The
+	// digests equalize length first, so the compare leaks neither content
+	// nor token length.
+	got := sha256.Sum256([]byte(r.URL.Query().Get("token")))
+	want := sha256.Sum256([]byte(h.token))
+	if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}

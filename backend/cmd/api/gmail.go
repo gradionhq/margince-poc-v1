@@ -31,7 +31,10 @@ func gmailOptions(cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout
 		APIBaseURL:    cfg.apiBaseURL,
 	}
 	opts := []compose.Option{compose.WithGmailCapture(gmailCfg)}
-	if gmailCfg.Enabled() && cfg.gmailPushToken != "" {
+	// The push webhook needs only the pool and an insert-only client — not
+	// the OAuth transport — so a configured token mounts it even while the
+	// OAuth app is incomplete (connections synced by the worker still route).
+	if cfg.gmailPushToken != "" {
 		pushInserter, err := jobs.NewInserter(pool, logger)
 		if err != nil {
 			return nil, err
