@@ -91,6 +91,19 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return err
 		}
 
+		// PO-F-1 chokepoint, manual policy: the pre-check above already
+		// refused every exact hit in this same transaction (and the
+		// person_email unique index backs it under races), so the
+		// chokepoint's remaining signal is the fuzzy tier. It must run
+		// BEFORE the insert — afterwards the new row would match itself.
+		match, err := DedupePerson(ctx, tx, PersonCandidate{
+			FullName: in.FullName,
+			Emails:   dedupeCandidateEmails(in.Emails),
+		})
+		if err != nil {
+			return err
+		}
+
 		wsID := workspaceID(ctx)
 		id := ids.New[ids.PersonKind]()
 		addr := addressColumns(in.Address)
@@ -100,7 +113,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
 			in.Source, by,
 		}
-		_, err := tx.Exec(ctx,
+		_, err = tx.Exec(ctx,
 			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
 			                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 			                     source, captured_by`+cfCols+`)
@@ -127,6 +140,11 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		if err := storekit.Emit(ctx, tx, auditID, "person.created", "person", id.UUID, map[string]any{"full_name": in.FullName}); err != nil {
 			return fmt.Errorf("emit person.created: %w", err)
 		}
+		if match.Decision == DecisionFuzzyReview {
+			if err := recordNearMatch(ctx, tx, "person", id.UUID, match.PersonID.UUID, match.Confidence); err != nil {
+				return err
+			}
+		}
 
 		if out, err = readPerson(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read created person: %w", err)
@@ -134,6 +152,17 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 		return nil
 	})
 	return out, err
+}
+
+// dedupeCandidateEmails flattens the create's child rows into the
+// resolver's input — every address on the candidate counts against
+// PO-F-1, not just the primary.
+func dedupeCandidateEmails(emails []PersonEmailInput) []string {
+	out := make([]string, 0, len(emails))
+	for _, e := range emails {
+		out = append(out, e.Email)
+	}
+	return out
 }
 
 // GetPerson returns one person with child rows; archived rows resolve

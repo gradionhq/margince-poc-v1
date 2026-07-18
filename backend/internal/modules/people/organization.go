@@ -63,6 +63,19 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			return err
 		}
 
+		// PO-F-2 chokepoint, manual policy: the pre-check above already
+		// refused every claimed domain in this same transaction (and
+		// uq_org_domain backs it under races), so the chokepoint's
+		// remaining signal is the fuzzy name tier. It must run BEFORE the
+		// insert — afterwards the new row would match itself.
+		match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
+			DisplayName: in.DisplayName,
+			Domains:     dedupeCandidateDomains(in.Domains),
+		})
+		if err != nil {
+			return err
+		}
+
 		// Naming a parent is a read of the parent: the child discloses the
 		// hierarchy edge, so the target must be visible under the caller's
 		// row scope, not merely same-workspace (H1 — an FK argument to a
@@ -81,7 +94,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
 			in.Source, by,
 		}
-		_, err := tx.Exec(ctx,
+		_, err = tx.Exec(ctx,
 			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id,
 			                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 			                           source, captured_by`+cfCols+`)
@@ -102,12 +115,29 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 		if err := storekit.Emit(ctx, tx, auditID, "organization.created", "organization", id.UUID, map[string]any{"display_name": in.DisplayName}); err != nil {
 			return fmt.Errorf("emit organization.created: %w", err)
 		}
+		if match.Decision == DecisionFuzzyReview {
+			if err := recordNearMatch(ctx, tx, "organization", id.UUID, match.OrganizationID.UUID, match.Confidence); err != nil {
+				return err
+			}
+		}
 		if out, err = readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read created organization: %w", err)
 		}
 		return nil
 	})
 	return out, err
+}
+
+// dedupeCandidateDomains flattens the create's claimed domains into the
+// resolver's input. These are the org's own domains, not derived email
+// hosts, so the free-mail filtering PO-F-2 delegates to callers does not
+// apply here — a manual claim of gmail.com should still collide.
+func dedupeCandidateDomains(domains []OrgDomainInput) []string {
+	out := make([]string, 0, len(domains))
+	for _, d := range domains {
+		out = append(out, d.Domain)
+	}
+	return out
 }
 
 func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
