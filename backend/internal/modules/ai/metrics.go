@@ -51,14 +51,28 @@ func (m *callMetrics) observe(c Call) {
 }
 
 func (m *callMetrics) WritePrometheus(w io.Writer) {
+	// Snapshot under the lock, render outside it: w is typically the
+	// /metrics HTTP response, and a slow scrape client must never hold
+	// the mutex every completion's observe() takes — that would let one
+	// stalled scrape block AI calls process-wide.
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	writeCounterFamily(w, "margince_ai_calls_total", "AI completion terminals since process start.", m.calls)
-	writeCounterFamily(w, "margince_ai_call_errors_total", "AI completion failures since process start.", m.errors)
+	calls := make(map[metricKey]uint64, len(m.calls))
+	for k, v := range m.calls {
+		calls[k] = v
+	}
+	errs := make(map[metricKey]uint64, len(m.errors))
+	for k, v := range m.errors {
+		errs[k] = v
+	}
+	tokIn, tokOut := m.tokIn, m.tokOut
+	m.mu.Unlock()
+
+	writeCounterFamily(w, "margince_ai_calls_total", "AI completion terminals since process start.", calls)
+	writeCounterFamily(w, "margince_ai_call_errors_total", "AI completion failures since process start.", errs)
 	_, _ = fmt.Fprintf(w, "# HELP margince_ai_tokens_total AI tokens billed since process start.\n")
 	_, _ = fmt.Fprintf(w, "# TYPE margince_ai_tokens_total counter\n")
-	_, _ = fmt.Fprintf(w, "margince_ai_tokens_total{direction=\"in\"} %d\n", m.tokIn)
-	_, _ = fmt.Fprintf(w, "margince_ai_tokens_total{direction=\"out\"} %d\n", m.tokOut)
+	_, _ = fmt.Fprintf(w, "margince_ai_tokens_total{direction=\"in\"} %d\n", tokIn)
+	_, _ = fmt.Fprintf(w, "margince_ai_tokens_total{direction=\"out\"} %d\n", tokOut)
 }
 
 func writeCounterFamily(w io.Writer, name, help string, fam map[metricKey]uint64) {

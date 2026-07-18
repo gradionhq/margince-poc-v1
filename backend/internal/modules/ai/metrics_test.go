@@ -24,21 +24,19 @@ func TestCallMetricsWritePrometheus(t *testing.T) {
 	if !strings.Contains(out, `margince_ai_tokens_total{direction="in"} 10`) {
 		t.Fatalf("tokens_total in missing/wrong:\n%s", out)
 	}
+	if !strings.Contains(out, `margince_ai_tokens_total{direction="out"} 5`) {
+		t.Fatalf("tokens_total out missing/wrong:\n%s", out)
+	}
 }
 
-// TestCallMetricsRendersEachFamilyExactlyOnce locks the invariant behind
-// the shared-collector fix: two callers observing through what stand in
-// for two separately-wired Router instances (coldStartOptions,
-// offerDraftOptions) must still land on ONE collector, so a single
-// WritePrometheus call emits each # HELP / # TYPE line and the unlabeled
-// tokens_total series exactly once. A regression back to one callMetrics
-// per Router would instead need two renders — which duplicates every
-// family and makes a strict Prometheus scraper reject the whole scrape.
+// TestCallMetricsRendersEachFamilyExactlyOnce: observations from two
+// sources landing on one collector must render each # HELP / # TYPE line
+// and the unlabeled tokens_total series exactly once per WritePrometheus
+// call — a duplicated family makes a strict Prometheus scraper reject
+// the whole scrape.
 func TestCallMetricsRendersEachFamilyExactlyOnce(t *testing.T) {
 	m := newCallMetrics()
-	// "Source 1": coldStartOptions' Router.
 	m.observe(Call{Task: "cold_start", Tier: "cheap_cloud", Provider: "openai", TokensIn: 10, TokensOut: 5})
-	// "Source 2": offerDraftOptions' Router, same shared collector.
 	m.observe(Call{Task: "offer_draft", Tier: "premium", Provider: "anthropic", TokensIn: 20, TokensOut: 8})
 
 	var b strings.Builder
@@ -65,5 +63,25 @@ func TestCallMetricsRendersEachFamilyExactlyOnce(t *testing.T) {
 	}
 	if !strings.Contains(out, `margince_ai_tokens_total{direction="in"} 30`) {
 		t.Fatalf("tokens_total in should sum both sources to 30:\n%s", out)
+	}
+	if !strings.Contains(out, `margince_ai_tokens_total{direction="out"} 13`) {
+		t.Fatalf("tokens_total out should sum both sources to 13:\n%s", out)
+	}
+}
+
+// TestSeparatelyAssembledRoutersShareOneCollector pins the production
+// wiring itself: every Router assembled in this process observes into the
+// same process-wide collector, so /metrics reports one honest total across
+// separately-constructed lanes and renders it once. Without this, two
+// wired surfaces regressing to private collectors would silently split
+// the totals while the collector-level tests above kept passing.
+func TestSeparatelyAssembledRoutersShareOneCollector(t *testing.T) {
+	a := assembleRouter(nil, nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, nil, nil, false, nil)
+	b := assembleRouter(nil, nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, nil, nil, false, nil)
+	if a.metrics != b.metrics {
+		t.Fatal("two assembled routers hold different collectors; /metrics totals would split across lanes")
+	}
+	if a.metrics != sharedCallMetrics {
+		t.Fatal("assembled router does not observe into the process-wide collector")
 	}
 }

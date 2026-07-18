@@ -95,6 +95,10 @@ func TestCompleteRecordsFailure(t *testing.T) {
 	if len(fcs.recorded) != 1 || fcs.recorded[0].ErrorSentinel != "provider_error" {
 		t.Fatalf("failure not traced with sentinel: %+v", fcs.recorded)
 	}
+	// The trace names the rung where the walk died, not an empty tier.
+	if fcs.recorded[0].Tier != TierCheapCloud {
+		t.Fatalf("all-rungs-failed trace lost the attempted tier: %+v", fcs.recorded[0])
+	}
 }
 
 // TestCompleteEmitsSlog verifies that the router's observeCall emits an
@@ -199,6 +203,149 @@ func TestBuildPayloadStripsSecrets(t *testing.T) {
 	}
 }
 
+// TestBuildPayloadStripsSecretsFromResponse: a model that echoes a
+// credential from its context must not land it verbatim in
+// ai_call_payload — the response rides the same stripper as the request.
+func TestBuildPayloadStripsSecretsFromResponse(t *testing.T) {
+	fcs := &fakeCallStore{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: stubClient{resp: model.Response{Text: "your key is sk-ABCDEF0123456789", OutputTokens: 2}}},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, fcs,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "openai", model: "gpt-x"}},
+		true, nil, // capturePayloads = true
+	)
+	r.now = func() time.Time { return time.Unix(0, 0) }
+	req := model.Request{System: "sys", Messages: []model.Message{{Role: "user", Content: "what key did I paste?"}}}
+	if _, _, err := r.serveCompletion(wsCtx(), TaskColdStart, []Tier{TierCheapCloud}, req); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if len(fcs.recorded) != 1 || fcs.recorded[0].Payload == nil {
+		t.Fatalf("expected a captured payload; got %+v", fcs.recorded)
+	}
+	if strings.Contains(string(fcs.recorded[0].Payload.Response), "sk-ABCDEF0123456789") {
+		t.Fatal("captured response payload still contains the secret")
+	}
+}
+
+// TestBuildPayloadBoundsWholeRequest: a long agent-loop message list whose
+// every message is individually under the field cap must still land under
+// the request-side aggregate budget — per-field caps alone leave the row
+// unbounded in the message count.
+func TestBuildPayloadBoundsWholeRequest(t *testing.T) {
+	fcs := &fakeCallStore{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: stubClient{resp: model.Response{Text: "ok", OutputTokens: 1}}},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, fcs,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "openai", model: "gpt-x"}},
+		true, nil, // capturePayloads = true
+	)
+	r.now = func() time.Time { return time.Unix(0, 0) }
+	msgs := make([]model.Message, 12)
+	for i := range msgs {
+		msgs[i] = model.Message{Role: "user", Content: strings.Repeat("m", 6_000)} // each under the 16k field cap
+	}
+	req := model.Request{System: "sys", Messages: msgs} // 72k content runes offered, 48k budgeted
+	if _, _, err := r.serveCompletion(wsCtx(), TaskColdStart, []Tier{TierCheapCloud}, req); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if len(fcs.recorded) != 1 || fcs.recorded[0].Payload == nil {
+		t.Fatalf("expected a captured payload; got %+v", fcs.recorded)
+	}
+	p := fcs.recorded[0].Payload
+	if !json.Valid(p.Request) {
+		t.Fatalf("captured request is not valid JSON: %s", p.Request)
+	}
+	kept := strings.Count(string(p.Request), "m")
+	if kept > maxCapturedRequestRunes {
+		t.Fatalf("request-side capture kept %d content runes, over the %d aggregate budget", kept, maxCapturedRequestRunes)
+	}
+}
+
+// cancelingClient cancels the request context and fails, standing in for
+// a provider call that died by timeout/cancellation.
+type cancelingClient struct {
+	stubClient
+	cancel context.CancelFunc
+}
+
+func (c cancelingClient) Complete(context.Context, model.Request) (model.Response, error) {
+	c.cancel()
+	return model.Response{}, context.Canceled
+}
+
+// ctxCheckingCallStore records whether the trace write arrived on an
+// already-dead context.
+type ctxCheckingCallStore struct {
+	recorded []Call
+	ctxErr   error
+}
+
+func (f *ctxCheckingCallStore) Record(ctx context.Context, c Call) error {
+	f.ctxErr = ctx.Err()
+	f.recorded = append(f.recorded, c)
+	return nil
+}
+
+// TestTraceSurvivesRequestCancellation: a canceled call is exactly the
+// terminal worth recording, so the deferred trace write must arrive on a
+// live context even though the request's context is already dead — a
+// recorder handed the canceled context could never open its workspace
+// transaction, silently dropping every timeout trace.
+func TestTraceSurvivesRequestCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(wsCtx())
+	defer cancel()
+	fcs := &ctxCheckingCallStore{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: cancelingClient{cancel: cancel}},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, fcs,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "openai", model: "gpt-x"}},
+		false, nil,
+	)
+	r.now = func() time.Time { return time.Unix(0, 0) }
+	if _, _, err := r.serveCompletion(ctx, TaskColdStart, []Tier{TierCheapCloud}, model.Request{}); err == nil {
+		t.Fatal("expected the canceled call to fail")
+	}
+	if len(fcs.recorded) != 1 {
+		t.Fatalf("canceled call not traced: recorded %d rows", len(fcs.recorded))
+	}
+	if fcs.ctxErr != nil {
+		t.Fatalf("trace write arrived on a dead context: %v", fcs.ctxErr)
+	}
+}
+
+// TestCacheHitRespectsAdjustedLadder: an entry cached from a tier the
+// current (budget/profile-adjusted) ladder no longer offers must be a
+// miss — a premium answer cached before the band tightened must not
+// smuggle premium output into an economy route.
+func TestCacheHitRespectsAdjustedLadder(t *testing.T) {
+	fcs := &fakeCallStore{}
+	r := assembleRouter(
+		map[Tier]model.Client{
+			TierPremium:    stubClient{resp: model.Response{Text: "premium answer", OutputTokens: 3}},
+			TierCheapCloud: stubClient{resp: model.Response{Text: "cheap answer", OutputTokens: 2}},
+		},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, fcs,
+		map[Tier]routeMeta{
+			TierPremium:    {provider: "anthropic", model: "claude-x"},
+			TierCheapCloud: {provider: "openai", model: "gpt-x"},
+		},
+		false, nil,
+	)
+	r.now = func() time.Time { return time.Unix(0, 0) }
+	ctx := wsCtx()
+	req := model.Request{System: "same request"}
+	if _, info, err := r.serveCompletion(ctx, TaskColdStart, []Tier{TierPremium}, req); err != nil || info.Tier != TierPremium {
+		t.Fatalf("premium serve: %v %+v", err, info)
+	}
+	_, info, err := r.serveCompletion(ctx, TaskColdStart, []Tier{TierCheapCloud}, req)
+	if err != nil {
+		t.Fatalf("cheap serve: %v", err)
+	}
+	if info.Cached || info.Tier != TierCheapCloud {
+		t.Fatalf("cached premium entry served onto a ladder without premium: %+v", info)
+	}
+}
+
 func TestBuildPayloadTruncatesOverlongContent(t *testing.T) {
 	fcs := &fakeCallStore{}
 	long := strings.Repeat("a", maxCapturedPayloadRunes+5000)
@@ -255,8 +402,8 @@ func longestRun(s string, c rune) int {
 	return best
 }
 
-// failingMeter serves the call's metering write but fails it — the
-// served-but-metering-failed terminal Fix 4 traces honestly.
+// failingMeter fails every metering write, producing the
+// served-but-metering-failed terminal.
 type failingMeter struct{}
 
 func (failingMeter) Record(context.Context, Usage) error        { return errors.New("meter db down") }
@@ -283,6 +430,11 @@ func TestServedButMeteringFailedTracesTier(t *testing.T) {
 	}
 	if got.ErrorSentinel != "metering_failed" {
 		t.Fatalf("expected metering_failed sentinel, got %q", got.ErrorSentinel)
+	}
+	// Provider tokens were spent even though metering failed — the trace
+	// must bill them, not zero them out with the discarded response.
+	if got.TokensOut != 1 {
+		t.Fatalf("served call's token spend lost on metering failure: %+v", got)
 	}
 }
 

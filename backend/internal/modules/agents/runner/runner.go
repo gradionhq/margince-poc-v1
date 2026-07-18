@@ -188,11 +188,15 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	}
 	out, err := r.tools.Invoke(ctx, dec.Pending.Tool, args)
 	observation := string(out)
+	admission := "executed"
 	if err != nil {
 		// Version skew, expiry, or any other redemption failure is an
 		// observation, not a crash: the model re-plans against current
-		// state (a re-staging is a fresh human decision).
+		// state (a re-staging is a fresh human decision). The step records
+		// "refused" — replay must never claim a mutation that the gate did
+		// not apply.
 		observation = "approved action could not be applied: " + err.Error()
+		admission = "refused"
 	}
 	win.observe(dec.Pending.Tool, observation)
 	// The approved staged call redeems here with no fresh model completion —
@@ -201,7 +205,7 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	// tokens zero rather than re-attributing a call that never happened.
 	carried.Steps = append(carried.Steps, Step{
 		Tool: dec.Pending.Tool, Args: dec.Pending.Args, Observation: truncate(observation),
-		Admission: "executed",
+		Admission: admission,
 	})
 	return r.loop(ctx, job, win, carried)
 }

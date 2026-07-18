@@ -28,6 +28,11 @@ type cacheEntry struct {
 	expires     time.Time
 }
 
+// maxResultCacheEntries bounds resident memory: expired entries are only
+// reaped lazily on same-key reads, so without a cap a stream of unique
+// requests would leave dead entries resident for the life of the process.
+const maxResultCacheEntries = 1024
+
 func newResultCache(ttl time.Duration) *resultCache {
 	return &resultCache{ttl: ttl, now: time.Now, entries: map[string]cacheEntry{}}
 }
@@ -51,7 +56,34 @@ func (c *resultCache) get(key string, wsID ids.WorkspaceID) (model.Response, Tie
 func (c *resultCache) put(key string, wsID ids.WorkspaceID, resp model.Response, tier Tier) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= maxResultCacheEntries {
+		c.makeRoomLocked()
+	}
 	c.entries[key] = cacheEntry{workspaceID: wsID, resp: resp, tier: tier, expires: c.now().Add(c.ttl)}
+}
+
+// makeRoomLocked frees at least one slot: first a full sweep of expired
+// entries (the only global reap — get only deletes the key it reads),
+// then, if every entry is still live, the soonest-to-expire one goes —
+// it holds the least remaining TTL value.
+func (c *resultCache) makeRoomLocked() {
+	now := c.now()
+	for key, entry := range c.entries {
+		if now.After(entry.expires) {
+			delete(c.entries, key)
+		}
+	}
+	if len(c.entries) < maxResultCacheEntries {
+		return
+	}
+	var soonestKey string
+	var soonest time.Time
+	for key, entry := range c.entries {
+		if soonestKey == "" || entry.expires.Before(soonest) {
+			soonestKey, soonest = key, entry.expires
+		}
+	}
+	delete(c.entries, soonestKey)
 }
 
 func (c *resultCache) invalidate(wsID ids.WorkspaceID) {

@@ -201,6 +201,9 @@ func TestResumeApprovedRedeemsWithApprovalID(t *testing.T) {
 	if len(surface.calls) != 1 || !strings.Contains(surface.calls[0].Args, approvalID.String()) {
 		t.Fatalf("redemption call must carry approval_id: %+v", surface.calls)
 	}
+	if len(res.Steps) == 0 || res.Steps[0].Admission != "executed" {
+		t.Fatalf("applied redemption must record admission %q, got: %+v", "executed", res.Steps)
+	}
 	// The resumed run continues the SAME budget.
 	if res.StepsUsed <= 3 || res.OutputTokens <= 100 {
 		t.Fatalf("carried budget lost: %+v", res)
@@ -257,6 +260,11 @@ func TestResumeApprovedVersionSkewIsObservedNotFatal(t *testing.T) {
 	}
 	if !strings.Contains(joined, "could not be applied") {
 		t.Fatalf("skew not observed: %q", joined)
+	}
+	// The redemption step's admission must be honest: the gate refused the
+	// apply, so replay must not read a mutation off this trace.
+	if len(res.Steps) == 0 || res.Steps[0].Admission != "refused" {
+		t.Fatalf("failed redemption must record admission %q, got: %+v", "refused", res.Steps)
 	}
 }
 

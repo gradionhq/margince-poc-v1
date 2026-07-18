@@ -78,11 +78,23 @@ func withValidatorFeedback(req model.Request, failedText string, cause error) mo
 
 // completeEscalated serves one call from the task's ladder with the
 // first rung dropped — "escalate one tier on second failure" (§5.2).
-// A single-rung ladder has nowhere to go; the default route answers.
+// An escalation with nowhere to go — a single-rung ladder, or no bound
+// client on any remaining rung — answers from the default route instead
+// of failing a call the task's own ladder could still serve.
 func (r *Router) completeEscalated(ctx context.Context, task Task, req model.Request) (model.Response, RouteInfo, error) {
 	ladder, ok := taskLadders[task]
-	if !ok || len(ladder) < 2 {
+	if !ok || len(ladder) < 2 || !r.anyBound(ladder[1:]) {
 		return r.Complete(ctx, task, req)
 	}
 	return r.serveCompletion(ctx, task, ladder[1:], req)
+}
+
+// anyBound reports whether at least one rung resolves to a bound client.
+func (r *Router) anyBound(ladder []Tier) bool {
+	for _, t := range ladder {
+		if _, ok := r.clients[t]; ok {
+			return true
+		}
+	}
+	return false
 }

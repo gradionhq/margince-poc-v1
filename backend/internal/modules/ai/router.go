@@ -30,6 +30,10 @@ const (
 // the latter's entry point).
 const resultCacheTTL = 15 * time.Minute
 
+// traceWriteTimeout bounds the deferred ai_call write that runs on a
+// context detached from the request's cancellation.
+const traceWriteTimeout = 5 * time.Second
+
 // routeMeta is the provider/model identity per tier, retained from the
 // routing config so every ai_call row and RouteInfo can name what served
 // the call without reaching into the opaque Client.
@@ -162,7 +166,14 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 		if m := r.routeMeta[trace.Tier]; trace.Tier != "" {
 			trace.Provider, trace.ModelID = m.provider, m.model
 		}
-		r.observeCall(ctx, trace, req, resp)
+		// The trace write must outlive request cancellation: a timed-out or
+		// canceled call is exactly the terminal worth recording, and the
+		// workspace GUC values ride context values, which WithoutCancel
+		// preserves. The bound keeps a dead trace store from pinning the
+		// request goroutine.
+		traceCtx, cancelTrace := context.WithTimeout(context.WithoutCancel(ctx), traceWriteTimeout)
+		defer cancelTrace()
+		r.observeCall(traceCtx, trace, req, resp)
 	}()
 
 	ladder, degraded, budgetErr := r.applyBudget(ctx, task, wsID, ladder)
@@ -172,7 +183,12 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	trace.Degraded = degraded
 	ladder = r.applyProfile(ladder)
 
-	if cached, tier, hit := r.cache.get(key, wsID); hit {
+	// A cached answer only serves when its tier is still on the adjusted
+	// ladder: after a budget band tightened or the profile remapped the
+	// route, a premium-tier entry must not smuggle premium output into an
+	// economy route. The stale entry stays put — TTL ages it out, and the
+	// band may relax within its lifetime.
+	if cached, tier, hit := r.cache.get(key, wsID); hit && tierOnLadder(ladder, tier) {
 		trace.Tier, trace.CacheHit = tier, true
 		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); meterErr != nil {
 			// A served (cache-hit) call whose metering failed: label it as a
@@ -184,16 +200,18 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 	}
 
 	out, tier, served, ladderErr := r.attemptLadder(ctx, task, ladder, req, key, wsID)
-	// Record the served tier even when the ladder returns an error: a
-	// metering failure of a successfully-served call carries its real tier,
-	// so the trace names what served instead of an empty tier.
+	// Stamp tier and usage even when the ladder returns an error: a
+	// metering failure of a successfully-served call still spent provider
+	// tokens on a real tier, and an all-rungs-failed walk names the last
+	// tier attempted — the trace records what actually happened, not an
+	// empty terminal.
 	trace.Tier = tier
+	trace.TokensIn, trace.TokensOut = out.InputTokens, out.OutputTokens
+	trace.ReasoningTokens, trace.CachedTokens = out.ReasoningTokens, out.CachedTokens
 	if ladderErr != nil {
 		return model.Response{}, RouteInfo{}, ladderErr
 	}
 	if served {
-		trace.TokensIn, trace.TokensOut = out.InputTokens, out.OutputTokens
-		trace.ReasoningTokens, trace.CachedTokens = out.ReasoningTokens, out.CachedTokens
 		m := r.routeMeta[tier]
 		return out, RouteInfo{Tier: tier, Provider: m.provider, ModelID: m.model, Degraded: degraded}, nil
 	}
@@ -209,29 +227,45 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 // and cached before it is returned to serveCompletion for tracing.
 func (r *Router) attemptLadder(ctx context.Context, task Task, ladder []Tier, req model.Request, key string, wsID ids.WorkspaceID) (resp model.Response, tier Tier, served bool, err error) {
 	var lastErr error
+	var lastTier Tier
 	for _, t := range ladder {
 		client, bound := r.clients[t]
 		if !bound {
 			continue
 		}
+		lastTier = t
 		out, callErr := client.Complete(ctx, req)
 		if callErr != nil {
 			lastErr = callErr
 			continue
 		}
 		if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: t, TokensIn: out.InputTokens, TokensOut: out.OutputTokens, CachedTokens: out.CachedTokens, ReasoningTokens: out.ReasoningTokens}); meterErr != nil {
-			// Return the served tier so the trace names what actually served,
-			// and wrap errMeteringFailed so classifyError labels this a
-			// metering failure — not the provider error the fail-through means.
-			return model.Response{}, t, false, fmt.Errorf("ai: call served but metering failed: %w", errors.Join(errMeteringFailed, meterErr))
+			// Return the served response and tier even though the call fails:
+			// provider tokens were spent, and the trace must bill them to the
+			// tier that answered. errMeteringFailed keeps classifyError from
+			// mislabeling this a provider error.
+			return out, t, false, fmt.Errorf("ai: call served but metering failed: %w", errors.Join(errMeteringFailed, meterErr))
 		}
 		r.cache.put(key, wsID, out, t)
 		return out, t, true, nil
 	}
 	if lastErr != nil {
-		return model.Response{}, "", false, fmt.Errorf("ai: every bound tier failed for %s: %w", task, lastErr)
+		// lastTier names the rung whose failure the caller sees, so the
+		// trace records where the walk died instead of an empty tier.
+		return model.Response{}, lastTier, false, fmt.Errorf("ai: every bound tier failed for %s: %w", task, lastErr)
 	}
 	return model.Response{}, "", false, nil
+}
+
+// tierOnLadder reports whether t survives on the budget- and
+// profile-adjusted ladder.
+func tierOnLadder(ladder []Tier, t Tier) bool {
+	for _, rung := range ladder {
+		if rung == t {
+			return true
+		}
+	}
+	return false
 }
 
 // observeCall writes the ai_call trace row, emits router slog, and bumps
@@ -257,57 +291,6 @@ func (r *Router) observeCall(ctx context.Context, c Call, req model.Request, res
 	if err := r.calls.Record(ctx, c); err != nil {
 		r.log.ErrorContext(ctx, "ai: recording call trace failed", "task", string(c.Task), "err", err)
 	}
-}
-
-// buildPayload assembles the Layer-3 capture: the request's semantic
-// content (system + messages) run through the SAME secret-stripper that
-// guards egress, and the model's response text — both as JSON. The
-// stripper is the last line before content lands in ai_call_payload, so a
-// leaked credential is scrubbed here exactly as it is on the wire.
-func (r *Router) buildPayload(ctx context.Context, req model.Request, resp model.Response) (*Payload, error) {
-	// Bound the content BEFORE marshaling — truncating the marshaled jsonb
-	// bytes would yield invalid JSON. A large-input lane or a long agent run
-	// must not let opt-in capture grow ai_call_payload without limit; the cap
-	// is per content field (system, each message, response), enough to make
-	// the trace useful without storing a second full copy of the payload.
-	msgs := make([]model.Message, len(req.Messages))
-	for i, m := range req.Messages {
-		m.Content = capturePayloadContent(m.Content)
-		msgs[i] = m
-	}
-	reqDoc, err := json.Marshal(struct {
-		System   string          `json:"system"`
-		Messages []model.Message `json:"messages"`
-	}{capturePayloadContent(req.System), msgs})
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshal capture request: %w", err)
-	}
-	stripped, _, err := req.SecretStripper.Strip(ctx, reqDoc)
-	if err != nil {
-		return nil, fmt.Errorf("ai: strip capture request: %w", err)
-	}
-	respDoc, err := json.Marshal(capturePayloadContent(resp.Text))
-	if err != nil {
-		return nil, fmt.Errorf("ai: marshal capture response: %w", err)
-	}
-	return &Payload{Request: json.RawMessage(stripped), Response: json.RawMessage(respDoc)}, nil
-}
-
-// maxCapturedPayloadRunes caps each captured content field. 16k runes holds a
-// generous prompt or response while keeping any single ai_call_payload row
-// bounded; it is a rune count (not bytes) so a multi-byte script never inflates
-// past the intent, and the cut lands on a rune boundary so the stored JSON
-// stays valid after marshaling.
-const maxCapturedPayloadRunes = 16_000
-
-// capturePayloadContent truncates one captured field to maxCapturedPayloadRunes,
-// appending a visible marker so a reader knows the trace is not the full text.
-func capturePayloadContent(s string) string {
-	runes := []rune(s)
-	if len(runes) <= maxCapturedPayloadRunes {
-		return s
-	}
-	return string(runes[:maxCapturedPayloadRunes]) + "…[truncated]"
 }
 
 // WriteMetrics renders the router's AI counters in Prometheus text form —

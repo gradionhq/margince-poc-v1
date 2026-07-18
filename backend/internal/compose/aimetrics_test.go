@@ -9,16 +9,26 @@ import (
 	"testing"
 )
 
-// TestWithAIMetricsRendersOnceAcrossSurfaces guards the Task-6 review fix:
-// coldStartOptions and offerDraftOptions both call WithAIMetrics for their
-// own ModelPath, and the field they set must render exactly once —
-// last-wins over a single func(io.Writer), not an accumulating slice that
-// duplicates the AI metric families on every scrape.
+// TestWithAIMetricsRendersOnceAcrossSurfaces: when several wired surfaces
+// each register an AI metrics renderer, exactly one — the last — may run
+// per scrape. The registration is last-wins over a single func(io.Writer),
+// never an accumulating slice: a second renderer would repeat the AI
+// metric families, which a strict Prometheus scraper rejects wholesale.
 func TestWithAIMetricsRendersOnceAcrossSurfaces(t *testing.T) {
 	var s Server
 	calls := 0
-	first := func(w io.Writer) { calls++; _, _ = io.WriteString(w, "first\n") }
-	second := func(w io.Writer) { calls++; _, _ = io.WriteString(w, "second\n") }
+	first := func(w io.Writer) {
+		calls++
+		if _, err := io.WriteString(w, "first\n"); err != nil {
+			t.Errorf("write first: %v", err)
+		}
+	}
+	second := func(w io.Writer) {
+		calls++
+		if _, err := io.WriteString(w, "second\n"); err != nil {
+			t.Errorf("write second: %v", err)
+		}
+	}
 
 	WithAIMetrics(first)(&s, nil)
 	WithAIMetrics(second)(&s, nil)
