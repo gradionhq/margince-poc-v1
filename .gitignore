@@ -27,6 +27,13 @@ coverage.out
 # so the committed .example template is never matched.
 /config/ai-routing.yaml
 
+# Per-engineer dev deployment config — `make dev` seeds config/margince.yaml
+# from config/margince.example.yaml on first run and then leaves it (edit it to
+# change org/admin or AI posture). The admin password file it references is
+# seeded alongside. Anchored so the committed .example template is never matched.
+/config/margince.yaml
+/config/margince-admin-password
+
 # Storybook static build + fe-uat capture artifacts
 frontend/storybook-static/
 .tmp/

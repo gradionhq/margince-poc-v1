@@ -25,7 +25,6 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -164,12 +163,26 @@ func extractionShapeValid(text string) error {
 // extract, gate. Both engines embed it.
 type evidenceExtractor struct {
 	fetch PageFetcher
-	brain runner.Brain
+	brain completer
+	// factBrain serves the deep read's page-parallel fact lane on its
+	// own routing task (fast tier); nil falls back to brain, so the
+	// single-brain callers (quick scrape, cold start) are unchanged.
+	factBrain completer
 	// drops receives every finding a gate refused (nil = log only).
 	// The debug CLI feeds its dropped-facts report through this; the
 	// production path keeps the log line, so a read that came back thin
 	// is explainable from the server log either way.
 	drops func(sourceURL string, d droppedFinding)
+}
+
+// factCompleter is the fact lane's brain, defaulting to the main one.
+//
+//nolint:ireturn // the completer seam is the point: two injected providers behind the one interface every call site takes.
+func (x evidenceExtractor) factCompleter() completer {
+	if x.factBrain != nil {
+		return x.factBrain
+	}
+	return x.brain
 }
 
 // reportDrops forwards one call's gate rejections to the sink and the

@@ -101,6 +101,8 @@ var retentionSelectors = map[string]string{
 	"deal/lost": `SELECT id FROM deal
 		WHERE status = 'lost' AND archived_at IS NULL AND NOT legal_hold
 		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
+	"ai_call_payload/content": `SELECT id FROM ai_call_payload
+		WHERE occurred_at < now() - make_interval(days => $1) LIMIT $2`,
 }
 
 // Evaluate is one nightly pass over every live workspace. The unbounded
@@ -223,6 +225,14 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			}
 		case "deal/archive":
 			_, err = tx.Exec(ctx, `UPDATE deal SET archived_at = now() WHERE id = $1`, id)
+		case "ai_call_payload/erase":
+			// The payload row is deleted outright, not scrubbed in place —
+			// unlike activity/erase there is no metadata half of this record
+			// left to keep: ai_call_payload IS the special-category-adjacent
+			// content, and ai_call (the metadata row it FK-cascades from)
+			// survives untouched. The retention audit entry below carries no
+			// payload bytes, only policy metadata.
+			_, err = tx.Exec(ctx, `DELETE FROM ai_call_payload WHERE id = $1`, id)
 		case "lead/anonymize":
 			_, err = tx.Exec(ctx, `
 				UPDATE lead SET full_name = 'Anonymized Lead', email = NULL, title = NULL,

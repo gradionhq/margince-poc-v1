@@ -138,7 +138,7 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 	}
 	slog.SetDefault(slog.New(handler))
 
-	brain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
+	profileBrain, factBrain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
 	if err != nil {
 		return err
 	}
@@ -151,8 +151,12 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 		report, err := compose.RunSiteReadDebug(ctx, compose.SiteReadDebugOptions{
 			SeedURL:         seed,
 			Caps:            caps,
-			Brain:           brain,
+			Brain:           profileBrain,
+			FactBrain:       factBrain,
 			IncludePageText: cfg.dumpDir != "",
+			Progress: func(phase string, done, total int) {
+				_, _ = fmt.Fprintf(stdout, "  %s %d/%d\n", phase, done, total)
+			},
 		})
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", seed, err))
@@ -300,13 +304,10 @@ func renderExtraction(w io.Writer, r compose.SiteReadDebugReport) {
 		}
 	}
 
-	if len(r.Extraction.MergeDecisions) > 0 {
-		p("\nMERGE DECISIONS\n")
-		for _, d := range r.Extraction.MergeDecisions {
-			p("  %s: kept %q from %s\n", d.Field, truncate(d.WinnerValue, 60), d.WinnerSource)
-			for _, loser := range d.Losers {
-				p("      over %q from %s\n", truncate(loser.Value, 60), loser.Source)
-			}
+	if len(r.Extraction.LegalEntities) > 0 {
+		p("\nLEGAL ENTITIES\n")
+		for _, e := range r.Extraction.LegalEntities {
+			p("  %s  (%s)\n", e.Name, e.SourceURL)
 		}
 	}
 }

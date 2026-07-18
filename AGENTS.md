@@ -99,7 +99,12 @@ One installation serves one organization (A107/ADR-0061): the server
 resolves its singleton organization itself — no request selects a tenant:
 `curl http://localhost:8080/v1/me --cookie 'crm_session=…'`. First boot
 bootstraps the organization + admin from `margince.yaml` (`--config` /
-`MARGINCE_CONFIG`); `make dev` writes a demo one automatically.
+`MARGINCE_CONFIG`). `make dev` seeds a gitignored `config/margince.yaml`
+from `config/margince.example.yaml` on first run and then **leaves it**
+(the same create-if-missing / leave-if-exists pattern as
+`config/ai-routing.yaml`), so edits — org details, admin, or the
+`ai.capture_payloads` posture — persist across `make dev-stop` / `make dev`;
+delete it to reset.
 
 Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
 probes; 503 names the unready dependency), and `/metrics` (Prometheus

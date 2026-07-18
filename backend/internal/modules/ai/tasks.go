@@ -24,12 +24,16 @@ const (
 	// evidence-grounded structured-output pass, routed like the other
 	// extraction tasks (cold-start, enrich).
 	TaskOfferDraft Task = "offer_draft"
-	// TaskSiteExtract is the deep site read's page extraction — its own
-	// dial, separate from the interactive cold-start read-back, so an
-	// installation can put the crawl's many background calls on a
-	// different tier than onboarding without touching either ladder in
-	// code.
+	// TaskSiteExtract is the deep site read's PROFILE lane — the one
+	// premium-first call that grounds the 11 company fields over the
+	// site's identity-dense excerpts.
 	TaskSiteExtract Task = "site_extract"
+	// TaskSiteFactExtract is the deep read's page-parallel fact lane:
+	// many small, compact calls (snippet-id evidence, tight field menus)
+	// that a fast cheap-tier model serves reliably — citing a numbered
+	// passage is exactly the kind of output a small model does not
+	// paraphrase away.
+	TaskSiteFactExtract Task = "site_fact_extract"
 )
 
 // Tier is a capability tier (§1.1); ai-routing.yaml binds each to a
@@ -59,7 +63,15 @@ var taskLadders = map[Task][]Tier{
 	TaskBriefRanking: {TierPremium, TierCheapCloud},
 	TaskAgentLoop:    {TierCheapCloud, TierPremium},
 	TaskOfferDraft:   {TierCheapCloud, TierPremium},
-	TaskSiteExtract:  {TierCheapCloud, TierPremium},
+	// The deep read splits its tiers by judgment density: the ONE profile
+	// call (site_extract) reasons across pages and runs premium-first;
+	// the many per-page fact calls (site_fact_extract) emit tiny
+	// snippet-id-cited records a fast cheap-tier model serves reliably —
+	// and their latency IS the product's read time, so the fast tier
+	// leads. Both judged by the gradion.com E2E floor
+	// (compose/sitereade2e_test.go); bindings stay in ai-routing.yaml.
+	TaskSiteExtract:     {TierPremium, TierCheapCloud},
+	TaskSiteFactExtract: {TierCheapCloud, TierPremium},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%
@@ -82,5 +94,6 @@ var nonInteractive = map[Task]bool{
 	TaskAgentLoop:       true,
 	// The deep read is a queued job: at 100% budget it should wait for
 	// next-cycle budget, not degrade to a model that extracts less.
-	TaskSiteExtract: true,
+	TaskSiteExtract:     true,
+	TaskSiteFactExtract: true,
 }

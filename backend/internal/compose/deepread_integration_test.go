@@ -5,10 +5,9 @@
 
 package compose
 
-// The deep read end-to-end: the worker crawls the site, extracts every
-// page through the shared evidence gate — company fields plus the
-// per-page-kind category call — and stages ONE "deepread" proposal a
-// human can accept. Acceptance lands both halves in one transaction:
+// The deep read end-to-end: the worker crawls the site, runs the
+// page-parallel fact lane and the profile lane through the citation
+// gates, and stages ONE "deepread" proposal a human can accept. Acceptance lands both halves in one transaction:
 // profile fields fill-empty, category facts into organization_fact under
 // the human-precedence guard. The dossier records the honest outcome —
 // done with findings, done with zero findings and NO proposal, partial
@@ -19,6 +18,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -32,7 +32,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -49,38 +48,37 @@ func acmeDeepSite() *fakeSite {
 	}}
 }
 
-// The scripted model replies, two per crawled page in crawl order — the
-// shared company-field pass, then the page kind's category pass: home
-// (fields, then signal), then the Impressum probe (fields, then company).
-// The home fields reply grounds a positioning fact and GUESSES the legal
-// name off marketing copy; the Impressum states it. The signal reply
-// grounds a market signal off the home page's own words, the company
-// reply the Impressum's phone number.
-const (
-	deepHomeReply = `{"fields":[
-		{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9},
-		{"field":"legal_name","value":"Acme (guessed)","evidence_snippet":"Built for RevOps leaders","confidence":0.95}]}`
-	deepHomeSignalReply = `{"fields":[
-		{"field":"named_customer","value":"Scaling SaaS companies — who the site says it serves","evidence_snippet":"scaling SaaS companies","confidence":0.6}]}`
-	deepImpressumReply = `{"fields":[
-		{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","confidence":0.7}]}`
-	deepImpressumCompanyReply = `{"fields":[
-		{"field":"phone","value":"+49 711 555 0100","evidence_snippet":"Telefon: +49 711 555 0100","confidence":0.85}]}`
-	// noCategoryFacts is a category pass with nothing to quote.
-	noCategoryFacts = `{"fields":[]}`
-)
+// acmeDeepBrain answers both lanes for acmeDeepSite: the profile call
+// grounds a positioning field on the home passage (excerpt ids are
+// global over the RANK-SORTED pages — imprint s0, home s1) and the
+// legal name on the imprint's; the page calls yield the phone, a market
+// signal, and the single-entity census that lets the trio stand.
+func acmeDeepBrain() laneFake {
+	return laneFake{
+		profileReply: `{"fields":[
+			{"f":"value_proposition","v":"Fast onboarding","e":"s1","c":0.9},
+			{"f":"legal_name","v":"Acme Robotics GmbH","e":"s0","c":0.9}]}`,
+		pageReplies: map[string]string{
+			seedURL: `{"facts":[
+				{"f":"named_customer","v":"Scaling SaaS companies — who the site says it serves","e":"s0"}],"people":[]}`,
+			seedURL + "/impressum": `{"facts":[
+				{"f":"phone","v":"+49 711 555 0100","e":"s0"}],
+				"entities":[{"n":"Acme Robotics GmbH","e":"s0"}]}`,
+		},
+	}
+}
 
 // newDeepReadTestWorker builds the worker over the fake site with the
 // real approvals service, the deepread and site_lead accept effects wired
 // exactly as compose wires them in production.
-func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain runner.Brain) (*siteDeepReadWorker, *approvals.Service) {
+func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) (*siteDeepReadWorker, *approvals.Service) {
 	svc := approvals.NewService(e.Pool)
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool)))
 	return &siteDeepReadWorker{
 		people:    e.People,
 		crawler:   testSiteCrawler(site),
-		extract:   evidenceExtractor{brain: brain},
+		extract:   evidenceExtractor{brain: brain, factBrain: brain},
 		approvals: svc,
 		log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
@@ -119,8 +117,7 @@ func deepReadApprovals(t *testing.T, e *integration.Env) int {
 func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	worker, svc := newDeepReadTestWorker(e, acmeDeepSite(),
-		ai.NewFakeClient().Script(deepHomeReply, deepHomeSignalReply, deepImpressumReply, deepImpressumCompanyReply))
+	worker, svc := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -134,11 +131,10 @@ func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testi
 	if done.Status != "done" || done.FinishedAt == nil || done.StoppedReason != nil {
 		t.Fatalf("dossier = %+v, want done with no stop reason (discovery exhausted)", done)
 	}
-	// 2 fields (value_proposition + legal_name, the Impressum's statement
-	// beating the home page's higher-confidence guess) + 2 category facts
-	// (the home page's signal, the Impressum's phone).
+	// 2 fields (value_proposition + the single-entity legal name) + 2
+	// category facts (the signal, the phone).
 	if done.FactCount != 4 {
-		t.Fatalf("fact_count = %d, want 4 (2 merged fields + 2 category facts)", done.FactCount)
+		t.Fatalf("fact_count = %d, want 4 (2 fields + 2 category facts)", done.FactCount)
 	}
 	if len(done.Pages) != 2 || done.Pages[0].Kind != "home" || done.Pages[1].Kind != "impressum" {
 		t.Fatalf("pages = %+v, want [home, impressum] in crawl order", done.Pages)
@@ -242,13 +238,12 @@ func TestDeepReadCrawlsExtractsStagesOneDeepReadProposalAndFinishesDone(t *testi
 func TestDeepReadWithNothingEvidencedIsAnHonestEmptyDoneWithNoProposal(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	// Every reply hallucinates: no snippet is verbatim on either page, so
-	// nothing survives the no-guess gate — on the field passes or the
-	// category passes.
-	hallucinated := `{"fields":[{"field":"icp","value":"guessed","evidence_snippet":"nowhere on any page","confidence":0.9}]}`
-	hallucinatedFact := `{"fields":[{"field":"named_customer","value":"guessed","evidence_snippet":"nowhere on any page","confidence":0.9}]}`
-	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(),
-		ai.NewFakeClient().Script(hallucinated, hallucinatedFact, hallucinated, hallucinatedFact))
+	// The profile reply cites an id outside the index and the page calls
+	// find nothing: nothing survives the citation gates.
+	hallucinated := laneFake{
+		profileReply: `{"fields":[{"f":"icp","v":"guessed","e":"s99","c":0.9}]}`,
+	}
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), hallucinated)
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -327,10 +322,12 @@ func TestDeepReadOnABrainlessWorkerFailsTheReadActionably(t *testing.T) {
 func TestDeepReadModelFailureMidwayKeepsWhatWasReadAsPartial(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
-	// The home page's two passes extract, then the model lane dies before
-	// the Impressum.
-	brain := &failsAfter{inner: ai.NewFakeClient().Script(deepHomeReply, deepHomeSignalReply), limit: 2}
-	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), brain)
+	// The impressum page's call dies; the home page's call and the
+	// profile lane succeed. What completed is kept as a partial.
+	site := acmeDeepSite()
+	brain := acmeDeepBrain()
+	brain.failFor = map[string]error{seedURL + "/impressum": errors.New("provider down")}
+	worker, _ := newDeepReadTestWorker(e, site, brain)
 	read, args := startDeepRead(t, e, org)
 
 	if err := worker.run(context.Background(), args); err != nil {
@@ -344,13 +341,15 @@ func TestDeepReadModelFailureMidwayKeepsWhatWasReadAsPartial(t *testing.T) {
 	if partial.Status != "partial" {
 		t.Fatalf("dossier status = %q, want partial — evidence in hand is kept, not discarded", partial.Status)
 	}
-	if len(partial.Pages) != 1 || partial.Pages[0].Kind != "home" {
-		t.Fatalf("pages = %+v, want only the page whose findings made the proposal", partial.Pages)
+	if len(partial.Pages) != 2 {
+		t.Fatalf("pages = %d, want the whole crawl reported (the failure is the status)", len(partial.Pages))
 	}
-	// Both home-page fields and its signal fact ground verbatim, so all
-	// three survive.
-	if partial.FactCount != 3 || len(partial.ProposalIDs) != 1 {
-		t.Fatalf("fact_count = %d proposals = %v, want the home page's 2 fields + 1 fact staged", partial.FactCount, partial.ProposalIDs)
+	// The surviving lanes: the value_proposition field + the home page's
+	// signal fact. The legal_name is WITHHELD — the failed imprint call
+	// left the entity census incomplete, and an unread legal page must
+	// never default to "one entity, the trio stands".
+	if partial.FactCount != 2 || len(partial.ProposalIDs) != 1 {
+		t.Fatalf("fact_count = %d proposals = %v, want the surviving lanes staged and the legal trio withheld", partial.FactCount, partial.ProposalIDs)
 	}
 }
 
@@ -363,22 +362,26 @@ func acmeServicesSite() *fakeSite {
 	}}
 }
 
-// deepOfferingReply lists the same service twice under different
+// servicesDeepBrain lists the same service twice under different
 // descriptions (one normalized value_key) plus a distinct product — the
-// dedupe fixture.
-const deepOfferingReply = `{"fields":[
-	{"field":"service","value":"CRM Rollout — implementation projects","evidence_snippet":"CRM Rollout projects","confidence":0.6},
-	{"field":"service","value":"CRM Rollout — end-to-end delivery","evidence_snippet":"CRM Rollout projects end to end","confidence":0.9},
-	{"field":"product","value":"Margince — our CRM product","evidence_snippet":"Margince is our CRM product","confidence":0.8}]}`
+// dedupe fixture; the profile lane grounds nothing.
+func servicesDeepBrain() laneFake {
+	return laneFake{
+		profileReply: `{"fields":[]}`,
+		pageReplies: map[string]string{
+			seedURL + "/services": `{"facts":[
+				{"f":"service","v":"CRM Rollout — implementation projects","e":"s0"},
+				{"f":"service","v":"CRM Rollout — end-to-end delivery","e":"s0"},
+				{"f":"product","v":"Margince — our CRM product","e":"s0"}]}`,
+		},
+	}
+}
 
-// runServicesDeepRead crawls acmeServicesSite with nothing on the field
-// passes and deepOfferingReply on the services page's offering pass, and
-// returns the finished dossier. Call order: home fields, home signal,
-// services fields, services offering.
+// runServicesDeepRead crawls acmeServicesSite with deepOfferingReply as
+// the one corpus answer and returns the finished dossier.
 func runServicesDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
-	worker, svc := newDeepReadTestWorker(e, acmeServicesSite(),
-		ai.NewFakeClient().Script(noCategoryFacts, noCategoryFacts, noCategoryFacts, deepOfferingReply))
+	worker, svc := newDeepReadTestWorker(e, acmeServicesSite(), servicesDeepBrain())
 	read, args := startDeepRead(t, e, org)
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)
@@ -416,8 +419,10 @@ func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *te
 		t.Fatalf("staged facts = %+v, want the deduped service + the product", proposal.Facts)
 	}
 	service := proposal.Facts[0]
-	if service.Field != "service" || service.ValueKey != "crm rollout" || service.Value != "CRM Rollout — end-to-end delivery" {
-		t.Fatalf("staged service = %+v, want the higher-confidence spelling under value_key 'crm rollout'", service)
+	// The citation gate is binary (no model confidence), so a value_key
+	// duplicate keeps its FIRST spelling — deterministic, page-ordered.
+	if service.Field != "service" || service.ValueKey != "crm rollout" || service.Value != "CRM Rollout — implementation projects" {
+		t.Fatalf("staged service = %+v, want the first-seen spelling under value_key 'crm rollout'", service)
 	}
 
 	// A human has since claimed the service fact; the accept must land the

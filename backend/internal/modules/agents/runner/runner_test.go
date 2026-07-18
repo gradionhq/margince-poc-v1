@@ -20,15 +20,19 @@ import (
 )
 
 // scriptedBrain returns queued texts; when empty it keeps proposing the
-// same tool call — the runaway-model shape the budget must bound.
+// same tool call — the runaway-model shape the budget must bound. It also
+// stamps a fixed served-model identity (meta) and per-call token counts so
+// the trace-enrichment assertion has deterministic evidence to check.
 type scriptedBrain struct {
 	texts      []string
 	exhausted  string
 	perCallOut int
+	inTokens   int
+	meta       Meta
 	requests   []model.Request
 }
 
-func (b *scriptedBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
+func (b *scriptedBrain) Complete(_ context.Context, req model.Request) (model.Response, Meta, error) {
 	b.requests = append(b.requests, req)
 	out := b.exhausted
 	if len(b.texts) > 0 {
@@ -39,7 +43,7 @@ func (b *scriptedBrain) Complete(_ context.Context, req model.Request) (model.Re
 	if tokens == 0 {
 		tokens = 10
 	}
-	return model.Response{Text: out, OutputTokens: tokens}, nil
+	return model.Response{Text: out, InputTokens: b.inTokens, OutputTokens: tokens}, b.meta, nil
 }
 
 // fakeSurface is the governed tool surface stand-in: per-tool canned
@@ -70,6 +74,30 @@ func (s *fakeSurface) Specs() []mcp.ToolSpec {
 	return []mcp.ToolSpec{
 		{Name: "read_record", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		{Name: "send_email", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	}
+}
+
+func TestStepRecordsModelIdentity(t *testing.T) {
+	surface := &fakeSurface{results: map[string]json.RawMessage{
+		"noop": json.RawMessage(`{"ok":true}`),
+	}}
+	brain := &scriptedBrain{
+		texts:      []string{`{"tool":"noop","args":{}}`},
+		inTokens:   7,
+		perCallOut: 4,
+		meta:       Meta{ModelID: "gpt-x", Tier: "cheap_cloud"},
+	}
+	// Cap steps at 1 so the run terminates after one tool call for the assertion.
+	res, err := New(surface, brain).Run(context.Background(), Job{Goal: "g", Budget: Budget{MaxSteps: 1}})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(res.Steps) == 0 {
+		t.Fatal("no steps recorded")
+	}
+	s := res.Steps[0]
+	if s.ModelID != "gpt-x" || s.Tier != "cheap_cloud" || s.TokensIn != 7 || s.TokensOut != 4 || s.Admission != "executed" {
+		t.Fatalf("step missing model identity/admission: %+v", s)
 	}
 }
 
@@ -173,6 +201,9 @@ func TestResumeApprovedRedeemsWithApprovalID(t *testing.T) {
 	if len(surface.calls) != 1 || !strings.Contains(surface.calls[0].Args, approvalID.String()) {
 		t.Fatalf("redemption call must carry approval_id: %+v", surface.calls)
 	}
+	if len(res.Steps) == 0 || res.Steps[0].Admission != "executed" {
+		t.Fatalf("applied redemption must record admission %q, got: %+v", "executed", res.Steps)
+	}
 	// The resumed run continues the SAME budget.
 	if res.StepsUsed <= 3 || res.OutputTokens <= 100 {
 		t.Fatalf("carried budget lost: %+v", res)
@@ -229,6 +260,11 @@ func TestResumeApprovedVersionSkewIsObservedNotFatal(t *testing.T) {
 	}
 	if !strings.Contains(joined, "could not be applied") {
 		t.Fatalf("skew not observed: %q", joined)
+	}
+	// The redemption step's admission must be honest: the gate refused the
+	// apply, so replay must not read a mutation off this trace.
+	if len(res.Steps) == 0 || res.Steps[0].Admission != "refused" {
+		t.Fatalf("failed redemption must record admission %q, got: %+v", "refused", res.Steps)
 	}
 }
 

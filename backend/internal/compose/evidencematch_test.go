@@ -66,23 +66,3 @@ func TestGateEvidenceKeepsNormalizedQuotesAndReportsEveryDropReason(t *testing.T
 		}
 	}
 }
-
-func TestGateCategoryFactsNormalizedEvidenceSurvives(t *testing.T) {
-	page := "Zertifiziert nach ISO 27001 — seit 2019."
-	reply := `{"fields":[
-		{"field":"certification","value":"ISO 27001","evidence_snippet":"Zertifiziert nach ISO 27001 - seit 2019","confidence":0.9}]}`
-	facts, dropped := gateCategoryFacts(reply, page, "https://acme.example/about", "signal")
-	if len(facts) != 1 || facts[0].Field != "certification" {
-		t.Fatalf("the NBSP/em-dash snippet should survive normalized, got %+v (dropped %+v)", facts, dropped)
-	}
-}
-
-func TestGateTeamPeopleNormalizedNameRoleAssociationSurvives(t *testing.T) {
-	page := "Anna Muster – Chief Executive Officer of Acme."
-	reply := `{"people":[{"name":"Anna Muster","role":"Chief Executive Officer",
-		"evidence_snippet":"Anna Muster - Chief Executive Officer","confidence":0.9}]}`
-	persons, dropped := gateTeamPeople(reply, page, "https://acme.example/team")
-	if len(persons) != 1 || persons[0].Name != "Anna Muster" {
-		t.Fatalf("the NBSP-spaced person should survive normalized, got %+v (dropped %+v)", persons, dropped)
-	}
-}

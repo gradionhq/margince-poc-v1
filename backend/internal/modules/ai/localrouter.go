@@ -18,7 +18,14 @@ func NewUnmeteredRouter(cfg RoutingConfig) (*Router, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newRouter(clients, embedder, cfg.Profile, &memoryMeter{}, DefaultMonthlyTokens), nil
+	meta := make(map[Tier]routeMeta, len(cfg.Tiers))
+	for tier, binding := range cfg.Tiers {
+		meta[tier] = routeMeta{provider: binding.Provider, model: binding.Model}
+	}
+	// nil callStore: the DB-less debug path traces no ai_call rows (the
+	// router skips tracing when calls == nil), captures no payloads, and
+	// logs through slog.Default.
+	return assembleRouter(clients, embedder, cfg.Profile, &memoryMeter{}, DefaultMonthlyTokens, nil, meta, false, nil), nil
 }
 
 // memoryMeter accumulates spend for the life of one process: enough for

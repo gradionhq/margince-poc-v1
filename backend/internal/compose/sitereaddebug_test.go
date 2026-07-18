@@ -4,95 +4,86 @@
 package compose
 
 // The debug facade's contract: it runs the worker's exact
-// crawl→extract→merge spine and reports every intermediate — pages,
-// per-call telemetry, merge decisions, and the byte-identical proposal
-// payload — without a database or staging.
+// crawl→parallel-lanes→gate spine and reports every intermediate —
+// pages, call telemetry, drops, the legal-entity census, timings, and
+// the byte-identical proposal payload — without a database or staging.
 
 import (
 	"context"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
-func TestSiteReadDebugReportsPagesMergesAndModelCalls(t *testing.T) {
+func TestSiteReadDebugReportsPagesLanesAndProposal(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{
-		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks. Built for RevOps leaders at scaling SaaS companies."},
+		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks with our rollout playbooks."},
 		seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart."},
 	}}
-	// Two calls per crawled page in crawl order: home fields + home
-	// signal, then Impressum fields + Impressum company. The home reply
-	// grounds a guessed legal name the Impressum must override.
-	brain := ai.NewFakeClient().Script(
-		`{"fields":[
-			{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9},
-			{"field":"legal_name","value":"Acme (guessed)","evidence_snippet":"Built for RevOps leaders","confidence":0.95}]}`,
-		`{"fields":[
-			{"field":"named_customer","value":"Scaling SaaS companies — stated audience","evidence_snippet":"scaling SaaS companies","confidence":0.6}]}`,
-		`{"fields":[
-			{"field":"legal_name","value":"Acme Robotics GmbH","evidence_snippet":"Acme Robotics GmbH","confidence":0.7}]}`,
-		`{"fields":[]}`,
-		// The site-level synthesis pass finds nothing to correct.
-		`{"fields":[]}`,
-	)
+	brain := laneFake{
+		// Excerpt ids are global over the rank-sorted pages: the imprint
+		// leads, so s0 is its passage and s1 the home page's.
+		profileReply: `{"fields":[
+			{"f":"value_proposition","v":"Fast onboarding with rollout playbooks","e":"s1","c":0.9},
+			{"f":"legal_name","v":"Acme Robotics GmbH","e":"s0","c":0.9}]}`,
+		pageReplies: map[string]string{
+			seedURL + "/impressum": `{"facts":[{"f":"location","v":"Stuttgart","e":"s0"}],"entities":[{"n":"Acme Robotics GmbH","e":"s0"}]}`,
+		},
+	}
 
+	var phases []string
 	report, err := siteReadDebugRun(context.Background(),
-		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain, IncludePageText: true},
+		SiteReadDebugOptions{
+			SeedURL: seedURL, Brain: brain, FactBrain: brain, IncludePageText: true,
+			Progress: func(phase string, done, total int) { phases = append(phases, phase) },
+		},
 		testSiteCrawler(site), nil)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
 	}
+	if report.ModelLaneError != "" {
+		t.Fatalf("clean lanes reported an error: %s", report.ModelLaneError)
+	}
 
 	if got := len(report.Crawl.Pages); got != 2 {
-		t.Fatalf("reported %d pages, want 2 (home + impressum): %+v", got, report.Crawl.Pages)
-	}
-	if !report.Crawl.Pages[0].Extracted || !report.Crawl.Pages[1].Extracted {
-		t.Fatalf("every crawled page got its model pass, but Extracted says otherwise: %+v", report.Crawl.Pages)
+		t.Fatalf("reported %d pages, want 2: %+v", got, report.Crawl.Pages)
 	}
 	if report.Crawl.Pages[0].Text == "" {
-		t.Fatal("IncludePageText was set but the page text is missing from the report")
+		t.Fatal("IncludePageText was set but the page text is missing")
+	}
+	if len(phases) < 2 {
+		t.Fatalf("progress must fire for crawl and pages: %v", phases)
 	}
 
-	fieldsByName := map[string]DebugField{}
+	byName := map[string]DebugField{}
 	for _, f := range report.Extraction.Fields {
-		fieldsByName[f.Field] = f
+		byName[f.Field] = f
 	}
-	legal, ok := fieldsByName["legal_name"]
-	if !ok || legal.Value != "Acme Robotics GmbH" {
-		t.Fatalf("legal_name should be the Impressum's answer, got %+v", fieldsByName)
+	if byName["legal_name"].Value != "Acme Robotics GmbH" || byName["legal_name"].SourceURL != seedURL+"/impressum" {
+		t.Fatalf("the single-entity legal trio must stand, resolver-attributed: %+v", report.Extraction.Fields)
 	}
-	if legal.SourceURL != seedURL+"/impressum" {
-		t.Fatalf("legal_name source = %s, want the Impressum page", legal.SourceURL)
+	if len(report.Extraction.Facts) != 1 || report.Extraction.Facts[0].Field != "location" {
+		t.Fatalf("the location fact is missing: %+v", report.Extraction.Facts)
 	}
-
-	var legalDecision *DebugMergeDecision
-	for i, d := range report.Extraction.MergeDecisions {
-		if d.Field == "legal_name" {
-			legalDecision = &report.Extraction.MergeDecisions[i]
-		}
-	}
-	if legalDecision == nil {
-		t.Fatalf("the legal_name conflict left no merge decision: %+v", report.Extraction.MergeDecisions)
-	}
-	if legalDecision.WinnerSource != seedURL+"/impressum" || len(legalDecision.Losers) != 1 {
-		t.Fatalf("merge decision should name the Impressum winner and the home-page loser: %+v", legalDecision)
+	if len(report.Extraction.LegalEntities) != 1 {
+		t.Fatalf("the census must be reported: %+v", report.Extraction.LegalEntities)
 	}
 
-	if got := len(report.ModelCalls); got != 5 {
-		t.Fatalf("recorded %d model calls, want 5 (2 pages × 2 lanes + synthesis): %+v", got, report.ModelCalls)
+	// Two fact-bearing pages (home, impressum) + the profile call.
+	if got := len(report.ModelCalls); got != 3 {
+		t.Fatalf("recorded %d model calls, want 3 (2 page + 1 profile): %+v", got, report.ModelCalls)
 	}
-	wantLanes := []string{"fields", "category:signal", "fields", "category:company", "synthesis"}
-	for i, call := range report.ModelCalls {
-		if call.Lane != wantLanes[i] {
-			t.Fatalf("call %d lane = %s, want %s", i, call.Lane, wantLanes[i])
-		}
+	lanes := map[string]int{}
+	for _, call := range report.ModelCalls {
+		lanes[call.Lane]++
 	}
-	if report.ModelCalls[0].PageURL != seedURL || report.ModelCalls[2].PageURL != seedURL+"/impressum" {
-		t.Fatalf("calls are not attributed to their pages: %+v", report.ModelCalls)
+	if lanes[laneProfile] != 1 || lanes[lanePageFacts] != 2 {
+		t.Fatalf("lanes = %v, want 1 profile + 2 page_facts", lanes)
+	}
+	if report.ExtractionDurationMs < 0 {
+		t.Fatal("extraction duration missing")
 	}
 
 	if report.Proposal == nil {
-		t.Fatal("fields and facts survived but the report carries no proposal payload")
+		t.Fatal("findings survived but the report carries no proposal payload")
 	}
 	if len(report.Proposal.Fields) != len(report.Extraction.Fields) || len(report.Proposal.Facts) != len(report.Extraction.Facts) {
 		t.Fatalf("the proposal payload disagrees with the reported extraction: %+v vs %+v",
@@ -100,30 +91,23 @@ func TestSiteReadDebugReportsPagesMergesAndModelCalls(t *testing.T) {
 	}
 }
 
-func TestSiteReadDebugGateEmptyPagesReportCleanWithNoLaneError(t *testing.T) {
+func TestSiteReadDebugEmptyLanesReportCleanWithNoLaneError(t *testing.T) {
 	site := &fakeSite{pages: map[string]fakeSitePage{
-		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks."},
-		seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH."},
+		seedURL: {text: readable("Acme home.")},
 	}}
-	// The home page's two passes are scripted; the Impressum's calls run
-	// off the script into the fake's non-JSON fallback, which gates to
-	// zero fields without erroring — the honest "nothing evidenced" path.
-	brain := ai.NewFakeClient().Script(
-		`{"fields":[{"field":"value_proposition","value":"Fast onboarding","evidence_snippet":"Onboard your team in minutes, not weeks","confidence":0.9}]}`,
-		`{"fields":[]}`,
-	)
+	brain := laneFake{profileReply: `{"fields":[]}`}
 
 	report, err := siteReadDebugRun(context.Background(),
-		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain},
+		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain, FactBrain: brain},
 		testSiteCrawler(site), nil)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
 	}
 	if report.ModelLaneError != "" {
-		t.Fatalf("gate-empty pages are normal, not a model-lane error: %s", report.ModelLaneError)
+		t.Fatalf("an empty gate result is normal, not a lane error: %s", report.ModelLaneError)
 	}
-	if len(report.Extraction.Fields) != 1 {
-		t.Fatalf("the home page's evidenced field is missing: %+v", report.Extraction.Fields)
+	if report.Proposal != nil {
+		t.Fatalf("nothing survived, so no proposal payload: %+v", report.Proposal)
 	}
 	if report.Crawl.Pages[0].Text != "" {
 		t.Fatal("page text leaked into the report without IncludePageText")

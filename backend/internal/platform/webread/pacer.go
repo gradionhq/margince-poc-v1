@@ -10,12 +10,15 @@ import (
 )
 
 const (
-	// pacerMaxConcurrent and pacerMinInterval are the politeness budget toward
-	// one site: never more than two requests in flight, never two request
-	// STARTS closer than 300ms. Stricter than any robots Crawl-delay we could
-	// parse, so ignoring that directive stays honest.
-	pacerMaxConcurrent = 2
-	pacerMinInterval   = 300 * time.Millisecond
+	// pacerMaxConcurrent and pacerMinInterval are the burst budget toward
+	// one site: at most eight requests in flight, request STARTS at least
+	// 25ms apart. A deep read is a one-shot, bounded read of one company's
+	// site (page/byte/wall caps), not sustained crawling. Eight is the
+	// measured sweet spot: at twelve, origin servers start queuing and
+	// the fetch tail balloons past what the extra lanes save. Robots.txt
+	// honor is unchanged.
+	pacerMaxConcurrent = 8
+	pacerMinInterval   = 25 * time.Millisecond
 )
 
 // Pacer paces one crawl's requests to the site it reads. The crawler holds

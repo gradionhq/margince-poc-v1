@@ -182,6 +182,11 @@ func siteReadReport(read people.SiteRead) crmcontracts.SiteReadReport {
 		reason := crmcontracts.SiteReadReportStoppedReason(*read.StoppedReason)
 		report.StoppedReason = &reason
 	}
+	report.PagesRead = &read.PagesRead
+	if read.Phase != nil {
+		phase := crmcontracts.SiteReadReportPhase(*read.Phase)
+		report.Phase = &phase
+	}
 	return report
 }
 

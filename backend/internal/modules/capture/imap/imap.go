@@ -83,6 +83,27 @@ type Connector struct {
 	netConn net.Conn // the underlying TLS conn, kept only to refresh read deadlines
 	owner   string
 	stats   Stats
+
+	// dial establishes one session for the standing flavor; injectable so
+	// the sync logic tests against an in-memory server (the production
+	// dialer's TLS + SSRF guard are its own tested properties).
+	dial func(context.Context, Credentials) (*imapclient.Client, net.Conn, error)
+
+	// standing selects the persisted-connection flavor (NewStanding): the
+	// auth bundle carries the sealed credentials, every Sync dials fresh,
+	// and the cursor is the UID watermark. false = the transient one-shot
+	// pull below.
+	standing bool
+}
+
+// syncState is one pull's mutable state — owner identity, counters, and the
+// counterparty tally. It is always a local of the sync in progress: the
+// standing Connector is a registry singleton shared by every IMAP
+// connection, so per-pull state on the struct would race across mailboxes.
+type syncState struct {
+	owner    string
+	stats    Stats
+	contacts map[string]struct{}
 }
 
 // Stats is the outcome of one pull, surfaced to the caller's summary.
@@ -154,7 +175,10 @@ func (c *Connector) Descriptor() connector.Descriptor {
 // non-secret run configuration — the password is used here and discarded.
 // On failure it returns a sentinel (login vs unreachable) so the transport
 // can answer with the right status and never leaks the raw provider error.
-func (c *Connector) Authenticate(_ context.Context, req connector.AuthRequest) (connector.Auth, error) {
+func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest) (connector.Auth, error) {
+	if c.standing {
+		return c.authenticateStanding(ctx, req)
+	}
 	var creds Credentials
 	if err := json.Unmarshal(req.Payload, &creds); err != nil {
 		return nil, fmt.Errorf("imap: malformed credentials payload: %w", err)
@@ -243,7 +267,16 @@ func (c *Connector) Close() error {
 // returned cursor is always empty. Per-message parse failures, oversized
 // bodies and intentionally-dropped mail are counted, never fatal; a Sink
 // error (a real write fault) stops the pull.
-func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
+func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
+	if c.standing {
+		return c.syncStanding(ctx, auth, cursor, sink)
+	}
+	return c.syncTransient(ctx, auth, sink)
+}
+
+// syncTransient is the one-shot pull over the live session Authenticate
+// established: bounded recent window, no cursor.
+func (c *Connector) syncTransient(ctx context.Context, auth connector.Auth, sink connector.Sink) (connector.Cursor, error) {
 	if c.conn == nil {
 		return nil, errors.New("imap: Sync called before Authenticate")
 	}
@@ -256,6 +289,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 	}
 	c.owner = cfg.Owner
 	c.stats.Mailbox = cfg.Mailbox
+	st := &syncState{owner: cfg.Owner, stats: Stats{Mailbox: cfg.Mailbox}, contacts: map[string]struct{}{}}
 	if c.netConn != nil {
 		//craft:ignore swallowed-errors refreshing the read deadline for the pull; a closed conn surfaces as the next read failing
 		_ = c.netConn.SetDeadline(time.Now().Add(pullDeadline))
@@ -269,10 +303,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 		return nil, nil
 	}
 
-	window := uint32(maxMessagesCap)
-	if cfg.MaxMessages > 0 && cfg.MaxMessages <= maxMessagesCap {
-		window = uint32(cfg.MaxMessages) //nolint:gosec // bounded 1..200 by the guard above — no overflow
-	}
+	window := boundedWindow(cfg.MaxMessages)
 	from := uint32(1)
 	if selData.NumMessages > window {
 		from = selData.NumMessages - window + 1
@@ -283,7 +314,6 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 	fetchOpts := &imapv2.FetchOptions{BodySection: []*imapv2.FetchItemBodySection{{}}}
 	fetchCmd := c.conn.Fetch(seqset, fetchOpts)
 
-	contacts := map[string]struct{}{}
 	var writeErr error
 	for {
 		msg := fetchCmd.Next()
@@ -293,10 +323,10 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 		raw, err := readMessageBody(msg)
 		if err != nil {
 			// Oversized or bodyless — dropped, not fatal.
-			c.stats.Skipped++
+			st.stats.Skipped++
 			continue
 		}
-		if err := c.capture(ctx, raw, sink, contacts); err != nil {
+		if err := c.capture(ctx, raw, sink, st); err != nil {
 			writeErr = err
 			break
 		}
@@ -310,7 +340,10 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 	if writeErr != nil {
 		return nil, writeErr
 	}
-	c.stats.Contacts = len(contacts)
+	st.stats.Contacts = len(st.contacts)
+	// The transient connector is built fresh per request, so the write-back
+	// for Stats() is single-threaded by construction.
+	c.stats = st.stats
 	return nil, nil
 }
 
@@ -318,30 +351,30 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, _ connector.C
 // automated/unparseable/suppressed, else upsert through the Sink and tally the
 // counterparty. A dropped message is counted as skipped and returns nil; only
 // a real Sink write fault returns a non-nil error (which stops the pull).
-func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink, contacts map[string]struct{}) error {
-	parsed, err := mailmap.Parse(raw, c.owner)
+func (c *Connector) capture(ctx context.Context, raw []byte, sink connector.Sink, st *syncState) error {
+	parsed, err := mailmap.Parse(raw, st.owner)
 	if err != nil {
 		// A single unparseable message is dropped, not fatal — one bad MIME
 		// structure must not abort the whole pull.
-		c.stats.Skipped++
+		st.stats.Skipped++
 		return nil
 	}
 	if _, drop := parsed.SkipReason(); drop {
-		c.stats.Skipped++
+		st.stats.Skipped++
 		return nil
 	}
 	if _, err := sink.Upsert(ctx, parsed.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			// The Sink dropped it (e.g. an erased subject's suppression list) —
 			// a deliberate skip, counted like any other.
-			c.stats.Skipped++
+			st.stats.Skipped++
 			return nil
 		}
 		return err
 	}
-	c.stats.Captured++
+	st.stats.Captured++
 	if cp := parsed.Counterparty(); cp != "" {
-		contacts[strings.ToLower(cp)] = struct{}{}
+		st.contacts[strings.ToLower(cp)] = struct{}{}
 	}
 	return nil
 }
@@ -363,7 +396,20 @@ func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]con
 // HealthCheck confirms the live session still answers. A one-shot pull
 // never persists a connection, so this is only meaningful between
 // Authenticate and Sync within a single request.
-func (c *Connector) HealthCheck(_ context.Context, _ connector.Auth) error {
+func (c *Connector) HealthCheck(ctx context.Context, auth connector.Auth) error {
+	if c.standing {
+		var creds Credentials
+		if err := json.Unmarshal(auth, &creds); err != nil {
+			return fmt.Errorf("imap: malformed auth bundle: %w", err)
+		}
+		client, _, err := c.dial(ctx, creds)
+		if err != nil {
+			return err
+		}
+		//craft:ignore swallowed-errors best-effort close of the health probe session — the login answered the question
+		_ = client.Close()
+		return nil
+	}
 	if c.conn == nil {
 		return errors.New("imap: no live session")
 	}
@@ -381,25 +427,37 @@ func (c *Connector) Stats() Stats { return c.stats }
 // consumed (or discarded, past the cap) before the next message — leaving it
 // half-read would desync the connection.
 func readMessageBody(msg *imapclient.FetchMessageData) ([]byte, error) {
+	raw, _, err := readMessageBodyUID(msg)
+	return raw, err
+}
+
+// readMessageBodyUID additionally captures the message UID when the fetch
+// asked for it (the standing flavor's watermark).
+func readMessageBodyUID(msg *imapclient.FetchMessageData) ([]byte, uint32, error) {
 	var raw []byte
 	var readErr error
+	var uid uint32
 	found := false
 	for {
 		item := msg.Next()
 		if item == nil {
 			break
 		}
-		bs, ok := item.(imapclient.FetchItemDataBodySection)
-		if !ok || bs.Literal == nil || found {
-			continue
+		switch it := item.(type) {
+		case imapclient.FetchItemDataUID:
+			uid = uint32(it.UID)
+		case imapclient.FetchItemDataBodySection:
+			if it.Literal == nil || found {
+				continue
+			}
+			raw, readErr = readCapped(it.Literal)
+			found = true
 		}
-		raw, readErr = readCapped(bs.Literal)
-		found = true
 	}
 	if !found {
-		return nil, errNoBodySection
+		return nil, uid, errNoBodySection
 	}
-	return raw, readErr
+	return raw, uid, readErr
 }
 
 // readCapped reads at most maxRawLen bytes from r; a source larger than the cap
@@ -415,4 +473,12 @@ func readCapped(r io.Reader) ([]byte, error) {
 		return nil, errMessageTooLarge
 	}
 	return raw, nil
+}
+
+// boundedWindow clamps a requested pull size onto [1, maxMessagesCap].
+func boundedWindow(requested int) uint32 {
+	if requested > 0 && requested <= maxMessagesCap {
+		return uint32(requested)
+	}
+	return uint32(maxMessagesCap)
 }

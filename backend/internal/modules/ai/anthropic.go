@@ -66,7 +66,17 @@ type anthropicResponseFormat struct {
 	Schema json.RawMessage `json:"schema"`
 }
 
+// streamedCompleteThreshold is the MaxTokens above which Complete rides
+// the SSE wire and accumulates: Anthropic (and intermediaries) drop a
+// non-streaming connection that stays silent for ~a minute, and a large
+// completion produces no bytes until it is done. Small calls keep the
+// simple wire.
+const streamedCompleteThreshold = 8192
+
 func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (model.Response, error) {
+	if req.MaxTokens > streamedCompleteThreshold {
+		return c.completeStreamed(ctx, req)
+	}
 	body, err := c.post(ctx, req)
 	if err != nil {
 		return model.Response{}, err
@@ -106,6 +116,67 @@ func (c *anthropicClient) Complete(ctx context.Context, req model.Request) (mode
 		InputTokens:  out.Usage.InputTokens,
 		OutputTokens: out.Usage.OutputTokens,
 	}, nil
+}
+
+// completeStreamed is Complete over the SSE wire: text deltas (and
+// schema-constrained JSON deltas) accumulate into one response, and the
+// usage counts are read off the message_start / message_delta events so
+// metering stays exact.
+func (c *anthropicClient) completeStreamed(ctx context.Context, req model.Request) (model.Response, error) {
+	body, err := c.postStream(ctx, req)
+	if err != nil {
+		return model.Response{}, err
+	}
+	//craft:ignore swallowed-errors best-effort close of a stream already consumed to message_stop — the scan result decides the outcome
+	defer func() { _ = body.Close() }()
+
+	var text strings.Builder
+	var resp model.Response
+	scanner := streamLineScanner(body)
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return model.Response{}, err
+		}
+		data, isData := strings.CutPrefix(scanner.Text(), "data: ")
+		if !isData {
+			continue
+		}
+		var ev struct {
+			Type    string `json:"type"`
+			Message struct {
+				Usage struct {
+					InputTokens int `json:"input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+			Delta struct {
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				PartialJSON string `json:"partial_json"`
+			} `json:"delta"`
+			Usage struct {
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			return model.Response{}, fmt.Errorf("ai: anthropic: stream event: %w", err)
+		}
+		switch ev.Type {
+		case "message_start":
+			resp.InputTokens = ev.Message.Usage.InputTokens
+		case "content_block_delta":
+			text.WriteString(ev.Delta.Text)
+			text.WriteString(ev.Delta.PartialJSON)
+		case "message_delta":
+			resp.OutputTokens = ev.Usage.OutputTokens
+		case "message_stop":
+			resp.Text = text.String()
+			return resp, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return model.Response{}, fmt.Errorf("ai: anthropic: stream: %w", err)
+	}
+	return model.Response{}, fmt.Errorf("ai: anthropic: stream ended without message_stop")
 }
 
 func (c *anthropicClient) Stream(ctx context.Context, req model.Request) (model.TokenStream, error) {

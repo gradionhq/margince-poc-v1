@@ -31,7 +31,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
 
 	// The DE jurisdiction pack compiles into every edge binary of this
 	// DE-first deployment (ADR-0042: composition by require-set).
@@ -40,6 +39,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
@@ -59,6 +59,7 @@ func main() {
 // workerConfig is the parsed boot configuration of the worker process.
 type workerConfig struct {
 	dsn                string
+	configPath         string
 	redisAddr          string
 	routingPath        string
 	fakeBrain          bool
@@ -87,6 +88,8 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	var cfg workerConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
+		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors. A missing file boots with capture off")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
@@ -155,6 +158,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
+	// The Surface-B runner (below) runs on THIS process, so the operator's
+	// ai.capture_payloads posture must be read here too — not only in cmd/api.
+	// A missing file returns the zero config (capture off), keeping the
+	// no-config boot's behaviour; an invalid file is a boot error, same as api.
+	deployCfg, err := deployconfig.Load(cfg.configPath)
+	if err != nil {
+		return err
+	}
+
 	rdb, err := events.NewClient(ctx, cfg.redisAddr)
 	if err != nil {
 		return err
@@ -165,7 +177,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}()
 
-	modelPath, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, pool)
+	modelPath, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, deployCfg.AI.CapturePayloads, pool, logger)
 	if err != nil {
 		return err
 	}
@@ -254,41 +266,40 @@ func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdou
 // is unchanged; only the scheduler is River now. The returned stop function
 // drains in-flight jobs on shutdown.
 func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
-	// Build the Gmail poll only when the app is configured. Gating the vault
-	// init here matters: an unconfigured deployment must not fail worker boot
-	// on a keyvault problem it doesn't need. GmailPollRegistry then holds the
-	// same vault the connect flow sealed credentials into.
-	var gmailReg *capture.Registry
-	if cfg.gmailClientID != "" && cfg.gmailClientSecret != "" {
-		vault, _, verr := keyvault.FromEnv(pool)
-		if verr != nil {
-			return nil, fmt.Errorf("worker: keyvault: %w", verr)
-		}
-		gmailReg = compose.GmailPollRegistry(pool, vault, compose.GmailConfig{
-			ClientID:     cfg.gmailClientID,
-			ClientSecret: cfg.gmailClientSecret,
-		}).WithSyncInterval(cfg.gmailSyncInterval)
+	// The sweep registry is always live — the standing IMAP connector needs
+	// no deployment config; gmail joins it when the OAuth app is configured.
+	// The vault holds every connection's sealed credential (the standing
+	// flavors resolve through it), so it initializes here regardless.
+	vault, _, verr := keyvault.FromEnv(pool)
+	if verr != nil {
+		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}
+	captureReg := compose.CaptureSyncRegistry(pool, vault, compose.GmailConfig{
+		ClientID:     cfg.gmailClientID,
+		ClientSecret: cfg.gmailClientSecret,
+	}).WithSyncInterval(cfg.gmailSyncInterval)
+	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
 	watchCfg := compose.GmailWatchConfig{
 		Interval:    cfg.gmailWatchInterval,
 		RenewWithin: cfg.gmailWatchRenew,
 	}
 	// The watch job only runs where a Pub/Sub topic is configured AND the Gmail
-	// app is wired (gmailReg != nil); otherwise capture stays on the poll.
-	if gmailReg != nil {
+	// app is wired; otherwise capture stays on the poll.
+	if gmailWired {
 		watchCfg.Topic = cfg.gmailPubsubTopic
 	}
 	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
 		CloseDateInterval: cfg.closeDateInterval,
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,
-		GmailRegistry:     gmailReg,
+		GmailRegistry:     captureReg,
 
 		GmailWatch: watchCfg,
 		// The deep-read worker registers regardless: without a model path
 		// (nil SiteExtract) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.
-		DeepReadBrain: modelPath.SiteExtract,
+		DeepReadBrain:     modelPath.SiteExtract,
+		DeepReadFactBrain: modelPath.SiteFactExtract,
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,
@@ -301,19 +312,19 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	gmailNote := "gmail sync off (unconfigured)"
+	captureNote := fmt.Sprintf("capture sweep every %s: imap", cfg.gmailSyncInterval)
 	switch {
-	case gmailReg != nil && watchCfg.Topic != "":
-		gmailNote = fmt.Sprintf("gmail sync every %s, watch renew every %s", cfg.gmailSyncInterval, cfg.gmailWatchInterval)
-	case gmailReg != nil:
-		gmailNote = fmt.Sprintf("gmail sync every %s (watch off: no pubsub topic)", cfg.gmailSyncInterval)
+	case gmailWired && watchCfg.Topic != "":
+		captureNote = fmt.Sprintf("capture sweep every %s: imap+gmail, watch renew every %s", cfg.gmailSyncInterval, cfg.gmailWatchInterval)
+	case gmailWired:
+		captureNote = fmt.Sprintf("capture sweep every %s: imap+gmail (watch off: no pubsub topic)", cfg.gmailSyncInterval)
 	}
 	deepReadNote := "deep read on"
 	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
 	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s)\n",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, gmailNote, deepReadNote)
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, deepReadNote)
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.
@@ -329,14 +340,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without
 // a declared model; nothing is picked silently.
-func selectModelPath(routingPath string, fake bool, pool *pgxpool.Pool) (compose.ModelPath, error) {
+func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
 			return compose.ModelPath{}, err
 		}
-		return compose.NewModelPath(cfg, pool)
+		return compose.NewModelPath(cfg, pool, capturePayloads, log)
 	case fake:
 		return compose.FakeModelPath(ai.NewFakeClient()), nil
 	default:

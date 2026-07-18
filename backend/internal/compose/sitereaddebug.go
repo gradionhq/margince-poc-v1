@@ -16,9 +16,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -33,11 +33,16 @@ import (
 type SiteReadDebugOptions struct {
 	SeedURL string
 	Caps    CrawlCaps
-	Brain   runner.Brain
+	Brain   completer
+	// FactBrain serves the page-parallel fact lane (nil ⇒ Brain).
+	FactBrain completer
 	// IncludePageText carries each fetched page's reduced text into the
 	// report (DebugPage.Text) — for the --dump-pages flag; off by default
 	// because page text dwarfs everything else in the JSON.
 	IncludePageText bool
+	// Progress (may be nil) fires at phase boundaries — after the crawl
+	// and after each corpus chunk — the CLI's live status line.
+	Progress func(phase string, done, total int)
 }
 
 // SiteReadDebugReport is the whole run, machine-readable. Arrays follow
@@ -58,6 +63,9 @@ type SiteReadDebugReport struct {
 	// legal name foreign to the domain) — advice for the human tuning
 	// the read, never part of the production outcome.
 	Warnings []string `json:"warnings,omitempty"`
+	// ExtractionDurationMs is the parallel extraction's wall clock —
+	// with the crawl duration, the read's whole latency story.
+	ExtractionDurationMs int64 `json:"extraction_duration_ms"`
 }
 
 // RunSiteReadDebug runs one full deep read in memory and reports every
@@ -80,9 +88,15 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		ctx = principal.WithWorkspaceID(ctx, ids.NewV7())
 	}
 	caps := opts.Caps.withDefaults()
-	rec := &recordingBrain{inner: opts.Brain}
+	log := &callLog{}
+	rec := &recordingBrain{inner: opts.Brain, log: log}
+	factInner := opts.FactBrain
+	if factInner == nil {
+		factInner = opts.Brain
+	}
+	recFacts := &recordingBrain{inner: factInner, log: log}
 	var dropped []DebugDrop
-	extract := evidenceExtractor{fetch: pageFetch, brain: rec, drops: func(sourceURL string, d droppedFinding) {
+	extract := evidenceExtractor{fetch: pageFetch, brain: rec, factBrain: recFacts, drops: func(sourceURL string, d droppedFinding) {
 		dropped = append(dropped, DebugDrop{
 			PageURL: sourceURL, Lane: d.Lane, Field: d.Field, Value: d.Value,
 			EvidenceSnippet: d.EvidenceSnippet, Reason: d.Reason,
@@ -94,45 +108,41 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		Caps:    DebugCaps{MaxPages: caps.MaxPages, MaxBytes: caps.MaxBytes, WallMs: caps.Wall.Milliseconds()},
 	}
 
-	crawlStart := time.Now()
-	crawl, err := crawler.Crawl(ctx, opts.SeedURL)
+	start := time.Now()
+	crawl, extraction, err := crawlAndExtract(ctx, crawler, extract, opts.SeedURL, func(done int) {
+		if opts.Progress != nil {
+			// The total is unknowable mid-crawl (pages stream in); done
+			// alone is the honest signal.
+			opts.Progress("extracted page", done, done)
+		}
+	})
 	if err != nil {
 		return SiteReadDebugReport{}, err
 	}
-	crawlMs := time.Since(crawlStart).Milliseconds()
-
-	perPage := make([]pageFields, 0, len(crawl.Pages))
-	for _, page := range crawl.Pages {
-		rec.page = page.URL
-		extracted, err := extractCrawlPage(ctx, extract, page)
-		if err != nil {
-			report.ModelLaneError = fmt.Sprintf("extracting %s: %v", page.URL, err)
-			break
-		}
-		perPage = append(perPage, extracted)
+	// Crawl and extraction overlap: ExtractionDurationMs is the whole
+	// overlapped run, Crawl.DurationMs the crawl's own share within it —
+	// they no longer sum.
+	report.ExtractionDurationMs = time.Since(start).Milliseconds()
+	crawlMs := extraction.crawlMs
+	if extraction.err != nil {
+		report.ModelLaneError = extraction.err.Error()
 	}
-	report.Crawl = debugCrawl(crawl, len(perPage), opts.IncludePageText, crawlMs)
+	report.Crawl = debugCrawl(crawl, crawl.Pages, opts.IncludePageText, crawlMs)
 
-	mergedFields, legalConflict := mergeCrawlFields(perPage)
+	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+	extract.reportDrops(ctx, laneLegal, legalDrops)
 	if legalConflict {
-		report.Warnings = append(report.Warnings,
-			"disagreeing legal pages: the domain hosts more than one entity — the legal-field override was dropped")
+		report.Warnings = append(report.Warnings, legalWarningMultipleEntities)
 	}
-	if report.ModelLaneError == "" {
-		rec.page = laneSynthesis
-		mergedFields = synthesizeSiteFields(ctx, extract, crawl.Pages[:len(perPage)], mergedFields)
-	}
-	mergedFacts := mergeCategoryFacts(perPage)
-	mergedPeople := mergeTeamPeople(perPage)
 	report.Extraction = DebugExtraction{
-		Fields:         debugFields(mergedFields),
-		Facts:          debugFacts(mergedFacts),
-		People:         debugPeople(mergedPeople),
-		MergeDecisions: fieldMergeDecisions(crawl.Pages[:len(perPage)], perPage, mergedFields),
-		Dropped:        dropped,
+		Fields:        debugFields(mergedFields),
+		Facts:         debugFacts(extraction.merged.facts),
+		People:        debugPeople(extraction.merged.people),
+		LegalEntities: debugLegalEntities(extraction.merged.entities),
+		Dropped:       dropped,
 	}
-	report.ModelCalls = rec.calls
-	report.Proposal = debugProposal(opts.SeedURL, mergedFields, mergedFacts)
+	report.ModelCalls = log.calls
+	report.Proposal = debugProposal(opts.SeedURL, mergedFields, extraction.merged.facts)
 	if warning := wrongCompanySignal(opts.SeedURL, mergedFields); warning != "" {
 		report.Warnings = append(report.Warnings, warning)
 	}
@@ -140,11 +150,18 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 }
 
 // recordingBrain decorates the injected brain with per-call telemetry
-// for the debug report. The debug loop is sequential, so the mutable
-// page label is safe; production never sees this type.
+// for the debug report. Calls arrive from the concurrent fan-out, so
+// the record is mutex-guarded and the page attribution is recovered
+// from the request itself; production never sees this type.
 type recordingBrain struct {
-	inner runner.Brain
-	page  string
+	inner completer
+	log   *callLog
+}
+
+// callLog is the shared, mutex-guarded call record both lane recorders
+// append to.
+type callLog struct {
+	mu    sync.Mutex
 	calls []DebugModelCall
 }
 
@@ -170,9 +187,14 @@ func (b *recordingBrain) CompleteValidated(ctx context.Context, req model.Reques
 }
 
 func (b *recordingBrain) record(req model.Request, resp model.Response, err error, dur time.Duration) {
+	lane := extractionLane(req.System)
+	page := pageOfRequest(req)
+	if page == "" {
+		page = lane // the profile call reads the whole excerpt corpus
+	}
 	call := DebugModelCall{
-		PageURL:      b.page,
-		Lane:         extractionLane(req.System),
+		PageURL:      page,
+		Lane:         lane,
 		LatencyMs:    dur.Milliseconds(),
 		InputTokens:  resp.InputTokens,
 		OutputTokens: resp.OutputTokens,
@@ -180,7 +202,27 @@ func (b *recordingBrain) record(req model.Request, resp model.Response, err erro
 	if err != nil {
 		call.Error = err.Error()
 	}
-	b.calls = append(b.calls, call)
+	b.log.mu.Lock()
+	defer b.log.mu.Unlock()
+	b.log.calls = append(b.log.calls, call)
+}
+
+// pageOfRequest recovers which page a call served from the request's
+// own source label ("Page <url>:") — attribution that survives the
+// concurrent fan-out, where a mutable shared label would not.
+func pageOfRequest(req model.Request) string {
+	if len(req.Messages) == 0 {
+		return ""
+	}
+	rest, found := strings.CutPrefix(req.Messages[0].Content, "Page ")
+	if !found {
+		return ""
+	}
+	pageURL, _, found := strings.Cut(rest, ":\n")
+	if !found {
+		return ""
+	}
+	return pageURL
 }
 
 // SiteReadDebugBrain resolves the subcommand's model selection — exactly
@@ -190,8 +232,8 @@ func (b *recordingBrain) record(req model.Request, resp model.Response, err erro
 // even a pinned model rides the full routed pipeline (structured-output
 // retries, budget bands, secret stripping).
 //
-//nolint:ireturn // the Brain seam is the point: three providers (routed, override, fake) behind the one interface every consumer takes.
-func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (runner.Brain, string, error) {
+//nolint:ireturn // the completer seam is the point: three providers (routed, override, fake) behind the one interface every consumer takes.
+func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, facts completer, banner string, err error) {
 	selected := 0
 	for _, on := range []bool{routingPath != "", modelOverride != "", fake} {
 		if on {
@@ -199,54 +241,57 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (runner.Br
 		}
 	}
 	if selected != 1 {
-		return nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
+		return nil, nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
 	}
 	switch {
 	case fake:
-		return ai.NewFakeClient(), "fake (offline; extraction yields nothing — crawl dry-run)", nil
+		client := ai.NewFakeClient()
+		return client, client, "fake (offline; extraction yields nothing — crawl dry-run)", nil
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
 		router, err := ai.NewUnmeteredRouter(cfg)
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
-		return routerBrain{router: router, task: ai.TaskSiteExtract}, "routing " + routingPath, nil
+		return routerBrain{router: router, task: ai.TaskSiteExtract},
+			routerBrain{router: router, task: ai.TaskSiteFactExtract},
+			"routing " + routingPath, nil
 	default:
 		provider, modelName, found := strings.Cut(modelOverride, ":")
 		if !found || provider == "" || modelName == "" {
-			return nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
+			return nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
 		}
 		router, err := ai.NewUnmeteredRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
 			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-			Embeddings: ai.ProviderConfig{Provider: "fake"},
+			Embeddings: ai.ProviderConfig{Provider: ai.ProviderFake},
 		})
 		if err != nil {
-			return nil, "", err
+			return nil, nil, "", err
 		}
-		return routerBrain{router: router, task: ai.TaskSiteExtract}, "model override " + modelOverride, nil
+		// One pinned model serves both lanes: each task's ladder falls
+		// through to the one bound tier.
+		lane := func(task ai.Task) completer { return routerBrain{router: router, task: task} }
+		return lane(ai.TaskSiteExtract), lane(ai.TaskSiteFactExtract), "model override " + modelOverride, nil
 	}
 }
 
 // extractionLane names which extraction a call served, recovered from
-// the system prompt — the one attribute all three lanes disagree on.
+// the system prompt: the profile lane and the per-page fact lane are
+// the deep read's two prompts; the company-fact prompt still serves the
+// quick scrape.
 func extractionLane(system string) string {
-	switch system {
-	case companyFactsSystem:
+	switch {
+	case system == profileSystem:
+		return laneProfile
+	case strings.HasPrefix(system, "You extract company facts from ONE page"):
+		return lanePageFacts
+	case system == companyFactsSystem:
 		return laneFields
-	case teamPeopleSystem:
-		return lanePeople
-	case synthesisSystem:
-		return laneSynthesis
 	default:
-		for category := range categoryGuidance {
-			if system == categoryFactsSystem(category) {
-				return "category:" + category
-			}
-		}
 		return "other"
 	}
 }

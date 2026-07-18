@@ -50,6 +50,7 @@ Operational endpoints (served next to `/v1`):
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file; the worker reads it for the `ai.capture_payloads` posture the Surface-B runner honors (capture applies to **both** the api and worker roles — the worker runs the richest content source, the agent runs). A missing file boots with capture off |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
@@ -72,6 +73,20 @@ required: `--ai-routing <yaml>`, `--model provider:model` (e.g.
 `--ai-fake` (crawl dry-run). `--max-pages/--max-bytes/--wall` override the
 caps per run; `--json <path|->` writes a diffable machine-readable report;
 `--dump-pages <dir>` saves each page's reduced text.
+
+Extraction runs two routed lanes CONCURRENTLY with the crawl (page
+calls launch as pages commit): `site_fact_extract` — one compact call
+per fact-bearing page, cheap-tier-first (the reply cites numbered
+passages instead of quoting, which a fast model emits reliably) — and
+`site_extract` — the ONE premium-first profile call over the
+identity-dense excerpts. Evidence is verified in Go against the cited
+passage (reference evidence: the stored snippet is the page's own
+text). Judge any candidate binding against the pinned quality floor:
+`make -C backend e2e-siteread` with `MARGINCE_E2E_MODEL=provider:model`
+or `MARGINCE_AI_ROUTING=<yaml>` (paid, network E2E vs gradion.com — a
+different model must do the same or better to pass). Typical read:
+10–25 s end-to-end depending on how hard the origin throttles the
+crawl burst.
 
 Without a declared model (`--ai-routing`/`--ai-fake`) the runner and the
 embedding lane simply do not start; the relay, retention, the event-triggered
@@ -169,6 +184,19 @@ migrate <up|down> --dsn <owner-dsn> [--steps n]
 | `MARGINCE_ENV` | api (identity handlers) | `dev` enables dev-only trust switches. The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
+
+The **deployment configuration** (`--config`, default `margince.yaml`) is
+seeded the same way for local dev. The annotated reference is
+[`config/margince.example.yaml`](../../config/margince.example.yaml); `make dev`
+copies it to a gitignored `config/margince.yaml` on first run and then
+**leaves it** (create-if-missing / leave-if-exists, exactly like
+`config/ai-routing.yaml` below), so an engineer's edits — organization,
+`bootstrap_admin`, or the `ai.capture_payloads` posture — persist across
+`make dev-stop` / `make dev` rather than being regenerated each boot. The
+admin `password_file` it references (`config/margince-admin-password`) is
+seeded alongside on first run; both are gitignored. `--config` reaches
+**both** the api and worker, so a posture like `ai.capture_payloads` applies
+to every role. Delete `config/margince.yaml` and re-run `make dev` to reset.
 
 Model credentials (BYOK cloud tiers) are configured in
 `ai-routing.yaml`, not through binary flags. The annotated reference is

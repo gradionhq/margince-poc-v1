@@ -13,12 +13,9 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
@@ -94,12 +91,21 @@ func (c CrawlCaps) withDefaults() CrawlCaps {
 	return c
 }
 
+// The crawl selects FRONTIER-sized waves: every admissible candidate
+// known at selection time fetches concurrently (the webread pacer's
+// in-flight budget does the throttling), and results COMMIT strictly in
+// selection order, so the walk stays deterministic whatever order the
+// responses arrive in. Most of a site's candidates are known after the
+// probes + sitemap, so the whole crawl is ~2 waves. Tests pin the wave
+// to 1 so their in-memory fetch logs stay sequential.
+
 type siteCrawler struct {
-	fetch    siteFetcher
-	newPacer func() crawlPacer
-	maxPages int
-	maxBytes int
-	wall     time.Duration
+	fetch     siteFetcher
+	newPacer  func() crawlPacer
+	maxPages  int
+	maxBytes  int
+	wall      time.Duration
+	fetchWave int
 }
 
 func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
@@ -110,6 +116,8 @@ func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
 		maxPages: caps.MaxPages,
 		maxBytes: caps.MaxBytes,
 		wall:     caps.Wall,
+		// Frontier sizing: the page budget itself is the wave bound.
+		fetchWave: caps.MaxPages,
 	}
 }
 
@@ -150,6 +158,13 @@ type crawlCandidate struct {
 // failing is a failed crawl, not a partial one — every later loss degrades to
 // a recorded skip or an early stop instead.
 func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, error) {
+	return c.CrawlStream(ctx, seedURL, nil)
+}
+
+// CrawlStream is Crawl with a per-commit hook: onPage fires serially,
+// in commit order, the moment a page joins the result — the seam that
+// lets extraction START while the crawl still runs. A nil hook is Crawl.
+func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage func(crawlPage)) (siteCrawl, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.wall)
 	defer cancel()
 	pacer := c.newPacer()
@@ -164,13 +179,19 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 	}
 
 	run := newCrawlRun(c, pacer, seedURL, seedPage)
+	run.onPage = onPage
+	if onPage != nil {
+		onPage(run.crawl.Pages[0]) // the seed page is committed already
+	}
 	run.discover(ctx, seedParsed.Scheme+"://"+seedParsed.Host, seedPage)
-	// Highest-priority-first selection instead of FIFO: the page budget
-	// goes to the kinds that state facts (legal, about, team, contact,
-	// offerings) before generic nav links, and boilerplate archives only
-	// fill leftover budget. Ties break on insertion order and every
-	// priority is computed from the URL alone, so the walk stays
-	// deterministic.
+	// Highest-priority-first selection in concurrent WAVES: each round
+	// picks the best untaken candidates (bounded by the fetch wave and
+	// the remaining page budget), screens them serially, fetches them
+	// concurrently through the pacer, then commits the results strictly
+	// in selection order — dedupe, caps, page append and link discovery
+	// all run single-threaded, so the walk stays deterministic whatever
+	// order the responses arrive in. Ties break on insertion order and
+	// every priority is computed from the URL alone.
 	var taken []bool
 	var priority []int
 	for {
@@ -178,8 +199,50 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 			priority = append(priority, candidatePriority(run.queue[len(priority)]))
 			taken = append(taken, false)
 		}
+		if stop := stopReason(ctx, len(run.crawl.Pages), c.maxPages, run.totalBytes, c.maxBytes); stop != nil {
+			run.crawl.Stopped = stop
+			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(untakenCandidates(run.queue, taken), run.visited, *stop)...)
+			break
+		}
+		waveMax := c.fetchWave
+		if remaining := c.maxPages - len(run.crawl.Pages); remaining < waveMax {
+			waveMax = remaining
+		}
+		wave := selectWave(run.queue, priority, taken, waveMax)
+		if len(wave) == 0 {
+			break // discovery exhausted, the natural end
+		}
+		admitted := make([]admission, 0, len(wave))
+		for _, cand := range wave {
+			if adm, ok := run.admit(cand); ok {
+				admitted = append(admitted, adm)
+			}
+		}
+		results := run.fetchWave(ctx, admitted)
+		for i, adm := range admitted {
+			run.commit(adm, results[i])
+			if run.crawl.Stopped != nil {
+				break
+			}
+		}
+		if run.crawl.Stopped != nil {
+			// A mid-commit stop (deadline, byte cap) never reaches the loop
+			// head again; the cut-off remainder is recorded here.
+			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(untakenCandidates(run.queue, taken), run.visited, *run.crawl.Stopped)...)
+			break
+		}
+	}
+	run.crawl.TotalBytes = run.totalBytes
+	return run.crawl, nil
+}
+
+// selectWave marks and returns the next wave: the highest-priority
+// untaken candidates, insertion order breaking ties, up to waveMax.
+func selectWave(queue []crawlCandidate, priority []int, taken []bool, waveMax int) []crawlCandidate {
+	var wave []crawlCandidate
+	for len(wave) < waveMax {
 		next := -1
-		for i := range run.queue {
+		for i := range queue {
 			if taken[i] {
 				continue
 			}
@@ -188,21 +251,12 @@ func (c *siteCrawler) Crawl(ctx context.Context, seedURL string) (siteCrawl, err
 			}
 		}
 		if next == -1 {
-			break // discovery exhausted, the natural end
-		}
-		if stop := stopReason(ctx, len(run.crawl.Pages), c.maxPages, run.totalBytes, c.maxBytes); stop != nil {
-			run.crawl.Stopped = stop
-			run.crawl.Skipped = append(run.crawl.Skipped, leftBehind(untakenCandidates(run.queue, taken), run.visited, *stop)...)
 			break
 		}
 		taken[next] = true
-		run.visit(ctx, run.queue[next])
-		if run.crawl.Stopped != nil {
-			break // the clock ran out mid-fetch
-		}
+		wave = append(wave, queue[next])
 	}
-	run.crawl.TotalBytes = run.totalBytes
-	return run.crawl, nil
+	return wave
 }
 
 // untakenCandidates lists what the selection never reached, in insertion
@@ -234,9 +288,11 @@ type crawlRun struct {
 	seedURL string
 
 	crawl         siteCrawl
+	onPage        func(crawlPage)
 	queue         []crawlCandidate
 	visited       map[string]bool
 	seenText      map[string]bool
+	canonicalDone map[string]bool
 	probeKindDone map[crmcontracts.SiteReadPageKind]bool
 	totalBytes    int
 }
@@ -257,6 +313,7 @@ func newCrawlRun(c *siteCrawler, pacer crawlPacer, seedURL string, seedPage webr
 		},
 		visited:       visited,
 		seenText:      map[string]bool{seedPage.Text: true},
+		canonicalDone: map[string]bool{localeCanonical(seedURL): true},
 		probeKindDone: map[crmcontracts.SiteReadPageKind]bool{},
 		totalBytes:    seedPage.Bytes,
 	}
@@ -281,92 +338,6 @@ func (r *crawlRun) discover(ctx context.Context, origin string, seedPage webread
 		r.queue = append(r.queue, crawlCandidate{url: loc})
 	}
 	r.queue = append(r.queue, linkCandidates(seedPage.Links)...)
-}
-
-// visit handles one candidate: gate it, fetch it, file the outcome as a page,
-// a recorded skip, a silent skip, or — when the clock runs out mid-fetch —
-// the crawl's deadline stop.
-func (r *crawlRun) visit(ctx context.Context, cand crawlCandidate) {
-	candURL, ok := normalizeCandidate(cand.url)
-	if !ok || r.visited[candURL] {
-		return
-	}
-	r.visited[candURL] = true
-	if cand.probe && r.probeKindDone[cand.kind] {
-		// A probe of an already-satisfied kind: skipped without a report
-		// entry — the path was our guess, not a page the site offered.
-		return
-	}
-	if strings.HasSuffix(strings.ToLower(candURL), ".xml") {
-		// A sitemapindex's <loc>s are child sitemaps; the crawl deliberately
-		// does not recurse into them (bounded discovery), and an XML file is
-		// not a readable page either way.
-		return
-	}
-	if !webread.SameRegistrableDomain(r.seedURL, candURL) {
-		// The security property of the whole crawler: no page content can
-		// send the crawl off the seed's site — off-domain candidates are
-		// recorded, never fetched.
-		r.skip(candURL, crmcontracts.OffDomain)
-		return
-	}
-
-	r.fetchAndRecord(ctx, cand, candURL)
-}
-
-// fetchAndRecord is visit's tail once the candidate is admissible (same-site,
-// not a duplicate probe, not an XML index): fetch it, and either record a skip
-// with its reason or append the page and enqueue its links.
-func (r *crawlRun) fetchAndRecord(ctx context.Context, cand crawlCandidate, candURL string) {
-	fetchStart := time.Now()
-	page, err := r.crawler.fetchPaced(ctx, r.pacer, candURL)
-	fetchDur := time.Since(fetchStart)
-	switch {
-	case errors.Is(err, webread.ErrRobotsDisallowed):
-		r.skip(candURL, crmcontracts.Robots)
-		return
-	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
-		// The crawl's clock ran out mid-fetch; the loop head would catch it
-		// one iteration later, this just stops without a bogus per-page
-		// "unreadable".
-		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonDeadline)
-		return
-	case err != nil:
-		r.skip(candURL, crmcontracts.Unreadable)
-		return
-	}
-	if utf8.RuneCountInString(page.Text) < crawlMinRunes {
-		r.skip(candURL, crmcontracts.Unreadable)
-		return
-	}
-	if r.seenText[page.Text] {
-		// An SPA catch-all serves the same document on every path; the
-		// duplicate carries zero new evidence and reporting it as a skip
-		// would flood the report with noise, so it vanishes silently.
-		return
-	}
-
-	// The pre-fetch stopReason bounds the crawl by the PREVIOUS total; this
-	// page, already fetched, must not push the aggregate past the advertised
-	// cap. Over-cap → record it as a byte_cap skip and stop, rather than
-	// silently exceeding the byte budget the report promises.
-	if r.totalBytes+page.Bytes > r.crawler.maxBytes {
-		r.skip(candURL, crmcontracts.ByteCap)
-		r.crawl.Stopped = stoppedPtr(crmcontracts.SiteReadReportStoppedReasonByteCap)
-		return
-	}
-
-	r.seenText[page.Text] = true
-	r.totalBytes += page.Bytes
-	kind := cand.kind
-	if kind == "" {
-		kind = classifyKind(candURL)
-	}
-	if cand.probe {
-		r.probeKindDone[cand.kind] = true
-	}
-	r.crawl.Pages = append(r.crawl.Pages, crawlPage{URL: candURL, Kind: kind, Text: page.Text, Bytes: page.Bytes, FetchDur: fetchDur})
-	r.queue = append(r.queue, linkCandidates(page.Links)...)
 }
 
 func (r *crawlRun) skip(candURL string, reason crmcontracts.SiteReadSkipReason) {
@@ -394,9 +365,9 @@ func leftBehind(rest []crawlCandidate, visited map[string]bool, stop crmcontract
 	var reason crmcontracts.SiteReadSkipReason
 	switch stop {
 	case crmcontracts.SiteReadReportStoppedReasonPageCap:
-		reason = crmcontracts.PageCap
+		reason = crmcontracts.SiteReadSkipReasonPageCap
 	case crmcontracts.SiteReadReportStoppedReasonByteCap:
-		reason = crmcontracts.ByteCap
+		reason = crmcontracts.SiteReadSkipReasonByteCap
 	default:
 		return nil
 	}

@@ -3308,7 +3308,8 @@ export interface components {
         };
         /**
          * @description Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-         *     (the app page to return to after consent). The secret is written to the vault, never echoed.
+         *     (the app page to return to after consent); `imap` supplies direct credentials. The secret is
+         *     written to the vault, never echoed.
          */
         ConnectConnectorRequest: {
             /**
@@ -3316,6 +3317,15 @@ export interface components {
              * @description App page to return to after OAuth consent (OAuth providers).
              */
             redirect_uri?: string;
+            /** @description Direct IMAP credentials (the `imap` provider only). */
+            imap?: {
+                host: string;
+                /** @default 993 */
+                port: number;
+                username: string;
+                /** @description IMAP password / app password — written to the vault, never returned. */
+                secret: string;
+            };
         };
         /** @description An OAuth redirect target (OAuth providers). */
         ConnectConnectorResponse: {
@@ -5543,6 +5553,13 @@ export interface components {
             stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
             /** @description Evidenced fields staged in the deepread proposal. */
             fact_count?: number;
+            /**
+             * @description Live position while status is running; null once terminal.
+             * @enum {string|null}
+             */
+            phase?: "crawling" | "extracting" | null;
+            /** @description Pages committed so far — live progress while running, final count once terminal. */
+            pages_read?: number;
             /** @description The staged 🟡 approvals this read produced (the deepread bundle first, then one per site_lead). */
             proposal_ids: string[];
             /** Format: date-time */

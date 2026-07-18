@@ -88,7 +88,7 @@ func setupRunner(t *testing.T) *runnerEnv {
 	return &runnerEnv{
 		env:        e,
 		pool:       pool,
-		svc:        compose.NewRunnerService(pool, brain, nil, logger),
+		svc:        compose.NewRunnerService(pool, compose.FakeModelPath(brain).Agent, nil, logger),
 		store:      runner.NewStore(pool),
 		brain:      brain,
 		wsID:       wsID,

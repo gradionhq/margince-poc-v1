@@ -6241,9 +6241,19 @@ components:
       type: object
       description: |
         Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-        (the app page to return to after consent). The secret is written to the vault, never echoed.
+        (the app page to return to after consent); `imap` supplies direct credentials. The secret is
+        written to the vault, never echoed.
       properties:
         redirect_uri: { type: string, format: uri, description: 'App page to return to after OAuth consent (OAuth providers).' }
+        imap:
+          type: object
+          description: Direct IMAP credentials (the `imap` provider only).
+          required: [host, username, secret]
+          properties:
+            host: { type: string }
+            port: { type: integer, default: 993, minimum: 1, maximum: 65535 }
+            username: { type: string }
+            secret: { type: string, writeOnly: true, description: 'IMAP password / app password — written to the vault, never returned.' }
     ConnectConnectorResponse:
       type: object
       description: 'An OAuth redirect target (OAuth providers).'
@@ -8244,6 +8254,8 @@ components:
           items: { $ref: '#/components/schemas/SiteReadSkip' }
         stopped_reason: { type: [string, 'null'], enum: [budget, page_cap, byte_cap, deadline, null], description: 'Why the crawl ended early; null when it exhausted discovery.' }
         fact_count: { type: integer, description: Evidenced fields staged in the deepread proposal. }
+        phase: { type: [string, 'null'], enum: [crawling, extracting, null], description: 'Live position while status is running; null once terminal.' }
+        pages_read: { type: integer, description: 'Pages committed so far — live progress while running, final count once terminal.' }
         proposal_ids:
           type: array
           items: { type: string, format: uuid }
