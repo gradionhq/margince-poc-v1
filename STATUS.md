@@ -22,6 +22,31 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**AI runtime contract + certification (four phases, one arc)** — the AI
+task/tier vocabulary is now a compiled contract:
+`backend/api/ai-tasks.yaml` (14 tasks, 4 tiers, ladders + budget
+posture) generates `tasks_gen.go` and `config/ai-routing.schema.json`
+via `tools/gen-aitasks` (drift-gated, like `crm.yaml`) — editing routing
+POLICY is a rebuild; binding a tier to a provider/model stays runtime
+config. One gate serves every AI call: `--ai-fake` now rides the real
+Router (metering, tracing, budget — fake provider only), the DB-less
+seam is `ai.NewLocalRouter`/`compose.NewLocalModelPath`, and
+`FakeModelPath` is deleted with arch fitness tests
+(`TestNoModelClientOutsideTheGate`, `TestOneModelPathPerRole`) keeping
+it that way. Tracing moved to the certification grain (migration 0093):
+one `ai_call` row per ATTEMPT (retries/degrades/escalations visible,
+terminal-only metrics), served-model identity reported from the wire
+(`response|echo|configured`, never overclaimed), embeddings traced,
+config snapshots hash-keyed in `ai_call_config`, embedding rows aging
+out at 90 d. On top sits `compose/aicert`: a scenario corpus
+(hand-authored, provenance-attested, ≥1 per task — completeness
+fitness-tested), structural checks + a pinned rubric judge
+(`cert_judge`, own router, never the candidate's binding), N-odd
+cache-off repeats, spec §5 verdict math, and committed JSON records —
+`make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
+`make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
+ladders; `/readyz` names the AI state.
+
 **Deep read v3 — reference evidence + page-parallel lanes (founder
 target ≤15 s, 2026-07-18)** — v2's one corpus call hit the output-token
 wall (~9k quoted-evidence tokens ≈ 150 s). v3 makes the model *read*
@@ -306,6 +331,18 @@ tooling and gate suite the baseline needs. Merged so far:
 ## Pick up here
 
 Open work, roughly in priority order:
+
+- **aicert follow-ups** (from the certification arc): the
+  trace-extraction pipeline (scenarios from production `ai_call` rows
+  with a real pseudonymizer — `extracted:` provenance is refused until
+  it exists), a certification-badge surface (records are committed
+  JSON, ready to `go:embed`), a nightly scheduled lane, deeper corpora
+  for the tasks that have only starters, and the §6 upstream spec notes
+  (contract file location, verdict rules, served-identity vocabulary)
+  to reconcile in `margince-foundation`. Six tasks in the contract
+  (`enrich`, `capture_classify`, `deal_health`, `draft_reply`,
+  `nl_search`, `summarize`, `transcript`) have no production call site
+  yet — their starter scenarios are documented placeholders.
 
 - **Deep-read durability-hardening pass** (from the #103 review, deferred
   as cross-cutting rather than rushed per-effect) — the redeem-then-execute

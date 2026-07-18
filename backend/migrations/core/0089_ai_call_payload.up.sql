@@ -1,4 +1,4 @@
--- 0088: opt-in AI payload capture (Layer 3). The post-SecretStripper
+-- 0089: opt-in AI payload capture (Layer 3). The post-SecretStripper
 -- request (system + messages) and response text for one ai_call, captured
 -- only when the operator turns it on (margince.yaml ai.capture_payloads).
 -- Special-category-adjacent content (GDPR Art. 9 possibility): a SEPARATE
