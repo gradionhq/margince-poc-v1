@@ -5017,8 +5017,19 @@ type ComputedField struct {
 type ComputedFieldKind string
 
 // ConnectConnectorRequest Connect input. OAuth providers (`gmail`/`gcal`/`graph`) need only an optional `redirect_uri`
-// (the app page to return to after consent). The secret is written to the vault, never echoed.
+// (the app page to return to after consent); `imap` supplies direct credentials. The secret is
+// written to the vault, never echoed.
 type ConnectConnectorRequest struct {
+	// Imap Direct IMAP credentials (the `imap` provider only).
+	Imap *struct {
+		Host string `json:"host"`
+		Port *int   `json:"port,omitempty"`
+
+		// Secret IMAP password / app password — written to the vault, never returned.
+		Secret   *string `json:"secret,omitempty"`
+		Username string  `json:"username"`
+	} `json:"imap,omitempty"`
+
 	// RedirectUri App page to return to after OAuth consent (OAuth providers).
 	RedirectUri *string `json:"redirect_uri,omitempty"`
 }

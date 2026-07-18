@@ -12,6 +12,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -97,17 +98,23 @@ type gmailSyncWorker struct {
 }
 
 func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs]) error {
-	due, enumErr := w.registry.DueConnections(ctx, "gmail")
 	client := river.ClientFromContext[pgx.Tx](ctx)
-	for _, d := range due {
-		if _, err := client.Insert(ctx, CaptureSyncArgs{
-			Workspace:    d.Workspace.String(),
-			ConnectionID: d.ID.String(),
-			Provider:     "gmail",
-		}, &river.InsertOpts{
-			UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-		}); err != nil {
-			w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "err", err)
+	var enumErr error
+	for _, desc := range w.registry.Connectors() {
+		due, err := w.registry.DueConnections(ctx, desc.Name)
+		if err != nil {
+			enumErr = errors.Join(enumErr, err)
+		}
+		for _, d := range due {
+			if _, err := client.Insert(ctx, CaptureSyncArgs{
+				Workspace:    d.Workspace.String(),
+				ConnectionID: d.ID.String(),
+				Provider:     desc.Name,
+			}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+			}); err != nil {
+				w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "provider", desc.Name, "err", err)
+			}
 		}
 	}
 	return enumErr

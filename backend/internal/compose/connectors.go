@@ -21,6 +21,8 @@ package compose
 import (
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -31,6 +33,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -108,11 +111,15 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		httperr.NotImplemented(w, r, "ConnectConnector")
 		return
 	}
+	if string(provider) == providerIMAP {
+		h.connectIMAP(w, r)
+		return
+	}
 	if string(provider) != providerGmail {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusUnprocessableEntity,
 			Code:   "connector_unsupported",
-			Detail: "Only the gmail connector is available here; imap uses /connectors/imap/connect, and gcal/graph are not yet implemented.",
+			Detail: "Only gmail and imap connect here; gcal/graph are not yet implemented.",
 		})
 		return
 	}
@@ -251,4 +258,120 @@ func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnecti
 		c.SyncCursor = &s
 	}
 	return c
+}
+
+const providerIMAP = "imap"
+
+const codeConnectorStoreFailed = "connector_store_failed"
+
+// connectIMAP establishes a STANDING imap connection: the credentials are
+// probed (dial + login, session closed), sealed to the vault by
+// Registry.Connect, and the background sweep takes over — the same lifecycle
+// as gmail, minus the OAuth ceremony. The transient one-shot pull
+// (/connectors/imap/connect) remains a separate surface until its callers
+// migrate.
+func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
+	actor, ok := principal.Actor(r.Context())
+	_, hasWS := principal.WorkspaceID(r.Context())
+	if !ok || actor.Type != principal.PrincipalHuman || !hasWS {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnauthorized,
+			Code:   "unauthenticated",
+			Detail: "Connecting a mailbox is a signed-in human action.",
+		})
+		return
+	}
+	var req crmcontracts.ConnectConnectorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Imap == nil || req.Imap.Secret == nil {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "imap_credentials_required",
+			Detail: "The imap provider needs host, username and secret in the request body.",
+		})
+		return
+	}
+	port := 0
+	if req.Imap.Port != nil {
+		port = *req.Imap.Port
+	}
+	authReq, err := imap.AuthRequestFrom(imap.Credentials{
+		Host:     req.Imap.Host,
+		Port:     port,
+		Email:    req.Imap.Username,
+		Password: *req.Imap.Secret,
+	})
+	if err != nil {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "imap_credentials_invalid",
+			Detail: "These credentials could not be processed.",
+		})
+		return
+	}
+	auth, err := imap.NewStanding().Authenticate(r.Context(), authReq)
+	if err != nil {
+		writeIMAPConnectError(w, r, err)
+		return
+	}
+	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth); err != nil {
+		slog.ErrorContext(r.Context(), "imap connector: persisting connection", "err", err)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError,
+			Code:   codeConnectorStoreFailed,
+			Detail: "The connection could not be stored. Nothing was captured; try again.",
+		})
+		return
+	}
+	views, err := h.registry.Connections(r.Context())
+	if err != nil {
+		slog.ErrorContext(r.Context(), "imap connector: reading back connection", "err", err)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError,
+			Code:   codeConnectorStoreFailed,
+			Detail: "The connection was stored but could not be read back.",
+		})
+		return
+	}
+	for _, v := range views {
+		if v.Provider == providerIMAP {
+			w.Header().Set("Content-Type", "application/json")
+			conn := toContractConnection(v)
+			//craft:ignore swallowed-errors terminal response encode; the client sees a broken body, retrying changes nothing
+			_ = json.NewEncoder(w).Encode(crmcontracts.ConnectConnectorResponse{
+				Connection: &conn,
+			})
+			return
+		}
+	}
+	httperr.Write(w, r, &httperr.DetailedError{
+		Status: http.StatusInternalServerError,
+		Code:   codeConnectorStoreFailed,
+		Detail: "The connection was stored but did not appear in the read-back.",
+	})
+}
+
+// writeIMAPConnectError maps the connector sentinels onto the transport
+// without leaking the provider's raw error.
+func writeIMAPConnectError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, imap.ErrLoginRejected):
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "imap_login_rejected",
+			Detail: "The mailbox rejected these credentials. Check host, email and app password.",
+		})
+	case errors.Is(err, imap.ErrUnreachable):
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusBadGateway,
+			Code:   "imap_unreachable",
+			Detail: "The mail server could not be reached.",
+		})
+	default:
+		slog.ErrorContext(r.Context(), "imap connector: authenticate", "err", err)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError,
+			Code:   "imap_connect_failed",
+			Detail: "The connection could not be established.",
+		})
+	}
 }
