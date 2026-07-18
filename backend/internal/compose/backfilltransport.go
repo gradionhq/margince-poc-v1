@@ -246,6 +246,9 @@ func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http
 // indexed row, pre-assembled by the nightly build — no digest yet is the
 // honest 404, never a fabricated empty payload.
 func (h backfillHandlers) GetMorningDigest(w http.ResponseWriter, r *http.Request, params crmcontracts.GetMorningDigestParams) {
+	if !h.backfillWired(w, r, "GetMorningDigest") {
+		return
+	}
 	userID, ok := h.caller(w, r)
 	if !ok {
 		return
