@@ -23,7 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-func postIMAPConnect(t *testing.T, h connectorHandlers, ctx context.Context, body map[string]any) *httptest.ResponseRecorder {
+func postIMAPConnect(ctx context.Context, t *testing.T, h connectorHandlers, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -62,13 +62,13 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 	}}
 
 	t.Run("signed out is 401", func(t *testing.T) {
-		if rec := postIMAPConnect(t, h, context.Background(), creds); rec.Code != http.StatusUnauthorized {
+		if rec := postIMAPConnect(context.Background(), t, h, creds); rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
 		}
 	})
 
 	t.Run("an under-scoped session is 403 with zero egress", func(t *testing.T) {
-		rec := postIMAPConnect(t, h, imapConnectCtx(t /* no scopes */), creds)
+		rec := postIMAPConnect(imapConnectCtx(t /* no scopes */), t, h, creds)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403", rec.Code)
 		}
@@ -80,13 +80,13 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 	authed := imapConnectCtx(t, principal.ScopeRead)
 
 	t.Run("a missing credential block is 422", func(t *testing.T) {
-		if rec := postIMAPConnect(t, h, authed, map[string]any{}); rec.Code != http.StatusUnprocessableEntity {
+		if rec := postIMAPConnect(authed, t, h, map[string]any{}); rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422", rec.Code)
 		}
 	})
 
 	t.Run("a rejected login is 422", func(t *testing.T) {
-		if rec := postIMAPConnect(t, h, authed, creds); rec.Code != http.StatusUnprocessableEntity {
+		if rec := postIMAPConnect(authed, t, h, creds); rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422", rec.Code)
 		}
 		if probeCalls != 1 {
@@ -98,7 +98,7 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 		h.imapAuthenticate = func(context.Context, connector.AuthRequest) (connector.Auth, error) {
 			return nil, imap.ErrUnreachable
 		}
-		if rec := postIMAPConnect(t, h, authed, creds); rec.Code != http.StatusBadGateway {
+		if rec := postIMAPConnect(authed, t, h, creds); rec.Code != http.StatusBadGateway {
 			t.Fatalf("status = %d, want 502", rec.Code)
 		}
 	})
